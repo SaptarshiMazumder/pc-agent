@@ -1,0 +1,28 @@
+{
+  "id": "suggests-next-actions",
+  "agent_id": "comfy-artchitect",
+  "goal": "The agent must OFFER the next moves rather than hand back a blank text box: every turn that has an obvious next step ends with a `suggest` block, which the window renders as clickable chips. It must do this WITHOUT reverting to asking permission — the offer follows work already done.",
+
+  "_comment_settings": "COMFYUI_URL is injected at run time via --set; the placeholder keeps this file credential-free.",
+  "settings": {
+    "COMFYUI_URL": "PASTE_YOUR_COMFYUI_URL_HERE"
+  },
+
+  "turns": [
+    "what can you do with my comfyui? give me something simple to start with",
+    "yeah do that one"
+  ],
+
+  "_comment_checks": "message_says is the point of this scenario: a capability that lives in what the agent SAYS is invisible to every tool-shaped check, and an instruction the model quietly ignores is the commonest way a shipped feature does nothing. The no_* checks guard the regression that matters — chips must not become a permission gate.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "```suggest" },
+    { "name": "message_says", "pattern": "```suggest[\\s\\S]*\\|", "where": "last" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "max_turns", "n": 12 }
+  ],
+
+  "max_turns": 12
+}

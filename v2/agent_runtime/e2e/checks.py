@@ -135,6 +135,40 @@ def _no_repeated_question(trace: Trace, args: dict) -> CheckResult:
                        "no re-asks" if not reasked else f"{len(reasked)} re-ask(s) of deferred input")
 
 
+@_check("message_says")
+def _message_says(trace: Trace, args: dict) -> CheckResult:
+    """An assistant message matched a pattern — how an OUTPUT CONVENTION is asserted.
+
+    Some capabilities are not a tool call: ending a turn with a `suggest` block, carrying a
+    required disclaimer, answering in a named format. Those live entirely in what the agent SAYS,
+    so no tool-shaped check can see them — and an instruction the model quietly never follows is
+    the commonest way a shipped feature does nothing at all.
+
+    `pattern` is a regex (case-insensitive). `where`: 'any' turn (default), or 'last' for the
+    final answer only — the difference between "it did this once" and "it does this every time".
+    """
+    import re as _re
+
+    pattern = str(args.get("pattern") or "")
+    where = str(args.get("where") or "any").lower()
+    if not pattern:
+        return CheckResult("message_says", False, "no pattern given")
+    try:
+        rx = _re.compile(pattern, _re.I | _re.S)
+    except _re.error as e:
+        return CheckResult("message_says", False, f"bad pattern: {e}")
+
+    turns = trace.turns[-1:] if where == "last" else trace.turns
+    # Every assistant utterance in scope, not just the closing one: an agent may put the block on
+    # the turn that finished the work rather than the turn that said goodbye.
+    hits = [t.index for t in turns if any(rx.search(m or "") for m in (t.assistant or []))]
+    scope = "last turn" if where == "last" else f"{len(turns)} turn(s)"
+    return CheckResult(
+        "message_says", bool(hits),
+        f"matched in turn(s) {hits}" if hits else f"never matched {pattern!r} across {scope}",
+    )
+
+
 @_check("no_unrecovered_error")
 def _no_unrecovered_error(trace: Trace, args: dict) -> CheckResult:
     bad = [f for f in signals.holes(trace) if f.code == "tool_error" and f.severity == signals.PROBLEM]
