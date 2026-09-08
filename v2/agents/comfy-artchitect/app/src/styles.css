@@ -44,6 +44,14 @@ body {
 button { font: inherit; cursor: pointer; border: 1px solid transparent; background: none; color: inherit; }
 button:disabled { opacity: 0.38; cursor: default; }
 input, select, textarea { font: inherit; color: inherit; }
+
+/* THE NATIVE POPUP DOES NOT INHERIT THE PAGE. `color: inherit` above hands every <option> the
+   theme's light text, but the list Chromium draws for an author-styled <select> keeps a LIGHT
+   background regardless of `color-scheme` — so every dropdown opened white-on-white and
+   unreadable. Options must carry BOTH colours themselves, and OPAQUE ones: --bg2/--bg3 are
+   translucent white in the glass themes, and a translucent surface composites against the OS
+   popup rather than against the app, which is the very thing that made this white. */
+option, optgroup { background-color: var(--bg); color: var(--text); }
 h1, h2, h3 { margin: 0; font-weight: var(--fw-heavy); letter-spacing: -0.015em; }
 p { margin: 0; }
 

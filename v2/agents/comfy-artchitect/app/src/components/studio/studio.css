@@ -266,23 +266,29 @@
   flex: none; width: 430px; min-width: 430px;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--border);
+  /* EVERY column states its order, or none of them can. `order` only sorts against other
+     declared values: with the handle at 1 and both columns defaulting to 0, the browser drew
+     the columns first and parked the handle past the dashboard at the far edge of the row —
+     the seam looked draggable and wasn't. */
+  order: 0;
   /* The thread's ambient glow is painted by a positioned child; isolating the column keeps it
      from bleeding over the rail or the dashboard. */
   position: relative; isolation: isolate; z-index: 1;
 }
 .st-cols.is-chat-right .st-convo { order: 2; border-right: 0; border-left: 1px solid var(--border); }
-.st-cols.is-chat-right .st-dash { order: 1; }
+/* 0, NOT 1 — it used to tie with the resizer, and a tie is broken by DOM order, which put the
+   handle on the far left instead of on the seam. */
+.st-cols.is-chat-right .st-dash { order: 0; }
 
 /* THE SPLIT HANDLE. A 6px hit area with a 1px line inside it: the line is the seam the design
    already had, the padding is what a human can actually grab. `order` puts it between the two
    columns whichever side the chat is on, so one element serves both layouts. */
 .st-resizer { flex: none; width: 6px; margin: 0 -3px; z-index: 2; cursor: col-resize;
   background: transparent; touch-action: none; order: 1; }
-.st-cols.is-chat-right .st-resizer { order: 1; }
 .st-resizer::after { content: ''; display: block; width: 1px; height: 100%; margin: 0 auto;
   background: transparent; transition: background .12s; }
 .st-resizer:hover::after, .st-resizer:active::after { background: var(--accent); }
-.st-dash { flex: 1 0 560px; min-width: 560px; overflow-y: auto; }
+.st-dash { flex: 1 0 560px; min-width: 560px; overflow-y: auto; order: 2; }
 
 .st-convo-head {
   flex: none; display: flex; align-items: center; gap: 11px;
