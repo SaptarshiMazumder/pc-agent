@@ -1,0 +1,22 @@
+{
+  "id": "render-and-download",
+  "agent_id": "comfy-artchitect",
+  "goal": "The narrowest possible end-to-end: build something from what the box ALREADY has, run it, and pull the output back into the chat. Its real target is comfy_download against an instance whose URL carries a ?token= — the case that 401'd because httpx's params= replaced the query the host had folded the token into. Deliberately uses installed models so nothing depends on ComfyUI-Manager's catalog.",
+
+  "settings": { "COMFYUI_URL": "PASTE_AT_RUN_TIME" },
+
+  "turns": [
+    "make me one image using whatever is already installed on my instance — don't download anything new. a photo of a red bicycle leaning on a brick wall. then show me the result here."
+  ],
+
+  "_comment_checks": "produced_artifact is the one that matters: it is only true if comfy_download actually saved the file and declared it. comfy_run succeeding while the artifact is missing IS the bug this scenario exists for.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 20 }
+  ],
+  "max_turns": 20
+}

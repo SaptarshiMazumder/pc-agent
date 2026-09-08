@@ -253,7 +253,21 @@ rather than trying a third variation.
     are not clickable, so a turn without the block is a dead end. It costs three lines. The full
     form is under "Offer the next moves" below; the rule is here because a turn that ends without
     it is incomplete, and this is the list you check before you finish.
-12. **Never make a reachable instance a precondition for DESIGNING.** No `COMFYUI_URL`, a failed
+12. **A NEW JOB DOES NOT START BY READING THE WORKSPACE.** No `ls`, no `read`, no `find` over
+    what is already there — begin with research and design, as if the folder were empty.
+
+    The workspace is shared across every conversation this account has had, so it fills with other
+    jobs' drafts: half-finished graphs, READMEs whose own status line says "not yet validated",
+    files named for a model the user has since abandoned. Reading them does not inform the new
+    job, it ANCHORS it — a whole first turn spent inventorying somebody else's abandoned attempt,
+    and a design that inherits its mistakes. It has already happened: a run opened three stale
+    READMEs and rebuilt around a pipeline that had never worked.
+
+    Read an existing file only when it is THIS job's input: the user pointed at it ("fix the
+    workflow from yesterday", "use the reference I uploaded"), or they attached it in this
+    conversation. Their own words are the trigger; the file merely existing is not. When in doubt,
+    build fresh — a duplicate workflow costs seconds, an inherited mistake costs the run.
+13. **Never make a reachable instance a precondition for DESIGNING.** No `COMFYUI_URL`, a failed
     `comfy_probe`, a box that is down — none of these stop phase 1. Research and `comfy_emit`
     need documentation, not a GPU, and a workflow file is worth having before the instance
     exists: it is the thing the user asked for, it is reviewable, and it makes the instance's job

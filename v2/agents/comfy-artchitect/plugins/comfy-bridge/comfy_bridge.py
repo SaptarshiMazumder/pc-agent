@@ -507,6 +507,20 @@ class ComfyDownloadTool(Tool):
                     query["subfolder"] = sub
                 # Basename only for the local file: the server's subfolder is ITS layout, and a
                 # filename with separators must not steer where this run writes.
+                # RELATIVE, NOT ABSOLUTE — and on the hosted backend that is the difference
+                # between a render arriving and a 401-shaped refusal.
+                #
+                # `current_workspace()` answers in the SANDBOX's coordinates: on a microVM the
+                # executor remaps it to that box's unpack dir (/tmp/exec-<id>/ws). But the fetch is
+                # BROKERED — the host performs the download and writes the file — and the broker
+                # validates save_path against the HOST workspace (fetch_broker._writable). So an
+                # absolute path built here is guest-side, lands outside every host root, and is
+                # refused with "outside this run's writable space" even though it is literally the
+                # workspace. Subprocess sandboxes hide this: both sides are one filesystem.
+                #
+                # A relative path has no such ambiguity — the broker anchors it to the real
+                # workspace itself (`p = Path(roots[0]) / p`), which is correct on both backends.
+                rel = f"outputs/{Path(filename).name}"
                 dest = root / "outputs" / Path(filename).name
                 # THE QUERY GOES IN THE PATH, NOT IN `params`. This was the one call in the plugin
                 # that used httpx's `params=`, and it was the one call that 401'd on any instance
@@ -522,7 +536,7 @@ class ComfyDownloadTool(Tool):
                 res = fetch(
                     view,
                     headers=_headers(),
-                    save_path=str(dest),
+                    save_path=rel,
                     timeout_s=300.0,
                 )
                 if not res.ok:
