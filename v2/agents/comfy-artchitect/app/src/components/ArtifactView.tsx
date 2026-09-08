@@ -1,6 +1,8 @@
 import { ExternalLink, FileText } from 'lucide-react'
+import { useState } from 'react'
 
-import { fileUrl, humanSize, type Artifact } from '../agentd/artifacts'
+import { fileUrl, humanSize, thumbnailUrl, type Artifact } from '../agentd/artifacts'
+import { FileModal } from './studio/FileModal'
 
 /**
  * Files an agent produced, shown under the answer that produced them.
@@ -8,8 +10,8 @@ import { fileUrl, humanSize, type Artifact } from '../agentd/artifacts'
  * WHY IT IS NOT agentd's ArtifactView. That one offers View (opens the file in its Canvas editor),
  * Download (Electron's save dialog) and Reveal (Electron's file manager). This window has no
  * canvas and no desktop bridge — it is a page the daemon serves — so those three buttons would be
- * three things that do nothing. What is here is what a page can honestly do: render the media
- * inline, and hand the file to the browser.
+ * three things that do nothing. What is here is what a page can honestly do: render a light
+ * preview inline, then open the original only when it is requested.
  *
  * THE INSPECTOR STILL LISTS THEM. This is not a replacement for the file tree; it answers a
  * different question. The tree says what the agent HAS, in one place, whenever you want it. This
@@ -33,14 +35,24 @@ function subtitle(a: Artifact): string {
 
 function One({ a }: { a: Artifact }) {
   const href = fileUrl(a.path)
+  const [open, setOpen] = useState(false)
 
   // Media renders ITSELF. An agent that just drew a chart should show the chart, not a row saying
   // a chart exists — seeing it is how you know whether it is right.
   if (a.kind === 'image') {
     return (
-      <a className="artifact-media" href={href} target="_blank" rel="noreferrer" title={a.name}>
-        <img src={href} alt={a.name} loading="lazy" />
-      </a>
+      <>
+        <button
+          type="button"
+          className="artifact-media"
+          title={`Open ${a.name}`}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          <img src={thumbnailUrl(a.path)} alt={a.name} loading="lazy" decoding="async" />
+        </button>
+        {open && <FileModal file={a} onClose={() => setOpen(false)} />}
+      </>
     )
   }
   if (a.kind === 'video') {

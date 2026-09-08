@@ -6,9 +6,9 @@
 
 import { ArrowUp, Paperclip, Plus, Square, Upload } from 'lucide-react'
 
-import type { Attachment } from '@agentd/client'
 import { useEffect, useRef, useState } from 'react'
 
+import type { PendingAttachment } from '../agentd/chat'
 import { useApp } from '../state/store'
 
 /** `dragover` fires continuously while a drag is live, so "no dragover recently" reliably means
@@ -37,7 +37,7 @@ export function Composer({
   maxFiles,
 }: {
   running: boolean
-  pending: Attachment[]
+  pending: PendingAttachment[]
   onSend: (text: string) => void
   onAbort: () => void
   onFiles: (files: FileList | File[]) => void
@@ -151,8 +151,8 @@ export function Composer({
           <div className="attachments">
             {pending.map((a, i) => (
               <span className="chip-file" key={`${a.name}-${i}`}>
-                {a.mimeType?.startsWith('image/') && (
-                  <img src={`data:${a.mimeType};base64,${a.dataBase64}`} alt={a.name} />
+                {a.thumbnailDataUrl && (
+                  <img src={a.thumbnailDataUrl} alt="" decoding="async" />
                 )}
                 <span className="chip-name">{a.name}</span>
                 <button className="chip-x" title="Remove" onClick={() => onRemoveFile(i)}>

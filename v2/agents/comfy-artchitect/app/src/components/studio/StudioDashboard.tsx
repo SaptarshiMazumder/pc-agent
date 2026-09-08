@@ -1,111 +1,115 @@
-/* The studio: everything the agent produced this session, beside the conversation instead of
- * buried in its scrollback. Composes the existing WorkflowShelf/ArtifactView with the new
- * telemetry panels; all data is the bridge's own record (useStudioState) plus the artifact
- * stream the window already had.
+/* The studio: what the agent made, beside the conversation that made it.
+ *
+ * ONE PRIMARY OBJECT PER COLUMN. A rail that lists the workspace, a pane that shows the one thing
+ * you picked, and the chat (a sibling column, owned by App). That is the whole screen.
+ *
+ * WHAT WAS HERE BEFORE, and why it is gone. Fifteen surfaces: a search box, a status chip, a "new
+ * run" button, an avatar, a title, a paragraph, a Today/7d/30d switcher, four KPI cards carrying
+ * meters and sparklines, a render gallery, an active-run panel, a workflow shelf, a file tree, an
+ * instance panel and a run-history table — every one of them boxed in its own card, none of them
+ * the file you wanted to read. The dashboard described the work instead of showing it.
+ *
+ * Nothing that MATTERED was dropped, it moved into the thing it belongs to: the instance (and its
+ * GPU/VRAM/model list) is a chip in the top bar, the active run is a strip that exists only while
+ * something runs, workflows are simply files in the tree, and renders are a mode of the centre
+ * pane rather than a panel competing with it. The KPI figures and the history table are gone
+ * outright — they were about the dashboard, not about the work.
  */
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
 import type { Artifact } from '../../agentd/artifacts'
-import WorkflowShelf from '../workflows/WorkflowShelf'
-import { ActiveRunPanel } from './ActiveRunPanel'
+import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
-import { InstancePanel } from './InstancePanel'
-import { KpiRow } from './KpiRow'
+import { FileViewer } from './FileViewer'
 import { RenderGallery } from './RenderGallery'
-import { RunHistory } from './RunHistory'
-import { StudioToolbar } from './StudioToolbar'
+import { StudioTopBar, type StudioMode } from './StudioTopBar'
 import { useStudioState } from './useStudioState'
 
 import './studio.css'
 
-const RANGES = [
-  { label: 'Today', days: 1 },
-  { label: '7 days', days: 7 },
-  { label: '30 days', days: 30 },
-] as const
-
 export function StudioDashboard({
   client,
-  connected,
   running,
   artifacts,
   credits,
   onCredits,
-  onNewRun,
-  accountInitial,
 }: {
   client: AgentdClient | undefined
-  connected: boolean
   running: boolean
-  /** Everything the agent wrote this session — feeds the shelf and the artifact panel. */
+  /** Everything the agent wrote this session — the rail's whole content. */
   artifacts: Artifact[]
   credits: number | null
   onCredits: () => void
-  onNewRun: () => void
-  accountInitial: string
 }) {
   const state = useStudioState(client, running)
-  const [rangeDays, setRangeDays] = useState<number>(1)
-  const [query, setQuery] = useState('')
+  const [mode, setMode] = useState<StudioMode>('files')
+  const [selectedPath, setSelectedPath] = useState<string>('')
+
+  // SELECT BY PATH, RESOLVE BY LOOKUP. Holding the Artifact object itself would pin a stale copy:
+  // the same file is re-declared as later turns touch it (a size arrives, a render finishes), and
+  // the pane would keep showing the first version it was handed.
+  const selected = useMemo(
+    () => artifacts.find((a) => a.path === selectedPath) || null,
+    [artifacts, selectedPath],
+  )
+
+  // Open the newest NON-IMAGE file the moment there is one, so the pane is never an empty box
+  // next to a rail that plainly has contents. Only until the user picks for themselves.
+  //
+  // IMAGES ARE NEVER AUTO-OPENED, and that is the thumbnail rule, not a taste call: the gallery
+  // and the artifact strip deliberately render `thumbnailUrl` so the original bytes are not
+  // fetched or decoded "until somebody explicitly opens the file" (agentd/artifacts.ts). This
+  // pane shows the ORIGINAL, so selecting a render on the user's behalf would pull a multi-MB
+  // image on every finished run — quietly undoing that, once per render. A click here is an
+  // explicit open and still gets the full-size file; nothing else does.
+  useEffect(() => {
+    if (selectedPath || artifacts.length === 0) return
+    for (let i = artifacts.length - 1; i >= 0; i--) {
+      if (artifacts[i].kind === 'file') {
+        setSelectedPath(artifacts[i].path)
+        return
+      }
+    }
+  }, [artifacts, selectedPath])
 
   return (
     <div className="st-dash">
-      <StudioToolbar
-        query={query}
-        onQuery={setQuery}
-        connected={connected}
-        onNewRun={onNewRun}
-        initial={accountInitial}
+      <StudioTopBar
+        mode={mode}
+        onMode={setMode}
+        state={state}
+        client={client}
+        credits={credits}
+        onCredits={onCredits}
       />
+      <ActiveRunStrip state={state} client={client} />
 
-      <div className="st-stack">
-        <div className="st-head">
-          <div>
-            <h1>Studio</h1>
-            <p>
-              Everything the agent has built this session — graphs, renders and files, one
-              keystroke from the conversation.
+      <div className="st-body">
+        <aside className="st-rail">
+          <FileExplorer
+            artifacts={artifacts}
+            selected={selected}
+            onSelect={(a) => {
+              setSelectedPath(a.path)
+              setMode('files')
+            }}
+          />
+        </aside>
+
+        <main className="st-view">
+          {mode === 'renders' ? (
+            <RenderGallery renders={state.renders || []} running={running} query="" />
+          ) : selected ? (
+            <FileViewer file={selected} />
+          ) : (
+            <p className="st-view-empty">
+              Ask for a workflow and it appears here — the graph first, then the renders it makes.
             </p>
-          </div>
-          <div className="st-seg">
-            {RANGES.map((r) => (
-              <button
-                key={r.days}
-                className={rangeDays === r.days ? 'is-on' : ''}
-                onClick={() => setRangeDays(r.days)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <KpiRow state={state} rangeDays={rangeDays} credits={credits} onCredits={onCredits} />
-
-        <div className="st-two-up">
-          <RenderGallery renders={state.renders || []} running={running} query={query} />
-          <ActiveRunPanel state={state} client={client} />
-        </div>
-
-        <div className="st-two-up">
-          <section className="st-panel st-shelf-panel">
-            <WorkflowShelf artifacts={artifacts} />
-          </section>
-          <div className="st-side-stack">
-            {/* EVERY file, not just the non-media six. The gallery above answers "what did the
-                renders look like"; this answers "what is in my workspace" — and the two questions
-                want different views of the same set, so this one takes all of them. */}
-            <section className="st-panel">
-              <FileExplorer artifacts={artifacts} />
-            </section>
-            <InstancePanel state={state} query={query} client={client} />
-          </div>
-        </div>
-
-        <RunHistory runs={state.runs || []} rangeDays={rangeDays} query={query} />
+          )}
+        </main>
       </div>
     </div>
   )

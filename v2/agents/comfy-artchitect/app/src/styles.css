@@ -646,10 +646,12 @@ h2 { font-size: var(--fs-lead); }
 .thinking-art svg { display: block; width: 100% !important; height: 100% !important; }
 
 /* ── artifacts: what a turn produced ──────────────────────────────────── */
-/* Media renders itself — an agent that drew a chart should show the chart, because seeing it is
-   how you know whether it is right. Anything else is a card that opens in a new tab. */
+/* Image thumbnails open the full file on demand. Other media keeps its native player; documents
+   are cards that open in a new tab. */
 .artifacts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
-.artifact-media { display: block; max-width: 100%; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+.artifact-media { display: block; max-width: 100%; padding: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg3); cursor: zoom-in; }
+.artifact-media:hover { border-color: var(--accent); }
+.artifact-media:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .artifact-media img, .artifact-media video { display: block; max-width: 100%; max-height: 340px; }
 .artifact-audio { width: 100%; max-width: 420px; }
 .artifact-card {

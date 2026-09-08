@@ -9,7 +9,8 @@
  *
  * The paths already carry the structure (`workflows/`, `outputs/`, `references/`, `uploads/`), so
  * the tree is not invented — it is the workspace, shown. Full names wrap instead of truncating,
- * nothing is capped, and a click OPENS the file (see FileModal) rather than navigating away.
+ * nothing is capped, and a click OPENS the file in the centre pane (see FileViewer) rather than
+ * navigating away.
  */
 
 import { useMemo, useState } from 'react'
@@ -26,7 +27,6 @@ import {
 } from 'lucide-react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
-import { FileModal } from './FileModal'
 
 interface Dir {
   name: string
@@ -86,24 +86,32 @@ function DirRows({
   dir,
   depth,
   onOpen,
+  selectedPath,
 }: {
   dir: Dir
   depth: number
   onOpen: (a: Artifact) => void
+  selectedPath?: string
 }) {
   return (
     <>
       {[...dir.dirs.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((child) => (
-          <DirRow key={child.name} dir={child} depth={depth} onOpen={onOpen} />
+          <DirRow
+            key={child.name}
+            dir={child}
+            depth={depth}
+            onOpen={onOpen}
+            selectedPath={selectedPath}
+          />
         ))}
       {[...dir.files]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((f) => (
           <button
             key={f.path}
-            className="fx-row fx-file"
+            className={`fx-row fx-file${f.path === selectedPath ? ' is-on' : ''}`}
             style={{ paddingLeft: 8 + depth * 14 }}
             onClick={() => onOpen(f)}
             title={f.name}
@@ -117,7 +125,17 @@ function DirRows({
   )
 }
 
-function DirRow({ dir, depth, onOpen }: { dir: Dir; depth: number; onOpen: (a: Artifact) => void }) {
+function DirRow({
+  dir,
+  depth,
+  onOpen,
+  selectedPath,
+}: {
+  dir: Dir
+  depth: number
+  onOpen: (a: Artifact) => void
+  selectedPath?: string
+}) {
   // Folders start OPEN: this panel exists to show what was made, and a tree that hides it behind
   // a disclosure is the flat list's problem in a new shape.
   const [open, setOpen] = useState(true)
@@ -137,33 +155,45 @@ function DirRow({ dir, depth, onOpen }: { dir: Dir; depth: number; onOpen: (a: A
         <span className="fx-name">{dir.name}</span>
         <span className="fx-size">{count(dir)}</span>
       </button>
-      {open && <DirRows dir={dir} depth={depth + 1} onOpen={onOpen} />}
+      {open && (
+        <DirRows dir={dir} depth={depth + 1} onOpen={onOpen} selectedPath={selectedPath} />
+      )}
     </>
   )
 }
 
-export function FileExplorer({ artifacts }: { artifacts: Artifact[] }) {
+/** The rail. SELECTION LIVES IN THE PARENT now: the file being read is the studio's subject, not
+ *  this component's private state — the centre pane renders it, and picking one here is what
+ *  changes the whole screen. (It used to own a modal, which is why it could keep the selection to
+ *  itself.) */
+export function FileExplorer({
+  artifacts,
+  selected,
+  onSelect,
+}: {
+  artifacts: Artifact[]
+  selected?: Artifact | null
+  onSelect: (a: Artifact) => void
+}) {
   const tree = useMemo(() => buildTree(artifacts), [artifacts])
-  const [open, setOpen] = useState<Artifact | null>(null)
   const total = useMemo(() => count(tree), [tree])
 
   return (
-    <>
-      <div className="st-panel-head">
-        <h2>Files</h2>
-        <span className="st-panel-note">{total} in this workspace</span>
+    <div className="fx">
+      <div className="fx-head">
+        <span className="fx-title">Files</span>
+        <span className="fx-count">{total}</span>
       </div>
       {total === 0 ? (
-        <p className="st-empty">
+        <p className="fx-empty">
           Nothing written yet — workflows, renders and downloads all land here as the agent makes
           them.
         </p>
       ) : (
         <div className="fx-tree">
-          <DirRows dir={tree} depth={0} onOpen={setOpen} />
+          <DirRows dir={tree} depth={0} onOpen={onSelect} selectedPath={selected?.path} />
         </div>
       )}
-      {open && <FileModal file={open} onClose={() => setOpen(null)} />}
-    </>
+    </div>
   )
 }

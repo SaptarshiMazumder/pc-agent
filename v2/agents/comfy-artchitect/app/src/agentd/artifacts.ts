@@ -64,7 +64,7 @@ function prime(): void {
  *
  *  The token is read LIVE rather than from the session store, because that store is written once
  *  at boot from the launch URL and never refreshed — an hour in, every read would 401 again. */
-export function fileUrl(path: string): string {
+function authenticatedPathParams(path: string): URLSearchParams {
   prime()
   const q = new URLSearchParams({ path })
   let session = live
@@ -77,7 +77,20 @@ export function fileUrl(path: string): string {
   }
   if (session) q.set('session', session)
   if (TOKEN) q.set('token', TOKEN)
+  return q
+}
+
+export function fileUrl(path: string): string {
+  const q = authenticatedPathParams(path)
   return `${location.origin}/file?${q.toString()}`
+}
+
+/** A small, server-rendered preview of an image artifact. Authentication is identical to
+ *  `fileUrl`; only the endpoint and bounded output size differ. The original bytes are therefore
+ *  not fetched or decoded until somebody explicitly opens the file. */
+export function thumbnailUrl(path: string): string {
+  const q = authenticatedPathParams(path)
+  return `${location.origin}/thumbnail?${q.toString()}`
 }
 
 export function humanSize(bytes?: number): string {

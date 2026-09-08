@@ -71,12 +71,13 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
           // WHICH screenshot they sent, anything else as a named chip.
           <div className="msg-files">
             {item.files.map((a, i) =>
-              a.mimeType?.startsWith('image/') ? (
+              a.thumbnailDataUrl ? (
                 <img
                   key={i}
-                  src={`data:${a.mimeType};base64,${a.dataBase64}`}
+                  src={a.thumbnailDataUrl}
                   alt={a.name}
                   title={a.name}
+                  decoding="async"
                 />
               ) : (
                 <span className="chip-file" key={i}>

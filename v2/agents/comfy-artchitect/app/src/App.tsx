@@ -384,13 +384,10 @@ export default function App() {
 
             <StudioDashboard
               client={client ?? undefined}
-              connected={connected}
               running={session.running}
               artifacts={artifacts}
               credits={credits}
               onCredits={() => setView('credits')}
-              onNewRun={() => seedComposer('Run the workflow again')}
-              accountInitial={(account.auth?.email || '').slice(0, 1).toUpperCase()}
             />
           </div>
         )}

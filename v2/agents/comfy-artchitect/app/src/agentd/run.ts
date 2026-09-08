@@ -31,23 +31,35 @@ export function useRun(client: AgentdClient | null) {
       if (!client || !session || (!body && !session.pending.length)) return
 
       const sending = session.pending
+      const wireAttachments = sending.map(({ name, mimeType, dataBase64 }) => ({
+        name,
+        mimeType,
+        dataBase64,
+      }))
+      const displayAttachments = sending.map(({ name, mimeType, thumbnailDataUrl }) => ({
+        name,
+        mimeType,
+        ...(thumbnailDataUrl ? { thumbnailDataUrl } : {}),
+      }))
 
       // MARKED BEFORE THE AWAIT, not after. Everything up to the await runs synchronously, so a
       // flag set afterwards is still false for anything that reaches here in the same tick — and
       // the message goes out twice.
       patch(key, { pending: [], running: true })
-      append(key, [{ kind: 'user', text: body, files: sending, ts: Date.now() }])
+      append(key, [{ kind: 'user', text: body, files: displayAttachments, ts: Date.now() }])
 
       try {
         await client.send({
           sessionKey: key,
           message: body,
-          ...(sending.length ? { attachments: sending } : {}),
+          ...(wireAttachments.length ? { attachments: wireAttachments } : {}),
         })
       } catch (e) {
         // SURFACED IN THE THREAD, and `running` released. A send that failed silently leaves a
-        // composer that is disabled forever, waiting for a run the daemon never started.
-        patch(key, { running: false })
+        // composer that is disabled forever, waiting for a run the daemon never started. Put the
+        // original attachments back too: the display item only retains small previews, so this is
+        // the last recoverable copy of the bytes the user selected.
+        patch(key, { pending: sending, running: false })
         append(key, [
           {
             kind: 'system',
@@ -77,7 +89,7 @@ export function useRun(client: AgentdClient | null) {
     const { currentSessionKey: key, sessions, patch } = useApp.getState()
     const session = sessions[key]
     if (!session) return
-    const read = await Promise.all(files.map(readFile))
+    const read = await Promise.all(files.map((file) => readFile(file)))
     patch(key, { pending: [...session.pending, ...read].slice(0, MAX_FILES) })
   }, [])
 
@@ -103,7 +115,9 @@ export function useRun(client: AgentdClient | null) {
       const { currentSessionKey: existing, newSession, append } = useApp.getState()
       const key = existing || newSession(true)
 
-      const read = await Promise.all(files.map(readFile))
+      // Reference files are uploaded immediately and never rendered in this window, so avoid
+      // decoding a throwaway local thumbnail for what may be a very large source image.
+      const read = await Promise.all(files.map((file) => readFile(file, false)))
       const saved: string[] = []
       const failed: string[] = []
       for (const f of read) {

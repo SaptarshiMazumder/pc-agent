@@ -17,11 +17,19 @@
 
 import type { Attachment } from '@agentd/client'
 import { readArtifacts, type Artifact } from './artifacts'
+import { createLocalImageThumbnail } from '../lib/local-image-thumbnail'
+
+/** A full attachment exists only while it is staged or crossing the wire. Its display copy is
+ *  deliberately small, so sent messages do not retain multi-megabyte base64 strings forever. */
+export type PendingAttachment = Attachment & { thumbnailDataUrl?: string }
+export type DisplayAttachment = Pick<Attachment, 'name' | 'mimeType'> & {
+  thumbnailDataUrl?: string
+}
 
 export interface UserItem {
   kind: 'user'
   text: string
-  files: Attachment[]
+  files: DisplayAttachment[]
 }
 export interface BotItem {
   kind: 'bot'
@@ -144,18 +152,22 @@ function attachmentName(f: File): string {
   return `${f.name || 'pasted'}-${stamp}.${ext}`
 }
 
-export function readFile(f: File): Promise<Attachment> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () =>
-      resolve({
-        name: attachmentName(f),
-        mimeType: f.type || 'application/octet-stream',
-        dataBase64: String(r.result).split(',')[1] || '',
-      })
-    r.onerror = () => reject(r.error)
-    r.readAsDataURL(f)
-  })
+export async function readFile(f: File, withThumbnail = true): Promise<PendingAttachment> {
+  const [attachment, thumbnailDataUrl] = await Promise.all([
+    new Promise<Attachment>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () =>
+        resolve({
+          name: attachmentName(f),
+          mimeType: f.type || 'application/octet-stream',
+          dataBase64: String(r.result).split(',')[1] || '',
+        })
+      r.onerror = () => reject(r.error)
+      r.readAsDataURL(f)
+    }),
+    withThumbnail ? createLocalImageThumbnail(f) : Promise.resolve(undefined),
+  ])
+  return { ...attachment, ...(thumbnailDataUrl ? { thumbnailDataUrl } : {}) }
 }
 
 /** One line describing what a tool is doing.

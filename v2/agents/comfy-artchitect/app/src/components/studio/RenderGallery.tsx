@@ -1,8 +1,11 @@
-/* Latest renders — real downloaded outputs from `.studio/state.json`, served through the
- * daemon's guarded /file endpoint. The first tile is the hero (2×2); one dashed in-flight slot
- * appears while a run is going. Empty is a sentence, not a blank grid. */
+/* Latest renders — real downloaded outputs from `.studio/state.json`. Tiles use the daemon's
+ * guarded thumbnails; the original /file is requested only after a tile opens its modal. The
+ * first tile is the hero (2×2); one dashed in-flight slot appears while a run is going. */
 
-import { fileUrl } from '../../agentd/artifacts'
+import { useState } from 'react'
+
+import { thumbnailUrl, type Artifact } from '../../agentd/artifacts'
+import { FileModal } from './FileModal'
 import type { StudioRender } from './useStudioState'
 
 const fmt = (r: StudioRender) =>
@@ -19,6 +22,7 @@ export function RenderGallery({
 }) {
   const q = query.trim().toLowerCase()
   const shown = (q ? renders.filter((r) => r.filename.toLowerCase().includes(q)) : renders).slice(0, 6)
+  const [open, setOpen] = useState<Artifact | null>(null)
 
   return (
     <section className="st-panel">
@@ -35,17 +39,25 @@ export function RenderGallery({
       ) : (
         <div className="st-tiles">
           {shown.map((r, i) => (
-            <a
+            <button
+              type="button"
               key={r.path}
               className={`st-tile${i === 0 ? ' is-hero' : ''}`}
-              href={fileUrl(r.path)}
-              target="_blank"
-              rel="noreferrer"
-              title={r.filename}
+              title={`Open ${r.filename}`}
+              aria-haspopup="dialog"
+              onClick={() =>
+                setOpen({
+                  path: r.path,
+                  name: r.filename,
+                  mime: '',
+                  kind: 'image',
+                  size: r.bytes,
+                })
+              }
             >
-              <img src={fileUrl(r.path)} alt={r.filename} loading="lazy" />
+              <img src={thumbnailUrl(r.path)} alt={r.filename} loading="lazy" decoding="async" />
               <span className="st-tile-cap">{i === 0 ? fmt(r) : r.filename}</span>
-            </a>
+            </button>
           ))}
           {running && (
             <div className="st-tile is-pending">
@@ -55,6 +67,7 @@ export function RenderGallery({
           )}
         </div>
       )}
+      {open && <FileModal file={open} onClose={() => setOpen(null)} />}
     </section>
   )
 }

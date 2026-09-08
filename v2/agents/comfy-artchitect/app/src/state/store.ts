@@ -18,9 +18,13 @@
 
 import { create } from 'zustand'
 
-import { closeThinking, newSessionKey, type ThreadItem } from '../agentd/chat'
+import {
+  closeThinking,
+  newSessionKey,
+  type PendingAttachment,
+  type ThreadItem,
+} from '../agentd/chat'
 import type { Artifact } from '../agentd/artifacts'
-import type { Attachment } from '@agentd/client'
 import type { ChatRow } from '../agentd/sessions'
 
 /** The conversation column's floor AND its default — the width the studio was designed at. The
@@ -51,7 +55,7 @@ export interface ChatSession {
   items: ThreadItem[]
   running: boolean
   /** Files chosen but not yet sent. Cleared by the send that carries them. */
-  pending: Attachment[]
+  pending: PendingAttachment[]
   usage: ContextUsage | null
   /** Files the agent wrote during the turn now in flight, waiting for a message to hang under. */
   pendingArtifacts: Artifact[]

@@ -1,0 +1,181 @@
+/* The one strip of chrome the studio gets.
+ *
+ * WHAT IT REPLACES, and why the replacement is smaller. The old toolbar carried a search box, a
+ * status chip, a "new run" button and an avatar; below it sat a title, a paragraph of prose, a
+ * range switcher and four KPI cards with meters and sparklines. Fifteen surfaces competing before
+ * you had looked at a single thing the agent made. None of it was the work.
+ *
+ * So: a name, a switch for WHAT you are looking at, and the one live fact that changes what the
+ * agent can do — whether the instance answers. Everything else moved into the thing it describes.
+ *
+ * THE INSTANCE IS A CHIP, NOT A PANEL — but the detail is not lost. GPU, VRAM and the installed
+ * model list live in its popover, which is where you go when the answer is "why did it pick fp8".
+ * VRAM in particular decides fp8-vs-fp16, so it stays reachable rather than being cut with the
+ * rest of the KPI row.
+ */
+
+import { RefreshCw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
+import type { AgentdClient } from '@agentd/client'
+import type { StudioState } from './useStudioState'
+import { useInstanceProbe } from './useInstanceProbe'
+
+export type StudioMode = 'files' | 'renders'
+
+/** "2 min ago" — a cache is only meaningful with its age attached. */
+function ago(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.round(s / 60)} min ago`
+  return `${Math.round(s / 3600)}h ago`
+}
+
+function InstanceChip({ state, client }: { state: StudioState; client?: AgentdClient }) {
+  const probe = useInstanceProbe(client)
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+  const inst = state.instance
+
+  // Click-away and Escape both close it: a popover you cannot dismiss by looking elsewhere is a
+  // panel again, which is the thing being removed.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const models = inst?.models || []
+  const vram =
+    inst?.vram_total != null
+      ? `${((inst.vram_total - (inst.vram_free ?? 0)) / 1e9).toFixed(1)} / ${(inst.vram_total / 1e9).toFixed(1)} GB`
+      : null
+
+  return (
+    <div className="sb-inst" ref={wrap}>
+      <button
+        className={`sb-chip is-${probe.state}`}
+        onClick={() => setOpen((v) => !v)}
+        title="ComfyUI instance"
+      >
+        <span className="sb-dot" />
+        <span>
+          {probe.state === 'probing'
+            ? 'testing…'
+            : probe.state === 'live'
+              ? 'instance'
+              : probe.state === 'down'
+                ? 'no instance'
+                : 'instance'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="sb-pop" role="dialog">
+          <div className="sb-pop-head">
+            <span className="sb-pop-title">ComfyUI</span>
+            <button
+              className="sb-test"
+              onClick={probe.test}
+              disabled={probe.state === 'probing' || !client}
+            >
+              <RefreshCw
+                size={12}
+                strokeWidth={2}
+                className={probe.state === 'probing' ? 'spin' : ''}
+              />
+              <span>{probe.state === 'probing' ? 'testing…' : 'test connection'}</span>
+            </button>
+          </div>
+
+          {probe.state === 'down' ? (
+            /* THE FAILURE, AND THE FIX — in the tool's own words, because they name which of the
+               three it is: no URL set, a refused credential, or a box that is not running. */
+            <>
+              <p className="sb-err st-mono">{probe.error || 'the instance did not answer'}</p>
+              <p className="sb-note">
+                Set <span className="st-mono">COMFYUI_URL</span> in Settings to the full URL your
+                provider gave you (vast/RunPod include a <span className="st-mono">?token=</span> —
+                paste it whole), or paste that URL straight into the conversation.
+              </p>
+            </>
+          ) : (
+            <>
+              {probe.state === 'live' && (
+                <p className="sb-line st-mono">{probe.detail.split('\n')[0]}</p>
+              )}
+              {inst?.gpu && <p className="sb-line st-mono">{inst.gpu}</p>}
+              {vram && <p className="sb-line st-mono">VRAM {vram}</p>}
+              {models.length > 0 ? (
+                <>
+                  <p className="sb-note">{models.length} model(s) installed</p>
+                  <div className="sb-models">
+                    {models.slice(0, 10).map((m) => (
+                      <span key={`${m.loader}/${m.name}`} className="sb-model st-mono">
+                        {m.name}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="sb-note">
+                  {probe.state === 'live'
+                    ? 'Connected — no models installed yet; the agent installs what a workflow needs.'
+                    : 'Not probed yet — press “test connection”, or just ask for a workflow.'}
+                </p>
+              )}
+              {inst?.ts ? <p className="sb-note">read {ago(inst.ts * 1000)}</p> : null}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function StudioTopBar({
+  mode,
+  onMode,
+  state,
+  client,
+  credits,
+  onCredits,
+}: {
+  mode: StudioMode
+  onMode: (m: StudioMode) => void
+  state: StudioState
+  client?: AgentdClient
+  credits: number | null
+  onCredits: () => void
+}) {
+  return (
+    <header className="sb">
+      <span className="sb-name">Workspace</span>
+
+      <div className="sb-modes">
+        <button className={mode === 'files' ? 'is-on' : ''} onClick={() => onMode('files')}>
+          Files
+        </button>
+        <button className={mode === 'renders' ? 'is-on' : ''} onClick={() => onMode('renders')}>
+          Renders
+        </button>
+      </div>
+
+      <span className="sb-spacer" />
+
+      <InstanceChip state={state} client={client} />
+
+      <button className="sb-credits" onClick={onCredits} title="Credits">
+        {credits != null ? credits.toLocaleString() : '—'}
+      </button>
+    </header>
+  )
+}
