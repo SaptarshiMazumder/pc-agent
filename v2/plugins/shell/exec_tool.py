@@ -240,13 +240,21 @@ class ExecTool(Tool):
 
     async def _execute_microvm(self, command: str, cwd: str, params: dict,
                                timeout: float) -> ToolResult:
-        """The fenced branch: the command runs in the executor's microVM with THIS run's
-        workspace synced through — never on the daemon's own box. Same result shape as the
-        local path, plus a note naming where it ran (so 'why can't I see /etc' is answerable).
-        Background sessions don't exist there: the microVM lives exactly as long as the call."""
+        """The fenced branch: the command runs in the executor's microVM - never on the daemon's
+        own box - with the caller's OWN FILES synced through and the changes applied back.
+
+        WHAT IT CAN SEE is the account's agent tree, not just the run's workspace. The builder
+        edits agents, so the file it wrote with `write` a moment ago is the file its next
+        `python -c compile(...)` has to open; syncing only the workspace gave it ENOENT for
+        files `ls` had just listed, and it wasted a third of a build working around that.
+        Everything derived is left behind (ui/, sessions/, workspace/, node_modules) - measured
+        on staging, that is 37 MB down to 1.7 MB.
+
+        Background sessions do not exist here: the microVM lives exactly as long as one call.
+        """
         if params.get("background"):
             return ToolResult.text(
-                "background sessions are not available on this server — the microVM lives "
+                "background sessions are not available on this server - the microVM lives "
                 "exactly as long as one command. Run it in the foreground (raise timeout_sec "
                 "if it is long).",
                 is_error=True,
@@ -259,20 +267,43 @@ class ExecTool(Tool):
 
         try:
             ok, output, meta = await run_shell(
-                self.config, command, cwd, timeout, env=params.get("env") or {}
+                self.config, command, cwd, timeout,
+                env=params.get("env") or {}, sync_root=self._sync_root(cwd),
             )
         except (ExecutorError, OversizeError) as e:
             return ToolResult.text(
-                f"the microVM shell could not run this command: {e}\n(This is the environment "
-                "failing, not your command — the executor service was unreachable or refused.)",
+                f"the microVM shell could not run this command: {e}"
+                + chr(10)
+                + "(This is the environment failing, not your command - the executor was "
+                "unreachable, or it refused to apply what the command wrote.)",
                 is_error=True,
             )
         status = f"exit code {meta.get('exit_code')}"
+        applied = meta.get("applied") or []
+        head = f"(microVM - {status}"
+        head += f" - applied {len(applied)} file(s))" if applied else ")"
         body = middle_truncate(output)
         return ToolResult.text(
-            f"(microVM · {status})\n{body}" if body.strip() else f"(microVM · {status}) no output",
+            f"{head}{chr(10)}{body}" if body.strip() else f"{head} no output",
             is_error=not ok,
         )
+
+    def _sync_root(self, cwd: str) -> str:
+        """WHICH tree travels into the box: the caller's own agents directory when there is one,
+        else the working directory. Read from the account the run is pinned to, so it is the
+        same tenancy every other write on this run resolves against - never a wider root."""
+        from pathlib import Path
+
+        from agent_runtime.infrastructure import accounts, user_state
+
+        acct = accounts.account_id()
+        if not acct:
+            return cwd
+        try:
+            root = user_state.account_agents_dir(self.config.state_dir, acct)
+        except Exception:  # noqa: BLE001 - an unresolvable root is not a reason to fail the call
+            return cwd
+        return str(root) if Path(root).is_dir() else cwd
 
 
 class ProcessTool(Tool):

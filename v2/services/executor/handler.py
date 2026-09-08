@@ -208,45 +208,69 @@ def enumerate_job(params: dict) -> dict:
 
 
 def shell_job(params: dict) -> dict:
-    """One command in the synced workspace — the hosted branch of the `exec` tool. The command is
-    the CALLER's own text (the builder's shell), not plugin code; what this box provides is the
-    microVM: nothing here holds keys, tenants, or the daemon's memory."""
+    """One command in the caller's own synced tree - the hosted branch of the `exec` tool.
+
+    The command is the CALLER's text (the builder's shell), not plugin code; what this box
+    provides is the microVM: nothing here holds keys, tenants, or the daemon's memory.
+
+    PATH REWRITING is the awkward part and it is unavoidable. This filesystem is read-only
+    except /tmp, so the daemon's tree cannot be placed at its real absolute path - it lands
+    under /tmp and every occurrence of the daemon's prefix in the command is rewritten to the
+    local one. The prefix we used goes back in the answer so the daemon can translate the
+    output the other way and the agent only ever sees paths it recognises.
+    """
     command = str(params.get("command") or "").strip()
     if not command:
         raise JobRefused("shell needs a command")
     timeout = timeout_s(params, 300.0)
+    path_from = str(params.get("path_from") or "").rstrip("/\\")
+
     with tempfile.TemporaryDirectory(dir="/tmp", prefix="sh-") as td:
         root = Path(td)
         mapping = _materialise(params, root)
-        cwd = mapping.get("ws") or str(root)
-        env = {**os.environ, "HOME": cwd, "CI": "1", "NO_COLOR": "1"}
+        local_root = mapping.get("ws") or str(root)
+        cwd = local_root
+        rel = str(params.get("cwd_rel") or "").strip("/")
+        if rel:
+            candidate = Path(local_root) / rel
+            if candidate.is_dir():
+                cwd = str(candidate)
+
+        if path_from:
+            command = command.replace(path_from, local_root)
+
+        env = {**os.environ, "HOME": local_root, "CI": "1", "NO_COLOR": "1"}
         # The COMMAND never inherits this box's AWS authority: the executor's role can touch the
-        # shared scratch bucket, where OTHER jobs' workspaces ride — a shell that kept these could
+        # shared scratch bucket, where OTHER jobs' trees ride - a shell that kept these could
         # read across jobs. The handler brokers S3 itself; the command gets none of it.
         for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                     "AWS_DEFAULT_REGION", "AWS_REGION", "AWS_LAMBDA_RUNTIME_API",
                      "EXECUTOR_INTERNAL_KEY", "EXECUTOR_SCRATCH_BUCKET"):
             env.pop(name, None)
-        env.update({str(k): str(v) for k, v in (params.get("env") or {}).items()})
+        for k, v in (params.get("env") or {}).items():
+            env[str(k)] = str(v).replace(path_from, local_root) if path_from else str(v)
+
         try:
-            p = subprocess.run(
-                command, shell=True, cwd=cwd, capture_output=True, text=True,
-                timeout=timeout, env=env,
-            )
+            p = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True,
+                               timeout=timeout, env=env)
             output = (p.stdout or "") + (p.stderr or "")
             code = p.returncode
         except subprocess.TimeoutExpired as e:
-            output = ((e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")) \
-                + f"\n[timed out after {timeout:.0f}s]"
+            raw = e.stdout or ""
+            text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+            note = chr(10) + "[timed out after %.0fs]" % timeout
+            output = (text or "") + note
             code = -1
-        out: dict = {"ok": code == 0, "exit_code": code, "output": output[-50_000:]}
-        if mapping.get("ws"):
-            changed_key = _upload_changes(params, Path(mapping["ws"]), mapping["ws_manifest"])
-            if changed_key:
-                out["changes_key"] = changed_key
-                out["changes_url"] = _s3().generate_presigned_url(
-                    "get_object", Params={"Bucket": SCRATCH_BUCKET, "Key": changed_key},
-                    ExpiresIn=URL_TTL_S,
-                )
+
+        out: dict = {"ok": code == 0, "exit_code": code, "output": output[-50_000:],
+                     "path_to": local_root}
+        changed_key = _upload_changes(params, Path(local_root), mapping["ws_manifest"])
+        if changed_key:
+            out["changes_key"] = changed_key
+            out["changes_url"] = _s3().generate_presigned_url(
+                "get_object", Params={"Bucket": SCRATCH_BUCKET, "Key": changed_key},
+                ExpiresIn=URL_TTL_S,
+            )
         return out
 
 

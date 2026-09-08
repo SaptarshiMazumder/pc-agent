@@ -512,29 +512,146 @@ class OversizeError(Exception):
 
 # ---------------------------------------------------------------------- the exec branch
 
+#: Never synced into a shell's microVM: build output and per-run data the command has no
+#: business reading, and which is most of the bytes. Measured on staging: an account's whole
+#: agent tree is 37 MB, and 1.7 MB once these are gone.
+_SHELL_SKIP_DIRS = frozenset({"ui", "sessions", "workspace", "node_modules", "__pycache__",
+                              ".git", ".vite", "dist"})
+
 
 async def run_shell(config, command: str, cwd: str, timeout_s: float,
-                    env: dict | None = None) -> tuple[bool, str, dict]:
-    """One shell command in a microVM with the caller's workspace synced through — the hosted
-    branch of the `exec` tool. Returns (ok, output, meta); raises ExecutorError when the
-    executor itself is unreachable (so the caller can say 'environment', not 'your command')."""
+                    env: dict | None = None, sync_root: str = "") -> tuple[bool, str, dict]:
+    """One shell command in a microVM, with the caller's own files synced through.
+
+    `sync_root` is WHAT THE COMMAND CAN SEE — for the agent builder, the account's whole agent
+    tree, because that is what it edits; the files it just wrote with `write` are the files its
+    next `python -c compile(...)` has to open. Falling back to `cwd` keeps the old behaviour for
+    anything else.
+
+    PATHS ARE REWRITTEN, and they have to be: a Lambda's filesystem is read-only except /tmp, so
+    the tree cannot be placed at its real absolute path. The command's text and the output are
+    translated between the daemon's path and the box's on the way in and on the way out, so the
+    agent writes and reads the paths it actually knows. (Found the hard way: the builder ran
+    `python -c compile(open('/data/state/.../hn_tools.py')...)` and got ENOENT for a file `ls`
+    had just listed.)
+
+    Returns (ok, output, meta); raises ExecutorError when the executor itself is unreachable, so
+    the caller can say "environment" rather than blaming the command.
+    """
     backend = MicrovmPluginSandbox(config)
     if not backend._url:
         raise ExecutorError("AGENTD_EXECUTOR_URL is not configured")
-    ws_zip = backend._zip_dir(cwd, _WS_SKIP_DIRS) if cwd and Path(cwd).is_dir() else b""
-    slots = await backend._ask({"op": "presign", "workspace": bool(ws_zip), "broker": False})
-    await backend._upload(slots, b"", ws_zip)
+
+    root = sync_root or cwd
+    if not (root and Path(root).is_dir()):
+        raise ExecutorError(f"nothing to sync: {root!r} is not a directory")
+    root_path = Path(root).resolve()
+
+    tree = backend._zip_dir(str(root_path), _SHELL_SKIP_DIRS)
+    before = _tree_manifest(root_path)          # to detect a daemon-side write underneath us
+    slots = await backend._ask({"op": "presign", "workspace": True, "broker": False})
+    await backend._upload(slots, b"", tree)
+
     answer = await backend._ask({
         "op": "shell",
         "job_id": slots.get("job_id"),
         "command": command,
         "timeout_s": timeout_s,
         "env": dict(env or {}),
-        "workspace_key": slots.get("workspace_key") if ws_zip else "",
+        "workspace_key": slots.get("workspace_key"),
+        # The executor unpacks under /tmp and answers with the prefix it used, so both sides
+        # translate with the same pair rather than guessing at each other's layout.
+        "path_from": str(root_path),
+        "cwd_rel": _relative_or_empty(cwd, root_path),
     }, timeout_s=timeout_s + TRANSFER_MARGIN_S)
+
     changes_url = str(answer.get("changes_url") or "")
-    if changes_url and cwd:
-        await backend._apply_changes(changes_url, Path(cwd))
-    return bool(answer.get("ok")), str(answer.get("output") or ""), {
-        "exit_code": answer.get("exit_code"),
-    }
+    applied: list[str] = []
+    if changes_url:
+        applied = await _apply_changes_guarded(backend, changes_url, root_path, before)
+
+    output = str(answer.get("output") or "")
+    remote_root = str(answer.get("path_to") or "")
+    if remote_root:
+        output = output.replace(remote_root, str(root_path))   # speak the daemon's paths back
+    meta = {"exit_code": answer.get("exit_code"), "applied": applied}
+    return bool(answer.get("ok")), output, meta
+
+
+def _relative_or_empty(cwd: str, root: Path) -> str:
+    """The command's working directory, relative to the synced root ("" = the root itself)."""
+    try:
+        rel = Path(cwd).resolve().relative_to(root)
+    except (ValueError, OSError):
+        return ""
+    return "" if str(rel) == "." else rel.as_posix()
+
+
+def _tree_manifest(root: Path) -> dict:
+    out: dict = {}
+    for f in root.rglob("*"):
+        if not f.is_file() or any(p in _SHELL_SKIP_DIRS for p in f.relative_to(root).parts):
+            continue
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        out[f.relative_to(root).as_posix()] = st.st_mtime_ns
+    return out
+
+
+async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: dict) -> list[str]:
+    """Write the command's changes back onto the daemon's real files.
+
+    THREE RULES, and each one is the reason this is not a plain unzip:
+
+      * EVERY FILE GOES THROUGH `check_write`. It is the one door `write`, `edit`, `create_tool`
+        and the scaffolder already share, so the shell inherits exactly the policy the agent
+        already has — including Agent Builder's own `deny = ["<agent_dir>"]`, which stops it
+        rewriting its own definition. Without this the return path would be a hole AROUND the
+        fence rather than another writer through it.
+      * A FILE THE DAEMON CHANGED UNDERNEATH IS A COLLISION, not a race to win: we hold the
+        mtimes from sync-out and refuse rather than clobber.
+      * DELETIONS NEVER PROPAGATE - a file missing from the box is simply absent from the zip.
+
+    A refusal fails the whole call loudly. Applying half of what a command did, and reporting
+    success, is the outcome worth avoiding most."""
+    import httpx
+
+    from agent_runtime.application.write_scope import check_write
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        r = await client.get(changes_url)
+        r.raise_for_status()
+
+    applied: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        members = [m for m in z.infolist() if not m.is_dir()]
+        # Validate EVERYTHING before writing ANYTHING: a half-applied change set is worse than
+        # a refused one, because the agent is told it succeeded.
+        targets: list[tuple[zipfile.ZipInfo, Path]] = []
+        for m in members:
+            target = (root / m.filename).resolve()
+            if not str(target).startswith(str(root) + os.sep):
+                raise ExecutorError(f"the command tried to write outside its tree: {m.filename}")
+            try:
+                check_write(target)
+            except Exception as e:  # noqa: BLE001 - the guard's own refusal is the message
+                raise ExecutorError(
+                    f"the command wrote {m.filename}, which this agent may not write ({e}). "
+                    "Nothing was applied."
+                ) from e
+            was = before.get(m.filename)
+            if was is not None and target.exists() and target.stat().st_mtime_ns != was:
+                raise ExecutorError(
+                    f"{m.filename} changed on the daemon while the command was running - "
+                    "refusing to overwrite it. Nothing was applied; re-run the command."
+                )
+            targets.append((m, target))
+
+        for m, target in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(m) as src, open(target, "wb") as dst:
+                dst.write(src.read())
+            applied.append(m.filename)
+    return applied
