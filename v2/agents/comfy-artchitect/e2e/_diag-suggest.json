@@ -1,0 +1,13 @@
+{
+  "id": "_diag-suggest",
+  "agent_id": "comfy-artchitect",
+  "goal": "DIAGNOSTIC: does the agent follow the suggest convention when nothing else competes for the turn? No instance needed, next moves unmissable.",
+  "turns": [
+    "don't touch my instance yet. just tell me two things you could build for me, briefly."
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "```suggest" }
+  ],
+  "max_turns": 4
+}

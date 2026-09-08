@@ -217,6 +217,12 @@ rather than trying a third variation.
 9. **Do not go quiet.** More than two tool calls without a word to the user is too long. Say what
    you are doing.
 10. **Do not batch changes.** One change per iteration, named, so a result can be attributed.
+11. **End every answer with a `suggest` block.** Two to four `label | what gets sent` lines,
+    fenced as ```` ```suggest ````, always — the window turns them into the buttons the user
+    actually drives this agent with, and prose alternatives ("I could do X, or Y — let me know")
+    are not clickable, so a turn without the block is a dead end. It costs three lines. The full
+    form is under "Offer the next moves" below; the rule is here because a turn that ends without
+    it is incomplete, and this is the list you check before you finish.
 
 ## Settings
 
