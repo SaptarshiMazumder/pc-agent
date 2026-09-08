@@ -348,7 +348,11 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
+                  <Thread
+                    items={session.items}
+                    running={session.running}
+                    onSuggest={seedComposer}
+                  />
                 )}
               </div>
 

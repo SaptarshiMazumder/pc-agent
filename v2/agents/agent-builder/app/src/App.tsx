@@ -77,6 +77,9 @@ export default function App() {
   const newSession = useApp((s) => s.newSession)
   const openSession = useApp((s) => s.openSession)
   const setScope = useApp((s) => s.setScope)
+  /* A suggestion chip SEEDS the composer; it does not send. Same reason "edit and resend"
+     exists: a suggestion is a starting point, and committing it unread is the user's call. */
+  const seedComposer = useApp((s) => s.seedComposer)
   /** The agent being created right now, so the shell can say so rather than looking frozen. */
   const [creating, setCreating] = useState('')
   const [createError, setCreateError] = useState('')
@@ -529,7 +532,11 @@ export default function App() {
               </div>
             ) : (
               <>
-                <Thread items={chat.items} running={chat.running} onSuggest={(p) => void sendMessage(p)} />
+                <Thread
+                  items={chat.items}
+                  running={chat.running}
+                  onSuggest={seedComposer}
+                />
                 {composer}
               </>
             )}

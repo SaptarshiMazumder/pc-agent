@@ -112,11 +112,9 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 /** An assistant answer + a Copy action sharing ONE row with the response time (once done). */
 function AssistantMessage({
   item,
-  running,
   onSuggest,
 }: {
   item: BotItem & { ts?: number }
-  running?: boolean
   onSuggest?: (prompt: string) => void
 }) {
   const stamp = item.ts ? timeLabel(item.ts) : ''
@@ -142,9 +140,7 @@ function AssistantMessage({
           {item.streaming && <span className="caret" />}
         </div>
         <ArtifactView artifacts={item.artifacts} />
-        {onSuggest && (
-          <Suggestions items={suggestions} onPick={onSuggest} disabled={running} />
-        )}
+        {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} />}
         {!item.streaming && (item.text || stamp) && (
           <div className="msg-meta">
             {item.text && (
@@ -360,7 +356,7 @@ export default function MessageItem({
     case 'user':
       return <UserMessage item={item} />
     case 'bot':
-      return <AssistantMessage item={item} running={running} onSuggest={onSuggest} />
+      return <AssistantMessage item={item} onSuggest={onSuggest} />
     case 'think':
       /* agentd's reasoning block: a quiet accent-ruled aside, always visible, no cap and no fold.
          THIS WINDOW USED TO CONTAIN IT — a fixed-height box that scrolled itself while streaming

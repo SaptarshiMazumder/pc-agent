@@ -131,7 +131,7 @@ function AssistantMessage({
         <Markdown text={body} />
         {item.streaming && <span className="caret" />}
       </div>
-        {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} disabled={running} />}
+        {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} />}
       <ArtifactView artifacts={item.artifacts} />
       {!item.streaming && (item.text || stamp) && (
         <div className="msg-meta">
