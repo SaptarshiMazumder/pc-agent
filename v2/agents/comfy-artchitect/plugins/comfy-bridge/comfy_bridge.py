@@ -520,8 +520,14 @@ class ComfyDownloadTool(Tool):
                 #
                 # A relative path has no such ambiguity — the broker anchors it to the real
                 # workspace itself (`p = Path(roots[0]) / p`), which is correct on both backends.
+                # WORKSPACE-RELATIVE, AND REPORTED THAT WAY TOO. Writing it correctly is only
+                # half the job: whatever path this tool NAMES is the path `read`, `show_files` and
+                # the chat's artifact link will each try to use. An absolute path answers in the
+                # sandbox's coordinates — on a microVM, /tmp/exec-<id>/ws — so the file downloads
+                # fine and then every consumer of the name is refused, which reads as the download
+                # having failed when it did not. A relative path means the same file to the
+                # sandbox, to the fs tools, and to the window.
                 rel = f"outputs/{Path(filename).name}"
-                dest = root / "outputs" / Path(filename).name
                 # THE QUERY GOES IN THE PATH, NOT IN `params`. This was the one call in the plugin
                 # that used httpx's `params=`, and it was the one call that 401'd on any instance
                 # whose URL carries a token. The host folds `${COMFYUI_URL}`'s own query — the
@@ -542,10 +548,10 @@ class ComfyDownloadTool(Tool):
                 if not res.ok:
                     failures.append(_failed(res, filename))
                     continue
-                saved.append(str(dest))
+                saved.append(rel)
                 import studio_state
 
-                studio_state.render_saved(str(dest))
+                studio_state.render_saved(rel)
 
             lines = [f"downloaded: {p}" for p in saved] + failures
             return ToolResult.text(
