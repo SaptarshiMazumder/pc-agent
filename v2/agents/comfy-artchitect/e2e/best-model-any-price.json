@@ -1,0 +1,23 @@
+{
+  "id": "best-model-any-price",
+  "agent_id": "comfy-artchitect",
+  "goal": "With NO price constraint stated, the agent must consider the whole field — open weights AND paid API nodes — and pick on fitness for the job. The failure this catches: a sweep that only searches Hugging Face and Civitai returns free candidates every time and calls that 'the best available', because the paid services are not hosted on either.",
+
+  "settings": { "COMFYUI_URL": "" },
+
+  "turns": [
+    "make a short video of a character — a young asian woman, black leather jacket, glasses, walking through a city at night. i want the best quality you can get.",
+    "do everything yourself and show me the result"
+  ],
+
+  "_comment_checks": "message_says is the whole point: whether paid options were CONSIDERED lives in what the agent says, and no tool-shaped check can see it. The pattern names the services the instructions call out plus the generic 'API node', so it passes on any of them rather than pinning one vendor.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "seedance|kling|runway|veo|api node|paid" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 20 }
+  ],
+  "max_turns": 20
+}

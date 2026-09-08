@@ -1,0 +1,22 @@
+{
+  "id": "best-model-free-only",
+  "agent_id": "comfy-artchitect",
+  "goal": "The SAME brief with 'free only' stated. Price narrows the field when — and only when — the user says so, so this must land on an open-weight local model and still produce a workflow. Together with best-model-any-price this is a matched pair: same task, one variable.",
+
+  "settings": { "COMFYUI_URL": "" },
+
+  "turns": [
+    "make a short video of a character — a young asian woman, black leather jacket, glasses, walking through a city at night. free models only please, i dont want to pay for any api.",
+    "do everything yourself and show me the result"
+  ],
+
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "free|local|open.weight|your own gpu" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 20 }
+  ],
+  "max_turns": 20
+}
