@@ -5,8 +5,8 @@
 import { Image as ImageIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import { thumbnailUrl, type Artifact } from '../../agentd/artifacts'
-import { FileModal } from './FileModal'
+import { thumbnailUrl } from '../../agentd/artifacts'
+import { useApp } from '../../state/store'
 import type { StudioRender } from './useStudioState'
 
 const fmt = (r: StudioRender) =>
@@ -23,7 +23,8 @@ export function RenderGallery({
 }) {
   const q = query.trim().toLowerCase()
   const shown = (q ? renders.filter((r) => r.filename.toLowerCase().includes(q)) : renders).slice(0, 6)
-  const [open, setOpen] = useState<Artifact | null>(null)
+  // The tile SELECTS; the centre pane shows. No overlay — see selectedArtifactPath.
+  const selectArtifact = useApp((st) => st.selectArtifact)
   const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set())
 
   return (
@@ -45,18 +46,9 @@ export function RenderGallery({
               type="button"
               key={r.path}
               className={`st-tile${i === 0 ? ' is-hero' : ''}`}
-              title={`Open ${r.filename}`}
-              aria-label={`Open ${r.filename}`}
-              aria-haspopup="dialog"
-              onClick={() =>
-                setOpen({
-                  path: r.path,
-                  name: r.filename,
-                  mime: '',
-                  kind: 'image',
-                  size: r.bytes,
-                })
-              }
+              title={r.filename}
+              aria-label={`Show ${r.filename}`}
+              onClick={() => selectArtifact(r.path)}
             >
               {failedThumbnails.has(r.path) ? (
                 <span className="st-tile-fallback" aria-hidden="true">
@@ -85,7 +77,6 @@ export function RenderGallery({
           )}
         </div>
       )}
-      {open && <FileModal file={open} onClose={() => setOpen(null)} />}
     </section>
   )
 }

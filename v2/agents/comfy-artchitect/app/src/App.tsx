@@ -117,17 +117,22 @@ export default function App() {
 
   const { send, abort, addFiles, removeFile, sendReferences } = useRun(client)
 
-  /* EVERY FILE THIS AGENT HAS WRITTEN, across every conversation in this window.
+  /* THE FILES THIS CONVERSATION MADE — not every conversation's.
      Artifacts hang off the turn that produced them, which is right for the transcript and wrong
-     for a shelf: a workflow built over six turns is findable only by scrolling. Gathering them
-     here costs one pass and gives both screens the same source, so the count in the aside can
-     never disagree with the number of cards on the shelf. */
+     for a rail: a workflow built over six turns is findable only by scrolling. Gathering them
+     costs one pass and gives the rail and the shelf the same source, so a count can never
+     disagree with what is listed.
+
+     SCOPED TO THE OPEN CHAT, which it deliberately was not before. Flattening every session put
+     one project's renders in another project's workspace, so the rail described the window rather
+     than the thing being worked on — and switching chats changed nothing, which made the two
+     panels look unrelated. A chat and its files are one subject. */
   const artifacts = useMemo<Artifact[]>(
     () =>
-      Object.values(sessions).flatMap((s) =>
-        s.items.flatMap((i) => ('artifacts' in i && i.artifacts ? i.artifacts : [])),
+      (sessions[currentKey]?.items || []).flatMap((i) =>
+        'artifacts' in i && i.artifacts ? i.artifacts : [],
       ),
-    [sessions],
+    [sessions, currentKey],
   )
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */

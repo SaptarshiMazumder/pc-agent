@@ -165,6 +165,9 @@ export const useApp = create<AppState>((set) => ({
     set({ chatWidth: width })
   },
 
+  selectedArtifactPath: '',
+  selectArtifact: (path) => set({ selectedArtifactPath: path }),
+
   sessions: {},
   currentSessionKey: '',
   chats: [],

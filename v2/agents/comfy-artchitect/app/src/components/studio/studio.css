@@ -185,10 +185,16 @@
   border-right: 1px solid var(--border);
 }
 .st-view { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+/* NOTHING TO SHOW, said quietly and centred — not a card, not a call to action. An empty state
+   that shouts is the widget this redesign removed, wearing a different hat. */
 .st-view-empty {
-  margin: auto; max-width: 40ch; padding: 24px; text-align: center;
-  font-size: var(--fs-meta); line-height: var(--lh-body); color: var(--faint); text-wrap: pretty;
+  margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-width: 40ch; padding: 24px; text-align: center; color: var(--faint);
 }
+.st-view-empty p {
+  margin: 0; font-size: var(--fs-meta); line-height: var(--lh-body); text-wrap: pretty;
+}
+.st-view-empty svg { opacity: .5; }
 
 /* ── the top bar ──────────────────────────────────────────────────────────────────────────── */
 /* The studio's ONLY chrome: where you are, what you are looking at, and whether the box answers. */

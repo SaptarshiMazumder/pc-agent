@@ -2,7 +2,7 @@ import { ExternalLink, FileText, Image as ImageIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { fileUrl, humanSize, thumbnailUrl, type Artifact } from '../agentd/artifacts'
-import { FileModal } from './studio/FileModal'
+import { useApp } from '../state/store'
 
 /**
  * Files an agent produced, shown under the answer that produced them.
@@ -35,7 +35,9 @@ function subtitle(a: Artifact): string {
 
 function One({ a }: { a: Artifact }) {
   const href = fileUrl(a.path)
-  const [open, setOpen] = useState(false)
+  // A thumbnail in the transcript SELECTS into the studio's centre pane, the same as a tile in
+  // the gallery or a row in the rail. One place things open, whichever of the three you clicked.
+  const selectArtifact = useApp((s) => s.selectArtifact)
   const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
   // Media renders ITSELF. An agent that just drew a chart should show the chart, not a row saying
@@ -46,10 +48,9 @@ function One({ a }: { a: Artifact }) {
         <button
           type="button"
           className="artifact-media"
-          title={`Open ${a.name}`}
-          aria-label={`Open ${a.name}`}
-          aria-haspopup="dialog"
-          onClick={() => setOpen(true)}
+          title={a.name}
+          aria-label={`Show ${a.name}`}
+          onClick={() => selectArtifact(a.path)}
         >
           {thumbnailFailed ? (
             <span className="artifact-media-fallback" aria-hidden="true">
@@ -66,7 +67,6 @@ function One({ a }: { a: Artifact }) {
             />
           )}
         </button>
-        {open && <FileModal file={a} onClose={() => setOpen(false)} />}
       </>
     )
   }

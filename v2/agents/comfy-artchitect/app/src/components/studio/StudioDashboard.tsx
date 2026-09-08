@@ -16,11 +16,14 @@
  * outright — they were about the dashboard, not about the work.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { FileCode2 } from 'lucide-react'
 
 import type { AgentdClient } from '@agentd/client'
 
 import type { Artifact } from '../../agentd/artifacts'
+import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
 import { FileViewer } from './FileViewer'
@@ -46,7 +49,10 @@ export function StudioDashboard({
 }) {
   const state = useStudioState(client, running)
   const [mode, setMode] = useState<StudioMode>('files')
-  const [selectedPath, setSelectedPath] = useState<string>('')
+  // Selection is STORE state, not local: the rail is not the only thing that picks. A render tile
+  // and a thumbnail in the transcript both land here too — see the note on `selectedArtifactPath`.
+  const selectedPath = useApp((s) => s.selectedArtifactPath)
+  const setSelectedPath = useApp((s) => s.selectArtifact)
 
   // SELECT BY PATH, RESOLVE BY LOOKUP. Holding the Artifact object itself would pin a stale copy:
   // the same file is re-declared as later turns touch it (a size arrives, a render finishes), and
@@ -65,15 +71,33 @@ export function StudioDashboard({
   // pane shows the ORIGINAL, so selecting a render on the user's behalf would pull a multi-MB
   // image on every finished run — quietly undoing that, once per render. A click here is an
   // explicit open and still gets the full-size file; nothing else does.
+  //
+  // IT ALSO REPAIRS A SELECTION THAT NO LONGER APPLIES. `artifacts` is now this chat's files, so
+  // switching conversations can leave a path selected that belongs to a different one — the pane
+  // would sit empty next to a rail full of files. A selection that is not in the current list is
+  // treated as no selection.
   useEffect(() => {
-    if (selectedPath || artifacts.length === 0) return
+    if (artifacts.length === 0) return
+    if (selectedPath && artifacts.some((a) => a.path === selectedPath)) return
     for (let i = artifacts.length - 1; i >= 0; i--) {
       if (artifacts[i].kind === 'file') {
         setSelectedPath(artifacts[i].path)
         return
       }
     }
-  }, [artifacts, selectedPath])
+    if (selectedPath) setSelectedPath('')
+  }, [artifacts, selectedPath, setSelectedPath])
+
+  // PICKING SOMETHING LEAVES THE GRID. A render tile and a transcript thumbnail both set the
+  // selection through the store — they are not children of this component and cannot switch the
+  // mode themselves — so a click while browsing Renders would otherwise change what the pane
+  // WOULD show without changing what it does show, and read as the click having done nothing.
+  const previousPath = useRef(selectedPath)
+  useEffect(() => {
+    const changed = selectedPath && selectedPath !== previousPath.current
+    previousPath.current = selectedPath
+    if (changed) setMode('files')
+  }, [selectedPath])
 
   return (
     <div className="st-dash">
@@ -105,9 +129,10 @@ export function StudioDashboard({
           ) : selected ? (
             <FileViewer file={selected} />
           ) : (
-            <p className="st-view-empty">
-              Ask for a workflow and it appears here — the graph first, then the renders it makes.
-            </p>
+            <div className="st-view-empty">
+              <FileCode2 size={26} strokeWidth={1.4} />
+              <p>Workflows and renders from this conversation appear here.</p>
+            </div>
           )}
         </main>
       </div>
