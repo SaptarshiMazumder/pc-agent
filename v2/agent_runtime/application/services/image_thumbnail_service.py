@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,9 +99,27 @@ class ImageThumbnailService:
 
     async def _generate(self, source: Path) -> GeneratedImageThumbnail:
         async with self._decode_slots:
-            return await asyncio.to_thread(
-                self._generator.generate, source, max_edge=self._max_edge
+            operation = asyncio.create_task(
+                asyncio.to_thread(
+                    self._generator.generate,
+                    source,
+                    max_edge=self._max_edge,
+                )
             )
+            try:
+                return await asyncio.shield(operation)
+            except asyncio.CancelledError:
+                # Cancelling to_thread() only cancels its asyncio wrapper; the decoder keeps
+                # running. Keep this slot occupied until that worker really stops, otherwise a
+                # client can repeatedly disconnect and exceed the configured decode limit.
+                while not operation.done():
+                    try:
+                        await asyncio.shield(operation)
+                    except asyncio.CancelledError:
+                        continue
+                with suppress(Exception):
+                    operation.result()
+                raise
 
     def _etag(self, source: Path, revision: tuple[int, int]) -> str:
         material = "\0".join(

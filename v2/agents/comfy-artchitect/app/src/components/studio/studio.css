@@ -34,6 +34,10 @@
 .st-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .st-tile.is-hero { grid-column: span 2; grid-row: span 2; }
 .st-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-tile-fallback {
+  display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
+  flex-direction: column; gap: 6px; color: var(--faint); font-size: var(--fs-small);
+}
 .st-tile-cap {
   position: absolute; left: 7px; bottom: 7px; max-width: calc(100% - 14px);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

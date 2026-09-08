@@ -89,7 +89,11 @@ export function useRun(client: AgentdClient | null) {
     const { currentSessionKey: key, sessions, patch } = useApp.getState()
     const session = sessions[key]
     if (!session) return
-    const read = await Promise.all(files.map((file) => readFile(file)))
+    // Apply the cap before reading or decoding. A large drag must not briefly hold every full
+    // image and every decoded bitmap merely to discard most of them after Promise.all settles.
+    const accepted = files.slice(0, Math.max(0, MAX_FILES - session.pending.length))
+    if (!accepted.length) return
+    const read = await Promise.all(accepted.map((file) => readFile(file)))
     patch(key, { pending: [...session.pending, ...read].slice(0, MAX_FILES) })
   }, [])
 

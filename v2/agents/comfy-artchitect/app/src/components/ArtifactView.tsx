@@ -1,4 +1,4 @@
-import { ExternalLink, FileText } from 'lucide-react'
+import { ExternalLink, FileText, Image as ImageIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { fileUrl, humanSize, thumbnailUrl, type Artifact } from '../agentd/artifacts'
@@ -36,6 +36,7 @@ function subtitle(a: Artifact): string {
 function One({ a }: { a: Artifact }) {
   const href = fileUrl(a.path)
   const [open, setOpen] = useState(false)
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
   // Media renders ITSELF. An agent that just drew a chart should show the chart, not a row saying
   // a chart exists — seeing it is how you know whether it is right.
@@ -46,10 +47,24 @@ function One({ a }: { a: Artifact }) {
           type="button"
           className="artifact-media"
           title={`Open ${a.name}`}
+          aria-label={`Open ${a.name}`}
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
         >
-          <img src={thumbnailUrl(a.path)} alt={a.name} loading="lazy" decoding="async" />
+          {thumbnailFailed ? (
+            <span className="artifact-media-fallback" aria-hidden="true">
+              <ImageIcon size={22} />
+              <span>{a.name}</span>
+            </span>
+          ) : (
+            <img
+              src={thumbnailUrl(a.path)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setThumbnailFailed(true)}
+            />
+          )}
         </button>
         {open && <FileModal file={a} onClose={() => setOpen(false)} />}
       </>

@@ -2,6 +2,7 @@
  * guarded thumbnails; the original /file is requested only after a tile opens its modal. The
  * first tile is the hero (2×2); one dashed in-flight slot appears while a run is going. */
 
+import { Image as ImageIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { thumbnailUrl, type Artifact } from '../../agentd/artifacts'
@@ -23,6 +24,7 @@ export function RenderGallery({
   const q = query.trim().toLowerCase()
   const shown = (q ? renders.filter((r) => r.filename.toLowerCase().includes(q)) : renders).slice(0, 6)
   const [open, setOpen] = useState<Artifact | null>(null)
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set())
 
   return (
     <section className="st-panel">
@@ -44,6 +46,7 @@ export function RenderGallery({
               key={r.path}
               className={`st-tile${i === 0 ? ' is-hero' : ''}`}
               title={`Open ${r.filename}`}
+              aria-label={`Open ${r.filename}`}
               aria-haspopup="dialog"
               onClick={() =>
                 setOpen({
@@ -55,7 +58,22 @@ export function RenderGallery({
                 })
               }
             >
-              <img src={thumbnailUrl(r.path)} alt={r.filename} loading="lazy" decoding="async" />
+              {failedThumbnails.has(r.path) ? (
+                <span className="st-tile-fallback" aria-hidden="true">
+                  <ImageIcon size={22} />
+                  <span>Preview unavailable</span>
+                </span>
+              ) : (
+                <img
+                  src={thumbnailUrl(r.path)}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  onError={() =>
+                    setFailedThumbnails((current) => new Set(current).add(r.path))
+                  }
+                />
+              )}
               <span className="st-tile-cap">{i === 0 ? fmt(r) : r.filename}</span>
             </button>
           ))}

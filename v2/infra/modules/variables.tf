@@ -787,6 +787,23 @@ variable "services" {
         GOOGLE_OAUTH_CLIENT_SECRET = "GOOGLE_OAUTH_CLIENT_SECRET"
       }
       efs = true
+      # STOP-THEN-START (0%/100%), not the rolling default. Two reasons, either sufficient:
+      #
+      #   CAPACITY. This task asks for 2 GB, and the rolling default (min 100 / max 200) starts
+      #   the replacement BEFORE draining the old one — so a one-task service needs 4 GB free to
+      #   deploy at all. On 2026-09-08 it did not have it: both container instances sat under
+      #   2 GB free, the new task could not be placed, and the deployment hung at "0 of 1 started"
+      #   with no event saying why (an unplaceable task is silent). A leftover task from an
+      #   earlier rollout held the memory, and nothing could drain it because draining waits on
+      #   the start that could not happen.
+      #
+      #   CORRECTNESS. The daemon mounts the same EFS state directory as every other copy of
+      #   itself, so the rolling default also means two daemons briefly writing one filesystem —
+      #   the hazard this flag exists to prevent, and why accounts already sets it.
+      #
+      # The cost is a few seconds of 503 per deploy. Right for staging; a production daemon
+      # should get the headroom instead.
+      single_writer = true
     }
   }
 }

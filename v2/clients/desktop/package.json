@@ -9,6 +9,8 @@
   "scripts": {
     "predev": "node scripts/kill-daemon.mjs && node scripts/sync-platform-urls.mjs",
     "dev": "electron-vite dev",
+    "predev:staging": "node scripts/kill-daemon.mjs && node scripts/sync-platform-urls.mjs --strict --env staging",
+    "dev:staging": "electron-vite dev",
     "predev:studio": "node scripts/kill-daemon.mjs && node scripts/sync-platform-urls.mjs",
     "dev:studio": "cross-env AGENTD_FLAVOR=figure-creator-studio electron-vite dev",
     "build": "electron-vite build",

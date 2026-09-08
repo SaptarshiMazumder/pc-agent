@@ -351,6 +351,7 @@ def test_thumbnail_etag_revalidates_without_a_body(hosted_world):
     assert cached.status_code == 304
     assert cached.body == b""
     assert cached.headers["ETag"] == first.headers["ETag"]
+    assert "Content-Length" not in cached.headers
 
 
 def test_thumbnail_cannot_read_the_shared_workspace(hosted_world):

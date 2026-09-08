@@ -86,6 +86,18 @@ export interface AppState {
   chatWidth: number
   setChatWidth: (px: number) => void
 
+  /** THE FILE THE CENTRE PANE IS SHOWING, by path — the studio's subject.
+   *
+   *  It lives here rather than inside the studio because three places pick it and only one shows
+   *  it: the workspace rail, the render gallery, and a thumbnail in the transcript. A selection
+   *  owned by the pane would leave the other two unable to reach it, which is how the old modal
+   *  happened — each click site grew its own overlay because it had nowhere to put the answer.
+   *
+   *  A PATH, never the Artifact object: the same file is re-declared as later turns touch it (a
+   *  size arrives, a render finishes), so holding the object pins whichever copy was clicked. */
+  selectedArtifactPath: string
+  selectArtifact: (path: string) => void
+
   /** Every open conversation, by session key. */
   sessions: Record<string, ChatSession>
   currentSessionKey: string

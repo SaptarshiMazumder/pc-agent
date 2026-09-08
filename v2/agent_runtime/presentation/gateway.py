@@ -2497,7 +2497,6 @@ class Gateway:
         hdrs["Vary"] = "Authorization"
         hdrs["X-Content-Type-Options"] = "nosniff"
         if result.not_modified:
-            hdrs["Content-Length"] = "0"
             return HttpResponse(304, "Not Modified", hdrs, b"")
 
         body = result.data or b""
