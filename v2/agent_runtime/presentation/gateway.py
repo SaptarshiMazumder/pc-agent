@@ -28,12 +28,20 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response as HttpResponse
 
 from agent_runtime import __version__, lifecycle
+from agent_runtime.application.interfaces.image_thumbnail_generator import (
+    ImageThumbnailGenerationError,
+    ImageThumbnailTooLargeError,
+)
 from agent_runtime.application.run_context import (
     current_run_context,
     set_trace_ids,
     take_run_outcome,
 )
 from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.application.services.image_thumbnail_service import (
+    ImageThumbnailNotFoundError,
+    ImageThumbnailService,
+)
 from agent_runtime.config import Config, client_accounts_url
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
@@ -1060,6 +1068,9 @@ class Gateway:
 
     config: Config
     service: AgentService  # injected use-case (does the work)
+    # Optional only so narrow unit tests can construct a gateway without the full composition
+    # root. Production always injects it; /thumbnail fails closed if an embedder omits it.
+    image_thumbnail_service: ImageThumbnailService | None = None
     browser_manager: object | None = None  # injected; closed on shutdown
     mcp_provider: object | None = None  # injected; discovered at startup, closed on shutdown
     # Per-agent DECLARED servers (agent.toml [[mcp]]) — a different thing from mcp_provider, which
@@ -1999,6 +2010,8 @@ class Gateway:
                 return await self._serve_auth(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
+            if split.path == "/thumbnail":
+                return await self._serve_thumbnail(split, getattr(request, "headers", {}))
             if split.path == "/platform/connect" or split.path == "/platform/status":
                 return self._serve_platform(split, getattr(request, "headers", {}))
             if split.path == "/oauth/callback":
@@ -2366,6 +2379,16 @@ class Gateway:
                 pass
         return self._dedupe_resolved(roots)
 
+    def _guarded_file_path(self, raw: str, identities: frozenset[str]) -> Path | None:
+        """Resolve once, then apply the shared /file tenant and symlink boundary."""
+        try:
+            path = Path(raw).resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not is_under_roots(path, self._file_roots_for(identities)) or not path.is_file():
+            return None
+        return path
+
     async def _serve_file(self, split, headers) -> HttpResponse:
         """Serve one guarded file with single-range support (so <video> can seek)."""
 
@@ -2380,8 +2403,8 @@ class Gateway:
         raw = unquote((q.get("path") or [""])[0])
         if not raw:
             return deny(400, "Bad Request")
-        p = Path(raw)
-        if not is_under_roots(p, self._file_roots_for(identities)) or not p.is_file():
+        p = self._guarded_file_path(raw, identities)
+        if p is None:
             return deny(404, "Not Found")
 
         try:
@@ -2428,6 +2451,60 @@ class Gateway:
         if status == 206:
             hdrs["Content-Range"] = f"bytes {start}-{end}/{size}"
         return HttpResponse(status, reason, hdrs, body)
+
+    async def _serve_thumbnail(self, split, headers) -> HttpResponse:
+        """Serve a guarded 512px WebP preview without decoding on the event-loop thread."""
+
+        def deny(code: int, reason: str) -> HttpResponse:
+            return HttpResponse(code, reason, Headers({"Content-Length": "0"}), b"")
+
+        q = parse_qs(split.query)
+        identities = await self._http_identities(q, headers)
+        if identities is None:
+            return deny(401, "Unauthorized")
+        if self.image_thumbnail_service is None:
+            return deny(503, "Service Unavailable")
+
+        raw = unquote((q.get("path") or [""])[0])
+        if not raw:
+            return deny(400, "Bad Request")
+        source = self._guarded_file_path(raw, identities)
+        if source is None:
+            return deny(404, "Not Found")
+        try:
+            validator = headers.get("If-None-Match") or ""
+        except Exception:  # noqa: BLE001 - websocket header adapters may only partly map
+            validator = ""
+
+        try:
+            result = await self.image_thumbnail_service.get(
+                source,
+                if_none_match=validator,
+            )
+        except ImageThumbnailNotFoundError:
+            # Match /file: an absent path and another tenant's path look identical.
+            return deny(404, "Not Found")
+        except ImageThumbnailTooLargeError:
+            return deny(413, "Content Too Large")
+        except ImageThumbnailGenerationError:
+            return deny(415, "Unsupported Media Type")
+
+        hdrs = Headers()
+        hdrs["ETag"] = result.etag
+        # The URL carries a credential and names user data: browser cache only, always
+        # revalidate. A hit is a stat + 304 and never decodes the full source again.
+        hdrs["Cache-Control"] = "private, no-cache"
+        hdrs["Vary"] = "Authorization"
+        hdrs["X-Content-Type-Options"] = "nosniff"
+        if result.not_modified:
+            hdrs["Content-Length"] = "0"
+            return HttpResponse(304, "Not Modified", hdrs, b"")
+
+        body = result.data or b""
+        hdrs["Content-Type"] = result.mime_type
+        hdrs["Content-Length"] = str(len(body))
+        hdrs["Content-Disposition"] = "inline"
+        return HttpResponse(200, "OK", hdrs, body)
 
     def _platform_bearer_ok(self, q: dict, headers) -> bool:
         """Does this request carry the daemon's machine token? `?token=` or `Authorization:

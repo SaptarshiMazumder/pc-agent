@@ -1064,6 +1064,7 @@ def build_gateway(config: Config) -> Gateway:
         late=late,
     )
     from agent_runtime.infrastructure.events import build_event_log
+    from agent_runtime.infrastructure.images import build_image_thumbnail_service
     from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
     from agent_runtime.config import accounts_api_base
     from agent_runtime.infrastructure.platform_session import PlatformSession
@@ -1076,6 +1077,7 @@ def build_gateway(config: Config) -> Gateway:
     gateway = Gateway(
         config=config,
         service=service,
+        image_thumbnail_service=build_image_thumbnail_service(),
         browser_manager=browser_manager,
         mcp_provider=build_mcp_provider(config),
         mcp_connector=mcp_connector,  # per-agent declared servers: status, approval, re-dial

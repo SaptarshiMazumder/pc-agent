@@ -21,16 +21,20 @@ byte-for-byte); on a hosted daemon strangers only ever match themselves.
 
 import asyncio
 import sys
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import quote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+from PIL import Image
 
 from agent_runtime.domain import ownership
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.infrastructure import accounts
+from agent_runtime.infrastructure.images import build_image_thumbnail_service
 from agent_runtime.presentation.gateway import Gateway
 from agent_runtime.presentation.protocol import Event, dump_frame
 
@@ -198,6 +202,13 @@ def _serve(gw, path, query=""):
     return asyncio.run(gw._serve_file(split, {}))
 
 
+def _thumbnail(gw, path, query="", headers=None):
+    if gw.image_thumbnail_service is None:
+        gw.image_thumbnail_service = build_image_thumbnail_service()
+    split = urlsplit(f"/thumbnail?path={quote(str(path))}" + (f"&{query}" if query else ""))
+    return asyncio.run(gw._serve_thumbnail(split, headers or {}))
+
+
 @pytest.fixture
 def hosted_world(tmp_path, monkeypatch):
     """A hosted daemon with two tenants' files on one filesystem, sign-in enforced."""
@@ -280,3 +291,103 @@ def test_an_accounts_roots_are_its_subtree(tmp_path):
     roots = gw._file_roots_for(frozenset({"acct_x"}))
     assert (Path(tmp_path) / "accounts" / "acct_x").resolve() in roots
     assert all("acct_y" not in str(r) for r in roots)
+
+
+# The thumbnail endpoint is a smaller representation of the same private file. It must use
+# the exact /file identity and root gate before it stats or decodes the source.
+
+
+def test_thumbnail_requires_a_credential(hosted_world):
+    gw, mine, _ = hosted_world
+    image = mine.with_suffix(".png")
+    Image.new("RGB", (1024, 600), "red").save(image)
+
+    assert _thumbnail(gw, image).status_code == 401
+
+
+def test_thumbnail_serves_only_the_accounts_own_image(hosted_world):
+    gw, mine, theirs = hosted_world
+    own_image = mine.with_suffix(".png")
+    other_image = theirs.with_suffix(".png")
+    Image.new("RGB", (1024, 600), "red").save(own_image)
+    Image.new("RGB", (1024, 600), "blue").save(other_image)
+
+    response = _thumbnail(gw, own_image, "token=sess_x")
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"] == "image/webp"
+    assert response.headers["Cache-Control"] == "private, no-cache"
+    with Image.open(BytesIO(response.body)) as preview:
+        assert preview.size == (512, 300)
+    assert _thumbnail(gw, other_image, "token=sess_x").status_code == 404
+
+
+def test_thumbnail_guard_runs_before_the_service(hosted_world):
+    gw, _, theirs = hosted_world
+    other_image = theirs.with_suffix(".png")
+    Image.new("RGB", (20, 20), "blue").save(other_image)
+
+    class MustNotRun:
+        async def get(self, *_args, **_kwargs):
+            raise AssertionError("thumbnail service ran before tenant authorization")
+
+    gw.image_thumbnail_service = MustNotRun()
+    assert _thumbnail(gw, other_image, "token=sess_x").status_code == 404
+
+
+def test_thumbnail_etag_revalidates_without_a_body(hosted_world):
+    gw, mine, _ = hosted_world
+    image = mine.with_suffix(".png")
+    Image.new("RGB", (100, 50), "red").save(image)
+    first = _thumbnail(gw, image, "token=sess_x")
+
+    cached = _thumbnail(
+        gw,
+        image,
+        "token=sess_x",
+        headers={"If-None-Match": first.headers["ETag"]},
+    )
+
+    assert cached.status_code == 304
+    assert cached.body == b""
+    assert cached.headers["ETag"] == first.headers["ETag"]
+
+
+def test_thumbnail_cannot_read_the_shared_workspace(hosted_world):
+    gw, _, _ = hosted_world
+    shared = Path(gw.config.workspace) / "ops.png"
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (20, 20), "red").save(shared)
+
+    assert _thumbnail(gw, shared, "token=sess_x").status_code == 404
+
+
+def test_thumbnail_rejects_a_corrupt_image_with_a_clean_4xx(hosted_world):
+    gw, mine, _ = hosted_world
+    corrupt = mine.with_suffix(".png")
+    corrupt.write_bytes(b"not an image")
+
+    assert _thumbnail(gw, corrupt, "token=sess_x").status_code == 415
+
+
+def test_desktop_thumbnail_serving_is_unchanged_single_user_access(tmp_path):
+    image = tmp_path / "state" / "render.png"
+    image.parent.mkdir(parents=True)
+    Image.new("RGB", (20, 20), "red").save(image)
+    gw = _gateway(state_dir=str(tmp_path / "state"))
+
+    assert _thumbnail(gw, image).status_code == 200
+
+
+def test_plain_http_dispatch_reaches_the_thumbnail_endpoint(tmp_path):
+    image = tmp_path / "state" / "render.png"
+    image.parent.mkdir(parents=True)
+    Image.new("RGB", (20, 20), "red").save(image)
+    gw = _gateway(state_dir=str(tmp_path / "state"))
+    gw.image_thumbnail_service = build_image_thumbnail_service()
+    request = SimpleNamespace(path=f"/thumbnail?path={quote(str(image))}", headers={})
+
+    response = asyncio.run(gw._http_request(None, request))
+
+    assert response is not None and response.status_code == 200
+    assert response.headers["Content-Type"] == "image/webp"
