@@ -14,7 +14,14 @@ import { CanvasHostProvider, type CanvasHost } from '../canvas/host'
 import { useApp } from '../state/store'
 
 export default function ShellCanvasHost({ children }: { children: ReactNode }): JSX.Element {
-  const connection = useApp((s) => s.connection)
+  const rawConnection = useApp((s) => s.connection)
+  const ready = useApp((s) => s.ready)
+  // OPEN MEANS ANSWERABLE HERE. The socket is open about a second before the handshake behind
+  // it finishes, and consumers (the Files tree) fetch the moment they see 'open' -- so they were
+  // racing it and rendering the loss as "unable to fetch". Reporting the gap as 'connecting'
+  // keeps that promise inside this adapter rather than widening CanvasHost, which agent apps
+  // implement too.
+  const connection = rawConnection === 'open' && !ready ? 'connecting' : rawConnection
   const artifactActions = useApp((s) => s.artifactActions)
   const busyMap = useApp((s) => s.artifactActionBusy)
   const runArtifactAction = useApp((s) => s.runArtifactAction)

@@ -53,6 +53,7 @@ export default function ChatView() {
   const abortRun = useApp((s) => s.abortRun)
   const composerSeed = useApp((s) => s.composerSeed)
   const setView = useApp((s) => s.setView)
+  const resumeSession = useApp((s) => s.resumeSession)
 
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<OutgoingAttachment[]>([])
@@ -67,6 +68,9 @@ export default function ChatView() {
   const items = session?.items || []
   const running = session?.running || false
   const empty = items.length === 0
+  // History that FAILED to load is not an empty conversation, and drawing it as one is what
+  // made a click on a saved chat look like a click that did nothing.
+  const loadFailed = !!session?.loadFailed && empty
 
   const currentAgent = agents.find((a) => a.id === currentAgentId)
   const agentName = agentLabel(currentAgent?.name, currentAgentId, hello?.agentName)
@@ -358,6 +362,19 @@ export default function ChatView() {
     </form>
   )
 
+  const historyError = (
+    <div className="empty-state">
+      <div className="empty-title">Couldn’t load this conversation</div>
+      <div className="empty-sub">
+        The messages are still saved — the request just didn’t get through.
+        <br />
+        <button className="btn" style={{ marginTop: 12 }} onClick={() => void resumeSession(currentSessionKey)}>
+          Try again
+        </button>
+      </div>
+    </div>
+  )
+
   const greeting = (
     <div className="empty-state">
       <img className="empty-logo" src={logo} alt="" />
@@ -404,7 +421,7 @@ export default function ChatView() {
       {empty ? (
         // ChatGPT/Gemini-style: greeting, then the input centered in the page, suggestions below
         <div className="chat-hero">
-          {greeting}
+          {loadFailed ? historyError : greeting}
           <div className="chat-hero-composer">{composer}</div>
           {suggestionRow}
         </div>

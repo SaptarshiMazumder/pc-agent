@@ -16,7 +16,9 @@ interface McpServer {
 /** Data sources — connect external tools/data via MCP servers (live, no restart). Real:
  *  reads mcp.list, adds via mcp.add, removes via mcp.remove. */
 export default function DataSourcesView() {
-  const connection = useApp((s) => s.connection)
+  // `ready`, not `connection`: the socket opens ~1s before the handshake that makes this
+  // client answerable, and loading in that window fails for no reason the user can see.
+  const connection = useApp((s) => (s.ready ? 'open' : s.connection))
   const [servers, setServers] = useState<McpServer[] | null>(null)
   const [err, setErr] = useState('')
   const [adding, setAdding] = useState(false)

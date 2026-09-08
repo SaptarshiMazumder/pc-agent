@@ -79,15 +79,28 @@ export default function WorkspaceTree(scope: Scope): JSX.Element {
 
   const loadDir = useCallback(
     async (rel: string): Promise<void> => {
-      try {
-        const res = await host.request<{ entries: WsEntry[]; error?: string }>('workspace.list', {
-          ...scopeParams(),
-          path: rel
-        })
-        if (res.error) setError(res.error)
-        setDirs((d) => ({ ...d, [rel]: res.entries || [] }))
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+      // ONE RETRY, and the stale error is cleared before trying. Without this a single failed
+      // load left "unable to fetch" on screen permanently: the effect below only re-runs when
+      // the connection or the scope changes, so clicking Files again re-rendered the OLD error
+      // without ever asking again -- and it appeared to fix itself later only because something
+      // unrelated finally re-triggered the effect.
+      setError('')
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await host.request<{ entries: WsEntry[]; error?: string }>('workspace.list', {
+            ...scopeParams(),
+            path: rel
+          })
+          if (res.error) setError(res.error)
+          setDirs((d) => ({ ...d, [rel]: res.entries || [] }))
+          return
+        } catch (e) {
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 250))
+            continue
+          }
+          setError(e instanceof Error ? e.message : String(e))
+        }
       }
     },
     [scopeParams]

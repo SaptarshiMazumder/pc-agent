@@ -117,7 +117,9 @@ export default function SettingsView() {
   const flavor = useApp((s) => s.flavor)
   const hello = useApp((s) => s.hello)
   const supervisor = useApp((s) => s.supervisor)
-  const connection = useApp((s) => s.connection)
+  // `ready`, not `connection`: the socket opens ~1s before the handshake that makes this
+  // client answerable, and loading in that window fails for no reason the user can see.
+  const connection = useApp((s) => (s.ready ? 'open' : s.connection))
   const theme = useApp((s) => s.theme)
   const toggleTheme = useApp((s) => s.toggleTheme)
 

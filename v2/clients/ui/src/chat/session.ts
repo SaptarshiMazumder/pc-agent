@@ -37,6 +37,11 @@ export type ChatItem = (
 export interface SessionState {
   items: ChatItem[]
   running: boolean
+  /** History could not be loaded. Set ONLY on a failed `sessions.history`, and the reason a
+   *  click on a saved chat is allowed to look like anything other than an empty conversation:
+   *  swallowing that failure rendered a blank thread that was indistinguishable from a chat
+   *  with no messages in it, so the user clicked, saw nothing, and clicked again. */
+  loadFailed?: boolean
   // deliverables a tool produced, held until the next assistant answer renders them
   // (so the tool log stays pure text and media collects under the answer)
   pendingArtifacts?: Artifact[]

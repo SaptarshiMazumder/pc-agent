@@ -169,6 +169,11 @@ interface AppState {
   flavor: FlavorInfo | null
   supervisor: SupervisorStatus
   connection: 'idle' | 'connecting' | 'open' | 'closed'
+  /** The socket is open AND the handshake behind it has finished (hello, identity, the first
+   *  lists). `connection` says the pipe exists; this says the client can be ASKED things.
+   *  Views gate on this, because everything they fetch needs the identity the handshake
+   *  settles -- and for about a second after every connect, `open` was true and it had not. */
+  ready: boolean
   hello: Hello | null
   view: View
   /** Settings deep-link — a tool's gear icon jumps to Tools & plugins filtered to that tool; null = none */
@@ -379,6 +384,9 @@ export const useApp = create<AppState>((set, get) => {
     }
   }
 
+  /** Has the one-time startup work run? See the handshake's tail. */
+  let bootstrapped = false
+
   async function handshake(): Promise<void> {
     const hello = (await gateway.request<Hello>('hello')) as Hello
     // ADOPT the daemon's run mode on every connect — it is the source of truth now.
@@ -395,8 +403,14 @@ export const useApp = create<AppState>((set, get) => {
       currentAgentId: agentIds.has(preferred) ? preferred : hello.agentId
     })
     await Promise.all([refreshSessions(), refreshRecents(), refreshProjects()])
-    await preinstallBundles()
-    await refreshArtifactActions()
+    // ONCE PER PAGE, not once per reconnect. Installing bundles and reading the artifact action
+    // catalogue are startup work; re-running them on every socket blip is what turned a flaky
+    // connection into a stack of redundant round trips while the user waited.
+    if (!bootstrapped) {
+      bootstrapped = true
+      await preinstallBundles()
+      await refreshArtifactActions()
+    }
   }
 
   /** THE GHOST-SESSION KILLER. This client renders "signed in" from its own storage, but the
@@ -598,8 +612,14 @@ export const useApp = create<AppState>((set, get) => {
       // connection — so a client dropping every ninety seconds on bad wifi produces no symptom
       // anywhere except the user's frustration. Counted here, once per reopen, never on the first.
       if (status === 'open' && get().connection === 'closed') reportReconnect()
-      set({ connection: status })
-      if (status === 'open') void handshake()
+      // NOT ready yet on `open`: the handshake below is what makes this client answerable, and
+      // a view that fetched on `open` was racing it. `ready` goes true when that finishes.
+      set({ connection: status, ready: false })
+      if (status === 'open') {
+        void handshake()
+          .then(() => set({ ready: true }))
+          .catch(() => set({ ready: true })) // a failed handshake must not freeze the UI forever
+      }
     })
   }
 
@@ -609,6 +629,7 @@ export const useApp = create<AppState>((set, get) => {
     flavor: null,
     supervisor: { phase: 'looking', message: 'starting…' },
     connection: 'idle',
+    ready: false,
     hello: null,
     // The URL wins on a cold load, so /admin opens the control plane instead of the default page.
     // Null everywhere the address bar is not ours to read (Electron's file://), which is what
@@ -1145,26 +1166,32 @@ export const useApp = create<AppState>((set, get) => {
       // before) — don't clobber it by reloading.
       const existing = get().sessions[sessionId]
       if (existing && existing.items.length > 0) return
-      try {
-        const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
-          sessionKey: sessionId,
-          agentId: agentId || undefined
-        })
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [sessionId]: { items: historyToItems(payload.messages || []), running: false }
-          }
-        }))
-      } catch {
-        // couldn't load history (daemon busy / gone) — leave the session empty
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [sessionId]: state.sessions[sessionId] || { items: [], running: false }
-          }
-        }))
+      // ONE RETRY, then say so. This used to `catch {}` and store an empty session, which
+      // renders identically to a conversation that has no messages -- so a click that failed
+      // looked like a click that did nothing, and the only recovery was clicking again.
+      // The common failure is a transient (a reconnect mid-request), which a single retry
+      // clears; anything that survives it is reported rather than drawn as emptiness.
+      let messages: any[] | null = null
+      for (let attempt = 0; attempt < 2 && messages === null; attempt++) {
+        try {
+          const payload = await gateway.request<{ messages: any[] }>('sessions.history', {
+            sessionKey: sessionId,
+            agentId: agentId || undefined
+          })
+          messages = payload.messages || []
+        } catch {
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 250))
+        }
       }
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [sessionId]:
+            messages !== null
+              ? { items: historyToItems(messages), running: false }
+              : { ...(state.sessions[sessionId] || { items: [], running: false }), loadFailed: true }
+        }
+      }))
     },
 
     async sendMessage(text, attachments) {
