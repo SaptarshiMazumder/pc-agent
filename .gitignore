@@ -81,3 +81,6 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
+
+# PlantUML renderer for the VS Code preview extension (25 MB, fetched not vendored)
+plantuml-*.jar
