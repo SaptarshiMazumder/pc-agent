@@ -11,7 +11,7 @@
  * binary offers the download instead of pretending to show it.
  */
 
-import { Download } from 'lucide-react'
+import { Download, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { fileUrl, humanSize, type Artifact } from '../../agentd/artifacts'
@@ -19,7 +19,7 @@ import { fileUrl, humanSize, type Artifact } from '../../agentd/artifacts'
 /** Text we are willing to render in a <pre>, by extension. Anything else is offered as a file. */
 const TEXTUAL = /\.(json|txt|md|ya?ml|csv|log|py|js|ts|tsx|css|html|xml|toml|ini|sh)$/i
 
-export function FileViewer({ file }: { file: Artifact }) {
+export function FileViewer({ file, onClose }: { file: Artifact; onClose?: () => void }) {
   const href = fileUrl(file.path)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -65,6 +65,11 @@ export function FileViewer({ file }: { file: Artifact }) {
         <a className="fv-btn" href={href} download={file.name} title="Download this file">
           <Download size={15} strokeWidth={1.8} />
         </a>
+        {onClose && (
+          <button className="fv-btn" onClick={onClose} title="Close" aria-label="Close preview">
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        )}
       </header>
 
       <div className="fv-body">

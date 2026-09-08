@@ -5,8 +5,9 @@
  * range switcher and four KPI cards with meters and sparklines. Fifteen surfaces competing before
  * you had looked at a single thing the agent made. None of it was the work.
  *
- * So: a name, a switch for WHAT you are looking at, and the one live fact that changes what the
- * agent can do — whether the instance answers. Everything else moved into the thing it describes.
+ * So: a name, and the one live fact that changes what the agent can do — whether the instance
+ * answers. Everything else moved into the thing it describes. There is no mode switch either: a
+ * render is a file, the rail already lists it, and a second tab to reach it was a tab too many.
  *
  * THE INSTANCE IS A CHIP, NOT A PANEL — but the detail is not lost. GPU, VRAM and the installed
  * model list live in its popover, which is where you go when the answer is "why did it pick fp8".
@@ -20,8 +21,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentdClient } from '@agentd/client'
 import type { StudioState } from './useStudioState'
 import { useInstanceProbe } from './useInstanceProbe'
-
-export type StudioMode = 'files' | 'renders'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
 function ago(ts: number): string {
@@ -142,15 +141,11 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
 }
 
 export function StudioTopBar({
-  mode,
-  onMode,
   state,
   client,
   credits,
   onCredits,
 }: {
-  mode: StudioMode
-  onMode: (m: StudioMode) => void
   state: StudioState
   client?: AgentdClient
   credits: number | null
@@ -159,15 +154,6 @@ export function StudioTopBar({
   return (
     <header className="sb">
       <span className="sb-name">Workspace</span>
-
-      <div className="sb-modes">
-        <button className={mode === 'files' ? 'is-on' : ''} onClick={() => onMode('files')}>
-          Files
-        </button>
-        <button className={mode === 'renders' ? 'is-on' : ''} onClick={() => onMode('renders')}>
-          Renders
-        </button>
-      </div>
 
       <span className="sb-spacer" />
 

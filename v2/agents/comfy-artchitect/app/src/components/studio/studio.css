@@ -5,55 +5,6 @@
 /* ── the dashboard column ─────────────────────────────────────────────────────────────────── */
 .st-dash { position: relative; z-index: 2; display: flex; flex-direction: column; min-width: 0; }
 
-/* ── panels ───────────────────────────────────────────────────────────────────────────────── */
-.st-panel {
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel);
-  padding: 15px 16px 16px; min-width: 0;
-}
-.st-panel-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 13px; }
-.st-panel-head h2 {
-  margin: 0; flex: 1; font-weight: var(--fw-semi); font-size: var(--fs-lead);
-  letter-spacing: var(--tracking-tight); color: var(--text);
-}
-.st-panel-note { font-size: var(--fs-tiny); color: var(--faint); }
-.st-empty { margin: 0; font-size: var(--fs-meta); line-height: var(--lh-body); color: var(--faint); }
-.st-mono { font-family: var(--mono); }
-
-
-
-/* ── render gallery ───────────────────────────────────────────────────────────────────────── */
-.st-tiles {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: 104px; gap: 9px;
-}
-.st-tile {
-  position: relative; overflow: hidden; display: block; width: 100%; padding: 0; cursor: zoom-in;
-  border: 1px solid var(--border); border-radius: var(--r-card); background: var(--bg3);
-}
-.st-tile:hover { border-color: var(--accent); }
-.st-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.st-tile.is-hero { grid-column: span 2; grid-row: span 2; }
-.st-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.st-tile-fallback {
-  display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
-  flex-direction: column; gap: 6px; color: var(--faint); font-size: var(--fs-small);
-}
-.st-tile-cap {
-  position: absolute; left: 7px; bottom: 7px; max-width: calc(100% - 14px);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--mono); font-size: var(--fs-tiny); color: var(--dim);
-  background: rgba(0, 0, 0, 0.5); border-radius: var(--r-sm); padding: 3px 7px;
-}
-.st-tile.is-pending {
-  border: 1px dashed var(--border2);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
-}
-.st-tile-dot {
-  width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-  animation: st-pulse 1.4s var(--ease-smooth) infinite;
-}
-.st-tile-pending-cap { font-family: var(--mono); font-size: var(--fs-tiny); color: var(--faint); }
-
 /* ── the three-column studio layout ───────────────────────────────────────────────────────── */
 /* Below ~1180px the window PANS horizontally by design (the handoff's explicit fallback) —
    nothing reflows; the dashboard's own grids collapse to 2-up/1-up as their column narrows. */
@@ -89,7 +40,7 @@
 .st-resizer::after { content: ''; display: block; width: 1px; height: 100%; margin: 0 auto;
   background: transparent; transition: background .12s; }
 .st-resizer:hover::after, .st-resizer:active::after { background: var(--accent); }
-.st-dash { flex: 1 0 560px; min-width: 560px; overflow-y: auto; order: 2; }
+.st-dash { flex: 1 0 560px; min-width: 560px; min-height: 0; overflow: hidden; order: 2; }
 
 .st-convo-head {
   flex: none; display: flex; align-items: center; gap: 11px;
@@ -140,16 +91,9 @@
 .fx-name { flex: 1; min-width: 0; word-break: break-all; line-height: 1.35; }
 .fx-size { flex: none; color: var(--faint); font: var(--fs-small) var(--mono); }
 
-/* ── the file viewer + its modal form ───────────────────────────────────────────────────────────────────────── */
-.fm-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;
-  justify-content: center; padding: 5vh 4vw; background: rgba(0, 0, 0, .62);
-  backdrop-filter: blur(2px); }
-.fm-panel { display: flex; flex-direction: column; width: min(980px, 100%); max-height: 90vh;
-  border: 1px solid var(--border2); border-radius: var(--radius); background: var(--bg2);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .55); overflow: hidden; }
+/* ── the file viewer ───────────────────────────────────────────────────────────────────────── */
 .fv-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px;
   border-bottom: 1px solid var(--border); }
-.fv-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .fv-name { font-size: 13px; word-break: break-all; line-height: 1.3; }
 .fv-sub { color: var(--faint); font-size: 11px; }
 .fv-btn { display: flex; align-items: center; justify-content: center; flex: none;
@@ -184,17 +128,9 @@
   flex: none; width: 252px; min-width: 252px; overflow-y: auto; overflow-x: hidden;
   border-right: 1px solid var(--border);
 }
+/* Nothing open: the rail IS the studio, so it stops being a 252px column beside dead space. */
+.st-rail:only-child { flex: 1; width: auto; border-right: 0; }
 .st-view { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-/* NOTHING TO SHOW, said quietly and centred — not a card, not a call to action. An empty state
-   that shouts is the widget this redesign removed, wearing a different hat. */
-.st-view-empty {
-  margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  max-width: 40ch; padding: 24px; text-align: center; color: var(--faint);
-}
-.st-view-empty p {
-  margin: 0; font-size: var(--fs-meta); line-height: var(--lh-body); text-wrap: pretty;
-}
-.st-view-empty svg { opacity: .5; }
 
 /* ── the top bar ──────────────────────────────────────────────────────────────────────────── */
 /* The studio's ONLY chrome: where you are, what you are looking at, and whether the box answers. */
@@ -205,15 +141,6 @@
 }
 .sb-name { font-weight: var(--fw-semi); font-size: var(--fs-meta); color: var(--text); }
 .sb-spacer { flex: 1; }
-.sb-modes { display: flex; gap: 2px; padding: 3px; background: var(--bg2);
-  border: 1px solid var(--border); border-radius: var(--r-control); }
-.sb-modes button {
-  border: 0; background: transparent; cursor: pointer; padding: 4px 11px;
-  border-radius: var(--r-sm, 6px); font: inherit; font-size: var(--fs-tiny);
-  font-weight: var(--fw-semi); color: var(--dim); transition: color .12s;
-}
-.sb-modes button:hover { color: var(--text); }
-.sb-modes button.is-on { background: var(--accent-soft); color: var(--accent-text); }
 
 /* COLOUR IS THE STATUS, so a glance answers "is my box up" without reading a word. */
 .sb-inst { position: relative; }
@@ -305,15 +232,6 @@
 .fx-row.is-on { background: var(--accent-soft); }
 .fx-row.is-on .fx-name { color: var(--accent-text); }
 
-/* The modal form keeps only its own chrome; FileViewer draws the contents. */
-.fm-close {
-  position: absolute; right: 10px; top: 10px; z-index: 1;
-  display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
-  border: 1px solid var(--border2); border-radius: var(--r-sm, 6px);
-  background: var(--bg2); color: var(--dim); cursor: pointer;
-}
-.fm-close:hover { color: var(--text); border-color: var(--accent); }
-.fm-panel { position: relative; }
 
 /* ── motion ───────────────────────────────────────────────────────────────────────────────── */
 @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

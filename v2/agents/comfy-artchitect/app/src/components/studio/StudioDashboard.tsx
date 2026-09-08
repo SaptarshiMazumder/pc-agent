@@ -11,14 +11,12 @@
  *
  * Nothing that MATTERED was dropped, it moved into the thing it belongs to: the instance (and its
  * GPU/VRAM/model list) is a chip in the top bar, the active run is a strip that exists only while
- * something runs, workflows are simply files in the tree, and renders are a mode of the centre
- * pane rather than a panel competing with it. The KPI figures and the history table are gone
- * outright — they were about the dashboard, not about the work.
+ * something runs, and workflows and renders alike are simply files in the tree. The KPI figures,
+ * the history table and the render grid are gone outright — a grid of renders is a second way to
+ * reach files the rail already lists, and it cost a whole mode switch to offer it.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-
-import { FileCode2 } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
@@ -27,8 +25,7 @@ import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
 import { FileViewer } from './FileViewer'
-import { RenderGallery } from './RenderGallery'
-import { StudioTopBar, type StudioMode } from './StudioTopBar'
+import { StudioTopBar } from './StudioTopBar'
 import { useStudioState } from './useStudioState'
 
 import './studio.css'
@@ -48,9 +45,8 @@ export function StudioDashboard({
   onCredits: () => void
 }) {
   const state = useStudioState(client, running)
-  const [mode, setMode] = useState<StudioMode>('files')
-  // Selection is STORE state, not local: the rail is not the only thing that picks. A render tile
-  // and a thumbnail in the transcript both land here too — see the note on `selectedArtifactPath`.
+  // Selection is STORE state, not local: the rail is not the only thing that picks. A thumbnail in
+  // the transcript lands here too — see the note on `selectedArtifactPath`.
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
 
@@ -62,53 +58,27 @@ export function StudioDashboard({
     [artifacts, selectedPath],
   )
 
-  // Open the newest NON-IMAGE file the moment there is one, so the pane is never an empty box
-  // next to a rail that plainly has contents. Only until the user picks for themselves.
+  // NOTHING OPENS BY ITSELF. The pane is a response to a click and only that — no auto-open, no
+  // "helpfully" showing the newest file. Two reasons it must not:
   //
-  // IMAGES ARE NEVER AUTO-OPENED, and that is the thumbnail rule, not a taste call: the gallery
-  // and the artifact strip deliberately render `thumbnailUrl` so the original bytes are not
-  // fetched or decoded "until somebody explicitly opens the file" (agentd/artifacts.ts). This
-  // pane shows the ORIGINAL, so selecting a render on the user's behalf would pull a multi-MB
-  // image on every finished run — quietly undoing that, once per render. A click here is an
-  // explicit open and still gets the full-size file; nothing else does.
+  //   It would make the pane permanent, and a pane that is always there is a second place to look
+  //   whether or not you asked for one. The rail plus the conversation is the resting state.
   //
-  // IT ALSO REPAIRS A SELECTION THAT NO LONGER APPLIES. `artifacts` is now this chat's files, so
-  // switching conversations can leave a path selected that belongs to a different one — the pane
-  // would sit empty next to a rail full of files. A selection that is not in the current list is
-  // treated as no selection.
+  //   It would break the thumbnail rule. The gallery and the transcript render bounded
+  //   `thumbnailUrl` previews precisely so the ORIGINAL bytes are not fetched "until somebody
+  //   explicitly opens the file" (agentd/artifacts.ts). This pane shows the original, so opening a
+  //   render on the user's behalf would pull a multi-MB image on every finished run.
+  //
+  // The one thing this DOES do is drop a selection that no longer applies: `artifacts` is this
+  // chat's files, so switching conversations can leave a path selected that belongs to another —
+  // and the pane would then show a file the rail beside it does not list.
   useEffect(() => {
-    if (artifacts.length === 0) return
-    if (selectedPath && artifacts.some((a) => a.path === selectedPath)) return
-    for (let i = artifacts.length - 1; i >= 0; i--) {
-      if (artifacts[i].kind === 'file') {
-        setSelectedPath(artifacts[i].path)
-        return
-      }
-    }
-    if (selectedPath) setSelectedPath('')
+    if (selectedPath && !artifacts.some((a) => a.path === selectedPath)) setSelectedPath('')
   }, [artifacts, selectedPath, setSelectedPath])
-
-  // PICKING SOMETHING LEAVES THE GRID. A render tile and a transcript thumbnail both set the
-  // selection through the store — they are not children of this component and cannot switch the
-  // mode themselves — so a click while browsing Renders would otherwise change what the pane
-  // WOULD show without changing what it does show, and read as the click having done nothing.
-  const previousPath = useRef(selectedPath)
-  useEffect(() => {
-    const changed = selectedPath && selectedPath !== previousPath.current
-    previousPath.current = selectedPath
-    if (changed) setMode('files')
-  }, [selectedPath])
 
   return (
     <div className="st-dash">
-      <StudioTopBar
-        mode={mode}
-        onMode={setMode}
-        state={state}
-        client={client}
-        credits={credits}
-        onCredits={onCredits}
-      />
+      <StudioTopBar state={state} client={client} credits={credits} onCredits={onCredits} />
       <ActiveRunStrip state={state} client={client} />
 
       <div className="st-body">
@@ -116,25 +86,18 @@ export function StudioDashboard({
           <FileExplorer
             artifacts={artifacts}
             selected={selected}
-            onSelect={(a) => {
-              setSelectedPath(a.path)
-              setMode('files')
-            }}
+            onSelect={(a) => setSelectedPath(a.path)}
           />
         </aside>
 
-        <main className="st-view">
-          {mode === 'renders' ? (
-            <RenderGallery renders={state.renders || []} running={running} query="" />
-          ) : selected ? (
-            <FileViewer file={selected} />
-          ) : (
-            <div className="st-view-empty">
-              <FileCode2 size={26} strokeWidth={1.4} />
-              <p>Workflows and renders from this conversation appear here.</p>
-            </div>
-          )}
-        </main>
+        {/* THE PANE IS NOT RENDERED WHEN NOTHING IS SELECTED — not rendered empty, absent. An
+            empty-state panel still occupies the column and still has to be explained; the rail
+            and the conversation simply take the room back until there is something to show. */}
+        {selected && (
+          <main className="st-view">
+            <FileViewer file={selected} onClose={() => setSelectedPath('')} />
+          </main>
+        )}
       </div>
     </div>
   )
