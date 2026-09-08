@@ -92,17 +92,49 @@
 .fx-size { flex: none; color: var(--faint); font: var(--fs-small) var(--mono); }
 
 /* ── the file viewer ───────────────────────────────────────────────────────────────────────── */
-.fv-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-  border-bottom: 1px solid var(--border); }
+/* STICKY: a 400-line graph scrolls, and the name of what you are reading must not scroll off. */
+.fv-head { position: sticky; top: 0; z-index: 3; flex: none; display: flex; align-items: center;
+  gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(12px); }
+.fv-name { cursor: grab; }
+.fv-name:active { cursor: grabbing; }
+.fv-modes { display: flex; gap: 2px; padding: 3px; margin-left: auto;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-control); }
+.fv-modes button { border: 0; background: transparent; cursor: pointer; padding: 3px 10px;
+  border-radius: var(--r-sm, 6px); font: inherit; font-size: var(--fs-tiny);
+  font-weight: var(--fw-semi); color: var(--dim); transition: color .12s; }
+.fv-modes button:hover { color: var(--text); }
+.fv-modes button.is-on { background: var(--accent-soft); color: var(--accent-text); }
+.fv-readable { padding: 4px 2px 20px; max-width: 78ch; }
 .fv-name { font-size: 13px; word-break: break-all; line-height: 1.3; }
+/* The name is the drag handle, so it must not also be a text selection. */
+.fv-name { user-select: none; }
 .fv-sub { color: var(--faint); font-size: 11px; }
 .fv-btn { display: flex; align-items: center; justify-content: center; flex: none;
   width: 30px; height: 30px; border: 1px solid var(--border2); border-radius: var(--r-sm, 6px);
   background: transparent; color: var(--dim); cursor: pointer; }
 .fv-btn:hover { color: var(--text); border-color: var(--accent); }
 .fv-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
-.fv-text { margin: 0; font: var(--fs-small) var(--mono); line-height: 1.55; white-space: pre;
-  color: var(--text); }
+/* ── the code block ───────────────────────────────────────────────────────────────────────── */
+/* Gutter and code are two columns of ONE grid so the numbers cannot drift out of step with the
+   lines: no wrapping, sideways scroll instead — the bargain every editor makes. */
+.cb { display: flex; align-items: flex-start; font: var(--fs-small) var(--mono); line-height: 1.55; }
+.cb-gutter {
+  flex: none; display: flex; flex-direction: column; text-align: right;
+  padding: 0 10px 0 2px; color: var(--faint); opacity: .55;
+  user-select: none; border-right: 1px solid var(--border);
+}
+.cb-code {
+  flex: 1; min-width: 0; margin: 0; padding: 0 0 0 12px;
+  overflow-x: auto; white-space: pre; color: var(--text);
+}
+.cb-code code { display: block; }
+/* Token colours, from the palette rather than an invented one. */
+.cb-k { color: var(--accent-text); }        /* object key */
+.cb-s { color: #9fd39a; }                   /* string value */
+.cb-n { color: #d9b06a; }                   /* number */
+.cb-b { color: #c58fd8; }                   /* true / false / null */
+.cb-p { color: var(--faint); }              /* braces, brackets, commas */
 .fv-media { display: block; max-width: 100%; max-height: 72vh; margin: 0 auto; border-radius: var(--r-sm, 6px); }
 .fv-audio { width: 100%; }
 .fv-loading, .fv-error { color: var(--faint); font-size: 12px; }

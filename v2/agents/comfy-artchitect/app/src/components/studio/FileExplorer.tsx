@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
+import { isCanvasImportable, setDragPayload } from './dragOut'
 
 interface Dir {
   name: string
@@ -114,7 +115,15 @@ function DirRows({
             className={`fx-row fx-file${f.path === selectedPath ? ' is-on' : ''}`}
             style={{ paddingLeft: 8 + depth * 14 }}
             onClick={() => onOpen(f)}
-            title={f.name}
+            /* DRAG A WORKFLOW STRAIGHT ONTO COMFYUI. Hover its tab mid-drag to switch, then drop
+               on the canvas — no download, no file manager. See dragOut.ts. */
+            draggable
+            onDragStart={(e) => setDragPayload(e.dataTransfer, f)}
+            title={
+              isCanvasImportable(f)
+                ? `${f.name} — drag onto your ComfyUI tab to load it`
+                : f.name
+            }
           >
             <span className="fx-ico">{iconFor(f)}</span>
             <span className="fx-name st-mono">{f.name}</span>
