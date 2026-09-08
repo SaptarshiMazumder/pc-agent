@@ -235,7 +235,12 @@ h2 { font-size: var(--fs-lead); }
 
 /* the AGENTS list is its own fixed-height, independently scrolling region so a long agent roster
    never pushes the conversations off-screen */
-.agents-list { flex: none; max-height: 34vh; overflow-y: auto; overflow-x: hidden; padding: 0 12px 2px; }
+/* THE RECENTS LIST TAKES THE HEIGHT IT IS GIVEN. It used to be `flex: none; max-height: 34vh`
+   with its own `overflow-y: auto` — a second scroller, capped at a third of the viewport, nested
+   inside `.sidebar-scroll`, which already scrolls and already has all the remaining height. Past
+   five or six conversations the list clipped and you scrolled a small box with empty rail below
+   it. One scroll container, no cap; the parent decides how tall this gets. */
+.agents-list { flex: none; overflow-x: hidden; padding: 0 12px 2px; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 4px; }
 /* the section headers that sit OUTSIDE .sidebar-scroll still want the side padding */
 .sidebar > .section-label { padding-left: 20px; padding-right: 20px; }
@@ -353,7 +358,11 @@ h2 { font-size: var(--fs-lead); }
 .rail-agent:hover { background: var(--bg3); }
 .rail-agent.active { background: var(--accent-soft); }
 .rail-sep { width: 26px; height: 1px; background: var(--border); margin: 5px 0; }
-.rail-spacer { flex: 1; }
+/* NOT A SPACER ANY MORE. `.sidebar-scroll` is already `flex: 1`, so a second `flex: 1` sibling
+   SPLIT the free space with it — the list got half the rail and the other half sat empty above
+   the footer. The footer is pushed down by the scroll region growing, which is what should have
+   been doing it all along. */
+.rail-spacer { flex: none; }
 /* the rail's own scroller for the agent avatars, so a long roster cannot push the footer off */
 .rail-agents { display: flex; flex-direction: column; align-items: center; gap: 5px; overflow-y: auto; overflow-x: hidden; min-height: 0; width: 100%; }
 
