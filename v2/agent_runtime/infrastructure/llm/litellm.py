@@ -161,7 +161,56 @@ def messages_to_litellm(system_prompt: str, messages: list[Message]) -> list[dic
                         }
                     )
                 out.append({"role": "user", "content": parts})
-    return out
+    return _answer_dangling_tool_calls(out)
+
+
+#: What a tool result says when the turn died before one was recorded. Deliberately reads as a
+#: fact about the RUN, not as output from the tool — the model must not mistake it for a result.
+INTERRUPTED_TOOL_RESULT = "(interrupted: the run ended before this tool returned a result)"
+
+
+def _answer_dangling_tool_calls(out: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give every `tool_calls` entry an answering `tool` message, inventing one where the run died.
+
+    THE MIRROR OF THE ORPHANED-RESULT RULE ABOVE, and its absence was a conversation-killer. That
+    rule drops a `tool` message whose call was never emitted. This one covers the other direction:
+    an assistant message that announced a tool call whose RESULT never got recorded, because the
+    turn died in between — a 502 from the proxy, a dropped socket, a process going away.
+
+    Every provider validates this and refuses the whole history:
+
+        Invalid request: an assistant message with 'tool_calls' must be followed by tool messages
+        responding to each 'tool_call_id'.
+
+    And the refusal is PERMANENT, which is what makes it worth inventing a message to prevent. The
+    broken history is re-sent on every subsequent turn, so one badly-timed failure does not cost a
+    turn — it costs the conversation, and every future one in that thread. Observed exactly once in
+    the wild and unrecoverable when it happened.
+
+    A PLACEHOLDER RATHER THAN DROPPING THE CALL. Removing the call would also satisfy the provider,
+    but it rewrites history into one where the tool never ran: the model then cannot know an
+    install was queued, a file was written, a payment was taken. It would re-run it. Saying "this
+    was interrupted" is both true and the only version that leaves the model able to reason about
+    what already happened.
+    """
+    answered = {
+        str(m.get("tool_call_id")) for m in out if m.get("role") == "tool" and m.get("tool_call_id")
+    }
+    repaired: list[dict[str, Any]] = []
+    for entry in out:
+        repaired.append(entry)
+        if entry.get("role") != "assistant":
+            continue
+        for call in entry.get("tool_calls") or []:
+            cid = str(call.get("id") or "")
+            if cid and cid not in answered:
+                # Directly after the announcing message: a tool result is only valid there, and
+                # the real results (if any) follow it harmlessly.
+                repaired.append(
+                    {"role": "tool", "tool_call_id": cid, "content": INTERRUPTED_TOOL_RESULT}
+                )
+                answered.add(cid)
+    return repaired
 
 
 def tools_to_litellm(tools) -> list[dict[str, Any]] | None:
