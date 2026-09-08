@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.27.0"
+version = "1.28.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"
@@ -128,6 +128,22 @@ key   = "COMFYUI_MCP_URL"
 label = "Instance MCP URL"
 kind  = "url"
 help  = "Optional. If an MCP server runs beside your ComfyUI (e.g. artokun/comfyui-mcp on the same box), its URL — the agent gains its tools: model installing, live graph editing, whatever it serves."
+
+# PROVIDER KEYS FOR PAID API NODES — one field, any number of them.
+#
+# The best model for a job is sometimes a hosted service (Seedance, Kling, Runway, Veo...), and
+# each wants its own key. Naming them individually here would fix the list at whatever existed
+# the day this file was written, and the field would be wrong within a month — so it is generic:
+# one `NAME=value` per line, added through this agent's "Add secret" panel.
+#
+# THE VALUE NEVER REACHES A WORKFLOW FILE. The agent emits `${NAME}` where the key belongs and
+# `comfy_run` substitutes at submit time, so a workflow on disk (and in the file rail, and in a
+# drag onto ComfyUI) carries the placeholder, not the credential.
+[[settings]]
+key   = "PROVIDER_KEYS"
+label = "Provider API keys"
+kind  = "secret"
+help  = "NAME=value pairs, separated by ; or newlines — e.g. KLING_API_KEY=sk-abc; RUNWAY_API_KEY=sk-def. Add a new one by re-entering the whole list (a saved secret is never shown back, so it cannot be appended to). The agent writes ${NAME} into the workflow and fills the value in only when submitting, so no key is ever stored in a workflow file."
 
 [[settings]]
 key   = "COMFY_CLOUD_KEY"

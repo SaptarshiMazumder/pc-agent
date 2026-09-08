@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 
@@ -654,6 +655,16 @@ class ComfyRunTool(Tool):
                     is_error=True,
                 )
 
+            # Secrets go in HERE, not when the workflow was written — see _fill_secrets.
+            prompt, missing_keys = _fill_secrets(prompt)
+            if missing_keys:
+                return ToolResult.text(
+                    "this workflow needs API key(s) that are not saved yet: "
+                    + ", ".join(missing_keys)
+                    + ". Add them in this agent's settings (\"Add secret\": name, then value) and "
+                      "run it again — the value stays in settings and is filled in only at submit.",
+                    is_error=True,
+                )
             res = _post("/api/prompt", {"prompt": prompt})
             if res.status == 400:
                 try:
@@ -769,6 +780,64 @@ def _manager_present() -> bool:
     Present on almost every rented-GPU template (vast, RunPod); absent on a bare install."""
     res = _get("/manager/queue/status", timeout_s=15.0)
     return res.ok
+
+
+#: `${NAME}` as written into an emitted workflow where a credential belongs.
+_SECRET_REF = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def _provider_keys() -> dict:
+    """`NAME=value` pairs from the PROVIDER_KEYS secret, as a dict.
+
+    One generic field rather than a named setting per provider: the list of paid services worth
+    using changes faster than this file does, and a fixed set would be wrong within a month.
+    SEPARATED BY NEWLINE **OR** SEMICOLON, and that is not cosmetic: the settings page renders a
+    secret as a single-line `<input type="password">`, so a newline cannot be typed into it. A
+    user pasting `A=1; B=2` on one line has to work, or the field is unusable for its own purpose.
+    Blank entries and `#` comments are ignored so a user can label their own."""
+    out: dict = {}
+    raw = (os.environ.get("PROVIDER_KEYS") or "").replace(";", chr(10))
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name, value = name.strip(), value.strip()
+        if name and value:
+            out[name] = value
+    return out
+
+
+def _fill_secrets(graph: dict) -> tuple[dict, list]:
+    """Replace `${NAME}` in every string input with its PROVIDER_KEYS value, AT SUBMIT TIME.
+
+    THE POINT IS THAT THE FILE NEVER HOLDS THE KEY. A paid API node wants a credential as a node
+    input, so writing the real value when the workflow is emitted would put it in a file that is
+    listed in the rail, openable in the viewer, downloadable, and draggable onto another tab. The
+    graph on disk carries the placeholder; only the copy POSTed to ComfyUI carries the secret.
+
+    Returns the filled graph and the names that had no value — those are worth telling the user
+    about by NAME (never by value), because the alternative is ComfyUI rejecting a literal
+    "${KLING_API_KEY}" with an error that explains nothing.
+    """
+    keys = _provider_keys()
+    missing: list = []
+
+    def walk(v):
+        if isinstance(v, str):
+            for m in _SECRET_REF.findall(v):
+                if m in keys:
+                    v = v.replace("${" + m + "}", keys[m])
+                elif m not in missing:
+                    missing.append(m)
+            return v
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        return v
+
+    return walk(graph), missing
 
 
 def _manager_catalog() -> list[dict]:

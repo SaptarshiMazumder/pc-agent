@@ -21,4 +21,4 @@ description = "Probe a ComfyUI instance, read what it has installed, research wh
 # huggingface.co / civitai.com need no entry at all.
 [sandbox]
 net     = ["${COMFYUI_URL}"]
-secrets = ["COMFYUI_AUTH", "COMFYUI_AUTH2", "COMFYUI_AUTH3", "HF_TOKEN", "CIVITAI_TOKEN"]
+secrets = ["COMFYUI_AUTH", "COMFYUI_AUTH2", "COMFYUI_AUTH3", "HF_TOKEN", "CIVITAI_TOKEN", "PROVIDER_KEYS"]
