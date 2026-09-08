@@ -249,9 +249,18 @@ h2 { font-size: var(--fs-lead); }
    applies cleanly — a pinned header sits in the fade zone and gets dimmed. */
 .sidebar-scroll > .section-label {
   height: 32px; align-items: center;
-  margin: 0 -12px; padding: 0 20px;
+  margin: 0 -12px 8px; padding: 0 20px;
   background: var(--bg2);
 }
+
+/* RECENTS HAS TO BREATHE. The header sat flush on the first conversation and every row sat flush
+   on the next, so five separate chats read as one paragraph of grey text — you had to parse it
+   rather than scan it. Two lines per row (title + last message) makes the run-together worse than
+   it would be for single-line rows, which is why the spacing lives here and not on `.row`, whose
+   other users are single-line nav items that look right tight. */
+.sidebar-scroll .row { padding-top: 7px; padding-bottom: 7px; }
+.sidebar-scroll .row + .row { margin-top: 3px; }
+.sidebar-scroll .row-main { gap: 2px; }
 /* clickable collapsible header: the label toggles the section; the caret and the "+" stay hidden
    until the header is hovered, so a resting sidebar is a list of names and nothing else */
 .section-head { cursor: pointer; user-select: none; }
