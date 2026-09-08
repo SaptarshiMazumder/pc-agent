@@ -178,7 +178,13 @@ export const useApp = create<AppState>((set) => ({
       currentSessionKey: key,
       view: 'chat',
       // AN EXISTING CONVERSATION IS NOT RESET by opening it again: its run may still be going.
-      sessions: s.sessions[key] ? s.sessions : { ...s.sessions, [key]: { ...EMPTY, items } },
+      // LOADED HISTORY WINS over an empty placeholder: the rail opens a chat before the
+      // transcript arrives, so the second call -- the one carrying the messages -- must be
+      // able to fill it, or the fetch is dropped and the thread stays blank.
+      sessions:
+        s.sessions[key] && !(items.length && (s.sessions[key].items || []).length === 0)
+          ? s.sessions
+          : { ...s.sessions, [key]: { ...(s.sessions[key] || EMPTY), items } },
     })),
 
   newSession: (show = true) => {

@@ -27,6 +27,7 @@ import {
 import type { ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
+import { loadHistory } from '../agentd/sessions'
 
 import { when } from '../agentd/sessions'
 import { ProfileMenu } from '../common/auth/ProfileMenu'
@@ -96,6 +97,23 @@ export function Sidebar({
   const openSession = useApp((s) => s.openSession)
   const currentKey = useApp((s) => s.currentSessionKey)
   const connected = status === 'open'
+
+  /** Open a saved chat AND fetch what was said in it. Opening first keeps the click feeling
+   *  instant (the view switches now, the messages land when they arrive); the fetch is what was
+   *  missing entirely -- the rail used to switch to a thread nobody had loaded, so every saved
+   *  conversation opened blank. A failure leaves the thread as it was rather than replacing it
+   *  with emptiness that looks like a conversation with nothing in it. */
+  const open = (sessionId: string): void => {
+    openSession(sessionId)
+    if (!client) return
+    void loadHistory(client, sessionId)
+      .then((items) => {
+        if (items.length) openSession(sessionId, items)
+      })
+      .catch(() => {
+        /* left as-is: the rail still shows the row, and re-clicking retries */
+      })
+  }
 
   return (
     <aside className="rail sidebar">
@@ -181,7 +199,7 @@ export function Sidebar({
                 <button
                   key={c.sessionId}
                   className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
-                  onClick={() => openSession(c.sessionId)}
+                  onClick={() => open(c.sessionId)}
                   title={c.title || 'Untitled'}
                 >
                   <span className="row-main">

@@ -6,6 +6,7 @@
  * agentd's do; what stays here is everything that is about a session rather than about the list. */
 
 import type { AgentdClient } from '@agentd/client'
+import { restore, type ThreadItem } from './chat'
 import { AGENT_ID } from './client'
 
 export interface ChatRow {
@@ -96,4 +97,35 @@ export async function forkSession(client: AgentdClient, sessionKey: string): Pro
     throw new Error(String(res?.error || 'the daemon would not copy this conversation'))
   }
   return String(res.sessionKey)
+}
+
+
+/** THE MESSAGES BEHIND A SAVED CONVERSATION.
+ *
+ *  This did not exist, and `restore()` sat in chat.ts with nothing calling it: clicking a chat
+ *  in the rail set the session key and rendered an EMPTY thread, every time, in every agent
+ *  built from this skeleton. It reads exactly like a click that did nothing -- which is what it
+ *  was, since the transcript was never asked for.
+ *
+ *  ONE RETRY, then throw. A transient (a reconnect mid-request) is the common failure and
+ *  clears on a second try; anything that survives it is the caller's to show, because silently
+ *  returning [] here would put the blank thread back. */
+export async function loadHistory(
+  client: AgentdClient,
+  sessionKey: string,
+): Promise<ThreadItem[]> {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res: any = await client.request('sessions.history', {
+        agentId: AGENT_ID,
+        sessionKey,
+      })
+      return restore((res?.messages as any[]) || [])
+    } catch (e) {
+      lastError = e
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 250))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }

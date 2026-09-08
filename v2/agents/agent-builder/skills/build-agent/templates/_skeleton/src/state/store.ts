@@ -104,7 +104,14 @@ export const useApp = create<AppState>((set) => ({
       currentSessionKey: key,
       view: 'chat',
       // AN EXISTING CONVERSATION IS NOT RESET by opening it again: its run may still be going.
-      sessions: s.sessions[key] ? s.sessions : { ...s.sessions, [key]: { ...EMPTY, items } },
+      // BUT loaded history WINS over an empty placeholder: the rail opens a chat before the
+      // transcript arrives, so the second call -- the one carrying the messages -- must be able
+      // to fill it. Without this the fetched history was dropped on the floor and the thread
+      // stayed blank, which is the bug the fetch was added to fix.
+      sessions:
+        s.sessions[key] && !(items.length && (s.sessions[key].items || []).length === 0)
+          ? s.sessions
+          : { ...s.sessions, [key]: { ...(s.sessions[key] || EMPTY), items } },
     })),
 
   newSession: (show = true) => {
