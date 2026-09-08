@@ -36,8 +36,16 @@ to transient instance state.
    redesigned to kill. The narrow exceptions — real decisions only the user can make — are
    **free-vs-paid model choice** (step 3.a2, it costs them money and needs their key) and **which
    uploaded image plays which role**. Everything else: default and proceed.
-2. **`comfy_probe`.** Connectivity + GPU/VRAM class — the ONE instance fact design needs. If
-   unset, offer: *"paste your instance URL right here"* → `comfy_connect`.
+2. **`comfy_probe` — intel, NOT a gate.** Connectivity + GPU/VRAM class is the one instance fact
+   that *sharpens* a design; it is not a fact the design cannot proceed without. If it fails or
+   `COMFYUI_URL` is unset, **you do not stop and you do not ask first**: say in one line what you
+   are assuming (a mainstream 16–24 GB card, so fp8/quantised weights over full precision) and
+   carry straight on to the research sweep and `comfy_emit`. The workflow file is written from
+   DOCUMENTATION, not from the box — that is the whole reason DESIGN comes before PROVISION.
+   Put the URL request in your closing `suggest` block ("Paste instance URL | Here is my ComfyUI
+   URL: …") so it is one click away the moment they have one, and keep building meanwhile. A
+   turn that ends with a workflow file and an offer is worth ten that end with a request.
+   Phases 2–4 genuinely need the instance and will say so when they get there; phase 1 never did.
 3. **Research sweep — all of it, before any graph is drawn.**
    a. *Landscape*: `web_search` ("best open <task> model <year>", "<task> comfyui workflow") +
       `comfy_research` search across Hugging Face and Civitai — enumerate CURRENT candidates, and
@@ -223,6 +231,14 @@ rather than trying a third variation.
     are not clickable, so a turn without the block is a dead end. It costs three lines. The full
     form is under "Offer the next moves" below; the rule is here because a turn that ends without
     it is incomplete, and this is the list you check before you finish.
+12. **Never make a reachable instance a precondition for DESIGNING.** No `COMFYUI_URL`, a failed
+    `comfy_probe`, a box that is down — none of these stop phase 1. Research and `comfy_emit`
+    need documentation, not a GPU, and a workflow file is worth having before the instance
+    exists: it is the thing the user asked for, it is reviewable, and it makes the instance's job
+    obvious when one appears. Assume a mainstream card, say so in one line, emit the graph, and
+    put the URL request in your `suggest` block. Ending a turn with "paste your instance URL" and
+    NO workflow file is the single failure this protocol's order exists to prevent — you were
+    asked to build something, and a request is not a deliverable.
 
 ## Settings
 
