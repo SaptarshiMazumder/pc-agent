@@ -1,0 +1,23 @@
+{
+  "id": "best-model-paid-wins",
+  "agent_id": "comfy-artchitect",
+  "goal": "THE COUNTERFACTUAL the other two cannot test. best-model-any-price passed with a FREE winner, so it proved the agent SEES paid options — not that it will ever choose one. This brief is picked so the honest answer is paid: accurate lip-sync to a given script is something the hosted services are built for and open-weight video models are still weak at (the local route offers reference-audio guidance without guaranteeing sync). No price constraint is stated, so the only correct outcome is the paid pick, named and used.",
+
+  "settings": { "COMFYUI_URL": "" },
+
+  "turns": [
+    "i need a 20 second video of a woman talking straight to camera in an office, saying exactly: 'We shipped the new release this morning, and every customer is already on it.' the lip sync has to be accurate — this is going to a client, so it has to look real.",
+    "do everything yourself and show me the result"
+  ],
+
+  "_comment_checks": "The pattern asserts a CHOICE, not a mention: a verb of selection within a short span of the service name. best-model-any-price already showed that merely listing paid options passes a looser pattern while a free model wins — so a looser one here would prove nothing.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "(pick|picked|choos|chose|using|use|go with|going with|best fit is|recommend)[^.\n]{0,80}(kling|veo|seedance|runway|hailuo|api node)" },
+    { "name": "tool_succeeded", "tool": "comfy_emit" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 20 }
+  ],
+  "max_turns": 20
+}

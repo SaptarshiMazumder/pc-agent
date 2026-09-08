@@ -26,6 +26,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlencode
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
@@ -507,10 +508,20 @@ class ComfyDownloadTool(Tool):
                 # Basename only for the local file: the server's subfolder is ITS layout, and a
                 # filename with separators must not steer where this run writes.
                 dest = root / "outputs" / Path(filename).name
+                # THE QUERY GOES IN THE PATH, NOT IN `params`. This was the one call in the plugin
+                # that used httpx's `params=`, and it was the one call that 401'd on any instance
+                # whose URL carries a token. The host folds `${COMFYUI_URL}`'s own query — the
+                # `?token=…` vast and RunPod hand out — into the resolved URL; httpx then REPLACES
+                # that query with `params`, so the token was stripped a layer below where anyone
+                # was looking. Every other call here builds its query into the path and works,
+                # which is exactly why downloads were the only thing failing.
+                # `_url` ALREADY carries a query when the user pasted a tokened URL in chat, so
+                # the separator has to be chosen, not assumed — "?a=1?b=2" is not a URL.
+                view = _url("/api/view")
+                view += ("&" if "?" in view else "?") + urlencode(query)
                 res = fetch(
-                    _url("/api/view"),
+                    view,
                     headers=_headers(),
-                    params=query,
                     save_path=str(dest),
                     timeout_s=300.0,
                 )
