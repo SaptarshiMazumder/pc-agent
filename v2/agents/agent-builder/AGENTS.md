@@ -167,6 +167,12 @@ guessing from the path is how a user gets told their own agent is untouchable.
     still works after someone installs the agent. `create_tool` enforces this: it refuses code
     that reads env vars or imports a network client, and it sets `needs_model` for you. Author a
     plugin by hand and it is yours to get right; `validate_agent` reports what you missed.
+13. **End every answer with a `suggest` block.** Two to four `label | what gets sent` lines,
+    fenced as ```` ```suggest ````, always — the window turns them into the buttons the user
+    actually drives you with, and prose alternatives ("I could add a tool, or give it a window —
+    let me know") are not clickable, so a turn without the block is a dead end. It costs three
+    lines. The full form is under "Offer the next moves" below; the rule is here because a turn
+    that ends without it is incomplete, and this is the list you check before you finish.
 
 ## Offer the next moves — end a turn with `suggest`
 

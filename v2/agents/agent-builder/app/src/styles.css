@@ -160,6 +160,14 @@ body {
 button { font: inherit; cursor: pointer; border: 1px solid transparent; background: none; color: inherit; }
 button:disabled { opacity: 0.38; cursor: default; }
 input, select, textarea { font: inherit; color: inherit; }
+
+/* THE NATIVE POPUP DOES NOT INHERIT THE PAGE. `color: inherit` above hands every <option> the
+   theme's light text, but the list Chromium draws for an author-styled <select> keeps a LIGHT
+   background regardless of `color-scheme` — so every dropdown opened white-on-white and
+   unreadable. Options must carry BOTH colours themselves, and OPAQUE ones: --bg2/--bg3 are
+   translucent white in the glass themes, and a translucent surface composites against the OS
+   popup rather than against the app, which is the very thing that made this white. */
+option, optgroup { background-color: var(--bg); color: var(--text); }
 h1, h2, h3 { margin: 0; font-weight: var(--fw-heavy); letter-spacing: -0.015em; }
 p { margin: 0; }
 
@@ -780,6 +788,20 @@ h2 { font-size: 16px; }
 .tool-running { font: 12px var(--mono); color: var(--accent-text); padding: 5px 0 0 30px; animation: ag-pulse 1.2s ease infinite; }
 /* expanded: the whole thing, capped and scrollable so one enormous result cannot own the thread */
 .tool-full { margin: 6px 0 0 30px; padding: 12px 14px; background: var(--bg4); border: 1px solid var(--border); border-radius: 9px; max-height: 280px; overflow: auto; font: 12px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
+
+/* A finished tool that ACHIEVED something announces itself as a milestone instead of as a tool
+   row — the vocabulary is in components/milestones.ts, per-agent by nature. Deliberately quieter
+   than a tool row: this is a headline over the transcript, not a control. There is no --ok in
+   this palette; --accent IS the positive colour here. */
+.milestone { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: 12.5px; }
+.milestone-tick {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);
+}
+.milestone.is-warn .milestone-tick { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.milestone-label { color: var(--text); }
+.milestone-detail { font: 11px var(--mono); color: var(--faint); }
 
 /* the update_plan checklist, and a subagent's step list — one shape, two readers */
 .todo-list { list-style: none; margin: 6px 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 5px; }

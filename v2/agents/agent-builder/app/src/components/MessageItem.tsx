@@ -17,6 +17,7 @@
 import { useState } from 'react'
 
 import { Suggestions, parseSuggestions } from './Suggestions'
+import { milestoneFor } from './milestones'
 import {
   AlertTriangle,
   Bot,
@@ -372,6 +373,24 @@ export default function MessageItem({
             <PlanBlock item={item} running={running} />
           </div>
         )
+      }
+      {
+        // A FINISHED tool that means something to the user is announced as what it achieved;
+        // the row itself stays available underneath for anyone who wants the arguments.
+        const milestone = item.done
+          ? milestoneFor(item.name, item.args, item.result, item.isError)
+          : null
+        if (milestone) {
+          return (
+            <div className="msg-item">
+              <div className={`milestone${item.isError ? ' is-warn' : ''}`}>
+                <span className="milestone-tick">{item.isError ? '!' : '✓'}</span>
+                <span className="milestone-label">{milestone.label}</span>
+                {milestone.detail && <span className="milestone-detail">{milestone.detail}</span>}
+              </div>
+            </div>
+          )
+        }
       }
       return (
         <div className="msg-item">

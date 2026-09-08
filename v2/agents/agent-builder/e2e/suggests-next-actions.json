@@ -1,0 +1,25 @@
+{
+  "id": "suggests-next-actions",
+  "agent_id": "agent-builder",
+  "goal": "The builder must OFFER the next moves rather than hand back a blank text box: every turn that has an obvious next step ends with a `suggest` block, which the window renders as clickable chips. Building an agent has obvious next steps (give it a window, add a tool, test drive it) and the person often does not yet know which are available — so the offer must arrive WITHOUT reverting to asking permission first.",
+
+  "_comment_settings": "The builder needs no per-account settings to answer these turns — it builds inside its own agents dir. Nothing to inject.",
+
+  "turns": [
+    "what can you build for me? give me something simple to start with",
+    "yeah do that one"
+  ],
+
+  "_comment_checks": "message_says is the point of this scenario: a capability that lives in what the agent SAYS is invisible to every tool-shaped check, and an instruction the model quietly ignores is the commonest way a shipped feature does nothing. This is not hypothetical here — the PROSE version of this instruction was ignored by both gemini-flash and gemini-pro in comfy-artchitect, and only a numbered hard rule fixed it. agent-builder carried the same prose-only form until now, so this scenario is what proves the promotion took. The no_* checks guard the regression that matters — chips must not become a permission gate.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "message_says", "pattern": "```suggest" },
+    { "name": "message_says", "pattern": "```suggest[\\s\\S]*\\|", "where": "last" },
+    { "name": "no_blocking_stall" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_repeated_question" },
+    { "name": "max_turns", "n": 12 }
+  ],
+
+  "max_turns": 12
+}
