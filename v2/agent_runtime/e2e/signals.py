@@ -70,17 +70,59 @@ def looks_environmental(text: str) -> bool:
     checks/report layers and the e2e_run tool can triage with the same single rule."""
     return bool(text and _ENV_RX.search(text))
 
-#: Tools that constitute DOING THE WORK vs talking about it. Agent-agnostic by construction: a
-#: build tool is one whose name is not a pure read/probe. For a precise verdict a scenario can
-#: pass its own list, but the default heuristic — "did any non-read tool run" — is enough to
-#: separate a turn that acted from a turn that only asked.
-_READONLY_HINTS = ("probe", "inventory", "status", "list", "spec", "get", "read", "research", "check")
+#: Tools that are NOT doing the work — reads, probes, and BOOKKEEPING. Agent-agnostic by
+#: construction: a build tool is one whose name is none of these. For a precise verdict a scenario
+#: can pass its own list, but the default heuristic — "did any tool that changes something run" —
+#: is enough to separate a turn that acted from a turn that only asked.
+#:
+#: "plan" IS IN THIS LIST, and that was a real false negative. `update_plan` writes a checklist and
+#: changes nothing else, but its name carries none of the read hints, so a turn that planned and
+#: then asked the user for input scored as HAVING ACTED — which suppressed `blocking_stall` on that
+#: turn AND, by making it the "first build turn", suppressed the check on every turn after it. A
+#: run where the agent announced a plan and then downed tools came back clean.
+_NON_BUILD_HINTS = ("probe", "inventory", "status", "list", "spec", "get", "read", "research",
+                    "check", "plan")
+
+#: The same idea, matched WHOLE rather than as a substring — because the shared read tools are
+#: named too short and too plainly for substring matching to reach them. `ls` cannot be a hint: it
+#: is inside "tools", "models" and "controls", so adding it would silently reclassify half the
+#: catalogue as read-only. These names carry no hint at all and so were all scored as BUILD WORK,
+#: which is how a turn that ran `ls` + `find`, then asked the user for a URL, counted as a turn
+#: that acted — and became the "first build turn" that suppressed the stall check on every turn
+#: after it. Research is deliberately here too: reading the web is not building anything, and
+#: "researched, then asked for the URL" is precisely the stall this detector exists to catch.
+_NON_BUILD_EXACT = frozenset({
+    "ls", "find", "grep", "glob", "cat", "tree", "stat",
+    "web_search", "web_fetch", "browser",
+    "show_files", "verify_answer",
+})
+
+#: A trailing ```suggest fence — chips, not prose. STRIPPED BEFORE ASKING "was this a question",
+#: because `\?\s*$` anchors to the END of the message and the fence now sits there on every turn:
+#: the agent's real closing sentence stopped being last, so an end-anchored match could never fire
+#: again. The convention we added to make turns actionable quietly blinded the detector watching
+#: for turns that hand work back.
+_SUGGEST_FENCE_RX = re.compile(r"(?:```|~~~)\s*suggest\s*\n[\s\S]*?(?:(?:```|~~~)|\Z)", re.I)
 
 #: Phrases that mark an assistant turn as ASKING or DEFERRING rather than acting. Deliberately
 #: about intent, not topic, so they generalise past ComfyUI.
+#:
+#: THE SECOND GROUP IS THE IMPERATIVE ASK, and it is how agents actually ask. Politeness forms
+#: ("could you", "please provide") are what a detector author writes down; "Paste your instance URL
+#: right here in chat" and "I need one thing from you" are what a model writes, and neither carries
+#: a question mark. A stall phrased as an instruction is still a stall.
 _QUESTION_RX = re.compile(r"\?\s*$|\bplease (?:provide|upload|share|tell|confirm|choose)\b|"
-                          r"\bwhich (?:one|of|image)\b|\bcould you\b|\blet me know\b", re.I)
-_GIVEUP_RX = re.compile(r"\bI (?:can(?:not|'t)|am unable to|won't be able)\b|"
+                          r"\bwhich (?:one|of|image)\b|\bcould you\b|\blet me know\b|"
+                          r"\bI (?:need|require)\b[^.\n]{0,40}\bfrom you\b|"
+                          r"\bwhat I need from you\b|\bthe one thing (?:only )?you\b|"
+                          r"\b(?:paste|send|give|share|upload)\s+(?:me\s+)?(?:your|the)\b"
+                          r"[^.\n]{0,40}\b(?:url|link|key|token|address|credential|file|image)\b",
+                          re.I)
+#: An ADVERB MAY SIT INSIDE THE ADMISSION. "I physically can't reach a ComfyUI instance" is the
+#: same punt as "I can't reach it", but `\bI (?:can't…)` demands the two words be adjacent and so
+#: missed it. The bounded gap allows "physically", "really", "genuinely" — without letting the
+#: match run across a sentence boundary and pair an "I" with someone else's "can't".
+_GIVEUP_RX = re.compile(r"\bI\b[^.\n]{0,24}?\b(?:can(?:not|'t)|am unable to|won't be able)\b|"
                         r"\byou(?:'ll| will) need to\b|\byou (?:must|should) (?:install|download|run|set up)\b|"
                         r"\bnot permitted\b|\bno (?:tool|way|access)\b", re.I)
 _DEFER_RX = re.compile(r"\blater\b|\bfor now\b|\bskip\b|\bdon'?t worry about\b|\bfirst\b", re.I)
@@ -103,17 +145,30 @@ class Finding:
 
 
 def _acted(turn: Turn) -> bool:
-    """Did this turn DO something, not just read and talk? A build tool = any tool whose name is
-    not purely a read/probe/research."""
+    """Did this turn DO something, not just read, plan and talk? A build tool = any tool whose name
+    is not a read/probe/research or bookkeeping."""
     for t in turn.tools:
-        n = t.name.lower()
-        if not any(h in n for h in _READONLY_HINTS):
+        if _is_build_tool(t.name):
             return True
     return False
 
 
+def _is_build_tool(name: str) -> bool:
+    """One definition of "this tool changes something", used by every caller — `_acted` and the
+    first-build scan in `stall` must never disagree about what counts."""
+    n = (name or "").lower()
+    return n not in _NON_BUILD_EXACT and not any(h in n for h in _NON_BUILD_HINTS)
+
+
 def _is_question(text: str) -> bool:
-    return bool(text and _QUESTION_RX.search(text.strip()))
+    """Did this message end by putting the ball back in the user's court?
+
+    The `suggest` fence comes off first. It is chips rather than prose, it is now on EVERY turn by
+    instruction, and leaving it in place means the end-anchored `\\?$` can only ever see the fence
+    — so the question mark that used to end an asking turn is no longer last and never matches."""
+    if not text:
+        return False
+    return bool(_QUESTION_RX.search(_SUGGEST_FENCE_RX.sub("", text).strip()))
 
 
 # ─────────────────────────────────────────────────────────── determinism / thrash ──────────
@@ -173,7 +228,7 @@ def stall(trace: Trace) -> list[Finding]:
     canonical case: it ends a turn asking for input before ANY build tool has run."""
     out: list[Finding] = []
     first_build = trace.first_tool_turn(
-        [c.name for c in trace.all_tools if not any(h in c.name.lower() for h in _READONLY_HINTS)]
+        [c.name for c in trace.all_tools if _is_build_tool(c.name)]
     )
 
     for t in trace.turns:
