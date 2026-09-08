@@ -194,7 +194,10 @@ export function useSettings(client: AgentdClient, agentId: string) {
   const clearOverride = useCallback(
     (f: FieldSpec) => {
       if (!f.agent) return
-      setDraft((prev) => deletePath(prev, `agents.${agentId}.${f.key}`))
+      // NULL, not a deleted key. The daemon MERGES this block (so setting one field never erases
+      // its siblings), which means an omitted key keeps its old value — a "hand it back" that
+      // reported success and changed nothing. `null` is the explicit remove signal.
+      setDraft((prev) => setPath(prev, `agents.${agentId}.${f.key}`, null))
     },
     [agentId],
   )
@@ -206,15 +209,30 @@ export function useSettings(client: AgentdClient, agentId: string) {
 
   /** What actually goes to the daemon: the TOP-LEVEL keys whose value differs from what was
    *  loaded. Nested edits ride inside their own top-level key, which is why `config.set` needs no
-   *  notion of paths. */
+   *  notion of paths.
+   *
+   *  `agents` IS NARROWED TO THIS AGENT, and that is not tidiness — it is the whole save. The
+   *  draft is seeded from `config.get`, which hands back EVERY agent's block, so sending the
+   *  changed top-level key verbatim meant this page asked to write its siblings' settings too.
+   *  The daemon rightly refuses one agent's page writing another's, and it refuses the WHOLE
+   *  patch: the save came back `saved: false` and the model snapped back to the daemon's on the
+   *  next reload (found live on a hosted daemon, where every account has more than one agent —
+   *  and invisible on a fresh desktop, where it has exactly one). */
   const patch = useMemo(() => {
     const out: Record<string, any> = {}
     const values = data?.values || {}
     for (const k of Object.keys(draft)) {
-      if (JSON.stringify(draft[k]) !== JSON.stringify(values[k])) out[k] = draft[k]
+      if (JSON.stringify(draft[k]) === JSON.stringify(values[k])) continue
+      if (k === 'agents') {
+        const own = (draft.agents || {})[agentId]
+        const loaded = (values.agents || {})[agentId]
+        if (JSON.stringify(own) !== JSON.stringify(loaded)) out.agents = { [agentId]: own }
+        continue
+      }
+      out[k] = draft[k]
     }
     return out
-  }, [draft, data])
+  }, [draft, data, agentId])
 
   const dirty = Object.keys(patch).length > 0 || Object.keys(keys).length > 0
 
@@ -231,6 +249,20 @@ export function useSettings(client: AgentdClient, agentId: string) {
       if (Object.keys(patch).length) params.patch = patch
       if (Object.keys(keys).length) params.keys = keys
       const res: any = await client.request('config.set', params)
+      if (res?.saved === false) {
+        // The daemon REFUSED (a locked key, a machine-only knob, a hosted rule). Saying
+        // "Saved." here is how a reverted dropdown became unreportable — the page must relay
+        // the daemon's own reason, not its own optimism.
+        throw new Error(String(res?.error || 'the daemon did not store the change'))
+      }
+      if (Array.isArray(res?.ignored) && res.ignored.length) {
+        setMessage({
+          text: `Saved — except ${res.ignored.join(', ')}: ${String(res.ignoredReason || 'locked by the agent author')}`,
+          tone: 'bad',
+        })
+        await load()
+        return !!res?.restartRequired
+      }
       const restartRequired = !!res?.restartRequired
       setMessage({ text: restartRequired ? 'Saved — restarting…' : 'Saved.', tone: 'ok' })
       await load() // reseeds the draft from what the daemon actually stored
