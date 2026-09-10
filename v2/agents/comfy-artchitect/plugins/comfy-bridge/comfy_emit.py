@@ -125,16 +125,31 @@ class ComfyEmitTool(Tool):
             api_path.write_text(json.dumps(api, indent=2) + "\n", encoding="utf-8")
             ui_path.write_text(json.dumps(ui, indent=2) + "\n", encoding="utf-8")
 
+            # WORKSPACE-RELATIVE NAMES, not the absolute ones just written to.
+            #
+            # `current_workspace()` answers in the SANDBOX's coordinates, and on a microVM the
+            # executor mounts the tree at its own prefix — /tmp/exec-<id>/ws. The files land
+            # correctly and sync back to the real workspace, but every path this tool NAMES is
+            # then a guest path: the window cannot resolve it, so the file rail reads "Nothing
+            # written yet" directly beside a message that just listed two workflows, and
+            # `read`/`show_files` refuse the names as outside the run's visible filesystem.
+            #
+            # Relative means the same file to the sandbox, the fs tools and the window alike — the
+            # only form that survives the guest/host boundary. Subprocess sandboxes never showed
+            # this, because there both sides are one filesystem.
+            api_rel = f"{_SUBDIR}/{api_path.name}"
+            ui_rel = f"{_SUBDIR}/{ui_path.name}"
+
             note = str(params.get("note") or "").strip()
             return ToolResult.text(
                 f"wrote {len(api)} nodes"
                 + (f" — {note}" if note else "")
-                + f"\n  run this:    {api_path}"
-                + f"\n  import this: {ui_path}"
+                + f"\n  run this:    {api_rel}"
+                + f"\n  import this: {ui_rel}"
                 + "\nRun it with comfy_run before calling it finished — a workflow that was "
                 "written has not yet been shown to work.",
-                details={"api": str(api_path), "ui": str(ui_path), "nodes": len(api)},
-                artifacts=[str(api_path), str(ui_path)],
+                details={"api": api_rel, "ui": ui_rel, "nodes": len(api)},
+                artifacts=[api_rel, ui_rel],
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_emit failed: {type(e).__name__}: {e}", is_error=True)
