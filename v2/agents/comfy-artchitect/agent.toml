@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.36.0"
+version = "1.38.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"
@@ -66,44 +66,14 @@ allow = [
 # tenant clamp already confines every write to the caller's own slice, whatever the agent asked
 # for. Only the two builders declare roots, because they legitimately write into OTHER agents.
 
-# WHERE YOUR COMFYUI IS. The value is per account: two people using this agent on one hosted
-# daemon each point it at their own box.
+# NO URL, NO CREDENTIAL, NOTHING TO FILL IN. The instance is PROVISIONED for this user by the
+# platform (plugins/vast-bridge → the accounts service), and its address is handed to the comfy
+# tools through .studio/connection.json. Asking someone to rent a GPU, find its URL and paste it
+# was the friction this agent exists to remove, and a setting nobody should ever need to touch is
+# worse than no setting: it invites a stale value that silently shadows the real instance.
 #
-# PASTE THE WHOLE URL, TOKEN AND ALL. vast/RunPod hand you an address like
-# `http://1.2.3.4:35532/?token=abc123` — paste it exactly. The host folds the token onto every
-# request itself (it rides in the query, where ComfyUI reads it), so there is nothing to pull
-# apart and no header to find. A plain `http://127.0.0.1:8188` works the same way, with nothing
-# to fold. `COMFYUI_AUTH` below is only for the rare box that wants a header INSTEAD of a URL
-# token (Modal, a Basic-auth proxy).
-[[settings]]
-key      = "COMFYUI_URL"
-label    = "ComfyUI URL"
-kind     = "url"
-required = true
-help     = "Paste the full URL your provider gives you, including any ?token=… — nothing else needed. e.g. http://1.2.3.4:35532/?token=abc or http://127.0.0.1:8188"
-
-# THE WHOLE Authorization HEADER, and OPTIONAL — most people never touch it, because a
-# vast/RunPod URL already carries its token in the query (see COMFYUI_URL above) and the host
-# folds it in. Fill this only for a box that authenticates by HEADER instead: "Bearer xyz" for
-# ComfyUI-Login, "Basic base64(user:pass)" for a basic-auth proxy. Empty for the normal case.
-[[settings]]
-key   = "COMFYUI_AUTH"
-label = "Authorization header"
-kind  = "secret"
-help  = "Leave empty for an unprotected instance. Otherwise the full value: 'Bearer …' or 'Basic …'."
-
-# Modal sends its credential as two headers rather than one; these are ignored elsewhere.
-[[settings]]
-key   = "COMFYUI_AUTH2"
-label = "Second auth header (Modal)"
-kind  = "secret"
-help  = "Only for Modal proxy auth: put Modal-Key here and Modal-Secret in the field below."
-
-[[settings]]
-key   = "COMFYUI_AUTH3"
-label = "Third auth header (Modal secret)"
-kind  = "secret"
-help  = "Only for Modal proxy auth."
+# `comfy_connect` remains as the escape hatch for someone who DOES have their own box — it writes
+# the same file from a URL pasted in chat, so the mechanism is one, not two.
 
 # RESEARCH CREDENTIALS, both optional. `comfy_research` reads model cards and reference
 # workflows from Hugging Face and Civitai; public models need no token. A gated model
@@ -129,22 +99,6 @@ label = "Instance MCP URL"
 kind  = "url"
 help  = "Optional. If an MCP server runs beside your ComfyUI (e.g. artokun/comfyui-mcp on the same box), its URL — the agent gains its tools: model installing, live graph editing, whatever it serves."
 
-# PROVIDER KEYS FOR PAID API NODES — one field, any number of them.
-#
-# The best model for a job is sometimes a hosted service (Seedance, Kling, Runway, Veo...), and
-# each wants its own key. Naming them individually here would fix the list at whatever existed
-# the day this file was written, and the field would be wrong within a month — so it is generic:
-# one `NAME=value` per line, added through this agent's "Add secret" panel.
-#
-# THE VALUE NEVER REACHES A WORKFLOW FILE. The agent emits `${NAME}` where the key belongs and
-# `comfy_run` substitutes at submit time, so a workflow on disk (and in the file rail, and in a
-# drag onto ComfyUI) carries the placeholder, not the credential.
-[[settings]]
-key   = "PROVIDER_KEYS"
-label = "Provider API keys"
-kind  = "secret"
-help  = "NAME=value pairs, separated by ; or newlines — e.g. KLING_API_KEY=sk-abc; RUNWAY_API_KEY=sk-def. Add a new one by re-entering the whole list (a saved secret is never shown back, so it cannot be appended to). The agent writes ${NAME} into the workflow and fills the value in only when submitting, so no key is ever stored in a workflow file."
-
 [[settings]]
 key   = "COMFY_CLOUD_KEY"
 label = "Comfy Cloud API key"
@@ -156,8 +110,9 @@ help  = "Optional. To generate on Comfy Cloud when you have no instance of your 
 [capabilities]
 mcp_workshop = false
 
-# AN MCP SERVER THE USER RUNS, at an address only they know — the same per-account shape as the
-# plugin's ${COMFYUI_URL}, and the reason [[mcp]] url placeholders resolve per caller. URL
+# AN MCP SERVER THE USER RUNS, at an address only they know — a per-account value, and the
+# reason [[mcp]] url placeholders resolve per caller. (The ComfyUI instance itself is no longer
+# one of these: it is provisioned, and its address arrives in .studio/connection.json.) URL
 # transport on purpose: a stdio command would spawn on the DAEMON's machine and mark this agent
 # requires_local, which would un-ship it from the web.
 [[mcp]]

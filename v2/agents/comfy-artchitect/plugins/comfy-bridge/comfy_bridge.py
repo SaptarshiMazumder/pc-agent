@@ -131,33 +131,57 @@ def _headers() -> dict:
     substitutes to nothing and the request goes out without it.
     """
     conn = _override()
-    if conn is not None:
-        auth = str(conn.get("auth") or "")
-        return {"Authorization": auth} if auth else {}
-    return {
-        "Authorization": "${COMFYUI_AUTH}",
-        "Modal-Key": "${COMFYUI_AUTH2}",
-        "Modal-Secret": "${COMFYUI_AUTH3}",
-    }
+    auth = str((conn or {}).get("auth") or "")
+    return {"Authorization": auth} if auth else {}
 
 
 def _url(path: str) -> str:
-    """The URL for one API path — from the chat-pasted override if present, else the
-    `${COMFYUI_URL}` placeholder the host folds from settings."""
+    """The URL for one API path, from the connection file. "" when there is no instance.
+
+    THERE IS NO SETTINGS FALLBACK ANY MORE. The address is provisioned — `gpu_ensure` rents the
+    machine and writes .studio/connection.json, and `comfy_connect` writes the same file from a
+    URL pasted in chat. A `${COMFYUI_URL}` placeholder here would now resolve to nothing and go
+    out as a request to a garbage address, reported as "could not reach the instance" — which
+    reads as a broken GPU rather than as "no GPU has been started yet".
+    """
     conn = _override()
-    if conn is not None:
-        base, query = _split_query(str(conn["url"]))
-        u = f"{base}{path}"
-        return f"{u}?{query}" if query else u
-    return f"${{COMFYUI_URL}}{path}"
+    if conn is None:
+        return ""
+    base, query = _split_query(str(conn["url"]))
+    u = f"{base}{path}"
+    return f"{u}?{query}" if query else u
+
+
+class _NoInstance:
+    """A failed response for "there is no instance yet", shaped like a real one.
+
+    Returned rather than raised so every caller's existing `if not res.ok` handling reports it
+    the same way it reports any other failure — one error path, not two.
+    """
+
+    ok = False
+    status = 0
+    text = ""
+    error = (
+        "no GPU is running for this user yet. Call gpu_ensure first — it starts one (or reuses "
+        "the one this user already has) and points every comfy tool at it. Do NOT ask the user "
+        "for a URL."
+    )
+
+    def json(self):
+        return {}
 
 
 def _get(path: str, timeout_s: float = 30.0):
-    return fetch(_url(path), headers=_headers(), timeout_s=timeout_s)
+    url = _url(path)
+    return fetch(url, headers=_headers(), timeout_s=timeout_s) if url else _NoInstance()
 
 
 def _post(path: str, body, timeout_s: float = 60.0):
-    return fetch(_url(path), method="POST", json=body, headers=_headers(), timeout_s=timeout_s)
+    url = _url(path)
+    if not url:
+        return _NoInstance()
+    return fetch(url, method="POST", json=body, headers=_headers(), timeout_s=timeout_s)
 
 
 def _failed(res, what: str) -> str:
@@ -168,13 +192,13 @@ def _failed(res, what: str) -> str:
     """
     if res.error:
         return (
-            f"{what}: could not reach the instance ({res.error}). Check COMFYUI_URL in this "
-            f"agent's settings, and that the box is running."
+            f"{what}: could not reach the instance ({res.error}). If a GPU was running it may "
+            f"have been reclaimed for being idle — call gpu_ensure to start one again."
         )
     if res.status in (401, 403):
         return (
-            f"{what}: the instance refused the credential (HTTP {res.status}). Set "
-            f"COMFYUI_AUTH to the whole header value — 'Bearer …' or 'Basic …'."
+            f"{what}: the instance refused the credential (HTTP {res.status}). A provisioned "
+            f"GPU should never do this — call gpu_ensure to get a fresh one."
         )
     return f"{what}: HTTP {res.status} — {(res.text or '')[:300]}"
 
@@ -229,6 +253,20 @@ class ComfyProbeTool(Tool):
             return ToolResult.text(f"comfy_probe failed: {type(e).__name__}: {e}", is_error=True)
 
 
+#: What comfy_inventory says when it is called before there is a design to check against.
+#: Phrased as a redirection rather than a refusal, because the agent's next move matters more
+#: than the error: it should go and research, not go and find another way to list files.
+_INVENTORY_TOO_EARLY = (
+    "comfy_inventory is not available yet — no workflow has been designed in this conversation.\n"
+    "This is deliberate. What is already installed is NOT a design input: this instance is "
+    "provisioned for this job and anything missing can be downloaded, so choosing from what "
+    "happens to be lying around produces a worse workflow than the one the research supports.\n"
+    "Do this instead: research the best model for what the user asked for (comfy_research, "
+    "web_search), design the graph, and comfy_emit it. Inventory unlocks then — and that is when "
+    "it is actually useful, for confirming a download landed."
+)
+
+
 class ComfyInventoryTool(Tool):
     name = "comfy_inventory"
     label = "ComfyUI inventory"
@@ -252,6 +290,10 @@ class ComfyInventoryTool(Tool):
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        import studio_state
+
+        if not studio_state.has_emitted():
+            return ToolResult.text(_INVENTORY_TOO_EARLY, is_error=True)
         try:
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
@@ -642,6 +684,104 @@ def _still_rendering(prompt_id: str) -> ToolResult:
 _RUN_WAIT_CAP_S = 100.0
 
 
+# ─────────────────────────────── paid partner nodes ───────────────────────────────────────────
+#
+# ComfyUI ships official nodes for ~20 hosted providers (Kling, Veo, Runway, Luma, Flux, Recraft,
+# Sora …). They bill THE PUBLISHER's prepaid Comfy balance, not the user's, and they authenticate
+# with ONE account key rather than per-provider keys — which is what makes "the user supplies
+# nothing" possible at all.
+#
+# THE KEY RIDES IN `extra_data`, NOT IN THE GRAPH. ComfyUI reads `extra_data.api_key_comfy_org`
+# and passes it to nodes as a hidden input; it is never written into the workflow JSON or into
+# history. So a workflow file on disk — or dragged into someone's browser — carries no credential,
+# which is the same property `_fill_secrets` gives the ${…} placeholders above.
+#
+# WHY THE VALUE IS READ HERE rather than substituted by the host: the host substitutes `${…}` in
+# URLs and HEADERS only, deliberately (a credential substituted into a BODY would land back in
+# something the plugin can read). This one has to go in the body, so the plugin holds it.
+
+_COMFY_KEY_ENV = "COMFY_API_KEY"
+
+
+def _platform_comfy_key() -> str:
+    """The publisher's Comfy account key, from the daemon's environment. "" when unset."""
+    return os.environ.get(_COMFY_KEY_ENV, "").strip()
+
+
+def _quote_for(prompt: dict):
+    """Price a graph, or None when pricing is unavailable.
+
+    A BROKEN TABLE MUST NOT BILL. If the file is missing or malformed this returns None, and the
+    caller refuses any graph containing partner nodes rather than running them unpriced.
+    """
+    try:
+        import partner_pricing
+
+        return partner_pricing.price_workflow(prompt)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _charge(credits: int, note: str) -> tuple[bool, str]:
+    """Debit the caller's credits for a paid run. (ok, message).
+
+    CHARGED AFTER A SUCCESSFUL SUBMIT, gated BEFORE it. `/debit` drains a partial balance rather
+    than refusing, which is right for cheap model calls — the call already ran, so refusing only
+    leaves the balance untouched and the pre-call gate never engages. One video generation is
+    ~140 credits, two orders of magnitude larger, so the gate is what does the real work here and
+    this is only the settlement.
+    """
+    from agent_runtime.infrastructure import accounts
+
+    account_id = accounts.account_id()
+    if not account_id or credits <= 0:
+        return True, ""
+    base = (accounts.api_base() or "").rstrip("/")
+    if not base:
+        return True, ""
+    res = fetch(
+        f"{base}/debit",
+        method="POST",
+        json={"account_id": account_id, "credits": int(credits), "agent_id": "comfy-artchitect"},
+        headers={"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"},
+        timeout_s=30.0,
+    )
+    if res.ok:
+        return True, ""
+    return False, f"could not charge {credits} credits for {note}: {res.error or res.status}"
+
+
+def _affordable(credits: int) -> tuple[bool, str]:
+    """Does the caller have the credits this run will cost? (ok, why not).
+
+    THE GATE THAT ACTUALLY BITES. Fails OPEN when the balance cannot be read — an accounts blip
+    must not block a user who has paid, and the settlement below still records the spend.
+    """
+    from agent_runtime.infrastructure import accounts
+
+    account_id = accounts.account_id()
+    base = (accounts.api_base() or "").rstrip("/")
+    if not account_id or not base or credits <= 0:
+        return True, ""
+    res = fetch(
+        f"{base}/budget/{account_id}",
+        headers={"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"},
+        timeout_s=20.0,
+    )
+    if not res.ok:
+        return True, ""
+    try:
+        have = int((res.json() or {}).get("credits_remaining") or 0)
+    except (ValueError, TypeError):
+        return True, ""
+    if have >= credits:
+        return True, ""
+    return False, (
+        f"this run needs {credits} credits and the account has {have}. Offer the user a "
+        "free/local alternative, or a cheaper paid model — do NOT submit it anyway."
+    )
+
+
 class ComfyRunTool(Tool):
     name = "comfy_run"
     label = "Run a ComfyUI workflow"
@@ -690,13 +830,57 @@ class ComfyRunTool(Tool):
             prompt, missing_keys = _fill_secrets(prompt)
             if missing_keys:
                 return ToolResult.text(
-                    "this workflow needs API key(s) that are not saved yet: "
+                    "this workflow asks for API key(s) this platform does not hold: "
                     + ", ".join(missing_keys)
-                    + ". Add them in this agent's settings (\"Add secret\": name, then value) and "
-                      "run it again — the value stays in settings and is filled in only at submit.",
+                    + ".\nDO NOT ask the user for them. Every paid model available here is a "
+                    "ComfyUI partner node, authenticated by the platform — rebuild this part of "
+                    "the graph with one (comfy_price lists them), or use an open-weight model. "
+                    "If neither works, say plainly that the service is not available here.",
                     is_error=True,
                 )
-            res = _post("/api/prompt", {"prompt": prompt})
+            # PAID PARTNER NODES: price, gate, then submit with the platform's key.
+            quote = _quote_for(prompt)
+            body: dict = {"prompt": prompt}
+            charge_credits = 0
+            if quote is None:
+                # Pricing is unavailable. Only a problem if the graph actually uses paid nodes —
+                # and we cannot tell which it is, so refuse only if the table is what failed.
+                import partner_pricing  # re-raised here so the message names the real fault
+
+                try:
+                    partner_pricing.load_table()
+                except Exception as e:  # noqa: BLE001
+                    return ToolResult.text(
+                        f"the partner-node price table could not be read ({e}). A workflow that "
+                        "uses paid nodes cannot be priced, so it will not be submitted. Fix "
+                        "partner-nodes.json.",
+                        is_error=True,
+                    )
+            elif quote.paid or quote.unpriced:
+                if not quote.ok:
+                    return ToolResult.text(
+                        "this workflow uses paid node(s) with no price on record, so it will not "
+                        "be submitted:\n" + quote.as_text()
+                        + "\nEither use a model that is priced, or have the operator add these "
+                        "to partner-nodes.json.",
+                        is_error=True,
+                    )
+                key = _platform_comfy_key()
+                if not key:
+                    return ToolResult.text(
+                        "this workflow uses paid partner nodes, but this deployment has no Comfy "
+                        "account key configured, so they cannot run. Rebuild the graph with "
+                        "open-weight nodes, or tell the user the paid route is unavailable here.",
+                        is_error=True,
+                    )
+                charge_credits = quote.credits
+                affordable, why = _affordable(charge_credits)
+                if not affordable:
+                    return ToolResult.text(why, is_error=True)
+                # THE KEY GOES IN extra_data, NEVER IN THE GRAPH — see the note above.
+                body["extra_data"] = {"api_key_comfy_org": key}
+
+            res = _post("/api/prompt", body)
             if res.status == 400:
                 try:
                     body = res.json()
@@ -737,6 +921,17 @@ class ComfyRunTool(Tool):
                     if steps is None and field == "steps" and isinstance(value, (int, float)):
                         steps = int(value)
             studio_state.run_started(path.name, prompt_id, ckpt, steps)
+
+            if charge_credits:
+                # SETTLE ONLY ONCE THE INSTANCE HAS ACCEPTED IT. A graph rejected at submit never
+                # reached a provider and never cost anything, so charging before this line would
+                # bill for work that provably did not happen.
+                charged, problem = _charge(charge_credits, "this run")
+                if not charged:
+                    # The job IS running and could not be billed. Surfaced rather than swallowed:
+                    # silently unbilled paid runs are exactly how a prepaid balance drains with
+                    # nobody noticing until the invoice.
+                    print(f"comfy_run: BILLING FAILED - {problem}")
 
             deadline = min(float(params.get("timeout_s") or 75.0), _RUN_WAIT_CAP_S)
             result = await _poll_run(prompt_id, deadline, abort)
@@ -818,7 +1013,14 @@ _SECRET_REF = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
 def _provider_keys() -> dict:
-    """`NAME=value` pairs from the PROVIDER_KEYS secret, as a dict.
+    """`NAME=value` pairs the DEPLOYMENT holds, as a dict. Normally empty.
+
+    VESTIGIAL, AND DELIBERATELY KEPT. The user-facing BYOK setting behind this is gone: every
+    paid model reachable here is a ComfyUI partner node the platform authenticates centrally, so
+    nobody is asked for a key any more. What remains is the substitution machinery, so that an
+    operator who exports a name into the daemon's environment can still make a third-party node
+    pack work without a code change — and so a `${NAME}` left in a graph is reported as an
+    unavailable service rather than posted to ComfyUI as a literal placeholder.
 
     One generic field rather than a named setting per provider: the list of paid services worth
     using changes faster than this file does, and a fixed set would be wrong within a month.
@@ -1541,6 +1743,112 @@ class ComfyValidateTool(Tool):
             return ToolResult.text(f"comfy_validate failed: {type(e).__name__}: {e}", is_error=True)
 
 
+class ComfyPriceTool(Tool):
+    name = "comfy_price"
+    label = "What the paid models cost"
+    default_retryable = True
+    description = (
+        "What ComfyUI's paid partner nodes cost, in credits. Call it BEFORE choosing between a "
+        "paid and a free route, and before the approve block, so the user is shown real numbers "
+        "instead of 'this costs money'. With no arguments it lists every paid provider and model "
+        "available. Give it a workflow name to price that emitted graph exactly, including "
+        "video duration and resolution. The user is charged these credits when the run is "
+        "submitted; nobody has to supply an API key."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "workflow": {
+                "type": "string",
+                "description": (
+                    "An emitted workflow to price exactly, e.g. 'workflows/talking-head.api.json'"
+                    " or just its name. Omit to list the whole catalogue."
+                ),
+            }
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            import partner_pricing
+
+            table = partner_pricing.load_table()
+            name = str(params.get("workflow") or "").strip()
+            if not name:
+                return ToolResult.text(self._catalogue(table), details={"table": table})
+
+            path = _workflow_path(name)
+            if path is None or not path.exists():
+                return ToolResult.text(
+                    f"no workflow named {name!r} in this workspace — emit it first, or call "
+                    "comfy_price with no arguments to see what the paid models cost.",
+                    is_error=True,
+                )
+            graph = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(graph, dict) and "nodes" in graph:
+                return ToolResult.text(
+                    "that is the UI-format file; price the .api.json one.", is_error=True
+                )
+            quote = partner_pricing.price_workflow(graph, table)
+            head = (
+                f"{path.name}: {quote.credits} credits"
+                if quote.paid and quote.ok
+                else f"{path.name}:"
+            )
+            return ToolResult.text(
+                head + "\n" + quote.as_text(),
+                details={"credits": quote.credits, "ok": quote.ok, "paid": quote.paid},
+            )
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_price failed: {type(e).__name__}: {e}", is_error=True)
+
+    @staticmethod
+    def _catalogue(table: dict) -> str:
+        """Every paid model, cheapest first WITHIN each provider.
+
+        Sorted by price rather than listed in file order, because this is read while choosing —
+        and an unsorted list quietly nudges toward whichever entry happens to be first.
+        """
+        markup = float(table.get("markup") or 1.0)
+        lines = [
+            "Paid providers available through ComfyUI's partner nodes. Prices are CREDITS "
+            "charged to the user; no API key is needed from them.",
+        ]
+        for provider in table.get("providers") or []:
+            unit = str(provider.get("unit") or "per_run")
+            suffix = "/second of video" if unit == "per_second" else "/run"
+            rows = []
+            for model, rates in (provider.get("models") or {}).items():
+                cheapest = min(float(v) for v in rates.values())
+                rows.append((cheapest * markup, model, rates))
+            rows.sort()
+            lines.append(f"\n{provider.get('label')} ({unit.replace('per_', 'per ')}):")
+            for price, model, rates in rows:
+                tiers = [k for k in rates if k != "_default"]
+                extra = f"  [{', '.join(tiers)}]" if tiers else ""
+                lines.append(f"   {model}: {price:.0f} credits{suffix}{extra}")
+        lines.append(
+            "\nA 5-second Kling clip at 720p is about "
+            f"{17.72 * 5 * markup:.0f} credits; one Flux Ultra image about "
+            f"{12.66 * markup:.0f}."
+        )
+        return "\n".join(lines)
+
+
+def _workflow_path(name: str):
+    """An emitted workflow by name, however loosely the caller named it."""
+    root = Path(current_workspace(".") or ".")
+    candidate = Path(name)
+    if candidate.is_absolute() or name.startswith("workflows/"):
+        return root / candidate if not candidate.is_absolute() else candidate
+    stem = name[:-9] if name.endswith(".api.json") else name.removesuffix(".json")
+    for guess in (f"workflows/{stem}.api.json", f"workflows/{stem}.json", name):
+        path = root / guess
+        if path.exists():
+            return path
+    return root / f"workflows/{stem}.api.json"
+
+
 def register(api, ctx):
     # Imported by bare name: the loader puts this plugin's folder on sys.path, so siblings are
     # top-level modules here rather than a package.
@@ -1558,6 +1866,7 @@ def register(api, ctx):
     api.register_tool(ComfyResearchTool())
     api.register_tool(ComfyUploadTool())
     api.register_tool(ComfyDownloadTool())
+    api.register_tool(ComfyPriceTool())
     api.register_tool(ComfyRunTool())
     api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())

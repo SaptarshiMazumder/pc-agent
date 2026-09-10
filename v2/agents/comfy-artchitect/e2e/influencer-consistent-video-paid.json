@@ -1,0 +1,43 @@
+{
+  "id": "influencer-consistent-video-paid",
+  "agent_id": "comfy-artchitect",
+  "goal": "The whole agentic loop on the hardest real brief: one reference photo, a talking-head video, identity consistent throughout. The agent must RESEARCH what actually does character-consistent video today rather than reciting a pipeline, price the paid options in credits, stop at the approve gate with those numbers, and only after a yes build the graph around the approved service. What this catches: designing first and discovering the bill later, quoting 'this costs money' instead of a number, and asking the user for an API key that the platform already holds.",
+  "turns": [
+    "I want a short video of an AI influencer \u2014 a woman \u2014 talking to camera, built from ONE reference photo of her, and she has to look like the SAME person all the way through. I'll send you the photo once the workflow is ready. Use the best quality option there is, I don't mind what it costs.",
+    "Approved: all of them. Go ahead and build it."
+  ],
+  "_comment_checks": "Turn 1 is the gate: an approve fence with a PIPE-delimited row and a credit number in it. Turn 2 is the build. `no_key_request` is the regression guard for the rule that replaced BYOK \u2014 every paid model here is a partner node the platform authenticates, so any request for the user's own key is a bug, not a preference.",
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "message_says",
+      "pattern": "```\\s*approve"
+    },
+    {
+      "name": "message_says",
+      "pattern": "```\\s*approve[\\s\\S]*\\|"
+    },
+    {
+      "name": "message_says",
+      "pattern": "\\d+\\s*credits"
+    },
+    {
+      "name": "tool_called",
+      "tool": "comfy_price"
+    },
+    {
+      "name": "tool_called",
+      "tool": "comfy_emit"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 14
+    }
+  ],
+  "max_turns": 14
+}

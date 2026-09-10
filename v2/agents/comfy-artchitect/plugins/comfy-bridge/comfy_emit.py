@@ -140,6 +140,14 @@ class ComfyEmitTool(Tool):
             api_rel = f"{_SUBDIR}/{api_path.name}"
             ui_rel = f"{_SUBDIR}/{ui_path.name}"
 
+            # THE DESIGN NOW EXISTS, which is what unlocks comfy_inventory — see studio_state.
+            try:
+                import studio_state
+
+                studio_state.mark_emitted()
+            except Exception:  # noqa: BLE001 — a telemetry miss must not fail the emit
+                pass
+
             note = str(params.get("note") or "").strip()
             return ToolResult.text(
                 f"wrote {len(api)} nodes"

@@ -1,0 +1,216 @@
+{
+  "_comment": "WHAT PAID COMFYUI PARTNER NODES COST, and therefore what we charge for them. Edit this file and redeploy the agent — no code change, which is the whole point of it being data. Prices are ComfyUI credits, taken from https://docs.comfy.org/tutorials/partner-nodes/pricing (~100 credits = $1). They DO drift; re-check this file against that page when Comfy announces changes, and against the account's actual invoice.",
+
+  "_comment_safety": "THE DEFAULT FOR AN UNKNOWN PAID NODE IS TO REFUSE, never to charge nothing. A partner node this file does not price would otherwise run on the publisher's prepaid balance for free, and the first sign would be the invoice. `providers[].match` is how a node is recognised as billable at all: if a class name matches a provider prefix but no model entry prices it, the run is refused with a message naming the class — which is a two-minute edit here rather than a silent leak.",
+
+  "_comment_matching": "A node is priced in two steps: its class_type is matched against a provider prefix, then the node's own inputs are searched for a string naming one of that provider's models. No model match falls back to the provider's `default_model`. This is deliberately loose about exact class names, because Comfy renames and adds nodes faster than this file can track — a provider prefix is far more stable than any one class name.",
+
+  "version": 1,
+  "updated": "2026-09-10",
+
+  "credits_per_usd": 100,
+
+  "_comment_markup": "What we charge on top of what Comfy charges us. It is not profit-taking so much as insurance: the prices below are a snapshot, Comfy's are live, and a table that has drifted low bills us the difference on every run.",
+  "markup": 1.3,
+
+  "providers": [
+    {
+      "id": "kling",
+      "label": "Kling (Kuaishou)",
+      "match": ["Kling"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "kling-v3",
+      "models": {
+        "kling-video-o1": { "720p": 17.72, "1080p": 23.63, "_default": 17.72 },
+        "kling-3.0-turbo": { "720p": 23.63, "1080p": 29.54, "_default": 23.63 },
+        "kling-v3": { "720p": 17.72, "1080p": 29.54, "_default": 17.72 },
+        "kling-v3-omni": { "720p": 17.72, "1080p": 44.31, "_default": 17.72 }
+      }
+    },
+    {
+      "id": "luma",
+      "label": "Luma Ray",
+      "match": ["Luma"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "ray-3.2",
+      "models": {
+        "ray-3.2": { "_default": 25.32 },
+        "ray-2": { "_default": 38.44 },
+        "ray-1-6": { "_default": 21.10 }
+      }
+    },
+    {
+      "id": "runway",
+      "label": "Runway",
+      "match": ["Runway"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "gen4-turbo",
+      "models": {
+        "gen4-turbo": { "_default": 15.09 },
+        "aleph2": { "_default": 84.48 }
+      }
+    },
+    {
+      "id": "veo",
+      "label": "Google Veo",
+      "match": ["Veo", "GoogleVeo"],
+      "unit": "per_second",
+      "default_seconds": 8,
+      "default_model": "veo-3.1-fast-generate",
+      "models": {
+        "veo-3.1-lite": { "_default": 6.33 },
+        "veo-3.1-fast-generate": { "_default": 16.88 },
+        "veo-3.1-generate": { "_default": 42.20 }
+      }
+    },
+    {
+      "id": "sora",
+      "label": "OpenAI Sora",
+      "match": ["Sora"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "sora-2",
+      "models": {
+        "sora-2": { "_default": 21.10 },
+        "sora-2-pro": { "_default": 63.30 }
+      }
+    },
+    {
+      "id": "minimax",
+      "label": "MiniMax",
+      "match": ["Minimax", "MiniMax"],
+      "unit": "per_second",
+      "default_seconds": 6,
+      "default_model": "minimax-h3",
+      "models": {
+        "minimax-h3": { "768p": 27.16, "2k": 39.22, "_default": 27.16 }
+      }
+    },
+    {
+      "id": "pixverse",
+      "label": "PixVerse",
+      "match": ["Pixverse", "PixVerse"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "pixverse-v6",
+      "models": {
+        "pixverse-v6": { "360p": 15.09, "720p": 27.16, "1080p": 54.31, "_default": 27.16 }
+      }
+    },
+    {
+      "id": "vidu",
+      "label": "Vidu",
+      "match": ["Vidu"],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "viduq3-turbo",
+      "models": {
+        "viduq3-turbo": { "720p": 12.66, "1080p": 16.88, "_default": 12.66 },
+        "viduq3-pro": { "_default": 31.65 }
+      }
+    },
+    {
+      "id": "bfl",
+      "label": "Black Forest Labs (Flux)",
+      "match": ["Flux", "BFL"],
+      "unit": "per_run",
+      "default_model": "flux-1.1-pro-ultra",
+      "models": {
+        "flux-1.1-pro-ultra": { "_default": 12.66 },
+        "flux-kontext-pro": { "_default": 8.44 },
+        "flux-kontext-max": { "_default": 16.88 },
+        "flux-2-pro": { "_default": 14.77 }
+      }
+    },
+    {
+      "id": "recraft",
+      "label": "Recraft",
+      "match": ["Recraft"],
+      "unit": "per_run",
+      "default_model": "recraft-v4",
+      "models": {
+        "recraft-v4": { "_default": 52.75 },
+        "recraft-v4.1": { "_default": 44.31 },
+        "recraft-style": { "_default": 21.10 }
+      }
+    },
+    {
+      "id": "ideogram",
+      "label": "Ideogram",
+      "match": ["Ideogram"],
+      "unit": "per_run",
+      "default_model": "ideogram-v4",
+      "models": {
+        "ideogram-v1": { "_default": 18.10 },
+        "ideogram-v4": { "_default": 30.17 },
+        "ideogram-p-image": { "_default": 9.05 }
+      }
+    },
+    {
+      "id": "openai-image",
+      "label": "OpenAI image",
+      "match": ["OpenAIGPTImage", "OpenAIDalle", "OpenAIImage"],
+      "unit": "per_run",
+      "default_model": "gpt-image-2",
+      "models": {
+        "gpt-image-2": { "_default": 30.00 },
+        "dall-e-3": { "_default": 25.32 }
+      }
+    },
+    {
+      "id": "stability",
+      "label": "Stability AI",
+      "match": ["Stability", "StableImage"],
+      "unit": "per_run",
+      "default_model": "stable-image-ultra",
+      "models": {
+        "stable-image-ultra": { "_default": 16.00 },
+        "stable-image-core": { "_default": 6.00 }
+      }
+    },
+    {
+      "id": "heygen",
+      "label": "HeyGen",
+      "match": ["HeyGen"],
+      "unit": "per_second",
+      "default_seconds": 8,
+      "default_model": "heygen-avatar",
+      "models": { "heygen-avatar": { "_default": 40.00 } }
+    },
+    {
+      "id": "elevenlabs",
+      "label": "ElevenLabs",
+      "match": ["ElevenLabs", "Eleven"],
+      "unit": "per_run",
+      "default_model": "elevenlabs-tts",
+      "models": { "elevenlabs-tts": { "_default": 25.00 } }
+    },
+    {
+      "id": "topaz",
+      "label": "Topaz",
+      "match": ["Topaz"],
+      "unit": "per_run",
+      "default_model": "topaz-upscale",
+      "models": { "topaz-upscale": { "_default": 20.00 } }
+    },
+    {
+      "id": "tripo",
+      "label": "Tripo (3D)",
+      "match": ["Tripo"],
+      "unit": "per_run",
+      "default_model": "tripo",
+      "models": { "tripo": { "_default": 21.10 } }
+    },
+    {
+      "id": "rodin",
+      "label": "Rodin (3D)",
+      "match": ["Rodin"],
+      "unit": "per_run",
+      "default_model": "rodin",
+      "models": { "rodin": { "_default": 25.00 } }
+    }
+  ]
+}

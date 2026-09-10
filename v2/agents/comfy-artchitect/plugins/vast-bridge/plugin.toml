@@ -1,0 +1,26 @@
+# vast-bridge — asking the platform for a GPU. It cannot rent one itself.
+#
+# NO MARKETPLACE KEY, NO HOST, NO SETTINGS. Every other bridge in this agent names a host it may
+# reach; this one names none, because it only ever talks to the accounts service the daemon is
+# already configured against. That address comes from the daemon's own config rather than from
+# anything the agent can set, so an agent cannot redirect its GPU requests somewhere of its
+# choosing — and the credential that authorises renting lives on the server, never here.
+#
+# THE HANDOVER IS A FILE. `gpu_ensure` writes .studio/connection.json, which comfy-bridge already
+# prefers over its own settings, so the rest of the agent needs no change to point at the rented
+# machine.
+
+id          = "vast-bridge"
+name        = "GPU Bridge"
+kind        = "native"
+entry       = "vast_bridge:register"
+description = "Start or reuse the ComfyUI GPU this user is entitled to, and hand its address to the rest of the agent."
+
+[sandbox]
+# `net` is empty because the one address this plugin reaches — the daemon's own accounts service
+# — comes from daemon config, not from a setting an agent could name.
+#
+# The internal key is DECLARED, never held: the host substitutes `${AGENTD_ACCOUNTS_INTERNAL_KEY}`
+# into the outgoing request, so this code cannot read the value or send it anywhere else.
+net     = []
+secrets = ["AGENTD_ACCOUNTS_INTERNAL_KEY"]

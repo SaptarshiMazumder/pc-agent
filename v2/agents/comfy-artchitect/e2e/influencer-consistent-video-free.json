@@ -1,0 +1,31 @@
+{
+  "id": "influencer-consistent-video-free",
+  "agent_id": "comfy-artchitect",
+  "goal": "The same brief, and the user says no to paying. A DECLINE IS AN ANSWER, NOT A RETRY: the agent must rebuild around open weights and still deliver a workflow, not re-ask, not reword the same block, and not sulk that the good option was refused. What this catches is the failure mode that makes a gate worse than useless \u2014 an agent that treats 'no' as an obstacle to argue with instead of a constraint to design against.",
+  "turns": [
+    "I want a short video of an AI influencer \u2014 a woman \u2014 talking to camera, built from ONE reference photo of her, and she has to look like the SAME person all the way through. I'll send you the photo once the workflow is ready. Use the best quality option there is, I don't mind what it costs.",
+    "Declined: all of them. I don't want to pay for anything \u2014 use open-weight models only."
+  ],
+  "_comment_checks": "comfy_emit MUST still run: refusing to pay is not refusing the job. `no_repeat_ask` guards the re-ask, which is the specific thing AGENTS.md forbids after a decline.",
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "message_says",
+      "pattern": "```\\s*approve"
+    },
+    {
+      "name": "tool_called",
+      "tool": "comfy_emit"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 14
+    }
+  ],
+  "max_turns": 14
+}

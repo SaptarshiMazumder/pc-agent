@@ -22,7 +22,7 @@ import struct
 import time
 from pathlib import Path
 
-from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.run_context import current_run_context, current_workspace
 
 #: Newest-first caps. The dashboard shows a page of each; history beyond that is scrollback.
 _MAX_RUNS = 50
@@ -146,3 +146,66 @@ def render_saved(path: str) -> None:
         _save(state)
     except Exception:  # noqa: BLE001
         pass
+
+
+# ─────────────────────────────── has this job designed anything yet? ───────────────────────────
+#
+# WHY THIS EXISTS. `comfy_inventory` answers "what is installed". On a box the user owned, that
+# was a genuine design constraint — you built with what was there. On a PROVISIONED box it is
+# not: anything missing can be downloaded, so the only thing a long list of installed models
+# does is tempt the agent into picking from it instead of researching what the job actually
+# needs. That is inventory-anchoring, and it gets worse the longer a machine lives.
+#
+# So inventory is gated until a workflow has been emitted. Before the design exists it can only
+# mislead; after it exists it is exactly the right tool for "did the download land". The rule was
+# already written down and was still being ignored, which is why it is now mechanical.
+#
+# PER JOB, NOT PER WORKSPACE. Keyed by session, because the workspace is shared across every
+# conversation this account has ever had — "somebody once emitted a workflow here" is not the
+# question.
+
+_EMIT_FILE = ".studio/emitted.json"
+
+
+def _session() -> str:
+    ctx = current_run_context()
+    return str(getattr(ctx, "session_key", "") or "") if ctx else ""
+
+
+def mark_emitted() -> None:
+    """Record that THIS conversation has produced a design. Best-effort, like every write here."""
+    try:
+        session = _session()
+        if not session:
+            return
+        path = Path(current_workspace(".") or ".") / _EMIT_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            seen = json.loads(path.read_text(encoding="utf-8"))
+            sessions = list(seen.get("sessions") or [])
+        except (OSError, ValueError):
+            sessions = []
+        if session not in sessions:
+            sessions.append(session)
+        path.write_text(json.dumps({"sessions": sessions[-200:]}), encoding="utf-8")
+    except Exception:  # noqa: BLE001 — telemetry must never fail a run
+        pass
+
+
+def has_emitted() -> bool:
+    """Has this conversation emitted a workflow yet?
+
+    FAILS OPEN. If the session cannot be identified, or the file cannot be read, inventory is
+    allowed: a gate that blocks the agent because a marker file was unreadable would break real
+    work to enforce a stylistic rule.
+    """
+    try:
+        session = _session()
+        if not session:
+            return True
+        path = Path(current_workspace(".") or ".") / _EMIT_FILE
+        return session in (json.loads(path.read_text(encoding="utf-8")).get("sessions") or [])
+    except (OSError, ValueError):
+        return False
+    except Exception:  # noqa: BLE001
+        return True
