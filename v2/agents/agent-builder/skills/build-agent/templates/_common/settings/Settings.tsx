@@ -36,6 +36,7 @@ export function Settings({
   onSaved,
   icons,
   extras,
+  hideSecrets,
 }: {
   client: AgentdClient
   /** Whose layer this page edits. Each agent knows its own id — see useSettings. */
@@ -52,6 +53,13 @@ export function Settings({
   onSaved?: () => void
   /** An icon per tab id, for a window that has an icon set. Optional on purpose — see TABS. */
   icons?: Partial<Record<TabId, ReactNode>>
+  /** Hide the BYOK provider-key group ("API keys").
+   *
+   *  Those keys only do anything on a daemon that can run on the USER's own provider accounts.
+   *  An agent delivered to the web is metered by the platform and has no local mode to switch
+   *  into, so the group is a page of fields that can never take effect — and a settings page
+   *  offering a control that does nothing teaches people to distrust the rest of it. */
+  hideSecrets?: boolean
   /** Rendered at the top of the tab it names, above that tab's groups. For the things a window
    *  has that the shared schema cannot know about — a run-mode switch, its MCP servers, a restart
    *  control, a "Test connection" button beside a URL the agent declared in `[[settings]]`.
@@ -104,7 +112,7 @@ export function Settings({
   // provider key". A missing field is not the same as an empty one.
   const revealable = Object.prototype.hasOwnProperty.call(data, 'envValues')
 
-  const shown = GROUPS.filter((g) => g.tab === tab)
+  const shown = GROUPS.filter((g) => g.tab === tab && !(hideSecrets && g.secrets))
 
   return (
     /* The two things an `extras` control may do to the page it is rendered in: ask whether

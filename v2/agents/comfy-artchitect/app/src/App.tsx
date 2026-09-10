@@ -287,7 +287,15 @@ export default function App() {
           /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
              `onRestart` too if your window can restart the daemon — some settings only take
              effect on a fresh process, and without it a save that needs one can only say so. */
-          client && <Settings client={client} agentId={AGENT_ID} />
+          client && (
+            /* NO BYOK GROUP. Those keys only matter on a daemon running against the
+               user's own provider accounts; this agent is web-delivered and metered by
+               the platform, with no local mode to switch into — so the fields could never
+               take effect, and a settings page offering a dead control makes the live ones
+               look doubtful too. (The keys this agent DOES need — COMFYUI_URL, PROVIDER_KEYS
+               — are declared settings and still show above.) */
+            <Settings client={client} agentId={AGENT_ID} hideSecrets />
+          )
         ) : (
           /* THE STUDIO: conversation beside a live dashboard of what the run produced
              (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
