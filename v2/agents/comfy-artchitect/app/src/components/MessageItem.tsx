@@ -17,6 +17,7 @@
 import { useState } from 'react'
 
 import { milestoneFor } from './milestones'
+import { Approvals, parseApprovals } from './Approvals'
 import { Suggestions, parseSuggestions } from './Suggestions'
 import {
   AlertTriangle,
@@ -113,18 +114,28 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 function AssistantMessage({
   item,
   onSuggest,
+  onDecide,
 }: {
   item: BotItem & { ts?: number }
   onSuggest?: (prompt: string) => void
+  /** A paid-service verdict SENDS, unlike a suggestion chip, which only fills the box. Ticking
+   *  boxes and pressing Confirm is already the deliberate act; making the user press Enter after
+   *  it would be asking twice. */
+  onDecide?: (reply: string) => void
 }) {
   const stamp = item.ts ? timeLabel(item.ts) : ''
   /* SPLIT THE OFFER OUT OF THE PROSE. The agent ends a turn with a `suggest` fence; it is chips,
      not text, so it must never reach the markdown renderer. Parsed on every render rather than
      memoised: it is one regex over one message, and a stale split would show a half-streamed
      fence. While STREAMING the raw text is shown untouched — a partial fence is not a menu. */
-  const { body, suggestions } = item.streaming
+  const { body: afterSuggest, suggestions } = item.streaming
     ? { body: item.text, suggestions: [] as ReturnType<typeof parseSuggestions>['suggestions'] }
     : parseSuggestions(item.text)
+  /* The `approve` fence gets the same treatment, off the SAME prose: a message may carry both,
+     and each block must be lifted out before the markdown renderer sees it. */
+  const { body, approvals } = item.streaming
+    ? { body: afterSuggest, approvals: [] as ReturnType<typeof parseApprovals>['approvals'] }
+    : parseApprovals(afterSuggest)
   return (
     <div className="msg-item msg-row">
       {/* THE AGENT'S MARK, beside its own words. The user's turn is a bubble and needs no label;
@@ -140,6 +151,7 @@ function AssistantMessage({
           {item.streaming && <span className="caret" />}
         </div>
         <ArtifactView artifacts={item.artifacts} />
+        {onDecide && <Approvals items={approvals} onDecide={onDecide} />}
         {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} />}
         {!item.streaming && (item.text || stamp) && (
           <div className="msg-meta">
@@ -346,17 +358,22 @@ export default function MessageItem({
   item,
   running,
   onSuggest,
+  onDecide,
 }: {
   item: ThreadItem
   running: boolean
-  /** Send a suggested next action as the user's next message. Absent = chips are not offered. */
+  /** Put a suggested next action in the composer. Absent = chips are not offered. */
   onSuggest?: (prompt: string) => void
+  /** SEND a paid-service verdict. Absent = the approval gate is not offered, and an agent that
+   *  emits the fence would then be waiting on an answer the window cannot give — so a window
+   *  that renders paid work should always pass this. */
+  onDecide?: (reply: string) => void
 }) {
   switch (item.kind) {
     case 'user':
       return <UserMessage item={item} />
     case 'bot':
-      return <AssistantMessage item={item} onSuggest={onSuggest} />
+      return <AssistantMessage item={item} onSuggest={onSuggest} onDecide={onDecide} />
     case 'think':
       /* agentd's reasoning block: a quiet accent-ruled aside, always visible, no cap and no fold.
          THIS WINDOW USED TO CONTAIN IT — a fixed-height box that scrolled itself while streaming

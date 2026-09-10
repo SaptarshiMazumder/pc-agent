@@ -24,11 +24,14 @@ export function Thread({
   items,
   running,
   onSuggest,
+  onDecide,
 }: {
   items: ThreadItem[]
   running: boolean
   /** Send a suggested next action. Passed to every bot message so its chips can fire. */
   onSuggest?: (prompt: string) => void
+  /** Sends a paid-service verdict — see MessageItem. */
+  onDecide?: (reply: string) => void
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
@@ -111,7 +114,13 @@ export function Thread({
       )
     }
     if (item.ts) lastTs = item.ts
-    rendered.push(<MessageItem key={i} item={item} running={running} onSuggest={onSuggest} />)
+    rendered.push(<MessageItem
+        key={i}
+        item={item}
+        running={running}
+        onSuggest={onSuggest}
+        onDecide={onDecide}
+      />)
   })
 
   // Shown while the run has nothing to say YET — before the first token, and through every tool

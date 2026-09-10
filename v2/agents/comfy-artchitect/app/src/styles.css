@@ -1156,3 +1156,38 @@ h2 { font-size: var(--fs-lead); }
 .msg-body { flex: 1; min-width: 0; }
 /* The prose already sets its own top margin; inside the row it would double the gap. */
 .msg-row > .msg-body > .msg-assistant { margin-top: 0; }
+
+/* ── the paid-service gate ────────────────────────────────────────────────────────────────── */
+/* Deliberately heavier than a suggestion chip. Chips are an offer the user can ignore; this is a
+   question the agent is WAITING on, and it decides what their run costs — so it reads as a card
+   with a border and a warning-tinted edge, not as more prose. */
+.approve {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: 10px; padding: 12px 13px;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-left: 2px solid var(--warn); border-radius: var(--r-panel);
+}
+.approve-head {
+  margin: 0 0 8px; font-size: var(--fs-meta); line-height: 1.5;
+  color: var(--dim); text-wrap: pretty;
+}
+.approve-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 9px; border-radius: var(--r-control); cursor: pointer;
+  border: 1px solid transparent; transition: background .12s, border-color .12s;
+}
+.approve-row:hover { background: var(--bg3); }
+.approve-row.is-on { background: var(--accent-soft); border-color: var(--accent-edge, var(--accent-soft)); }
+.approve-row input { flex: none; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
+.approve-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.approve-name { font-weight: var(--fw-semi); font-size: var(--fs-row); color: var(--text); }
+.approve-for { font-size: var(--fs-tiny); color: var(--faint); line-height: 1.45; text-wrap: pretty; }
+.approve-go {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 9px; padding: 7px 13px;
+  background: var(--prim-bg); color: var(--prim-ink);
+  border: 0; border-radius: var(--r-control); cursor: pointer;
+  font: inherit; font-size: var(--fs-control); font-weight: var(--fw-on-accent);
+}
+.approve-go:hover:not(:disabled) { background: var(--prim-bg-h); }
+.approve-go:disabled { opacity: .55; cursor: default; }

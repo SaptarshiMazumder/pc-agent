@@ -360,6 +360,9 @@ export default function App() {
                     items={session.items}
                     running={session.running}
                     onSuggest={seedComposer}
+                    /* A ticked-boxes verdict SENDS. The user already made the deliberate choice
+                       in the checkboxes; asking them to press Enter afterwards asks twice. */
+                    onDecide={(reply) => void send(reply)}
                   />
                 )}
               </div>
