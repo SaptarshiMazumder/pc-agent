@@ -25,30 +25,34 @@ var agentd = (() => {
     BillingClient: () => BillingClient,
     DEFAULT_TIMEOUT: () => DEFAULT_TIMEOUT,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
-    TokenManager: () => TokenManager,
     acceptHostTokens: () => acceptHostTokens,
     accessTokenAccount: () => accessTokenAccount,
     accessTokenExpiry: () => accessTokenExpiry,
     accountsUrl: () => accountsUrl,
     authLogin: () => authLogin,
     authLogout: () => authLogout,
-    authRefresh: () => authRefresh,
     authStatus: () => authStatus,
+    authUrl: () => authUrl,
     billing: () => billing,
+    createOrg: () => createOrg,
     creditsHost: () => creditsHost,
     daemonOrigin: () => daemonOrigin,
     daemonToken: () => daemonToken,
     effectiveMode: () => effectiveMode,
+    fetchMyOrgs: () => fetchMyOrgs,
+    fetchOrgDetail: () => fetchOrgDetail,
+    fetchOrgUsage: () => fetchOrgUsage,
+    fetchToken: () => fetchToken,
+    forgetIdentityCache: () => forgetIdentityCache,
     fromPage: () => fromPage,
     identity: () => identity,
+    joinOrg: () => joinOrg,
     loadMode: () => loadMode,
     loadSession: () => loadSession,
-    localSessionStore: () => localSessionStore,
-    memorySessionStore: () => memorySessionStore,
-    mountCreditsPanel: () => mountCreditsPanel,
-    mountSignInGate: () => mountSignInGate,
+    mintInvite: () => mintInvite,
     notifyCreditsChanged: () => notifyCreditsChanged,
     onCreditsChanged: () => onCreditsChanged,
+    onIdentityChanged: () => onIdentityChanged,
     platformStatus: () => platformStatus,
     resetIdentity: () => resetIdentity,
     resultText: () => resultText,
@@ -56,8 +60,9 @@ var agentd = (() => {
     saveSession: () => saveSession,
     sessionKey: () => sessionKey,
     setRunMode: () => setRunMode,
-    signOutAndGate: () => signOutAndGate,
     startAuthRenewal: () => startAuthRenewal,
+    updateDomain: () => updateDomain,
+    updateMember: () => updateMember,
     withTimeout: () => withTimeout
   });
 
@@ -75,9 +80,6 @@ var agentd = (() => {
   }
 
   // ../auth/src/claims.ts
-  function usable(token) {
-    return !!token && !token.startsWith("sess_") && token.split(".").length === 3;
-  }
   function claims(token) {
     try {
       const body = (token || "").split(".")[1];
@@ -94,396 +96,9 @@ var agentd = (() => {
   function accessTokenAccount(token) {
     return String(claims(token)?.sub || "");
   }
-
-  // ../auth/src/storage.ts
-  function localSessionStore(key) {
-    return {
-      read() {
-        try {
-          return localStorage.getItem(key);
-        } catch {
-          return null;
-        }
-      },
-      write(value) {
-        try {
-          if (value === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, value);
-        } catch {
-        }
-      }
-    };
+  function accessTokenEmail(token) {
+    return String(claims(token)?.email || "");
   }
-  function memorySessionStore() {
-    let held = null;
-    return {
-      read: () => held,
-      write: (value) => {
-        held = value;
-      }
-    };
-  }
-
-  // ../auth/src/token-manager.ts
-  var EXPIRY_SKEW_MS = 3e4;
-  var MIN_DELAY_MS = 5e3;
-  var BLIND_POLL_MS = 3e5;
-  var DEFAULT_TIMEOUT_MS = 45e3;
-  var TokenManager = class {
-    constructor(config) {
-      this.config = config;
-      this.pair = null;
-      this.inflight = null;
-      this.timer = null;
-      this.listeners = /* @__PURE__ */ new Set();
-      this.wake = null;
-      this.pair = this.readStored();
-    }
-    // ------------------------------------------------------------------- reading
-    /** What is held right now, WITHOUT renewing. Synchronous, for a socket URL or a rendered email. */
-    current() {
-      return this.pair;
-    }
-    /** Is there a credential this client can still use, or still renew? */
-    signedIn() {
-      const p = this.pair;
-      if (!p || !usable(p.accessToken)) return false;
-      if (p.refreshToken || !this.expired(p)) return true;
-      this.replace(null);
-      return false;
-    }
-    /**
-     * A USABLE access token, renewing first when the one we hold is spent.
-     *
-     * The only way anything should ever obtain a credential, so that no caller anywhere has to
-     * reason about expiry — which is exactly the reasoning every caller previously got wrong.
-     */
-    async accessToken() {
-      const p = this.pair;
-      if (p && !this.expired(p)) return p.accessToken;
-      const next = await this.refresh();
-      return next?.accessToken || "";
-    }
-    subscribe(cb) {
-      this.listeners.add(cb);
-      return () => this.listeners.delete(cb);
-    }
-    // ------------------------------------------------------------------- writing
-    /**
-     * Sign in, creating the account first when `signup`.
-     *
-     * THROWS on a rejected credential, carrying the service's own message ("incorrect password") so
-     * a form has something to show. A failed attempt must never resolve to a signed-out state: the
-     * caller cannot tell that apart from having signed out, and the user is left looking at a form
-     * that cleared itself.
-     */
-    async login(args) {
-      const base = await this.base();
-      const email = args.email.trim().toLowerCase();
-      if (args.signup) {
-        await this.post(`${base}/signup`, { email, password: args.password }, "signup");
-      }
-      const data = await this.post(
-        `${base}/auth/login`,
-        {
-          email,
-          password: args.password,
-          client_id: this.config.clientId,
-          device_label: this.deviceLabel()
-        },
-        "login"
-      );
-      const next = this.toPair(data, email);
-      if (!next.accessToken) throw new Error("the accounts server returned no access token");
-      await this.set(next);
-      return next;
-    }
-    /**
-     * Re-establish a session at start-up.
-     *
-     * This is what makes "stay signed in" work with a ten-minute access token: nothing durable is
-     * kept but the refresh token, and one exchange at boot turns it into a usable pair. A window
-     * holding no refresh token (opened by the desktop app, and fed rather than renewing) keeps
-     * whatever it was handed — unless that has died, in which case it is dropped, because a page
-     * presenting a dead token is not refused, it is accepted ANONYMOUSLY.
-     */
-    async restore() {
-      const stored = this.pair || this.readStored();
-      if (!stored?.refreshToken) {
-        if (stored && this.expired(stored)) await this.set(null);
-        return this.pair;
-      }
-      return this.refresh();
-    }
-    /**
-     * Trade the refresh token for a new pair. SINGLE-FLIGHT — see the header.
-     *
-     * Returns null when the session is over, having cleared it; and null WITHOUT clearing when the
-     * attempt merely failed. The difference is the whole point.
-     */
-    refresh() {
-      if (this.inflight) return this.inflight;
-      this.inflight = this.exchange().finally(() => {
-        this.inflight = null;
-      });
-      return this.inflight;
-    }
-    async exchange() {
-      const token = this.pair?.refreshToken || await this.readSecret();
-      if (!token) return null;
-      let base = "";
-      try {
-        base = await this.base();
-      } catch {
-        return null;
-      }
-      let res;
-      try {
-        res = await this.send(`${base}/auth/refresh`, {
-          refresh_token: token,
-          client_id: this.config.clientId
-        });
-      } catch {
-        return null;
-      }
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) await this.set(null);
-        return null;
-      }
-      const data = await res.json().catch(() => ({}));
-      const next = this.toPair(data, this.pair?.email || "");
-      if (!next.accessToken) return null;
-      if (!next.refreshToken) next.refreshToken = token;
-      if (!next.accountId && this.pair?.accountId) next.accountId = this.pair.accountId;
-      await this.set(next);
-      return next;
-    }
-    /**
-     * Write a credential directly, with NO account check. The unguarded door.
-     *
-     * There is exactly one honest use: a host adopting a credential an opener handed it, such as the
-     * `?session=` on an agent window's launch URL. Everything else — sign-in, renewal, a token
-     * pushed by the desktop app — has a guarded path above, and using this instead skips the check
-     * that path exists for.
-     *
-     * Synchronous in effect: the pair is live the moment this returns, because a caller that writes
-     * a session and immediately builds a socket URL from it cannot wait for a keychain round trip.
-     */
-    replace(pair) {
-      void this.set(pair);
-    }
-    /**
-     * Adopt an access token minted elsewhere — the desktop app pushing one into an agent window.
-     *
-     * WHOSE TOKEN IS THIS? The push reaches EVERY open window at once and cannot know that one of
-     * them signed in as somebody else. Adopting it there would leave this account's email and
-     * refresh token stored beside another account's access token, and land the window on the wrong
-     * account while still displaying this one's address. An unreadable token fails CLOSED.
-     *
-     * Holding no accountId is the ordinary case, not an exception: a window opened BY the desktop
-     * app took its credential from the launch URL and recorded no account, so it has nothing to
-     * disagree with and accepts every push.
-     */
-    async adopt(accessToken) {
-      if (!usable(accessToken)) return false;
-      const held = this.pair;
-      if (held?.accountId && accessTokenAccount(accessToken) !== held.accountId) return false;
-      await this.set({
-        accessToken,
-        refreshToken: held?.refreshToken || "",
-        expiresAt: accessTokenExpiry(accessToken),
-        accountId: held?.accountId || "",
-        email: held?.email || ""
-      });
-      return true;
-    }
-    /**
-     * Forget this client's session, and tell the server so.
-     *
-     * A sign-out that only forgets locally leaves a 30-day credential alive on a machine the user
-     * may have just decided they do not trust. Best-effort: being offline must not block signing out.
-     */
-    async logout() {
-      const token = this.pair?.refreshToken || await this.readSecret();
-      await this.set(null);
-      if (!token) return;
-      try {
-        const base = await this.base();
-        await this.send(`${base}/auth/logout`, { refresh_token: token });
-      } catch {
-      }
-    }
-    // ------------------------------------------------------------------- renewal
-    /**
-     * Keep the credential fresh for as long as the host lives. Returns a stop function.
-     *
-     * TWO TRIGGERS, because a timer alone is provably not enough. Timers do not fire while a machine
-     * sleeps and are throttled in background tabs, so a window that was away comes back holding a
-     * token that died hours ago — the single most common way this used to break, and the one a
-     * schedule can never cover. Coming back is therefore its own trigger.
-     */
-    start() {
-      this.schedule();
-      if (typeof document !== "undefined" && !this.wake) {
-        this.wake = () => {
-          if (document.visibilityState === "visible") void this.tick();
-        };
-        document.addEventListener("visibilitychange", this.wake);
-        if (typeof addEventListener === "function") addEventListener("focus", this.wake);
-      }
-      return () => this.stop();
-    }
-    stop() {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = null;
-      if (!this.wake) return;
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", this.wake);
-      }
-      if (typeof removeEventListener === "function") removeEventListener("focus", this.wake);
-      this.wake = null;
-    }
-    async tick() {
-      const p = this.pair;
-      if (p?.refreshToken && this.expiringSoon(p)) await this.refresh();
-      this.schedule();
-    }
-    schedule() {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = null;
-      const p = this.pair;
-      if (!p?.refreshToken) return;
-      if (!p.expiresAt) {
-        this.timer = setTimeout(() => void this.tick(), BLIND_POLL_MS);
-        return;
-      }
-      const life = p.expiresAt - Date.now();
-      this.timer = setTimeout(() => void this.tick(), Math.max(MIN_DELAY_MS, Math.floor(life * 0.8)));
-    }
-    expired(p) {
-      return p.expiresAt > 0 && Date.now() > p.expiresAt - EXPIRY_SKEW_MS;
-    }
-    /** Close enough to the end to be worth renewing now — or already past it. */
-    expiringSoon(p) {
-      if (!p.expiresAt) return true;
-      return Date.now() > p.expiresAt - Math.max(EXPIRY_SKEW_MS, 12e4);
-    }
-    // ------------------------------------------------------------------- storage
-    async set(next) {
-      this.pair = next;
-      try {
-        this.writeStored(next);
-      } catch (e) {
-        console.warn("[auth] could not persist the session; signed in for this run only", e);
-      }
-      this.schedule();
-      this.listeners.forEach((l) => l(next));
-      this.config.onChange?.(next);
-    }
-    writeStored(next) {
-      if (!next) {
-        this.config.session.write(null);
-        void this.config.secrets?.write(null);
-        return;
-      }
-      const encrypted = !!this.config.secrets;
-      this.config.session.write(
-        JSON.stringify({
-          accessToken: next.accessToken,
-          // Kept here ONLY when there is no encrypted store to put it in. On the desktop it goes to
-          // the keychain instead, so the plain store never holds a 30-day credential.
-          refreshToken: encrypted ? "" : next.refreshToken,
-          expiresAt: next.expiresAt,
-          accountId: next.accountId,
-          email: next.email
-        })
-      );
-      if (encrypted) void this.config.secrets?.write(next.refreshToken || null);
-    }
-    readStored() {
-      try {
-        const raw = this.config.session.read();
-        if (!raw) return null;
-        const p = JSON.parse(raw);
-        const held = {
-          accessToken: p.accessToken || "",
-          refreshToken: p.refreshToken || "",
-          expiresAt: p.expiresAt || accessTokenExpiry(p.accessToken || ""),
-          accountId: p.accountId || "",
-          email: p.email || ""
-        };
-        if (!usable(held.accessToken) || !held.refreshToken && this.expired(held)) {
-          this.config.session.write(null);
-          return null;
-        }
-        return held;
-      } catch {
-        return null;
-      }
-    }
-    async readSecret() {
-      try {
-        return await this.config.secrets?.read() || "";
-      } catch {
-        return "";
-      }
-    }
-    // ------------------------------------------------------------------ plumbing
-    toPair(d, fallbackEmail) {
-      const accessToken = String(d.access_token || d.token || d.session || "");
-      return {
-        accessToken,
-        refreshToken: String(d.refresh_token || ""),
-        // `expires_in` is RELATIVE on purpose (identity/domain/token.py): our clock and the server's
-        // may disagree, and a relative lifetime is correct under skew where an absolute deadline is
-        // not. The token's own `exp` covers a server that sends neither.
-        expiresAt: d.expires_in ? Date.now() + Number(d.expires_in) * 1e3 : accessTokenExpiry(accessToken),
-        accountId: String(d.account_id || ""),
-        email: String(d.email || fallbackEmail)
-      };
-    }
-    async base() {
-      const clean = (await this.config.accountsUrl() || "").replace(/\/$/, "");
-      if (!clean) throw new Error("no accounts service is configured");
-      return clean;
-    }
-    deviceLabel() {
-      try {
-        return this.config.deviceLabel?.() || this.config.clientId;
-      } catch {
-        return this.config.clientId;
-      }
-    }
-    async send(url, body) {
-      const call = this.config.fetchImpl || fetch;
-      const ms = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const ctl = typeof AbortController === "function" ? new AbortController() : null;
-      const timer = setTimeout(() => ctl?.abort(), ms);
-      try {
-        return await call(url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-          signal: ctl?.signal
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    async post(url, body, what) {
-      const r = await this.send(url, body);
-      const text = await r.text();
-      let data = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-      }
-      if (!r.ok) {
-        throw new Error(String(data?.detail || data?.error || `${what} failed (HTTP ${r.status})`));
-      }
-      return data;
-    }
-  };
 
   // src/platform-status.ts
   var DEFAULT_TIMEOUT = 45e3;
@@ -530,93 +145,193 @@ var agentd = (() => {
   }
 
   // src/identity.ts
-  function sessionKey(explicit = "") {
-    if (explicit) return explicit;
-    const here = typeof location === "undefined" ? null : new URL(location.href);
-    const scope = here?.searchParams.get("scope") || "";
-    const fromPath = /\/apps\/([^/]+)/.exec(here?.pathname || "");
-    const id = /^agent:(.+)$/.exec(scope)?.[1] || (fromPath ? decodeURIComponent(fromPath[1]) : "");
-    return `agentd.session.${id || "app"}`;
+  function authUrl(path, opts = {}) {
+    const u = new URL(path, `${daemonOrigin(opts)}/`);
+    const token = daemonToken(opts);
+    if (token) u.searchParams.set("token", token);
+    return u;
   }
-  var managers = /* @__PURE__ */ new Map();
-  function identity(opts = {}) {
-    const key = sessionKey(opts.storageKey);
-    const held = managers.get(key);
-    if (held) {
-      if (opts.client) bindClient(held, key, opts.client);
-      return held;
-    }
-    const manager = new TokenManager({
-      accountsUrl: () => accountsUrl(opts),
-      session: localSessionStore(key),
-      // No `secrets`: a browser page has no OS keychain, so the refresh token — when this window
-      // has one at all — rides in the same store. The desktop's answer to that is not to encrypt it
-      // here but to never send one (see the header).
-      clientId: "app",
-      deviceLabel: () => documentTitle() || "Agent app",
-      timeoutMs: opts.timeoutMs
-    });
-    managers.set(key, manager);
-    if (opts.client) bindClient(manager, key, opts.client);
-    manager.start();
-    return manager;
-  }
-  var bound = /* @__PURE__ */ new Map();
-  function bindClient(manager, key, client) {
-    const already = bound.get(key);
-    bound.set(key, client);
-    if (already === client) return;
-    if (already) return;
-    manager.subscribe((pair) => {
-      const target = bound.get(key);
-      if (!target) return;
-      if (!pair) {
-        target.reconnect();
-        return;
-      }
-      void target.request("auth.update", { accessToken: pair.accessToken }).catch(() => target.reconnect());
-    });
-  }
-  function documentTitle() {
+  async function fetchCookieToken(opts) {
+    let base = "";
     try {
-      return typeof document === "undefined" ? "" : document.title;
+      base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
     } catch {
-      return "";
+      return { state: "accounts_unreachable", retryAfterSec: 15, via: "cookie" };
     }
+    if (!base) return { state: "signed_out", via: "cookie" };
+    let r;
+    try {
+      r = await fetch(`${base}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({ cookie: true, client_id: "agent-window" })
+      });
+    } catch {
+      return { state: "accounts_unreachable", retryAfterSec: 15, via: "cookie" };
+    }
+    if (r.status === 401 || r.status === 403) return { state: "signed_out", via: "cookie" };
+    if (!r.ok) return { state: "accounts_unreachable", retryAfterSec: 30, via: "cookie" };
+    const d = await r.json().catch(() => ({}));
+    if (!d.access_token) return { state: "signed_out", via: "cookie" };
+    return {
+      state: "ok",
+      accessToken: d.access_token,
+      expiresAt: Date.now() / 1e3 + Number(d.expires_in || 0),
+      accountId: String(d.account_id || ""),
+      email: String(d.email || ""),
+      via: "cookie"
+    };
+  }
+  async function fetchToken(opts = {}) {
+    try {
+      const r = await fetch(authUrl("/auth/token", opts), {
+        cache: "no-store"
+      });
+      if (r.status === 404) return fetchCookieToken(opts);
+      const d = await r.json().catch(() => ({}));
+      if (d && typeof d.state === "string") return { ...d, via: "runtime" };
+      return fetchCookieToken(opts);
+    } catch {
+      return { state: "accounts_unreachable", retryAfterSec: 15 };
+    }
+  }
+  var TokenFetcher = class {
+    constructor(opts) {
+      this.opts = opts;
+      this.answer = null;
+      this.inflight = null;
+      this.clients = /* @__PURE__ */ new Set();
+      /** A stable fingerprint of the last resolved identity ('ok:<accountId>' or the non-ok state),
+       *  so a genuine account change fires the identity-change listeners exactly once and a mere
+       *  token refresh for the SAME account fires nothing. */
+      this.sig = "";
+    }
+    /** Register a client to receive `auth.update` pushes. Idempotent. */
+    bind(client) {
+      this.clients.add(client);
+    }
+    /** Forget the cached token answer WITHOUT dropping client bindings: the next state()/
+     *  accessToken() re-reads identity from the runtime/cookie. Call this the instant credentials
+     *  change — a sign-out, or a sign-in as a DIFFERENT account — so no caller keeps handing out the
+     *  previous user's token during the ~150s the cache would otherwise serve it. That stale token is
+     *  the "switched users but still saw the old account's orgs/credits/chats" cross-tenant bleed. */
+    forget() {
+      this.answer = null;
+      this.inflight = null;
+    }
+    /** A current access token, or '' when the machine is signed out / unreachable. Callers that
+     *  need to know WHY ask `state()`. */
+    async accessToken() {
+      const a = await this.state();
+      return a.state === "ok" ? a.accessToken || "" : "";
+    }
+    async state() {
+      const held = this.answer;
+      if (held?.state === "ok" && (held.expiresAt || 0) * 1e3 - Date.now() > 15e4) return held;
+      if (held?.state === "ok" && (held.expiresAt || 0) - Date.now() / 1e3 > 150) return held;
+      if (!this.inflight) {
+        this.inflight = fetchToken(this.opts).finally(() => {
+          this.inflight = null;
+        });
+        this.inflight.then((a) => {
+          const prev = this.answer;
+          this.answer = a;
+          this.push(a, prev);
+          const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
+          if (sig !== this.sig) {
+            this.sig = sig;
+            notifyIdentityChanged();
+          }
+        });
+      }
+      return this.inflight;
+    }
+    /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
+     *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
+     *  So when a genuinely NEW cookie token arrives, every bound open socket gets it via
+     *  `auth.update`, which the daemon applies to the connection AND to the turn already running
+     *  on it. Desktop answers come via the runtime, which renews its own connections — no push.
+     *  Fire-and-forget: a socket that is closed or an older daemon just ignores it. */
+    push(a, prev) {
+      if (a.state !== "ok" || a.via !== "cookie" || !a.accessToken) return;
+      if (prev?.state === "ok" && prev.accessToken === a.accessToken) return;
+      for (const c of this.clients) {
+        void c.request("auth.update", { accessToken: a.accessToken }).catch(() => {
+        });
+      }
+    }
+    signedIn() {
+      return this.answer?.state === "ok";
+    }
+    /** Compatibility shape for callers that read `current()?.email`. */
+    current() {
+      const a = this.answer;
+      return a?.state === "ok" ? { email: a.email || "", accountId: a.accountId || "" } : null;
+    }
+  };
+  var fetchers = /* @__PURE__ */ new Map();
+  var identityListeners = /* @__PURE__ */ new Set();
+  function notifyIdentityChanged() {
+    for (const cb of [...identityListeners]) {
+      try {
+        cb();
+      } catch {
+      }
+    }
+  }
+  function onIdentityChanged(cb) {
+    identityListeners.add(cb);
+    return () => identityListeners.delete(cb);
+  }
+  function identity(opts = {}) {
+    const key = daemonOrigin(opts);
+    let f = fetchers.get(key);
+    if (!f) {
+      f = new TokenFetcher(opts);
+      fetchers.set(key, f);
+    }
+    if (opts.client) f.bind(opts.client);
+    return f;
+  }
+  function forgetIdentityCache() {
+    for (const f of fetchers.values()) f.forget();
   }
   function resetIdentity() {
-    managers.forEach((m) => m.stop());
-    managers.clear();
-    bound.clear();
+    fetchers.clear();
+  }
+  function sessionKey(explicit = "") {
+    return explicit || "agentd.session.machine";
+  }
+  function acceptHostTokens() {
+    return () => void 0;
+  }
+  function startAuthRenewal() {
+    return () => void 0;
   }
 
   // src/session.ts
-  function loadSession(storageKey = "") {
-    const manager = identity({ storageKey });
-    if (!manager.signedIn()) return null;
-    const p = manager.current();
-    if (!p) return null;
-    return {
-      token: p.accessToken,
-      email: p.email,
-      accountId: p.accountId,
-      refreshToken: p.refreshToken || void 0,
-      expiresAt: p.expiresAt || void 0
-    };
+  var pageSession = null;
+  function loadSession(_storageKey = "") {
+    const s = pageSession;
+    if (!s) return null;
+    if (s.expiresAt && s.expiresAt <= Date.now()) return null;
+    return s;
   }
-  function saveSession(value, storageKey = "") {
-    const manager = identity({ storageKey });
+  function saveSession(value, _storageKey = "") {
     if (!value) {
-      manager.replace(null);
+      pageSession = null;
       return;
     }
-    manager.replace({
-      accessToken: value.token,
-      refreshToken: value.refreshToken || "",
-      expiresAt: value.expiresAt || accessTokenExpiry(value.token),
-      accountId: value.accountId || "",
-      email: value.email || ""
-    });
+    pageSession = {
+      token: value.token,
+      // The token's own claims fill what the opener did not say — a launch URL carries the token
+      // and nothing else, and these blanks are what made opened windows render "Account" unnamed.
+      email: value.email || accessTokenEmail(value.token),
+      accountId: value.accountId || accessTokenAccount(value.token),
+      expiresAt: value.expiresAt || accessTokenExpiry(value.token) || void 0
+    };
   }
   function loadMode(storageKey = "") {
     try {
@@ -672,6 +387,7 @@ var agentd = (() => {
       this.openedAt = 0;
       this.closedByUs = false;
       this.lastTarget = null;
+      this.authRepair = null;
       this.clientName = options.clientName || `@agentd/client/${PROTOCOL_VERSION}`;
     }
     /** Connect (or switch) to a daemon. Reconnects automatically with backoff until close(). */
@@ -755,6 +471,14 @@ var agentd = (() => {
     }
     // ------------------------------------------------------------------ raw protocol
     request(method, params = {}) {
+      return this.rawRequest(method, params).catch(async (e) => {
+        const code = e?.code;
+        if (code !== "auth_expired" || method === "auth.update") throw e;
+        if (!await this.repairAuth()) throw e;
+        return this.rawRequest(method, params);
+      });
+    }
+    rawRequest(method, params = {}) {
       const ws = this.ws;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error("not connected"));
@@ -765,6 +489,25 @@ var agentd = (() => {
       return new Promise((resolve, reject) => {
         this.pending.set(id, { resolve, reject });
       });
+    }
+    /** Fetch a fresh access token and push it onto the open socket. True when the daemon took it.
+     *  SINGLE-FLIGHT: ten rejected requests during one dead-token moment ride one repair. */
+    repairAuth() {
+      if (!this.authRepair) {
+        this.authRepair = (async () => {
+          try {
+            const a = await identity().state();
+            if (a.state !== "ok" || !a.accessToken) return false;
+            await this.rawRequest("auth.update", { accessToken: a.accessToken });
+            return true;
+          } catch {
+            return false;
+          } finally {
+            this.authRepair = null;
+          }
+        })();
+      }
+      return this.authRepair;
     }
     /** Subscribe to a broadcast event by name. Returns the unsubscribe. */
     on(event, handler) {
@@ -792,7 +535,11 @@ var agentd = (() => {
         if (!pending) return;
         this.pending.delete(frame.id);
         if (frame.ok) pending.resolve(frame.payload || {});
-        else pending.reject(new Error(String(frame.payload?.error || "gateway error")));
+        else {
+          const err = new Error(String(frame.payload?.error || "gateway error"));
+          if (typeof frame.payload?.code === "string") err.code = frame.payload.code;
+          pending.reject(err);
+        }
       } else if (frame.type === "event") {
         for (const handler of this.eventHandlers.get(frame.event) || []) {
           handler(frame.payload || {});
@@ -892,13 +639,17 @@ var agentd = (() => {
       history.replaceState(null, "", here.toString());
     }
     const client = new AgentdClient(options);
+    identity({ origin: here.origin, client });
     client.connect(async () => {
       const stored = loadSession()?.token;
+      const a = await identity({ origin: here.origin }).state();
+      const cookieToken = a.via === "cookie" && a.state === "ok" ? a.accessToken || "" : "";
+      const signedIn = !!stored || a.state === "ok";
       return {
         url: here.origin,
         token: token || void 0,
-        session: stored || void 0,
-        mode: effectiveMode("", !!stored),
+        session: cookieToken || stored || void 0,
+        mode: effectiveMode("", signedIn),
         scope: scope || void 0
       };
     });
@@ -908,219 +659,101 @@ var agentd = (() => {
   // src/auth.ts
   async function authStatus(opts = {}) {
     const status = await platformStatus(opts);
-    const manager = identity(opts);
-    const signedIn = manager.signedIn();
-    const held = manager.current();
     const canUseCloud = !!status.canUseCloud;
+    const tok = await fetchToken(opts);
+    const signedIn = tok.state === "ok";
     return {
       available: !!String(status.accountsUrl || ""),
       signedIn,
-      email: signedIn && held?.email || "",
-      accountId: signedIn && held?.accountId || "",
-      mode: effectiveMode(opts.storageKey, signedIn, canUseCloud),
+      email: signedIn && tok.email || "",
+      accountId: signedIn && tok.accountId || "",
+      // THE DAEMON'S answer, not a client-side guess: it reads persisted config (and forces cloud on
+      // hosted). This is what fixes "the switch says Cloud but the call ran Local".
+      mode: status.mode === "local" || status.mode === "cloud" ? status.mode : "local",
+      modeLocked: !!status.runModeLocked,
       canUseCloud,
       // Absent on an older daemon. Defaulting to TRUE keeps the gate exactly as it was there — a
-      // client that guessed "not required" against a daemon that requires it would show no login and
-      // then fail every call with no explanation.
+      // client that guessed "not required" against a daemon that requires it would show no login
+      // and then fail every call with no explanation.
       required: status.signInRequired !== false
     };
   }
   async function authLogin(args, opts = {}) {
-    await identity(opts).login(args);
+    const r = await fetch(authUrl("/auth/login", opts), {
+      cache: "no-store",
+      headers: {
+        "X-Auth-Email": args.email,
+        "X-Auth-Password": args.password,
+        ...args.signup ? { "X-Auth-Signup": "1" } : {}
+      }
+    });
+    if (r.status === 404) return cookieLogin(args, opts);
+    const d = await r.json().catch(() => ({}));
+    if (typeof d.state !== "string") return cookieLogin(args, opts);
+    if (!r.ok || d.state !== "ok") {
+      throw new Error(String(d.error || `sign-in failed (HTTP ${r.status})`));
+    }
+    forgetIdentityCache();
     return authStatus(opts);
   }
-  async function authRefresh(opts = {}) {
-    const next = await identity(opts).refresh();
-    return next?.accessToken || "";
-  }
-  function startAuthRenewal(opts = {}) {
-    return identity(opts).start();
-  }
-  function acceptHostTokens(opts = {}) {
-    const host = globalThis.agentdHost;
-    if (!host?.onAccessToken) return () => void 0;
-    const manager = identity(opts);
-    return host.onAccessToken((token) => {
-      if (token) void manager.adopt(token);
+  async function cookieLogin(args, opts) {
+    const base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
+    if (!base) throw new Error("this deployment has no accounts service to sign in to");
+    const email = args.email.trim().toLowerCase();
+    if (args.signup) {
+      const s = await fetch(`${base}/signup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({ email, password: args.password })
+      });
+      if (!s.ok) {
+        const d = await s.json().catch(() => ({}));
+        throw new Error(String(d.detail || d.error || `sign-up failed (HTTP ${s.status})`));
+      }
+    }
+    const r = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      cache: "no-store",
+      body: JSON.stringify({ email, password: args.password, client_id: "agent-window", cookie: true })
     });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
+    }
+    forgetIdentityCache();
+    return authStatus(opts);
   }
   async function authLogout(opts = {}) {
-    await identity(opts).logout();
+    const r = await fetch(authUrl("/auth/logout", opts), { cache: "no-store" }).catch(() => null);
+    if (!r || r.status === 404) {
+      const status = await platformStatus(opts).catch(() => ({}));
+      const base = String(status.accountsUrl || "").replace(/\/$/, "");
+      if (base) {
+        await fetch(`${base}/auth/logout`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          cache: "no-store",
+          body: JSON.stringify({ cookie: true })
+        }).catch(() => {
+        });
+      }
+    }
     saveMode(null, opts.storageKey);
+    forgetIdentityCache();
     return authStatus(opts);
   }
   async function setRunMode(mode, opts = {}) {
-    if (mode === "cloud" && !identity(opts).signedIn()) {
+    if (mode === "cloud" && !await identity(opts).accessToken()) {
       throw new Error("sign in first \u2014 Cloud mode meters model calls to your account");
     }
-    saveMode(mode, opts.storageKey);
+    await opts.client?.request("config.set", { patch: { run_mode: mode } });
     opts.client?.reconnect();
     return authStatus(opts);
-  }
-
-  // src/gate.ts
-  var STYLE_ID = "agentd-gate-style";
-  var CSS = `
-.agentd-gate{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;
-  background:var(--gate-bg,rgba(20,20,22,.72));backdrop-filter:blur(6px);
-  font-family:var(--gate-font,system-ui,-apple-system,Segoe UI,sans-serif)}
-.agentd-gate[hidden]{display:none}
-.agentd-gate-card{width:min(92vw,360px);padding:26px 24px;border-radius:14px;
-  background:var(--gate-card,#fff);color:var(--gate-fg,#16161a);
-  box-shadow:0 18px 50px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:10px}
-.agentd-gate-mark{font-size:26px;line-height:1;text-align:center;color:var(--gate-accent,#4f46e5)}
-.agentd-gate-title{margin:2px 0 0;font-size:19px;font-weight:650;text-align:center}
-.agentd-gate-sub{margin:0 0 6px;font-size:12.5px;line-height:1.45;text-align:center;
-  color:var(--gate-muted,#6b6b76)}
-.agentd-gate-label{font-size:11.5px;font-weight:600;color:var(--gate-muted,#6b6b76)}
-.agentd-gate-input{padding:9px 11px;border-radius:8px;font-size:13.5px;
-  border:1px solid var(--gate-border,#d8d8e0);background:var(--gate-input,#fff);
-  color:var(--gate-fg,#16161a)}
-.agentd-gate-input:focus{outline:2px solid var(--gate-accent,#4f46e5);outline-offset:1px}
-.agentd-gate-btn{margin-top:6px;padding:10px 12px;border:0;border-radius:8px;cursor:pointer;
-  font-size:13.5px;font-weight:600;color:var(--gate-on-accent,#fff);
-  background:var(--gate-accent,#4f46e5)}
-.agentd-gate-btn[disabled]{opacity:.6;cursor:default}
-.agentd-gate-toggle{padding:4px;border:0;background:none;cursor:pointer;font-size:12px;
-  color:var(--gate-muted,#6b6b76);text-decoration:underline}
-.agentd-gate-error{padding:7px 9px;border-radius:7px;font-size:12px;
-  background:var(--gate-error-bg,#fdeaea);color:var(--gate-error-fg,#a3232b)}
-.agentd-gate-error[hidden]{display:none}
-`;
-  function injectStyle() {
-    if (document.getElementById(STYLE_ID)) return;
-    const el2 = document.createElement("style");
-    el2.id = STYLE_ID;
-    el2.textContent = CSS;
-    document.head.appendChild(el2);
-  }
-  function build(product, blurb, allowSignup) {
-    const wrap = document.createElement("div");
-    wrap.className = "agentd-gate";
-    wrap.id = "gate";
-    wrap.innerHTML = `
-    <form class="agentd-gate-card" id="gateForm" autocomplete="on">
-      <div class="agentd-gate-mark" aria-hidden="true">&#9681;</div>
-      <h1 class="agentd-gate-title" id="gateTitle">Sign in</h1>
-      <p class="agentd-gate-sub" id="gateSub"></p>
-      <label class="agentd-gate-label" for="gateEmail">Email</label>
-      <input class="agentd-gate-input" id="gateEmail" type="email" autocomplete="email"
-             required placeholder="you@example.com" />
-      <label class="agentd-gate-label" for="gatePass">Password</label>
-      <input class="agentd-gate-input" id="gatePass" type="password"
-             autocomplete="current-password" required minlength="8" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" />
-      <div class="agentd-gate-error" id="gateError" hidden></div>
-      <button class="agentd-gate-btn" id="gateBtn" type="submit">Sign in</button>
-      ${allowSignup ? '<button class="agentd-gate-toggle" id="gateToggle" type="button">New here? Create an account</button>' : ""}
-    </form>`;
-    const title = wrap.querySelector("#gateTitle");
-    const sub = wrap.querySelector("#gateSub");
-    title.textContent = `Sign in to ${product}`;
-    sub.textContent = blurb;
-    return wrap;
-  }
-  function wantsVerifyBypass() {
-    if (typeof location === "undefined") return false;
-    try {
-      return new URL(location.href).searchParams.get("verify") === "1";
-    } catch {
-      return false;
-    }
-  }
-  function buildBlocked(product) {
-    const wrap = document.createElement("div");
-    wrap.className = "agentd-gate";
-    wrap.id = "gate";
-    wrap.innerHTML = `
-    <div class="agentd-gate-card">
-      <div class="agentd-gate-mark" aria-hidden="true">&#9681;</div>
-      <h1 class="agentd-gate-title" id="gateTitle"></h1>
-      <p class="agentd-gate-sub" id="gateSub"></p>
-      <div class="agentd-gate-error" id="gateError"></div>
-    </div>`;
-    const $ = (id) => wrap.querySelector(`#${id}`);
-    $("gateTitle").textContent = `Sign in to ${product}`;
-    $("gateSub").textContent = `${product} runs on your account, so it cannot be used signed out.`;
-    $("gateError").textContent = "This service has no accounts service configured, so there is nowhere to sign in. Point the daemon at one (AGENTD_ACCOUNTS_URL, or accounts.api_base in its config) and reload.";
-    return wrap;
-  }
-  async function mountSignInGate(options = {}) {
-    const allowSignup = options.allowSignup !== false;
-    const product = options.product || typeof document !== "undefined" && document.title || "this app";
-    const blurb = options.blurb || "Sign in to continue.";
-    const state = await authStatus(options);
-    const demanded = options.require === true || state.required;
-    if (state.signedIn) {
-      startAuthRenewal(options);
-      acceptHostTokens(options);
-      return { ...state, signedInHere: false };
-    }
-    if (!state.available) {
-      if (!demanded) return { ...state, signedInHere: false };
-      injectStyle();
-      (options.mount || document.body).appendChild(buildBlocked(product));
-      return { ...state, signedInHere: false };
-    }
-    if (!demanded && wantsVerifyBypass()) {
-      return { ...state, signedInHere: false };
-    }
-    injectStyle();
-    const gate = build(product, blurb, allowSignup);
-    (options.mount || document.body).appendChild(gate);
-    const $ = (id) => gate.querySelector(`#${id}`);
-    const emailEl = $("gateEmail");
-    const passEl = $("gatePass");
-    const btn = $("gateBtn");
-    const errorEl = $("gateError");
-    const subEl = $("gateSub");
-    const titleEl = $("gateTitle");
-    const toggle = allowSignup ? $("gateToggle") : null;
-    let signup = false;
-    const say = (text) => subEl.textContent = text;
-    const fail = (text) => {
-      errorEl.textContent = text;
-      errorEl.hidden = !text;
-    };
-    if (state.email) emailEl.value = state.email;
-    setTimeout(() => emailEl.focus(), 0);
-    toggle?.addEventListener("click", () => {
-      signup = !signup;
-      titleEl.textContent = signup ? "Create your account" : `Sign in to ${product}`;
-      btn.textContent = signup ? "Create account" : "Sign in";
-      toggle.textContent = signup ? "Have an account? Sign in" : "New here? Create an account";
-      passEl.setAttribute("autocomplete", signup ? "new-password" : "current-password");
-      say(blurb);
-      fail("");
-    });
-    return new Promise((resolve) => {
-      const form = $("gateForm");
-      say(blurb);
-      form.addEventListener("submit", async (ev) => {
-        ev.preventDefault();
-        const email = emailEl.value.trim().toLowerCase();
-        const password = passEl.value;
-        if (!email || !password) return;
-        btn.disabled = true;
-        fail("");
-        say(signup ? "Creating your account\u2026" : "Signing in\u2026");
-        try {
-          const result = await authLogin({ email, password, signup }, options);
-          startAuthRenewal(options);
-          acceptHostTokens(options);
-          gate.remove();
-          resolve({ ...result, signedInHere: true });
-        } catch (e) {
-          btn.disabled = false;
-          say(blurb);
-          fail(String(e?.message || e));
-        }
-      });
-    });
-  }
-  async function signOutAndGate(options = {}) {
-    const state = await authLogout(options);
-    if (!state.available) return { ...state, signedInHere: false };
-    return mountSignInGate(options);
   }
 
   // ../billing/src/credits-bus.ts
@@ -1143,6 +776,7 @@ var agentd = (() => {
       title: String(d.title || ""),
       priceUsd: Number(d.price_usd || 0),
       credits: Number(d.credits || 0),
+      seats: Number(d.seats || 0),
       modelTierMax: String(d.model_tier_max || ""),
       periodDays: Number(d.period_days || 0)
     };
@@ -1175,6 +809,8 @@ var agentd = (() => {
         return {
           creditsRemaining: Number(d.credits_remaining || 0),
           fundingSource: String(d.funding_source || ""),
+          orgId: String(d.org_id || ""),
+          memberCapped: Boolean(d.member_capped),
           creditClass: String(d.credit_class || ""),
           modelTierMax: String(d.model_tier_max || ""),
           entitlementRequired: Boolean(d.entitlement_required),
@@ -1209,19 +845,24 @@ var agentd = (() => {
      * Buy a pack. THROWS with the server's own message on refusal.
      *
      * `returnUrl` is only consulted by a rail that sends the customer away; on one that settles in
-     * place it is ignored, and the returned `checkoutUrl` is empty. Callers pass their own page so a
-     * card payment comes back where it started.
+     * place it is ignored, and the returned `checkoutUrl` is empty. The DEFAULT return is the
+     * accounts service's own neutral "checkout finished" page, NOT the caller's URL: a surface's
+     * own href drags its whole query string — session token included — through the rail's redirect
+     * and into browser history, and on desktop it reopens the app in a browser tab instead of the
+     * window the purchase started in. The purchase's real conclusion never travels through that
+     * tab anyway — it arrives on the webhook, and `awaitGrant` is what tells the initiating window.
      */
-    async buy(productId, returnUrl = "") {
+    async buy(productId, returnUrl = "", orgId = "") {
+      const base = await this.base();
       const body = {
         product_id: productId,
         idempotency_key: this.host.newKey()
       };
-      if (returnUrl) {
-        body.success_url = returnUrl;
-        body.cancel_url = returnUrl;
-      }
-      const r = await fetch(`${await this.base()}/me/checkout`, {
+      if (orgId) body.org_id = orgId;
+      const back = returnUrl || `${base}/checkout/complete`;
+      body.success_url = back;
+      body.cancel_url = back;
+      const r = await fetch(`${base}/me/checkout`, {
         method: "POST",
         headers: { ...await this.authed(), "Content-Type": "application/json" },
         body: JSON.stringify(body)
@@ -1240,6 +881,32 @@ var agentd = (() => {
         paymentDetail: String(payment.detail || ""),
         checkoutUrl
       };
+    }
+    /**
+     * Watch for a checkout's credits to land, then ring the credits bus.
+     *
+     * A card purchase finishes on a WEBHOOK, in another tab, minutes later — nothing tells the
+     * window that started it. This polls the balance until it RISES (a grant adds; concurrent
+     * spending only subtracts, so a rise is unambiguous), then fires `notifyCreditsChanged()` so
+     * every listening view refreshes itself — the window the purchase began in included.
+     *
+     * Resolves true when the grant landed, false when the customer walked away (timeout). A false
+     * is "nothing happened", never an error — an abandoned checkout costs nothing and grants
+     * nothing, and the next purchase starts clean.
+     */
+    async awaitGrant(opts = {}) {
+      const { agentId = "", timeoutMs = 18e4, pollMs = 4e3 } = opts;
+      const baseline = (await this.credits(agentId))?.creditsRemaining;
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+        const now = (await this.credits(agentId))?.creditsRemaining;
+        if (now !== void 0 && (baseline === void 0 || now > baseline)) {
+          notifyCreditsChanged();
+          return true;
+        }
+      }
+      return false;
     }
   };
 
@@ -1264,191 +931,132 @@ var agentd = (() => {
     return new BillingClient(creditsHost(opts));
   }
 
-  // src/wallet.ts
-  var STYLE_ID2 = "agentd-wallet-style";
-  var CSS2 = `
-.agentd-wallet{font-family:var(--wallet-font,system-ui,-apple-system,Segoe UI,sans-serif);
-  color:var(--wallet-fg,#e8eaed);display:flex;flex-direction:column;gap:18px}
-.agentd-wallet[hidden]{display:none}
-.agentd-wallet-h{margin:0;font-size:12px;font-weight:600;letter-spacing:.04em;
-  text-transform:uppercase;color:var(--wallet-muted,#9aa0a6)}
-.agentd-wallet-card{padding:16px;border-radius:var(--wallet-radius,12px);
-  background:var(--wallet-card,#14171d);border:1px solid var(--wallet-border,rgba(255,255,255,.1))}
-.agentd-wallet-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.agentd-wallet-bal{font-size:22px;font-weight:650}
-.agentd-wallet-sub{margin-top:4px;font-size:12.5px;color:var(--wallet-muted,#9aa0a6)}
-.agentd-wallet-warn{margin-top:10px;font-size:12.5px;color:var(--wallet-warn,#f0a35e)}
-.agentd-wallet-warn[hidden]{display:none}
-.agentd-wallet-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
-.agentd-wallet-pack{padding:14px;border-radius:var(--wallet-radius,12px);
-  background:var(--wallet-card,#14171d);border:1px solid var(--wallet-border,rgba(255,255,255,.1));
-  display:flex;flex-direction:column;gap:8px}
-.agentd-wallet-name{font-size:15px;font-weight:620}
-.agentd-wallet-meta{font-size:12.5px;color:var(--wallet-muted,#9aa0a6)}
-.agentd-wallet-btn{margin-top:auto;padding:9px 12px;border:0;border-radius:8px;cursor:pointer;
-  font-size:13px;font-weight:600;color:var(--wallet-on-accent,#0d1117);
-  background:var(--wallet-accent,#8ab4f8)}
-.agentd-wallet-btn[disabled]{opacity:.6;cursor:default}
-.agentd-wallet-ghost{padding:6px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;
-  color:var(--wallet-fg,#e8eaed);background:transparent;
-  border:1px solid var(--wallet-border,rgba(255,255,255,.16))}
-.agentd-wallet-note{font-size:12.5px;line-height:1.5;color:var(--wallet-muted,#9aa0a6)}
-.agentd-wallet-note[hidden]{display:none}
-.agentd-wallet-err{padding:8px 10px;border-radius:8px;font-size:12.5px;
-  background:var(--wallet-error-bg,rgba(163,35,43,.16));color:var(--wallet-error-fg,#f5a3a8)}
-.agentd-wallet-err[hidden]{display:none}
-`;
-  function injectStyle2() {
-    if (typeof document === "undefined" || document.getElementById(STYLE_ID2)) return;
-    const node = document.createElement("style");
-    node.id = STYLE_ID2;
-    node.textContent = CSS2;
-    document.head.appendChild(node);
+  // src/orgs.ts
+  async function call(opts, method, path, body) {
+    const base = await accountsUrl(opts);
+    if (!base) throw new Error("this daemon has no accounts service, so organizations are unavailable");
+    const token = await identity(opts).accessToken();
+    if (!token) throw new Error("sign in first");
+    const r = await fetch(base + path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...body !== void 0 ? { "Content-Type": "application/json" } : {}
+      },
+      ...body !== void 0 ? { body: JSON.stringify(body) } : {}
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(String(d.detail || `request failed (HTTP ${r.status})`));
+    return d;
   }
-  function el(tag, cls = "", text = "") {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text) node.textContent = text;
-    return node;
-  }
-  function priceLine(pack) {
-    const price = `$${pack.priceUsd.toFixed(2)}`;
-    return pack.periodDays > 0 ? `${price} \xB7 expires after ${pack.periodDays} days` : price;
-  }
-  function fundingLine(c) {
-    const base = c.fundingSource === "agent_subscription" ? "Funded by an agent subscription" : "Your platform balance";
-    const promo = c.creditClass === "promotional" ? " \xB7 promotional" : "";
-    const tier = c.modelTierMax ? ` \xB7 up to the \u201C${c.modelTierMax}\u201D tier` : "";
-    return base + promo + tier;
-  }
-  var NOTHING = {
-    refresh: async () => {
-    },
-    destroy: () => {
-    },
-    shown: false
-  };
-  async function mountCreditsPanel(options = {}) {
-    if (typeof document === "undefined") return NOTHING;
-    let status;
-    try {
-      status = await authStatus(options);
-    } catch {
-      return NOTHING;
+  function toDetail(d) {
+    const out = {
+      id: String(d.id || ""),
+      name: String(d.name || ""),
+      role: String(d.role || "member"),
+      seatsTotal: Number(d.seats_total || 0),
+      seatsUsed: Number(d.seats_used || 0),
+      createdAt: Number(d.created_at || 0)
+    };
+    if (Array.isArray(d.members)) {
+      out.members = d.members.map((m) => ({
+        accountId: String(m.account_id || ""),
+        email: String(m.email || ""),
+        role: String(m.role || "member"),
+        monthlyCreditCap: Number(m.monthly_credit_cap || 0),
+        addedAt: Number(m.added_at || 0)
+      }));
+      out.domains = d.domains || [];
+      out.primaryOwner = String(d.primary_owner || "");
+      out.poolCreditsRemaining = Number(d.pool_credits_remaining || 0);
     }
-    if (!status.available || !status.signedIn) return NOTHING;
-    injectStyle2();
-    const shop = billing(options);
-    const agentId = options.agentId ?? "";
-    const returnUrl = options.returnUrl || (typeof location === "undefined" ? "" : location.href.split("#")[0]);
-    const balance = el("div", "agentd-wallet-bal", "checking\u2026");
-    const source = el("div", "agentd-wallet-sub");
-    const warn = el("div", "agentd-wallet-warn");
-    warn.hidden = true;
-    const refreshBtn = el("button", "agentd-wallet-ghost", "Refresh");
-    refreshBtn.type = "button";
-    refreshBtn.title = "Re-read your balance from the platform";
-    const top = el("div", "agentd-wallet-top");
-    top.append(balance, refreshBtn);
-    const balanceCard = el("div", "agentd-wallet-card");
-    balanceCard.append(top, source, warn);
-    const grid = el("div", "agentd-wallet-grid");
-    const note = el("div", "agentd-wallet-note");
-    const receipt = el("div", "agentd-wallet-note");
-    const error = el("div", "agentd-wallet-err");
-    note.hidden = receipt.hidden = error.hidden = true;
-    const root = el("div", "agentd-wallet");
-    root.append(
-      el("h2", "agentd-wallet-h", "Balance"),
-      balanceCard,
-      el("h2", "agentd-wallet-h", "Buy credits"),
-      grid,
-      note,
-      receipt,
-      error
+    return out;
+  }
+  async function fetchMyOrgs(opts = {}) {
+    const d = await call(
+      opts,
+      "GET",
+      "/me/orgs"
     );
-    const host = options.mount || document.getElementById("agentd-credits") || document.body;
-    host.appendChild(root);
-    function say(node, text) {
-      node.textContent = text;
-      node.hidden = !text;
-    }
-    async function refresh() {
-      const c = await shop.credits(agentId);
-      balance.textContent = c ? `${c.creditsRemaining.toLocaleString()} credits` : "unavailable";
-      source.textContent = c ? fundingLine(c) : "";
-      say(
-        warn,
-        c && c.creditsRemaining === 0 ? "Out of credits \u2014 messages are refused until you top up." : ""
-      );
-    }
-    async function buy(pack, btn) {
-      const label = btn.textContent || "";
-      btn.disabled = true;
-      btn.textContent = "Adding\u2026";
-      say(error, "");
-      say(receipt, "");
-      try {
-        const r = await shop.buy(pack.id, returnUrl);
-        if (r.checkoutUrl) {
-          say(receipt, "Opening the payment page\u2026");
-          location.assign(r.checkoutUrl);
-          return;
-        }
-        say(
-          receipt,
-          r.replayed ? `Already bought \u2014 you have ${r.creditsRemaining.toLocaleString()} credits.` : `Added ${r.credits.toLocaleString()} credits. Balance: ${r.creditsRemaining.toLocaleString()}. ${r.paymentDetail}`
-        );
-        await refresh();
-      } catch (e) {
-        say(error, e instanceof Error ? e.message : String(e));
-      } finally {
-        btn.disabled = false;
-        btn.textContent = label;
-      }
-    }
-    function drawPacks(catalog) {
-      grid.replaceChildren();
-      if (!catalog) {
-        grid.append(el("div", "agentd-wallet-note", "Could not load the store."));
-        return;
-      }
-      if (!catalog.packs.length) {
-        grid.append(
-          el("div", "agentd-wallet-note", "No credit packs are configured on this environment.")
-        );
-        return;
-      }
-      for (const pack of catalog.packs) {
-        const card = el("div", "agentd-wallet-pack");
-        card.append(
-          el("div", "agentd-wallet-name", `${pack.credits.toLocaleString()} credits`),
-          el("div", "agentd-wallet-meta", priceLine(pack))
-        );
-        if (pack.title) card.append(el("div", "agentd-wallet-meta", pack.title));
-        const btn = el(
-          "button",
-          "agentd-wallet-btn",
-          `Buy \xB7 $${pack.priceUsd.toFixed(2)}`
-        );
-        btn.type = "button";
-        btn.addEventListener("click", () => void buy(pack, btn));
-        card.append(btn);
-        grid.append(card);
-      }
-      say(note, catalog.paymentNote);
-    }
-    refreshBtn.addEventListener("click", () => void refresh());
-    const off = onCreditsChanged(() => void refresh());
-    await refresh();
-    drawPacks(await shop.catalog());
     return {
-      refresh,
-      shown: true,
-      destroy() {
-        off();
-        root.remove();
-      }
+      orgs: (d.orgs || []).map((o) => ({
+        id: String(o.id || ""),
+        name: String(o.name || o.id || ""),
+        role: String(o.role || "member")
+      })),
+      joinable: (d.joinable || []).map((o) => ({
+        id: String(o.id || ""),
+        name: String(o.name || o.id || "")
+      }))
+    };
+  }
+  async function createOrg(name, seatsTotal, opts = {}) {
+    return toDetail(
+      await call(opts, "POST", "/orgs", { name, ...seatsTotal ? { seats_total: seatsTotal } : {} })
+    );
+  }
+  async function joinOrg(input, opts = {}) {
+    return toDetail(
+      await call(opts, "POST", "/orgs/join", {
+        ...input.inviteToken ? { invite_token: input.inviteToken } : {},
+        ...input.orgId ? { org_id: input.orgId } : {}
+      })
+    );
+  }
+  async function fetchOrgDetail(orgId, opts = {}) {
+    return toDetail(await call(opts, "GET", `/orgs/${encodeURIComponent(orgId)}`));
+  }
+  async function mintInvite(orgId, input = {}, opts = {}) {
+    const d = await call(
+      opts,
+      "POST",
+      `/orgs/${encodeURIComponent(orgId)}/invites`,
+      { ...input.email ? { email: input.email } : {}, ...input.role ? { role: input.role } : {} }
+    );
+    return {
+      inviteToken: String(d.invite_token || ""),
+      orgId: String(d.org_id || orgId),
+      orgName: String(d.org_name || ""),
+      email: String(d.email || ""),
+      role: String(d.role || "member"),
+      expiresAt: Number(d.expires_at || 0)
+    };
+  }
+  async function updateMember(orgId, accountId, patch, opts = {}) {
+    return toDetail(
+      await call(
+        opts,
+        "POST",
+        `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(accountId)}`,
+        {
+          ...patch.role !== void 0 ? { role: patch.role } : {},
+          ...patch.monthlyCreditCap !== void 0 ? { monthly_credit_cap: patch.monthlyCreditCap } : {},
+          ...patch.active !== void 0 ? { active: patch.active } : {}
+        }
+      )
+    );
+  }
+  async function updateDomain(orgId, domain, remove = false, opts = {}) {
+    return toDetail(
+      await call(opts, "POST", `/orgs/${encodeURIComponent(orgId)}/domains`, { domain, remove })
+    );
+  }
+  async function fetchOrgUsage(orgId, opts = {}) {
+    const d = await call(
+      opts,
+      "GET",
+      `/orgs/${encodeURIComponent(orgId)}/usage`
+    );
+    return {
+      month: String(d.month || ""),
+      members: (d.members || []).map((m) => ({
+        accountId: String(m.account_id || ""),
+        email: String(m.email || ""),
+        credits: Number(m.credits || 0),
+        costUsd: Number(m.cost_usd || 0),
+        calls: Number(m.calls || 0),
+        monthlyCreditCap: Number(m.monthly_credit_cap || 0)
+      }))
     };
   }
   return __toCommonJS(src_exports);

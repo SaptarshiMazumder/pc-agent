@@ -74,8 +74,17 @@ resource "aws_secretsmanager_secret_version" "app" {
     # in one place. PRODUCT_ID = the one pay-what-you-want catalog product (an MoR only sells
     # from its catalog); API_BASE_URL = https://test.dodopayments.com for test mode (Dodo
     # splits test/live by HOST), placeholder = the live host.
-    DODO_PRODUCT_ID         = "REPLACE_ME"
-    DODO_API_BASE_URL       = "REPLACE_ME"
+    DODO_PRODUCT_ID   = "REPLACE_ME"
+    DODO_API_BASE_URL = "REPLACE_ME"
+    # GPU marketplace + paid generation, both the PUBLISHER's keys rather than any user's.
+    # VAST_API_KEY rents the ComfyUI boxes (v2/vast/, read by the accounts service);
+    # COMFY_API_KEY pays for ComfyUI's partner nodes (read by the daemon). Both absent is a
+    # valid, working state: no GPU renting and no paid models, everything else unaffected.
+    #
+    # REMEMBER the ignore_changes note above — adding these here does NOT put them in an
+    # already-deployed environment's secret. Merge them in via the CLI or the admin console.
+    VAST_API_KEY  = "REPLACE_ME"
+    COMFY_API_KEY = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

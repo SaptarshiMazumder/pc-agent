@@ -61,22 +61,35 @@ variable "ec2_services" {
   default     = []
 }
 
-variable "ec2_instance_type" {
+variable "ec2_capacity_pools" {
   description = <<-EOT
-    Size of the ECS container instances.
+    THE POOLS OF CONTAINER INSTANCES, keyed by name; a service picks one. Replaced
+    ec2_instance_type + ec2_max_instances, which could only describe a single undifferentiated
+    pool — and one pool means the daemon competes for memory with everything else, which is how
+    a 2 GB task ends up unplaceable on a fleet that has 3 GB free but not 2 GB of it together.
 
-    t3.medium is the FLOOR once the daemon moves: it requests 2048 MiB and a t3.small registers
-    only ~1913 MiB after the OS and agent take their share, so the task is unplaceable — it sits
-    PROVISIONING while managed scaling adds more small instances that cannot help either.
+    INERT IN DEV while ec2_capacity_enabled is false: no pool builds an instance and none costs
+    anything. Kept here so this environment lists the same knob as staging and production —
+    a missing knob should read as missing, not as unsupported.
+
+    t3.medium is the FLOOR for the daemon pool: a t3.small registers only ~1913 MiB after the OS
+    and agent take their share, so a 2048 MiB task would never place, and the symptom is
+    PROVISIONING forever while managed scaling adds more small instances that cannot help.
   EOT
-  type        = string
-  default     = "t3.medium"
-}
-
-variable "ec2_max_instances" {
-  description = "Ceiling for the container-instance ASG; the floor is always 0. 2 leaves room for a rolling deploy, which needs a second box because host networking takes the service's port on the one it occupies."
-  type        = number
-  default     = 2
+  type = map(object({
+    instance_type = string
+    min_size      = optional(number, 0)
+    max_size      = number
+    # The pool that takes the unsuffixed resource names ("<prefix>-ecs", "<prefix>-ec2").
+    # At most one. It is what lets an already-running environment adopt the pool split without
+    # replacing services that are not actually moving: a capacity provider cannot be renamed,
+    # and changing a service's capacity_provider_strategy replaces the service.
+    primary = optional(bool, false)
+  }))
+  default = {
+    daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+  }
 }
 
 variable "accounts_desired_count" {
@@ -318,14 +331,14 @@ module "stack" {
 
   # The executor service (modules/executor.tf) — untrusted sandbox jobs off the daemon, one
   # microVM per call; bringing it up flips the daemon's sandbox backend to "microvm".
-  executor_image_tag = var.executor_image_tag
-  publish_engine_url       = var.publish_engine_url
-  publish_engine_sha256    = var.publish_engine_sha256
-  publish_engine_version   = var.publish_engine_version
-  hibernate                = var.hibernate
-  root_domain              = var.root_domain
-  agent_hostnames          = var.agent_hostnames
-  admin_hostname           = var.admin_hostname
+  executor_image_tag     = var.executor_image_tag
+  publish_engine_url     = var.publish_engine_url
+  publish_engine_sha256  = var.publish_engine_sha256
+  publish_engine_version = var.publish_engine_version
+  hibernate              = var.hibernate
+  root_domain            = var.root_domain
+  agent_hostnames        = var.agent_hostnames
+  admin_hostname         = var.admin_hostname
   # dev conveniences (already the stack defaults, spelled out for contrast with prod):
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -348,8 +361,7 @@ module "stack" {
   # every service keeps its Fargate launch type until one is explicitly given a capacity
   # provider strategy, and the ASG sits at zero instances until a task needs a machine.
   ec2_capacity_enabled = var.ec2_capacity_enabled
-  ec2_instance_type    = var.ec2_instance_type
-  ec2_max_instances    = var.ec2_max_instances
+  ec2_capacity_pools   = var.ec2_capacity_pools
   # WHICH services are on EC2 — the one-at-a-time dial. Empty = everything stays on Fargate.
   ec2_services = var.ec2_services
 
@@ -368,11 +380,11 @@ module "stack" {
   # goal here is to prove the alarms WIRE UP and can actually fire, not to tune them. The
   # money alarms (unbilled spend, ledger failures, buffer backlog, overspend) all trigger
   # at > 0 and need no tuning at any traffic level -- those are the ones that matter.
-  alert_email                = var.alert_email
-  cost_per_hour_alarm_usd    = var.cost_per_hour_alarm_usd
-  proxy_5xx_threshold        = var.proxy_5xx_threshold
-  resolve_latency_p99_ms     = var.resolve_latency_p99_ms
-  login_rejection_threshold  = var.login_rejection_threshold
+  alert_email               = var.alert_email
+  cost_per_hour_alarm_usd   = var.cost_per_hour_alarm_usd
+  proxy_5xx_threshold       = var.proxy_5xx_threshold
+  resolve_latency_p99_ms    = var.resolve_latency_p99_ms
+  login_rejection_threshold = var.login_rejection_threshold
   # The two ABSENCE alarms stay false in dev: it has no continuous traffic, so "no sign-ins
   # for 30 minutes" is the normal state overnight.
   enable_login_absence_alarm = var.enable_login_absence_alarm

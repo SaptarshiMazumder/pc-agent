@@ -29,7 +29,7 @@ locals {
       AGENTD_ACCOUNTS_URL    = local.accounts_internal_url
       AGENTD_MODEL_PROXY_URL = local.model_proxy_internal_url
       AGENTD_REGISTRY        = local.registry_index_url
-      AGENTD_PUBLISHER_KEY = var.registry_publisher_key
+      AGENTD_PUBLISHER_KEY   = var.registry_publisher_key
       # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
       # read, now a third reader. The daemon needs it because the config every tenant inherits is
       # ITS file (/data/config.json on EFS): `config.set {target:"master"}` is admitted only for
@@ -118,18 +118,34 @@ locals {
     # EMPTY WHILE HIBERNATING (no public host) is a supported state, not a broken one: the service
     # then serves the legacy `sess_` path and reports /auth/* as not-configured.
     accounts = {
-      AGENTD_AUTH_ISSUER = local.publish_product_accounts_url
+      # POSTGRES IS MANDATORY IN THIS ENVIRONMENT — or the service must refuse to start.
+      #
+      # `_db()` picks its backend per request from whether DATABASE_URL is set, and both answers
+      # used to be treated as valid, because dev genuinely is still on SQLite. That is a correct
+      # default and a dangerous one HERE: `accounts_external_database` also strips the EFS mount,
+      # so a missing DATABASE_URL does not fall back to the old shared database — it writes a
+      # brand-new SQLite file to the container's own disk, one private copy per task, discarded
+      # on the next restart. Nothing errors. Health checks pass. Sign-ins work until the task
+      # cycles and every account created since is simply gone.
+      #
+      # This is the deployment declaring what it requires, so accounts can assert it at STARTUP
+      # (app.py `_startup`) rather than discovering it per request. A task that dies on boot
+      # trips the deployment circuit breaker below, which rolls back and names the reason —
+      # turning silent data loss into a failed deploy. Derived from the same variable that
+      # removes the mount, so the two cannot disagree.
+      AGENTD_REQUIRE_POSTGRES = var.accounts_external_database ? "1" : ""
+      AGENTD_AUTH_ISSUER      = local.publish_product_accounts_url
       # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.
-      AGENTD_PUBLIC_ACCOUNTS_URL    = local.publish_product_accounts_url
+      AGENTD_PUBLIC_ACCOUNTS_URL = local.publish_product_accounts_url
       # THE DAEMON'S OWN ADDRESS, port included. This read `replace(app_origin, "http", "ws")`,
       # and app_origin is the WEB client's origin — so the document handed every browser
       # ws://<host> with no port, i.e. nginx on :80, which serves static files and answers no
       # WebSocket upgrade. Same shape as publish_web_host and the model-proxy line below: one
       # host, each service named with ITS port. wss when TLS is on, because a page loaded over
       # https may not open a ws:// socket.
-      AGENTD_PUBLIC_WS_URL = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
+      AGENTD_PUBLIC_WS_URL          = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
 
       # ── the admin control plane (accounts/admin_api.py) ──
@@ -165,7 +181,7 @@ locals {
       AGENTD_KEY_CONSUMERS = jsonencode({
         for secret_key in distinct(flatten([
           for svc in values(local.services) : values(svc.secret_keys)
-        ])) : secret_key => sort([
+          ])) : secret_key => sort([
           for name, svc in local.services :
           "${local.name_prefix}-${name}" if contains(values(svc.secret_keys), secret_key)
         ])
@@ -177,7 +193,7 @@ locals {
 resource "aws_ecs_task_definition" "svc" {
   for_each = local.services
 
-  family                   = "${local.name_prefix}-${each.key}"
+  family = "${local.name_prefix}-${each.key}"
   # HOST networking on EC2, and it is not a preference: this VPC has an internet gateway and no
   # NAT, an IGW only translates for an interface holding a public IP, and an awsvpc task on EC2
   # cannot be given one (assign_public_ip is Fargate-only). Under `host` the container leaves
@@ -208,9 +224,9 @@ resource "aws_ecs_task_definition" "svc" {
   }
 
   container_definitions = jsonencode([{
-    name         = each.key
-    image        = "${aws_ecr_repository.this[each.key].repository_url}:${var.image_tag}"
-    essential    = true
+    name      = each.key
+    image     = "${aws_ecr_repository.this[each.key].repository_url}:${var.image_tag}"
+    essential = true
     # hostPort IS DECLARED, and it exists to stop perpetual drift rather than to change anything.
     # Under host networking AWS fills the field in for you (it must equal containerPort), so a
     # definition that omits it never matches what comes back — every plan then reports the task
@@ -231,7 +247,7 @@ resource "aws_ecs_task_definition" "svc" {
     # turn — but ECS SIGKILLs a container `stopTimeout` after SIGTERM, and that defaults to 30s,
     # which would end the turn anyway while the load balancer was still politely waiting.
     stopTimeout = each.value.stop_timeout
-    environment  = [for k, v in merge(each.value.env, lookup(local.computed_env, each.key, {})) : { name = k, value = v }]
+    environment = [for k, v in merge(each.value.env, lookup(local.computed_env, each.key, {})) : { name = k, value = v }]
     # secret_keys: container env var -> JSON key inside the app secret.
     secrets = [for k, v in each.value.secret_keys : {
       name      = k
@@ -297,19 +313,50 @@ resource "aws_ecs_service" "svc" {
   dynamic "capacity_provider_strategy" {
     for_each = each.value.on_ec2 ? [1] : []
     content {
-      capacity_provider = aws_ecs_capacity_provider.ec2[0].name
+      capacity_provider = aws_ecs_capacity_provider.ec2[each.value.capacity_pool].name
       weight            = 100
+    }
+  }
+
+  # WHERE A TASK LANDS INSIDE ITS POOL. Ordered: the first strategy decides, the second breaks
+  # ties.
+  #
+  # THERE WAS NO STRATEGY HERE AT ALL, and the default — spread across instances — is what made
+  # a 2 GB task unplaceable on a fleet with 3 GB free. Spread deliberately puts the next task on
+  # the emptiest box, so free memory ends up divided evenly between instances: two boxes with
+  # ~1600 MiB each rather than one with ~3200. Nothing is full, and yet nothing large fits.
+  #
+  #   spread on AZ  first, so the copies of a scaled-out service land in different availability
+  #                 zones. Two tasks on one box survive a task crash and nothing else; this is
+  #                 what makes the second copy actually worth paying for.
+  #   binpack       on memory, so within an AZ tasks consolidate instead of scattering. Free
+  #                 memory stays contiguous — which is what a large task needs — and a drained
+  #                 box can actually empty, which is what lets scale-in ever happen.
+  dynamic "ordered_placement_strategy" {
+    for_each = each.value.on_ec2 ? [1] : []
+    content {
+      type  = "spread"
+      field = "attribute:ecs.availability-zone"
+    }
+  }
+
+  dynamic "ordered_placement_strategy" {
+    for_each = each.value.on_ec2 ? [1] : []
+    content {
+      type  = "binpack"
+      field = "memory"
     }
   }
 
   # Break-glass shell access (`aws ecs execute-command`) — see var.enable_execute_command.
   enable_execute_command = var.enable_execute_command
 
-  # THE COST SWITCH (var.paused). Terraform owns this number so that turning the environment off
-  # and on is `terraform apply` — the command you already run — and so the set of services being
-  # paused is derived from local.services rather than typed into a script that has to be
-  # remembered every time a service is added. A hand-maintained list had already drifted: it
-  # still named four services after `ingest` became the fifth, so a "down" left one running.
+  # THE COUNT AT BIRTH ONLY. `ignore_changes` at the bottom of this resource hands the number to
+  # Application Auto Scaling the moment the service exists, so this value is what a service is
+  # created with and nothing more. THE COST SWITCH now lives on the scalable target
+  # (service_autoscaling.tf), which is the thing that can still move the count after creation —
+  # it is left in the expression here so a service created while paused starts at zero rather
+  # than starting up only to be scaled straight back down.
   desired_count = local.paused ? 0 : each.value.desired_count
 
   # Without this, ECS retries a task that cannot start FOREVER: a container that crashes on
@@ -383,6 +430,22 @@ resource "aws_ecs_service" "svc" {
   # recreating a stateless service is the boring option, and boring is what these moments want.
   lifecycle {
     create_before_destroy = false
+
+    # APPLICATION AUTO SCALING OWNS THIS NUMBER NOW (service_autoscaling.tf), so Terraform must
+    # stop writing it. Two writers for one value means every `terraform apply` would yank a
+    # scaled-out service back to its floor — dropping tasks at exactly the moment load justified
+    # them — and the next apply would show a diff again, forever.
+    #
+    # IT IS NOT CONDITIONAL, AND IT CANNOT BE: `ignore_changes` takes a static list, so there is
+    # no way to ignore the count for the four scaling services and keep managing it for the
+    # daemon. That is why EVERY service gets a scalable target, the daemon's pinned at min=max=1
+    # — one system owning the number for all of them beats two systems owning it for some.
+    #
+    # THE CONSEQUENCE FOR `paused`: it can no longer work by setting desired_count to 0 here,
+    # because that write is now ignored. The scalable target collapses to 0/0 instead, which is
+    # what actually stops the tasks. `desired_count` below survives only as the value used when
+    # a service is FIRST created, before a scaling policy has ever run.
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, { Component = each.key })

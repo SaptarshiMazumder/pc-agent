@@ -16,15 +16,70 @@
 #   * `desired_capacity` — ECS managed scaling owns it. Terraform setting it too would mean two
 #     writers for one number, which is the failure the `ignore_changes` note in services.tf
 #     already describes for ECS services. Hence the lifecycle block below.
-#   * the instance count while PAUSED — `max_size` drops to zero so the cost switch keeps
+#   * the instance count while PAUSED — both bounds drop to zero so the cost switch keeps
 #     working. Without that, `terraform apply -var paused=true` would stop every task and keep
 #     paying for the boxes they used to run on, which is the opposite of what the switch is for.
+#
+# ONE FILE, MANY POOLS. Everything below is either PER POOL (launch template, ASG, capacity
+# provider — a pool is exactly those three) or SHARED BY ALL OF THEM (the AMI lookup, the
+# instance role and profile, the security group and its rules, the EFS ingress). Only the first
+# group takes `for_each`; the second stays `count`, because two pools of the same kind of
+# machine differ in size and number, never in identity or permissions.
 
 locals {
   ec2_capacity = var.ec2_capacity_enabled ? 1 : 0
 
-  # PAUSED MEANS NO MACHINES, not merely no tasks. See the note above.
-  ec2_max_size = local.paused ? 0 : var.ec2_max_instances
+  # THE POOLS. Gated here rather than at each resource so `ec2_capacity_enabled` stays the single
+  # on/off switch it has always been, and every pool-shaped resource can simply say
+  # `for_each = local.ec2_pools`.
+  #
+  # WHY MORE THAN ONE POOL EXISTS. One pool means one instance size and one bin, so every task
+  # competes for the same memory — and the daemon's 2 GB is the task that loses. On 2026-09-08
+  # both boxes sat under 2 GB free, the daemon could not be placed, and the deploy hung at
+  # "0 of 1 started" in silence. Giving the daemon its own pool makes that arithmetic impossible
+  # rather than merely unlikely: nothing else is ever scheduled against its memory.
+  ec2_pools = var.ec2_capacity_enabled ? var.ec2_capacity_pools : {}
+
+  # THE NAMES, computed in one place because three resources have to agree on them and because
+  # the primary pool's names are load-bearing rather than cosmetic.
+  #
+  # A capacity provider CANNOT BE RENAMED, and `capacity_provider_strategy` is force-new on an
+  # ECS service — so suffixing the pool that already exists would replace every service using
+  # it, and AWS would additionally refuse to drop the old provider from the cluster while those
+  # services still referenced it. Letting the primary pool keep "<prefix>-ecs" / "<prefix>-ec2"
+  # turns that migration into a no-op: the four services that are not changing pools see no diff
+  # in their strategy at all, and only the daemon — which genuinely moves — is replaced.
+  ec2_pool_names = {
+    for key, pool in local.ec2_pools : key => {
+      asg      = pool.primary ? "${local.name_prefix}-ecs" : "${local.name_prefix}-ecs-${key}"
+      lt       = pool.primary ? "${local.name_prefix}-ecs-" : "${local.name_prefix}-ecs-${key}-"
+      provider = pool.primary ? "${local.name_prefix}-ec2" : "${local.name_prefix}-ec2-${key}"
+    }
+  }
+}
+
+# ── adopting the single pool that came before ────────────────────────────────
+#
+# These three resources went from `count` to `for_each` when pools arrived, which changes their
+# ADDRESSES ([0] -> ["shared"]) and would otherwise read as destroy-and-recreate. The objects in
+# AWS are unchanged; only the way this module indexes them is. `moved` says so, and Terraform
+# renames the state entries instead of touching anything.
+#
+# A no-op where there is nothing to adopt: an environment with EC2 capacity switched off, or one
+# built after pools existed, has no [0] in state and these are simply ignored.
+moved {
+  from = aws_launch_template.ecs[0]
+  to   = aws_launch_template.ecs["shared"]
+}
+
+moved {
+  from = aws_autoscaling_group.ecs[0]
+  to   = aws_autoscaling_group.ecs["shared"]
+}
+
+moved {
+  from = aws_ecs_capacity_provider.ec2[0]
+  to   = aws_ecs_capacity_provider.ec2["shared"]
 }
 
 # ── the AMI ──────────────────────────────────────────────────────────────────
@@ -166,11 +221,12 @@ resource "aws_vpc_security_group_egress_rule" "ecs_instance_all" {
 
 # ── the launch template ──────────────────────────────────────────────────────
 resource "aws_launch_template" "ecs" {
-  count       = local.ec2_capacity
-  name_prefix = "${local.name_prefix}-ecs-"
+  for_each    = local.ec2_pools
+  name_prefix = local.ec2_pool_names[each.key].lt
   image_id    = data.aws_ssm_parameter.ecs_ami[0].value
-  # `instance_type` is where this fleet's whole cost lives; see var.ec2_instance_type.
-  instance_type = var.ec2_instance_type
+  # `instance_type` is where this fleet's whole cost lives, and it is PER POOL: the daemon's box
+  # is sized for one 2 GB task, the shared box for four small ones. See var.ec2_capacity_pools.
+  instance_type = each.value.instance_type
 
   iam_instance_profile {
     arn = aws_iam_instance_profile.ecs_instance[0].arn
@@ -205,9 +261,11 @@ resource "aws_launch_template" "ecs" {
   EOT
   )
 
+  # The pool is in the instance NAME so the console answers "which box is the daemon on?"
+  # without cross-referencing an ASG, and so a stray instance is identifiable on sight.
   tag_specifications {
     resource_type = "instance"
-    tags          = merge(local.common_tags, { Name = "${local.name_prefix}-ecs" })
+    tags          = merge(local.common_tags, { Name = local.ec2_pool_names[each.key].asg })
   }
 
   tags = local.common_tags
@@ -219,14 +277,18 @@ resource "aws_launch_template" "ecs" {
 
 # ── the Auto Scaling Group ───────────────────────────────────────────────────
 resource "aws_autoscaling_group" "ecs" {
-  count               = local.ec2_capacity
-  name                = "${local.name_prefix}-ecs"
+  for_each            = local.ec2_pools
+  name                = local.ec2_pool_names[each.key].asg
   vpc_zone_identifier = aws_subnet.public[*].id
 
-  # MIN ZERO is what makes this cost nothing until a task needs a machine, and what lets the
-  # pause switch reach zero. ECS managed scaling moves the number between these bounds.
-  min_size = 0
-  max_size = local.ec2_max_size
+  # ECS managed scaling moves the instance count between these bounds; the pool declares them.
+  #
+  # BOTH COLLAPSE TO ZERO WHEN PAUSED, and min has to collapse as well as max — a floor above
+  # zero would keep the group buying machines for tasks that are no longer running, which is the
+  # exact opposite of what the cost switch is for. min_size 0 is also what lets a pool cost
+  # nothing until a task needs a machine.
+  min_size = local.paused ? 0 : each.value.min_size
+  max_size = local.paused ? 0 : each.value.max_size
 
   # REQUIRED BY MANAGED TERMINATION PROTECTION. ECS marks instances that are running tasks as
   # protected and clears the flag when they drain; without this the ASG could terminate a box
@@ -258,8 +320,8 @@ resource "aws_autoscaling_group" "ecs" {
   # Referencing latest_version makes the new version part of THIS resource's diff, which is what
   # triggers the roll.
   launch_template {
-    id      = aws_launch_template.ecs[0].id
-    version = aws_launch_template.ecs[0].latest_version
+    id      = aws_launch_template.ecs[each.key].id
+    version = aws_launch_template.ecs[each.key].latest_version
   }
 
   # ECS reads this tag to confirm it may manage the group.
@@ -292,11 +354,11 @@ resource "aws_autoscaling_group" "ecs" {
 # are idle. A service opts in via `capacity_provider_strategy`; until one does, this provider
 # holds an ASG that sits at zero.
 resource "aws_ecs_capacity_provider" "ec2" {
-  count = local.ec2_capacity
-  name  = "${local.name_prefix}-ec2"
+  for_each = local.ec2_pools
+  name     = local.ec2_pool_names[each.key].provider
 
   auto_scaling_group_provider {
-    auto_scaling_group_arn = aws_autoscaling_group.ecs[0].arn
+    auto_scaling_group_arn = aws_autoscaling_group.ecs[each.key].arn
 
     # The safety interlock: ECS protects an instance that is running tasks from scale-in and
     # drains it before releasing it. Requires protect_from_scale_in on the ASG above.
@@ -304,12 +366,23 @@ resource "aws_ecs_capacity_provider" "ec2" {
 
     managed_scaling {
       status = "ENABLED"
-      # 100 = pack instances full before adding another, which is the whole economic argument
-      # for EC2: a box only pays for itself when several services share it. Lower values keep
-      # headroom at the cost of running emptier machines.
-      target_capacity           = 100
+
+      # 80, NOT 100, AND THAT NUMBER IS THE DIFFERENCE BETWEEN A 30-SECOND SCALE-OUT AND A
+      # FIVE-MINUTE ONE. 100 means "pack every instance completely full before adding another",
+      # which reads like efficiency and behaves like a stall: with no slack anywhere, the FIRST
+      # task that task-autoscaling asks for cannot be placed, so it sits PENDING while a new
+      # instance boots, registers with the cluster and pulls the image. Every scale-out pays
+      # that, precisely when load is rising.
+      #
+      # At 80 the fleet deliberately carries about a fifth of a box spare. The new task lands in
+      # that slack immediately and the capacity provider adds an instance BEHIND it to restore
+      # the buffer. The cost is running slightly emptier machines, which is the cheaper mistake.
+      target_capacity = var.ec2_target_capacity
+
+      # Two at a time, not one. A burst that needs three instances took three sequential rounds
+      # of (add one, re-evaluate) at step size 1 — each round paying a full instance boot.
       minimum_scaling_step_size = 1
-      maximum_scaling_step_size = 1
+      maximum_scaling_step_size = 2
     }
   }
 
@@ -322,7 +395,7 @@ resource "aws_ecs_capacity_provider" "ec2" {
 resource "aws_ecs_cluster_capacity_providers" "main" {
   count              = local.ec2_capacity
   cluster_name       = aws_ecs_cluster.main.name
-  capacity_providers = [aws_ecs_capacity_provider.ec2[0].name]
+  capacity_providers = [for p in aws_ecs_capacity_provider.ec2 : p.name]
 }
 
 # ── EFS from the instances ───────────────────────────────────────────────────

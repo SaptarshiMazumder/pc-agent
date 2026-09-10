@@ -25,6 +25,8 @@ import { AccountFooter, type AccountAdapter } from './account'
 import { SettingsPage } from './settings'
 import { Download, ExternalLink, PanelLeft, Settings as SettingsIcon, SquarePen, X } from 'lucide-react'
 
+export { mountSignIn } from './sign-in'
+
 interface MountOptions {
   /** A connected @agentd/client instance (agentd.fromPage()). */
   client: {

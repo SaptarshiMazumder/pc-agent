@@ -52,10 +52,10 @@ resource "aws_lb_target_group" "svc" {
   # substr because AWS caps the name at 32 characters and the longest real combination
   # (agentd-production-model-proxy-ec2) is 33. Truncation is safe for these names: no two of
   # them collide in the first 32 characters, and none ends on a hyphen.
-  name        = substr("${local.name_prefix}-${each.key}${each.value.on_ec2 ? "-ec2" : ""}", 0, 32)
-  port        = each.value.port
-  protocol    = "HTTP"
-  vpc_id = aws_vpc.main.id
+  name     = substr("${local.name_prefix}-${each.key}${each.value.on_ec2 ? "-ec2" : ""}", 0, 32)
+  port     = each.value.port
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
   # `ip` is what an awsvpc task needs — it has its own address. A host-networked task has none
   # of its own, so the target is the INSTANCE it runs on, at the same port the container binds.
   target_type = each.value.on_ec2 ? "instance" : "ip"

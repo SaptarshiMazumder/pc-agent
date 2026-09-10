@@ -100,10 +100,10 @@ module "stack" {
   # microVM per call. Same two-step bring-up; bringing it up also flips the daemon's sandbox
   # backend to "microvm" (services.tf computed_env). redeploy.sh --only executor releases it
   # (the image builds FROM the daemon image, so the daemon must be pushed first).
-  executor_image_tag = var.executor_image_tag
-  publish_engine_url       = var.publish_engine_url
-  publish_engine_sha256    = var.publish_engine_sha256
-  publish_engine_version   = var.publish_engine_version
+  executor_image_tag     = var.executor_image_tag
+  publish_engine_url     = var.publish_engine_url
+  publish_engine_sha256  = var.publish_engine_sha256
+  publish_engine_version = var.publish_engine_version
 
   # Staging conveniences. Same as dev and for the same reason: an environment that is rebuilt
   # often should not fight its own registry over tag immutability, and an ECR repository that
@@ -138,8 +138,7 @@ module "stack" {
   # every service keeps its Fargate launch type until one is explicitly given a capacity
   # provider strategy, and the ASG sits at zero instances until a task needs a machine.
   ec2_capacity_enabled = var.ec2_capacity_enabled
-  ec2_instance_type    = var.ec2_instance_type
-  ec2_max_instances    = var.ec2_max_instances
+  ec2_capacity_pools   = var.ec2_capacity_pools
   # WHICH services are on EC2 — the one-at-a-time dial. Empty = everything stays on Fargate.
   ec2_services = var.ec2_services
 
@@ -225,22 +224,43 @@ variable "ec2_services" {
   default     = ["web", "ingest", "daemon", "model-proxy", "accounts"]
 }
 
-variable "ec2_instance_type" {
+variable "ec2_capacity_pools" {
   description = <<-EOT
-    Size of the ECS container instances.
+    THE POOLS OF CONTAINER INSTANCES. Replaced ec2_instance_type + ec2_max_instances, which could
+    only describe one undifferentiated pool — and one pool is what broke this environment on
+    2026-09-08: five services shared two boxes with no placement strategy, ECS spread them, and
+    the free memory ended up as ~1600 MiB on each box instead of ~3200 on one. The daemon wants
+    a contiguous 2048. It fit in neither half, sat unplaceable, and logged nothing at all; the
+    deploy just hung at "0 of 1 started".
 
-    t3.medium is the FLOOR once the daemon moves: it requests 2048 MiB and a t3.small registers
-    only ~1913 MiB after the OS and agent take their share, so the task is unplaceable — it sits
-    PROVISIONING while managed scaling adds more small instances that cannot help either.
+    daemon — one box, one task. Nothing else is ever scheduled against its memory, so that
+      arithmetic cannot recur. Pinned at a single instance because the daemon is pinned at a
+      single task (three SQLite databases on the shared EFS mount), so a second box could hold
+      nothing anyway. The task takes 3584 of the ~3900 MiB the box registers.
+
+    shared — the four stateless services, 1280 CPU / 2560 MiB between them at one task each,
+      which is 62% / 66% of one medium. Each scales its own task count inside this pool; the
+      pool grows a box when the next task no longer fits. max 3 is the room to grow into, and
+      costs nothing until load asks for it.
+
+    t3.medium IS THE FLOOR for the daemon pool: a t3.small registers only ~1913 MiB, so a
+    2048 MiB task would never place and the symptom is PROVISIONING forever while managed
+    scaling adds more small instances that cannot help either.
   EOT
-  type        = string
-  default     = "t3.medium"
-}
-
-variable "ec2_max_instances" {
-  description = "Ceiling for the container-instance ASG; the floor is always 0. 2 leaves room for a rolling deploy, which needs a second box because host networking takes the service's port on the one it occupies."
-  type        = number
-  default     = 2
+  type = map(object({
+    instance_type = string
+    min_size      = optional(number, 0)
+    max_size      = number
+    # The pool that takes the unsuffixed resource names ("<prefix>-ecs", "<prefix>-ec2").
+    # At most one. It is what lets an already-running environment adopt the pool split without
+    # replacing services that are not actually moving: a capacity provider cannot be renamed,
+    # and changing a service's capacity_provider_strategy replaces the service.
+    primary = optional(bool, false)
+  }))
+  default = {
+    daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+  }
 }
 
 variable "accounts_desired_count" {

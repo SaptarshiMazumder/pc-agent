@@ -106,34 +106,97 @@ variable "ec2_network_mode" {
   }
 }
 
-variable "ec2_instance_type" {
+variable "ec2_capacity_pools" {
   description = <<-EOT
-    The container instances' size — where this fleet's entire cost sits.
+    THE POOLS OF MACHINES, keyed by name. Each one is a launch template + an Auto Scaling Group
+    + a capacity provider (ec2_capacity.tf); a service picks one with `capacity_pool`.
 
-    t3.medium (2 vCPU / 4 GiB) is the floor once the DAEMON moves: it alone requests 2048 MiB,
-    and a t3.small has only ~1900 MiB allocatable after the OS and ECS agent take their share —
-    so the task would never be placed, and the symptom is a task stuck PROVISIONING while the
-    ASG scales to max and still fails. A medium fits web + ingest + daemon together (1536 CPU /
-    3072 MiB) with room to spare, which is bin-packing doing the job EC2 is for.
+    THIS REPLACED `ec2_instance_type` + `ec2_max_instances`, which could only describe a single
+    undifferentiated pool — and a single pool is what broke staging on 2026-09-08. Five services
+    shared two boxes with no placement strategy, so ECS spread them and the free memory landed
+    as ~1600 MiB on each box rather than ~3200 on one. The daemon asks for a contiguous 2048,
+    which fit in neither half. The task sat unplaceable, and an unplaceable task logs nothing:
+    the deploy simply hung at "0 of 1 started".
 
-    Adding model-proxy and accounts brings the fleet to 2304 CPU units, just past one medium's
-    2048 — so the complete migration wants a t3.large or a second instance.
+    TWO POOLS BY DEFAULT, and the split is the fix:
+
+      daemon  one box, one task, nothing else ever scheduled against its memory. The daemon
+              cannot be starved by a neighbour and cannot starve one. It is pinned at a single
+              instance because the daemon itself is pinned at a single task (single_writer:
+              three SQLite databases on the shared EFS mount), so a second box could hold
+              nothing.
+      shared  everything stateless. Each service scales its task count inside this pool, and
+              the pool grows a box when the next task no longer fits.
+
+    max_size IS A CEILING, NOT A BILL. The ASG sits at min_size until tasks demand more, so the
+    headroom above it costs nothing until the day it is used.
   EOT
-  type        = string
-  default     = "t3.medium"
+  type = map(object({
+    instance_type = string
+    min_size      = optional(number, 0)
+    max_size      = number
+    # THE PRIMARY POOL TAKES THE UNSUFFIXED RESOURCE NAMES — "<prefix>-ecs", "<prefix>-ec2" —
+    # while every other pool is suffixed with its key. At most one pool may claim it.
+    #
+    # THIS IS A CONVENTION THAT DOUBLES AS A MIGRATION PATH, and the second part is why it
+    # exists. A capacity provider cannot be renamed, and `capacity_provider_strategy` forces an
+    # ECS service to be REPLACED rather than updated — so suffixing the existing pool would
+    # destroy and recreate all five services at once. Worse, AWS refuses to remove a capacity
+    # provider from a cluster while any service still uses it, so that apply can fail halfway
+    # and leave the environment in pieces. Keeping the primary pool's names fixed means an
+    # existing environment simply carries on using them: only services that actually move to a
+    # DIFFERENT pool are replaced.
+    primary = optional(bool, false)
+  }))
+
+  default = {
+    # t3.medium: 2 vCPU (2048 CPU units) and 4 GiB, of which ECS registers ~3900 MiB once the
+    # OS and the agent have taken their share. It is the FLOOR for the daemon pool — the task
+    # asks for 2048 MiB and a t3.small registers only ~1900, so the task would never place at
+    # all and the symptom is PROVISIONING forever while the ASG scales and still fails.
+    daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
+
+    # The four stateless services reserve 1280 CPU / 2560 MiB between them at one task each,
+    # which is 62% / 66% of one medium — so ONE box holds the whole set with ~1340 MiB spare,
+    # enough for any single service to add a task in place. max 3 is the room to grow.
+    #
+    # PRIMARY, so it inherits the names the single pre-pool pool used. That is what lets an
+    # already-running environment adopt this split without replacing the four services that are
+    # not actually moving anywhere.
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+  }
+
+  validation {
+    condition     = alltrue([for p in var.ec2_capacity_pools : p.max_size >= p.min_size])
+    error_message = "Every pool's max_size must be >= its min_size."
+  }
+
+  validation {
+    condition     = length([for p in var.ec2_capacity_pools : p if p.primary]) <= 1
+    error_message = "At most one pool may set `primary`: it is the one that takes the unsuffixed resource names."
+  }
 }
 
-variable "ec2_max_instances" {
+variable "ec2_target_capacity" {
   description = <<-EOT
-    Ceiling for the Auto Scaling Group. The floor is always 0, so an environment with nothing
-    placed on EC2 runs no instances at all.
+    How full ECS managed scaling tries to keep each pool, as a percentage.
 
-    2 leaves room for a rolling deploy: under host networking a service's port is taken on the
-    box it occupies, so replacing a task while keeping the old one healthy needs a second
-    machine. Dropping this to 1 reintroduces the deploy gap for EC2 services.
+    100 READS LIKE EFFICIENCY AND BEHAVES LIKE A STALL. It means "pack every instance completely
+    before adding another", so the fleet carries no slack — and the first task that autoscaling
+    asks for cannot be placed. It waits PENDING for three to five minutes while an instance
+    boots, joins the cluster and pulls the image, every single time load rises.
+
+    80 keeps about a fifth of a box free. The new task lands in that slack at once and the
+    capacity provider adds an instance behind it to restore the buffer. Emptier machines are the
+    cheaper mistake.
   EOT
   type        = number
-  default     = 2
+  default     = 80
+
+  validation {
+    condition     = var.ec2_target_capacity > 0 && var.ec2_target_capacity <= 100
+    error_message = "ec2_target_capacity is a percentage: greater than 0, at most 100."
+  }
 }
 
 variable "accounts_external_database" {
@@ -387,6 +450,24 @@ variable "scheduled_jobs" {
       schedule    = "cron(20 0 * * ? *)"
       description = "Publish the balance sheet as CloudWatch gauges (reserve, liability, creator payable, margin, cogs ratio). Daily to keep 11 custom metrics at ~$0.14/mo instead of ~$3.30."
     }
+    # THE ONLY EVERY-MINUTE JOB HERE, and the cadence is the whole point rather than a default
+    # nobody revisited. This one kills rented GPUs that nobody is using: the others reconcile
+    # ledgers, where being an hour late costs nothing, while every minute this does not run is a
+    # minute an abandoned machine keeps billing. At the $0.50/hr ceiling a sweep missed for an
+    # hour is real money, and the run itself is a database read plus one marketplace list call.
+    #
+    # COST: ~43,200 Scheduler invocations/mo (~$0.04) and the same number of ~1s Lambda calls,
+    # which sit inside the free tier. Cheap because it publishes NO CloudWatch custom metrics —
+    # those bill per metric name per month regardless of datapoints (see the note above), so
+    # liveness is exposed at GET /vast/reaper for an alarm to read instead.
+    #
+    # SAFE TO RUN ANYWHERE: with no marketplace key configured the endpoint returns
+    # {"skipped": …} without touching anything, so dev and staging need no override.
+    vast-reap = {
+      path        = "/vast/reap"
+      schedule    = "rate(1 minute)"
+      description = "Destroy rented GPUs that are idle, orphaned, or whose owning row is gone. Every minute because an unreaped instance bills continuously; the sweep is idempotent, so a missed or doubled run costs nothing."
+    }
   }
 }
 
@@ -593,10 +674,29 @@ variable "services" {
     # carrying those grants (iam.tf) so no other container inherits them — a container running
     # third-party agent code must not be able to read the secret it would need to impersonate the
     # platform. Exactly one service should ever set this.
-    admin_plane = optional(bool, false)
-    cpu         = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
+    admin_plane   = optional(bool, false)
+    cpu           = optional(number, 256) # Fargate CPU units (256 = 0.25 vCPU)
     memory        = optional(number, 512) # MB
     desired_count = optional(number, 1)
+    # WHICH POOL OF MACHINES this service runs on when it is on EC2 (var.ec2_capacity_pools).
+    # Ignored entirely on Fargate, where there are no machines to choose between.
+    capacity_pool = optional(string, "shared")
+    # HOW MANY COPIES OF THIS SERVICE EXIST UNDER LOAD. null (the default) means a fixed count:
+    # the service still gets a scalable target so that ONE system owns the number, but with no
+    # policy attached it never moves off `desired_count`. See service_autoscaling.tf.
+    #
+    #   metric  "alb_requests" — requests per target, for anything the load balancer fronts.
+    #                            The honest signal for an I/O-bound service: the model proxy can
+    #                            sit at 10% CPU with every upstream connection saturated, so CPU
+    #                            would report idle while it is in fact the bottleneck.
+    #           "cpu"          — average CPU utilisation, for short sharp work.
+    #   target  the value to hold: requests-per-target, or percent CPU.
+    autoscale = optional(object({
+      min    = number
+      max    = number
+      metric = string
+      target = number
+    }))
     # Seconds a replaced task keeps draining. Short by default so a rollout isn't held
     # open by idle connections; raise it for services with long-lived ones (see alb.tf).
     deregistration_delay = optional(number, 30)
@@ -615,6 +715,9 @@ variable "services" {
     web = {
       port        = 80
       health_path = "/"
+      # Static files out of nginx: cheap per request, so the ceiling is high and the trigger is
+      # traffic rather than CPU, which would still read as idle while the box saturates.
+      autoscale = { min = 1, max = 4, metric = "alb_requests", target = 1000 }
     }
 
     # model-proxy — LiteLLM proxy. PUBLIC (platform-keys mode): signed-in desktop
@@ -636,6 +739,10 @@ variable "services" {
         MOONSHOT_API_KEY      = "MOONSHOT_API_KEY"
         OPENAI_API_KEY        = "OPENAI_API_KEY"
       }
+      # REQUESTS, NEVER CPU, and this is the service that makes the rule obvious: a proxy spends
+      # its life blocked on someone else's API, so it can hold every upstream connection it has
+      # while reporting single-digit CPU. A CPU policy would sit still through a queue.
+      autoscale = { min = 1, max = 4, metric = "alb_requests", target = 200 }
     }
 
     # accounts — sign-in / metering. Uses SQLite on EFS for now (RDS is a follow-up
@@ -654,7 +761,7 @@ variable "services" {
         # ACCOUNTS_SESSION_TTL_DAYS is GONE: credentials are signed tokens that carry their own
         # expiry now, so there is no server-side session row whose lifetime this could set.
         # Access-token life is AGENTD_AUTH_ACCESS_TTL_S; refresh life is AGENTD_AUTH_REFRESH_*.
-# 30/60, not 10/60: this window also covers /auth/refresh, and one person with the app,
+        # 30/60, not 10/60: this window also covers /auth/refresh, and one person with the app,
         # the builder and the admin console open renews from EVERY tab off one IP. At 10 the
         # limiter throttled ordinary renewal, and each 429'd retry re-hit the very window that
         # refused it — pages choked on their own renewals. 30 keeps password brute-force slow
@@ -713,6 +820,9 @@ variable "services" {
         INGEST_RATE_LIMIT   = "60/60"
         INGEST_CORS_ORIGINS = "*"
       }
+      # Small batched writes arriving on a timer. Traffic is the only meaningful signal, and the
+      # ceiling is lower than web's because losing a telemetry batch is not losing a user.
+      autoscale = { min = 1, max = 3, metric = "alb_requests", target = 600 }
     }
 
     # daemon — the agent engine + WebSocket. Mounts EFS for per-user state; reaches
@@ -725,14 +835,27 @@ variable "services" {
       # (Python + agent_runtime + plugins + litellm) and authorizes each socket connect — the slow
       # step you hit right after login. 0.25 vCPU made cold start and first-connect drag; 512 MB
       # was also tight for that footprint. This is the other half of the slow-sign-in fix.
-      cpu    = 1024
-      memory = 2048
+      # A BOX OF ITS OWN (var.ec2_capacity_pools). Nothing else is scheduled against this
+      # memory, so the daemon can neither starve a neighbour nor be starved by one.
+      capacity_pool = "daemon"
+
+      # 1024 CPU UNITS IS A PLACEMENT FIGURE, NOT A LIMIT. On EC2 the number is a relative
+      # weight and a share of the box, not a ceiling the way it is on Fargate — so alone on its
+      # own instance the daemon already has both vCPUs available to it. Raising it would change
+      # nothing except how the scheduler reasons about the box.
+      cpu = 1024
+
+      # MEMORY IS THE REAL CEILING: on EC2 this one IS a hard cap, and a container that crosses
+      # it is OOM-killed. 3584 of the ~3900 MiB a t3.medium registers, which is the whole box
+      # minus what the agent and the OS need — the memory that used to sit idle beside a 2048
+      # cap now belongs to the daemon. Free, because the instance was already paid for.
+      memory = 3584
       env = {
-        AGENTD_HOST            = "0.0.0.0"
-        AGENTD_PORT            = "8787"
-        AGENTD_HOME            = "/data"
-        AGENTD_STATE_DIR       = "/data/state"
-        AGENTD_WORKSPACE       = "/data/workspace"
+        AGENTD_HOST      = "0.0.0.0"
+        AGENTD_PORT      = "8787"
+        AGENTD_HOME      = "/data"
+        AGENTD_STATE_DIR = "/data/state"
+        AGENTD_WORKSPACE = "/data/workspace"
         # UNTRUSTED plugin tier -> a child process per tool call. This daemon serves many people
         # off one filesystem, and a marketplace agent's own plugins (agents/<id>/plugins/) are
         # code a stranger wrote. In-process, that code holds everything this task holds: the
@@ -785,6 +908,16 @@ variable "services" {
         # a server's credentials are just task env — workspace-mcp reads these two itself.
         GOOGLE_OAUTH_CLIENT_ID     = "GOOGLE_OAUTH_CLIENT_ID"
         GOOGLE_OAUTH_CLIENT_SECRET = "GOOGLE_OAUTH_CLIENT_SECRET"
+        # THE PUBLISHER'S COMFY ACCOUNT KEY. ComfyUI's partner nodes (Kling, Veo, Runway, Flux,
+        # Recraft …) all authenticate with this one key and bill one prepaid balance, which is
+        # what lets an agent offer paid models without asking anyone for their own credentials.
+        # comfy-artchitect's bridge reads it from the environment and injects it into the
+        # /prompt body at submit time — it has to be the BODY, so the host's ${…} substitution
+        # (URLs and headers only) cannot carry it and the value must actually be here.
+        #
+        # Absent = paid nodes refuse to run and the agent falls back to open weights, which is
+        # the correct behaviour for any environment that has not been given a key.
+        COMFY_API_KEY = "COMFY_API_KEY"
       }
       efs = true
       # STOP-THEN-START (0%/100%), not the rolling default. Two reasons, either sufficient:
@@ -806,6 +939,43 @@ variable "services" {
       single_writer = true
     }
   }
+
+  # A SINGLE-WRITER SERVICE MAY NOT AUTOSCALE, and this is an error rather than a silently
+  # ignored setting because the two say opposite things about the same service. `single_writer`
+  # means "exactly one task may ever run"; an autoscale block means "run more when busy". If the
+  # module quietly honoured the first and dropped the second, the config would read as though
+  # the daemon scaled, and the only way to discover otherwise would be watching it fail to.
+  #
+  # Lifting this for a service is not a matter of deleting the validation: it means giving that
+  # service somewhere other than a shared file to keep its state. Accounts did exactly that
+  # (SQLite -> Postgres, accounts_external_database) and its single_writer flag is now derived
+  # rather than declared. The daemon still holds three SQLite databases on the EFS mount.
+  validation {
+    condition = alltrue([
+      for name, s in var.services :
+      !(try(s.single_writer, false) && try(s.autoscale, null) != null)
+    ])
+    error_message = "A single_writer service cannot declare `autoscale`: it is pinned to one task. Move its state off the shared file first."
+  }
+
+  # An autoscale block must name a metric this module knows how to build a policy from. Caught
+  # here rather than at apply, where the failure would be an unhelpful AWS validation error
+  # several resources deep.
+  validation {
+    condition = alltrue([
+      for name, s in var.services :
+      try(s.autoscale, null) == null ? true : contains(["alb_requests", "cpu"], s.autoscale.metric)
+    ])
+    error_message = "autoscale.metric must be \"alb_requests\" or \"cpu\"."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, s in var.services :
+      try(s.autoscale, null) == null ? true : s.autoscale.max >= s.autoscale.min
+    ])
+    error_message = "autoscale.max must be >= autoscale.min."
+  }
 }
 
 locals {
@@ -823,12 +993,25 @@ locals {
   # Written per-key rather than as one conditional object: Terraform requires both arms of a
   # `? :` to have the SAME attributes, so `{...} : {}` is a type error rather than "leave it
   # alone". Each key falls back to what the services map already declared.
+  #
+  # AUTOSCALING IS THE THIRD CONSTRAINT, and it is derived here for the same reason and by the
+  # same fact. It cannot be declared in the services map above: the raw `accounts` entry still
+  # says `single_writer = true`, and a validation on that variable rightly refuses a service
+  # that claims to be pinned to one task and to scale. Only once the database is external is the
+  # pin gone — so the flag that lifts the pin is the flag that grants the autoscaling.
+  #
+  # CPU, NOT REQUESTS, unlike the three services fronted by the ALB: sign-in verifies passwords
+  # with PBKDF2 at 200k rounds, which is CPU-bound by design, so utilisation is the signal that
+  # actually tracks the work. accounts_desired_count becomes the FLOOR rather than the count.
   accounts_service = merge(
     var.services["accounts"],
     {
       single_writer = var.accounts_external_database ? false : var.services["accounts"].single_writer
       efs           = var.accounts_external_database ? false : var.services["accounts"].efs
       desired_count = var.accounts_external_database ? var.accounts_desired_count : var.services["accounts"].desired_count
+      autoscale = var.accounts_external_database ? {
+        min = var.accounts_desired_count, max = 4, metric = "cpu", target = 60
+      } : null
     }
   )
 
@@ -846,7 +1029,7 @@ locals {
         "accounts" = local.accounts_service
       }
       ) : name => merge(cfg, {
-      on_ec2 = var.ec2_capacity_enabled && contains(var.ec2_services, name)
+        on_ec2 = var.ec2_capacity_enabled && contains(var.ec2_services, name)
     })
   }
   # WHERE SIBLINGS REACH accounts AND model-proxy — the one place that answers it.
