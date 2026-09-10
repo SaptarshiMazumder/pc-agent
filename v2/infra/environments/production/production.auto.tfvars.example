@@ -1,0 +1,144 @@
+# Copy to `production.auto.tfvars` (gitignored) and fill in. Terraform loads *.auto.tfvars
+# automatically, so no -var flag on any command.
+#
+# WHY A FILE AND NOT `-var`. Several of these default to "" or [], and the resources they
+# drive are conditional on being non-empty. Passing one with -var on a Monday and forgetting
+# it on Tuesday does not leave that resource alone — it DESTROYS it. The alarm subscription
+# and the publish Lambda both work exactly that way. An auto-loaded file is what makes it
+# stick; the variables are behaving correctly, the flag is just too easy to forget.
+#
+# THE SAME MENU AS DEV AND STAGING. All three files list the same settings in the same order,
+# so an operator moving between environments sees one vocabulary and a missing knob is visible
+# as a missing knob rather than as "that environment must not support it". Only the VALUES and
+# the commentary differ.
+
+# ── alarms: where they go ────────────────────────────────────────────────────
+# Empty = the SNS topic is created and nobody is subscribed, so all 13 alarms fire into
+# nothing. AWS emails a confirmation link the recipient must click; until they do the
+# subscription is PendingConfirmation, which is still silent. `monitoring/alarm_check.ps1`
+# reports both states.
+#
+# CHECK THIS ONE TWICE. Staging's live tfvars still carries the literal `you@example.com` from
+# this template, which means staging's alarms have been firing into a placeholder address. An
+# environment nobody hears from is not quiet; it is unmonitored.
+alert_email = "you@example.com"
+
+# ── the publish service (deploy/PUBLISH-SERVICE.md) ──────────────────────────
+# EMPTY on the first apply: the image does not exist yet, because ECR is created by that
+# same apply. `publish_enabled` is `var.publish_image_tag != ""`, so an empty tag is not an
+# error — it simply builds no publish Lambda, no creator table and no KMS key, and
+# `publish_url` comes back empty. Push the image to the repository named by the
+# `publish_ecr_repository` output, then set the tag and apply again.
+publish_image_tag = ""
+
+# Who may call the publish service's admin endpoints (`agentd bundle roster pending/admit/
+# revoke`): account ids and/or the emails those accounts sign in with. EMPTY = admin door
+# closed, so nobody can admit a creator and nothing can be published.
+publish_admin_identities = ["you@example.com"]
+
+# The builder service (agent window builds out of the daemon) — same two-step bring-up as
+# publish: apply once (ECR repo + scratch bucket, no Lambda, no cost), push the image to the
+# `builder_ecr_repository` output, then set the tag and apply again.
+builder_image_tag = ""
+
+# The executor service — untrusted sandbox jobs off the daemon, one microVM per call. Same
+# two-step bring-up, and the image builds FROM the daemon image, so the daemon must be pushed
+# first (`redeploy.sh production` before `redeploy-lambda.sh production --only executor`).
+#
+# THIS ONE IS NOT OPTIONAL IN PRODUCTION. Empty leaves the daemon's sandbox backend on
+# "subprocess", which runs untrusted plugins and the exec tool on the daemon's own box rather
+# than in a microVM. It does not fail and it does not warn; it just is not isolated.
+executor_image_tag = ""
+
+# ── the engine a published product's installer downloads ─────────────────────
+# All three or none. A stub refuses a download it cannot verify, so a URL without its
+# sha256 is a product that installs nothing. Empty = read the registry index instead.
+# publish_engine_url     = "https://.../agentd-setup-0.1.11.exe"
+# publish_engine_sha256  = "…"
+# publish_engine_version = "0.1.11"
+
+# ── the domain (../../DOMAIN-SETUP.md) ───────────────────────────────────────
+# DO NOT SET THESE HERE. `root_domain`, `agent_hostnames` and `admin_hostname` carry real
+# values in main.tf — production owns `prod.thorgodofthunder.site`, staging owns `staging.…`,
+# dev owns `dev.…`, and the bare apex is nobody's. A line here would OVERRIDE that (tfvars
+# beat defaults) and silently strand this environment on another domain, which is trap #2 in
+# the runbook.
+#
+# When the real domain is bought, it is edited in main.tf and nowhere else — three values in
+# one file, then steps 2–4 of the runbook for the new name.
+# root_domain     = "prod.example.com"
+# agent_hostnames = { "platform.prod.example.com" = "cloud-agent-builder" }
+# admin_hostname  = "admin.prod.example.com"
+
+# ── payments (v2/payments/) ──────────────────────────────────────────────────
+# The rail's NAME only. Every key — Dodo's API key, webhook secret, pay-what-you-want
+# product id and API host, plus Razorpay's and Stripe's — lives in this environment's
+# Secrets Manager secret and never in this file.
+#
+# THE TEST/LIVE SWITCH IS NOT HERE. Dodo splits the two by HOST, so this environment takes
+# real money only when DODO_API_BASE_URL in agentd/production/app names the live host. Copy
+# staging's secret wholesale and production accepts orders it can never settle.
+#
+# AND DO NOT OPEN THIS ENVIRONMENT ON THE MOCK RAIL. Leaving payment_provider empty selects a
+# rail that settles inline and moves no money, while the module's `require_credits` default is
+# true — which together means anyone who signs up presses Buy, is granted credits for free,
+# and spends the deployment's provider keys.
+# payment_provider = "dodo"
+# Origins /me/checkout may return a paying customer to. Empty = any absolute http(s) URL,
+# which in production is an open redirect wearing our own domain. Set it.
+# checkout_return_origins = ["https://prod.thorgodofthunder.site"]
+
+# ── cost control ─────────────────────────────────────────────────────────────
+# These exist here because the file is staging's and the knobs should look the same in every
+# environment — NOT because they are routine here. `paused` scales every task to 0 and stops
+# the scheduled jobs while KEEPING the ALB, so the URL survives; `hibernate` also removes the
+# ALB, which is cheaper and CHANGES THE URL, stranding every client baked against it.
+#
+# In staging that is how you idle between test runs. In production both are outages, and
+# `hibernate` is an outage you cannot cleanly undo.
+# paused    = true
+# hibernate = false
+
+# ── alarms: thresholds ───────────────────────────────────────────────────────
+# THESE VALUES ARE ALREADY PRODUCTION'S — staging has been running them unchanged so that
+# whether each one fires when it should, and stays quiet when it should not, was answered
+# somewhere cheaper than here. Override only with a reason.
+# cost_per_hour_alarm_usd   = 5
+# proxy_5xx_threshold       = 1
+# resolve_latency_p99_ms    = 1000
+# login_rejection_threshold = 20
+# The two ABSENCE alarms treat missing data as breaching, so each necessarily fires once
+# before its first real invocation. Leave them off for the first day, then turn both on —
+# they are the only two that catch SILENCE (nobody can sign in; the billing clock stopped),
+# which is exactly the failure a production environment hides best.
+# enable_login_absence_alarm = false
+# enable_job_absence_alarm   = false
+
+# ── the clock ────────────────────────────────────────────────────────────────
+# EMPTY IS THE POINT HERE: the module's own cadence, hourly renewals, which is the production
+# cadence staging spent its time rehearsing. Dev slows renewals to once daily because it has
+# no subscribers. Override only to reproduce something.
+# scheduled_job_overrides = { subscription-renewals = { schedule = "cron(0 0 * * ? *)" } }
+
+# ── the public marketplace ───────────────────────────────────────────────────
+# Both empty = CloudFront's own https address, needing no DNS and no certificate of ours.
+# Enough to launch on; give it a real hostname when customers reach the storefront by name
+# rather than by link. Set both together or neither: CloudFront rejects an alias without a
+# certificate that covers it, and that certificate MUST live in us-east-1 whatever region
+# this deployment runs in.
+# marketplace_domain_name     = "agents.example.com"
+# marketplace_certificate_arn = "arn:aws:acm:us-east-1:…"
+
+# ── capacity ─────────────────────────────────────────────────────────────────
+# Initial model-proxy task count; 0 parks it without removing the service.
+# model_proxy_desired_count = 1
+# How many accounts tasks. ONE COSTS A 503 ON EVERY DEPLOY: with a single task there is no
+# second one to stay healthy, so ECS stops the old before starting its replacement. 2 makes a
+# deploy, an AZ failure and a task crash invisible instead, for roughly $5/month. Honoured
+# only because accounts_external_database is true — SQLite on one file cannot have two writers.
+# accounts_desired_count = 2
+# Ceiling for the container-instance ASG (floor is always 0). Staging wedged at 2 on
+# 2026-09-08: five services on two t3.mediums left the daemon's 2 GB task unplaceable, sitting
+# PROVISIONING while scaling added boxes that could not help either. A third only bills when
+# it is actually needed.
+# ec2_max_instances = 3
