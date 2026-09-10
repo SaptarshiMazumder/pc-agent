@@ -117,6 +117,12 @@ from identity.infrastructure.sqlite_refresh_store import SqliteRefreshStore
 from identity.main import identity_factory
 from identity.presentation.auth_router import build_auth_router
 
+# GPU RENTING, AS A SELF-CONTAINED MODULE. Everything about it — the marketplace, the
+# table, the routes, the key — lives under v2/vast/. This service knows the four calls
+# below and nothing else; see vast/__init__.py. Removing the feature is deleting them
+# and the directory.
+import vast
+
 # Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
 # the tests load this file by path, where the module has no package. Same defensive pattern as
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
@@ -251,6 +257,7 @@ def _init_db() -> None:
             accounts_postgres_schema.create_schema(conn)
             PostgresPaymentIntentStore.create_schema(conn)
             identity_postgres_schema.create_schema(conn)
+            vast.create_postgres_schema(conn)
             # Harmless on a fresh database (nothing to adopt) and correct on one that already
             # has accounts: every account without a `local` identity gets one, so its next login
             # resolves to the SAME account instead of minting a second.
@@ -458,6 +465,7 @@ def _init_db() -> None:
         # non-destructive: every account that existed before identity gets a `local` identity row,
         # so its next login resolves to the SAME account id instead of minting a second one.
         identity_schema.create_schema(c)
+        vast.create_sqlite_schema(c)
         identity_schema.backfill_local_identities(c, at=_now())
 
 
@@ -700,7 +708,7 @@ _APP_SECRET_FIELDS = (
     "DODO_WEBHOOK_SECRET",
     "DODO_PRODUCT_ID",
     "DODO_API_BASE_URL",
-)
+) + vast.SECRET_FIELDS
 
 
 @app.on_event("startup")
@@ -734,6 +742,31 @@ def _startup() -> None:
         logging.getLogger("accounts").info(
             "app secret: LOCAL mode — reading declared fields from the ambient environment"
         )
+    # POSTGRES, WHEN THE DEPLOYMENT SAYS POSTGRES. Checked HERE — after the secret has been
+    # loaded into the environment, because DATABASE_URL arrives with it, and before _init_db(),
+    # because that is the first thing that would quietly create a SQLite file instead.
+    #
+    # WHY THIS IS NOT PARANOIA. `_db()` chooses its backend from whether DATABASE_URL is set,
+    # and treats both answers as valid — correctly, since dev really is still on SQLite. But an
+    # environment with `accounts_external_database = true` has ALSO had its EFS mount removed.
+    # There, a missing DATABASE_URL does not fall back to the old shared database: it writes a
+    # brand-new SQLite file onto the container's own disk, a separate one per task, thrown away
+    # at the next restart. Nothing raises. /health passes. Sign-ins work, and every account
+    # created since the last restart is gone.
+    #
+    # A STARTUP FAILURE IS THE CHEAPEST POSSIBLE VERSION OF THAT BUG: the task never becomes
+    # healthy, so ECS's deployment circuit breaker rolls the deploy back and reports the reason,
+    # instead of serving traffic against a database that evaporates. The deployment declares the
+    # requirement (AGENTD_REQUIRE_POSTGRES, set by terraform from the same variable that strips
+    # the mount) rather than the code guessing it, so dev keeps SQLite without an exception.
+    if (os.environ.get("AGENTD_REQUIRE_POSTGRES") or "").strip():
+        if not postgres_connection_pool.configured():
+            raise postgres_connection_pool.PostgresUnavailable(
+                "AGENTD_REQUIRE_POSTGRES is set but DATABASE_URL is empty. This deployment has "
+                "no EFS mount, so falling back to SQLite would write to a container-local file "
+                "that is discarded on restart. Set DATABASE_URL in this environment's app "
+                "secret, or clear AGENTD_REQUIRE_POSTGRES if it really is meant to run on SQLite."
+            )
     _init_db()
     _seed_credit_packs()
     _seed_seat_packs()
@@ -2377,6 +2410,10 @@ app.include_router(
             month_key=_month_key,
         )
     )
+)
+
+app.include_router(
+    vast.build_router(db=_db, now=_now, require_internal=_require_internal)
 )
 
 app.include_router(

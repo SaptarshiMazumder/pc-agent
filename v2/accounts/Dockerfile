@@ -39,6 +39,10 @@ COPY payments /app/payments
 # accounts' side of the boundary — it implements identity's AccountDirectory port — so it ships as
 # a sibling of app.py while the module itself ships as a package.
 COPY identity /app/identity
+# GPU renting (v2/vast/), same arrangement again. app.py imports it at module scope, so leaving
+# it out is a container that exits before serving a byte — not a missing feature. It needs no
+# requirements of its own: the module is stdlib plus the FastAPI already installed above.
+COPY vast /app/vast
 WORKDIR /app
 USER app
 ENV AGENTD_SERVICE=accounts \
