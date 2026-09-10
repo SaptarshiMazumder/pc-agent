@@ -318,7 +318,7 @@ h2 { font-size: var(--fs-lead); }
 /* the hover tooltip, portalled to <body> so a scroll container's overflow can never clip it */
 .hovertip {
   position: fixed; z-index: 60; max-width: 300px; pointer-events: none;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  background: var(--pop); border: 1px solid var(--border); border-radius: 10px;
   padding: 7px 10px; box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
 .hovertip-title { font-size: var(--fs-help); font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
@@ -327,7 +327,7 @@ h2 { font-size: var(--fs-lead); }
 /* the per-chat ... menu */
 .chat-menu {
   position: fixed; z-index: 61; min-width: 196px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel); padding: 6px;
+  background: var(--pop); border: 1px solid var(--border); border-radius: var(--r-panel); padding: 6px;
   box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
 .chat-menu-item {
@@ -372,7 +372,7 @@ h2 { font-size: var(--fs-lead); }
 .icon-btn.menu-trigger-on { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft) !important; }
 .app-menu {
   position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 41; min-width: 210px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel);
+  background: var(--pop); border: 1px solid var(--border); border-radius: var(--r-panel);
   box-shadow: var(--shadow); padding: 6px; animation: ag-up .14s var(--ease-smooth);
 }
 .app-menu--rail { bottom: 0; left: calc(100% + 10px); right: auto; }

@@ -44,6 +44,10 @@
   --bg:  #0b0810;                      /* the window ground */
   --bg2: rgba(255, 255, 255, 0.028);   /* panels, cards */
   --bg3: rgba(255, 255, 255, 0.055);   /* active nav item, chips, inputs */
+  /* The glass tokens above are TINTS — they only look like surfaces because the window ground is
+     behind them. A menu has the conversation list behind it instead, so it needs a real colour:
+     this is what --bg2 resolves to over --bg, opened up enough to read as a layer above it. */
+  --pop: #1c1726;
   --border: rgba(255, 255, 255, 0.065);
   --border2: rgba(255, 255, 255, 0.09);
   /* ON in this template — the default is transparent. A card of rows needs its rows separated. */

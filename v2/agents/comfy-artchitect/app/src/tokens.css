@@ -38,6 +38,11 @@
   --bg:  #131210;   /* a full-height region: a rail, a panel, the page under a card */
   --bg2: #1a1815;   /* a card, a menu, anything sitting ON a surface */
   --bg3: #232019;   /* an input, a hovered row, anything inside a card */
+  /* ANYTHING THAT FLOATS OVER CONTENT — a menu, a popover, a tooltip, a sticky header. ALWAYS
+     OPAQUE, and that is not a style preference: a floating surface has the app's own text behind
+     it, so a translucent one renders two sets of words in the same pixels. Panels may be glass;
+     things that cover other things may not. */
+  --pop: #201d17;
   --border: #2b2822;
   --border2: #3a352c;
   /* Between-row dividers. TRANSPARENT by default — set it to var(--border) to bring them back
