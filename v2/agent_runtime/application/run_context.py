@@ -74,6 +74,11 @@ class RunContext:
     # installer is not a secret. Layered UNDER the account's stored value: an author saying
     # "start on this model" is a starting point, not an override of what the user chose.
     setting_defaults: dict[str, str] | None = None
+    #: TRUE when a CLIENT asked for this tool directly (`tools.invoke` from a window), rather than
+    #: a model choosing to call it inside a turn. The loop guard is the one consumer: it exists to
+    #: stop a MODEL spinning on the same call, and a window polling telemetry on a timer is not
+    #: that — see GuardedTool._loop_block.
+    direct_invoke: bool = False
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)

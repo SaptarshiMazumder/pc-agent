@@ -23,6 +23,7 @@ import socket
 import time
 from dataclasses import dataclass
 
+from agent_runtime.application.run_context import current_run_context
 from agent_runtime.domain.messages import TextContent
 
 from . import Tool, ToolResult
@@ -171,7 +172,21 @@ class GuardedTool(Tool):
         between — is unchanged, because that is what the window below actually measures.
 
         So the count decays with TIME. A loop is fast by nature; a legitimate repeat is not.
+
+        AND A CLIENT'S CALL IS NOT COUNTED AT ALL. Time decay is not enough on its own: an agent
+        window POLLS its telemetry tool on a timer, and any interval shorter than the decay window
+        keeps the counter climbing forever. comfy-artchitect's studio polls every 5s against a 30s
+        window and a limit of 5 — so the tool was dead about 25 seconds after the window opened,
+        for the window AND for the agent. The user saw it as "the instance panel caches stale
+        values"; the agent saw its own first call rejected as "called 7 times in a row", those
+        seven being the window's.
+
+        This guard exists to stop a MODEL spinning on the same call. A client asking for data on a
+        schedule is a different actor with a legitimate cadence, and no amount of tuning the window
+        distinguishes them — the caller does.
         """
+        if getattr(current_run_context(), "direct_invoke", False):
+            return None
         limit = self._policy.loop_max_repeats
         fp = self._fingerprint(params)
         now = time.monotonic()

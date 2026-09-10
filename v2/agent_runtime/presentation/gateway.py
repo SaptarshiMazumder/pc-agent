@@ -1636,6 +1636,9 @@ class Gateway:
                 agent_id=scope,
                 session_key=f"agent:{scope}:app",
                 mode=RunMode.INTERACTIVE,
+                # A WINDOW ASKED FOR THIS, not a model. Exempts it from the loop guard, which
+                # measures a model spinning and cannot tell a 5-second poll from a runaway.
+                direct_invoke=True,
                 workspace=workspace,
                 plugins=getattr(spec, "plugins", None),
                 read_roots=read_roots,
