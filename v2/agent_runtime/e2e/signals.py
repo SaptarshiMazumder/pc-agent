@@ -53,6 +53,16 @@ _ENV_RX = re.compile(
     r"payment required|billing|"
     r"missing (?:[A-Z0-9_]+ )?(?:api.?key|key|credential|token|secret)|"
     r"invalid (?:api.?key|token|credential)|unauthorized|\b401\b|"
+    # A MODEL ID THAT DOES NOT RESOLVE is configuration, not conduct. `--model` naming a model
+    # the key cannot see 404s before the agent is ever asked to do anything, so triaging that
+    # to the agent sends the fix loop off to "improve" instructions that never executed — the
+    # same misdiagnosis the throttling patterns above exist to prevent.
+    #
+    # KEPT NARROW ON PURPOSE. A bare "not found" would swallow a `read` of a path the agent
+    # itself got wrong, and that is genuinely the agent's fault and must stay visible. These
+    # four all name the PROVIDER refusing an identifier, which the agent never chose.
+    r"\b404\b|notfounderror|model_not_found|unknown model|"
+    r"does not exist or you do not have access|"
     # THE PROVIDER ANSWERED WITH NOTHING. A completion that streams zero tokens and stops is a
     # provider fault the runtime already names in these words ("empty response … not even an
     # error … a fault on the provider's side"), and it is invisible to every pattern above —
@@ -103,6 +113,31 @@ _NON_BUILD_EXACT = frozenset({
 #: again. The convention we added to make turns actionable quietly blinded the detector watching
 #: for turns that hand work back.
 _SUGGEST_FENCE_RX = re.compile(r"(?:```|~~~)\s*suggest\s*\n[\s\S]*?(?:(?:```|~~~)|\Z)", re.I)
+
+#: A trailing ```approve fence — the paid-services gate, and THE ONE SANCTIONED STOP in this agent.
+#: It is the one terminal state that must never read as a stall: the agent researched, settled the
+#: design, and then deliberately stopped to ask which paid services it may bill the user for.
+#:
+#: NO BUILD TOOL RUNS, BY DESIGN. Emitting a workflow before that answer is the exact failure the
+#: gate exists to prevent — the cost would then be discovered at run time, with the graph already
+#: built around the paid node, when declining means throwing the design away.
+#:
+#: Without this, a PERFECT gate run scored `never_acted` ("all talk, no work") as an AGENT fault,
+#: pointing the fix loop at the very behaviour the gate was built to produce.
+_APPROVE_FENCE_RX = re.compile(r"(?:```|~~~)\s*approve\s*\n[\s\S]*?(?:(?:```|~~~)|\Z)", re.I)
+
+
+def _ended_on_approval_gate(trace: Trace) -> bool:
+    """Did the run finish waiting on the paid-services checkboxes?
+
+    ONLY THE LAST THING SAID COUNTS. A fence emitted mid-run and then followed by a turn that did
+    nothing is still a stall — the gate excuses stopping to ask, not going quiet afterwards.
+    """
+    for turn in reversed(trace.turns):
+        text = turn.last_assistant
+        if text:
+            return bool(_APPROVE_FENCE_RX.search(text))
+    return False
 
 #: Phrases that mark an assistant turn as ASKING or DEFERRING rather than acting. Deliberately
 #: about intent, not topic, so they generalise past ComfyUI.
@@ -257,7 +292,8 @@ def stall(trace: Trace) -> list[Finding]:
     # model never answered — a provider outage, a dead key — and the agent had no chance to act;
     # calling that an agent fault sends the fix loop off to "improve" instructions that were never
     # executed. Only a run whose turns COMPLETED and still did nothing is the agent's stall.
-    if trace.turns and not any(_acted(t) for t in trace.turns):
+    if (trace.turns and not any(_acted(t) for t in trace.turns)
+            and not _ended_on_approval_gate(trace)):
         every_turn_failed = all(
             t.end_reason == "error" or bool(t.end_error) for t in trace.turns
         )

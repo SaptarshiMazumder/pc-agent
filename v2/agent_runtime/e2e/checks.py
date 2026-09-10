@@ -105,7 +105,17 @@ def _produced_artifact(trace: Trace, args: dict) -> CheckResult:
 def _no_blocking_stall(trace: Trace, args: dict) -> CheckResult:
     """The agent never stopped to ask before doing the work — the flexibility gate. Reads the
     stall signal directly, so 'the check' and 'the diagnosis' can never disagree."""
-    stalls = [f for f in signals.stall(trace) if f.code in ("blocking_stall", "never_acted")]
+    # ORIGIN IS RESPECTED HERE, or the two layers contradict each other. `never_acted` fires for
+    # BOTH "the agent talked and did nothing" and "the provider never answered, so it never got a
+    # turn" — signals already separates those by origin, and says loudly that an agent must never
+    # be edited over the second. A check that ignores that distinction reports a 402 or a 502 as a
+    # failed behaviour check, and the check is the half a person acts on: seen today, where triage
+    # printed "0 agent-origin problems" directly above "[FAIL] no_blocking_stall".
+    stalls = [
+        f
+        for f in signals.stall(trace)
+        if f.code in ("blocking_stall", "never_acted") and f.origin != signals.ORIGIN_ENV
+    ]
     return CheckResult("no_blocking_stall", not stalls,
                        "no blocking stall" if not stalls else
                        f"{len(stalls)} stall(s): " + "; ".join(f"turn {f.turn}" for f in stalls))
