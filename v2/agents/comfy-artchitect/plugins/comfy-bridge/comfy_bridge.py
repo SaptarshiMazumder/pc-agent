@@ -419,11 +419,18 @@ class ComfyUploadTool(Tool):
     default_retryable = True
     description = (
         "Push image files from this run's workspace to the ComfyUI instance's input folder, so "
-        "a LoadImage node can use them. Images the user attaches in chat land in uploads/ — "
-        "pass those paths here BEFORE emitting any workflow that loads an image, and wire the "
-        "SERVER-SIDE names this returns (not the local paths) into each LoadImage node's "
-        "`image` input. Several image roles (start frame, end frame, mask, reference)? Ask the "
-        "user which file is which before wiring — filenames lie."
+        "a LoadImage node can use them. THE USER'S IMAGES ARE IN TWO PLACES: `references/` "
+        "holds what they added as reference media (real filenames, e.g. "
+        "references/influencer-reference.png), and `uploads/` holds what they attached in chat "
+        "(uuid-prefixed, e.g. uploads/a1b2-face.png). Look in BOTH. Upload BEFORE emitting any "
+        "workflow that loads an image, and wire the SERVER-SIDE names this returns — never the "
+        "local paths — into each LoadImage node's `image` input. "
+        "SEVERAL IMAGES MEANS SEVERAL ROLES (start frame, end frame, mask, identity "
+        "reference). Work out which is which from the user's own words and the filenames, "
+        "upload them all in one call, and SAY THE MAPPING in your plan — 'face.png is the "
+        "identity reference, bg.png is the background' — so they can correct it in one line. Do "
+        "not stop and ask; a stated mapping they can fix beats a question they have to answer "
+        "before anything is built."
     )
     parameters = {
         "type": "object",
