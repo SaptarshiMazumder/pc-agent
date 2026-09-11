@@ -122,6 +122,10 @@ def ctx_payload(ctx, plugin_id: str = "") -> dict:
         "workspace": getattr(ctx, "workspace", ""),
         "run_id": getattr(ctx, "run_id", ""),
         "turn_id": getattr(ctx, "turn_id", ""),
+        # WHO the run is for. An identifier, never a credential — a plugin that rents a
+        # GPU on the caller's behalf needs to name them, and the contextvar that normally
+        # answers that question does not cross this boundary.
+        "account_id": getattr(ctx, "account_id", ""),
         # The tenant fence travels with the run: a plugin that resolves paths through the
         # shared funnel (check_read/check_write) must answer the same on both sides of the
         # process boundary. The GRANT stays the sandbox's own enforcement; this is the

@@ -25,8 +25,7 @@ import json
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_workspace
-from agent_runtime.infrastructure import accounts
+from agent_runtime.application.run_context import current_account_id, current_workspace
 from agent_runtime.infrastructure.net.outbound import fetch
 
 #: The file comfy-bridge reads to find the instance. Same constant, deliberately duplicated
@@ -41,13 +40,15 @@ _CONN_FILE = ".studio/connection.json"
 _INTERNAL = {"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"}
 
 
-def _base() -> str:
-    """Where the accounts service is, from the DAEMON's configuration.
-
-    Never from an agent setting: an agent that could choose this address could point its GPU
-    requests — and the credential above — at a machine of its own choosing.
-    """
-    return (accounts.api_base() or "").rstrip("/")
+#: The platform's address, as a NAME the host folds in. Declared in plugin.toml's [sandbox] net,
+#: so the broker substitutes it host-side and this code never learns where it went — the same
+#: treatment the credential above gets.
+#:
+#: NOT `accounts.api_base()`: that reads module state configured when the DAEMON booted, and a
+#: sandboxed plugin runs in a different process where it is empty. Reading host state from inside
+#: the sandbox is exactly what made gpu_ensure report "no GPU service configured" on a deployment
+#: that had one.
+_BASE = "${AGENTD_ACCOUNTS_URL}"
 
 
 def _unavailable(what: str) -> ToolResult:
@@ -66,10 +67,7 @@ def _call(path: str, body: dict | None, method: str = "POST") -> dict:
     plugins are sandboxed and never get a socket, so a private http client works on the author's
     machine and fails for everyone else. It also substitutes the `${…}` credential above.
     """
-    base = _base()
-    if not base:
-        raise RuntimeError("no accounts service is configured on this daemon")
-    res = fetch(f"{base}{path}", method=method, json=body, headers=_INTERNAL, timeout_s=60.0)
+    res = fetch(f"{_BASE}{path}", method=method, json=body, headers=_INTERNAL, timeout_s=60.0)
     if not res.ok:
         detail = ""
         if res.text.strip():
@@ -108,7 +106,7 @@ class GpuEnsureTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
-            account_id = accounts.account_id()
+            account_id = current_account_id()
             if not account_id:
                 return _unavailable("gpu_ensure")
             lease = max(0, int(params.get("lease_minutes") or 0)) * 60
@@ -160,7 +158,7 @@ class GpuReleaseTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
-            account_id = accounts.account_id()
+            account_id = current_account_id()
             if not account_id:
                 return _unavailable("gpu_release")
             state = _call("/vast/release", {"account_id": account_id})

@@ -20,6 +20,7 @@ from agent_runtime.application.interfaces.agent_engine import AgentEngine
 from agent_runtime.application.interfaces.agents import AgentRegistry
 from agent_runtime.application.interfaces.events import EventSink
 from agent_runtime.application.interfaces.memory import SessionStore
+from agent_runtime.infrastructure import accounts
 from agent_runtime.application.run_context import (
     RunContext,
     current_run_outcome,
@@ -616,6 +617,9 @@ class AgentService:
                 run_id=_run_id,
                 turn_id=_turn_id,
                 org_id=_owner if _ownership.is_org(_owner) else "",
+                # The caller, so a SANDBOXED plugin can act on their behalf without a
+                # contextvar it cannot see. See RunContext.account_id.
+                account_id=accounts.account_id() or "",
                 write_roots=_write_roots,
                 write_denies=_write_denies,
                 protected_paths=_protected,

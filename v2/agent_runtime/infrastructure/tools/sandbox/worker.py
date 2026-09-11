@@ -148,6 +148,7 @@ def main() -> int:
                 workspace=str(raw_ctx.get("workspace") or ""),
                 run_id=str(raw_ctx.get("run_id") or ""),
                 turn_id=str(raw_ctx.get("turn_id") or ""),
+                account_id=str(raw_ctx.get("account_id") or ""),
                 # The agent's own per-tool overrides. resolve_tool_model reads these through
                 # current_plugins(), which is a contextvar — so without restoring it here the child
                 # resolves as if agent.toml had no [plugins.*] block at all.

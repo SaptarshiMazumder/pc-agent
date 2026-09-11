@@ -22,5 +22,8 @@ description = "Start or reuse the ComfyUI GPU this user is entitled to, and hand
 #
 # The internal key is DECLARED, never held: the host substitutes `${AGENTD_ACCOUNTS_INTERNAL_KEY}`
 # into the outgoing request, so this code cannot read the value or send it anywhere else.
-net     = []
+# BOTH ARE NAMES, NEVER VALUES. The host folds ${AGENTD_ACCOUNTS_URL} into the URL and
+# substitutes the key into the header at the moment the request leaves, so this plugin stays
+# UNTRUSTED and sandboxed: it knows where it is going only in the sense that it named a setting.
+net     = ["${AGENTD_ACCOUNTS_URL}"]
 secrets = ["AGENTD_ACCOUNTS_INTERNAL_KEY"]

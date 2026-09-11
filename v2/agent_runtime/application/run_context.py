@@ -35,6 +35,15 @@ class RunContext:
     # one agent whose job is authoring OTHER agents: it needs to write outside its own workspace
     # by definition, and "outside its workspace" was previously the whole filesystem — including
     # the shared plugins/ dir, whose tools are never sandboxed on the machine that installs them.
+    #: WHO this run belongs to — the account id the connection gate resolved from the token.
+    #: Carried explicitly for the same reason run_id is: `accounts.current_account` is a
+    #: contextvar, and a contextvar does not survive the process boundary into a sandboxed
+    #: plugin. A plugin that needs to say "this user" (renting a GPU on their behalf, asking the
+    #: platform what they may spend) can read it here and stay untrusted — it learns an
+    #: identifier, not a credential.
+    #:
+    #: "" on desktop and any unscoped run, exactly as `accounts.account_id()` returns None there.
+    account_id: str = ""
     write_roots: tuple[str, ...] = ()
     # Carved OUT of the roots. Deny beats allow. Chiefly so an agent cannot rewrite its own
     # definition, skill or allow-list — the constraints it is running under.
@@ -221,6 +230,12 @@ def current_oauth_token(name: str) -> str:
     if ctx is None or oauth_token_resolver is None:
         return ""
     return oauth_token_resolver(ctx.agent_id, name) or ""
+
+
+def current_account_id() -> str:
+    """The account this run belongs to, or "" — readable from inside a sandboxed plugin."""
+    ctx = _current.get()
+    return (ctx.account_id if ctx is not None else "") or ""
 
 
 def current_plugins() -> dict:
