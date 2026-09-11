@@ -85,6 +85,10 @@ resource "aws_secretsmanager_secret_version" "app" {
     # already-deployed environment's secret. Merge them in via the CLI or the admin console.
     VAST_API_KEY  = "REPLACE_ME"
     COMFY_API_KEY = "REPLACE_ME"
+    # Model-hub tokens, platform-held so no agent has to ask a user for one. Optional: absent,
+    # public weights still download and only GATED ones report themselves as gated.
+    HF_TOKEN      = "REPLACE_ME"
+    CIVITAI_TOKEN = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

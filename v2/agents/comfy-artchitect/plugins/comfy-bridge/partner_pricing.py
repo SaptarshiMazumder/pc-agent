@@ -22,9 +22,19 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: The table, beside the agent's own files rather than inside this plugin: it is content the
-#: operator edits and redeploys, not code.
-_TABLE = Path(__file__).resolve().parents[2] / "partner-nodes.json"
+#: The table, BESIDE THIS FILE rather than at the agent root, and that is not a filing
+#: preference — it is what makes it readable at all.
+#:
+#: An installed agent's plugins are SANDBOXED, and the sandbox copies the plugin's own directory
+#: to a guest path (/tmp/exec-<id>/...). Resolving upward from __file__ therefore lands outside
+#: anything the grant covers, and the first real run on staging proved it:
+#:
+#:   SandboxDenied: not allowed to read that path (/tmp/exec-b6a2w56c/partner-nodes.json)
+#:
+#: `__file__.parent` is the one location guaranteed to exist wherever this code was copied to.
+#: Same class of bug as the guest/host path confusion in comfy_download and comfy_emit: a path
+#: that means one thing on the author's machine and another inside the sandbox.
+_TABLE = Path(__file__).resolve().parent / "partner-nodes.json"
 
 #: Input names that plausibly carry a duration, in the order we trust them.
 _DURATION_KEYS = ("duration", "duration_seconds", "seconds", "length", "video_length", "n_seconds")

@@ -918,6 +918,18 @@ variable "services" {
         # Absent = paid nodes refuse to run and the agent falls back to open weights, which is
         # the correct behaviour for any environment that has not been given a key.
         COMFY_API_KEY = "COMFY_API_KEY"
+        # WEB SEARCH RUNS IN THE DAEMON, for every agent on it. The web_search chain is
+        # [gemini, brave, duckduckgo] and falls through in order, so without this key EVERY
+        # agent — comfy, agent-builder, all of them — has been researching on DuckDuckGo and
+        # getting rate-limited. The key was already in the vault and mapped to the `web`
+        # service; it was simply never given to the daemon.
+        GEMINI_API_KEY = "GEMINI_API_KEY"
+        # THE PLATFORM'S MODEL-HUB TOKENS, not the user's. Gated weights (FLUX.1-dev, SD3.5)
+        # report "gated" and stay undownloadable without them. comfy-artchitect deliberately
+        # does NOT declare these as settings — an undeclared name resolves from this
+        # environment, which is what stops each user being asked for their own.
+        HF_TOKEN      = "HF_TOKEN"
+        CIVITAI_TOKEN = "CIVITAI_TOKEN"
       }
       efs = true
       # STOP-THEN-START (0%/100%), not the rolling default. Two reasons, either sufficient:

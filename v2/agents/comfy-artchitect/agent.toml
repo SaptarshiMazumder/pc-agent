@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.38.0"
+version = "1.39.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"
@@ -79,49 +79,24 @@ allow = [
 # workflows from Hugging Face and Civitai; public models need no token. A gated model
 # (FLUX.1-dev, SD3.5) hides its files until the account that accepted its license presents a
 # token — so without this field those models simply report "gated", which is true but unhelpful.
-[[settings]]
-key   = "HF_TOKEN"
-label = "Hugging Face token"
-kind  = "secret"
-help  = "Optional. Needed only for gated models you have accepted access to (hf.co/settings/tokens, 'read' scope)."
+# NOTHING FOR THE USER TO FILL IN — this agent has no settings at all, and that is the point.
+#
+# It used to ask for a ComfyUI URL, auth headers, provider API keys, a Hugging Face token and a
+# Civitai token. Every one of those was the user doing a job the platform can do:
+#
+#   * the INSTANCE is rented on demand (plugins/vast-bridge) and its address handed straight to
+#     the comfy tools, so there is no URL and no credential to type
+#   * PAID MODELS are ComfyUI partner nodes authenticated by one platform-held account key, so
+#     there is no per-provider key to collect
+#   * HF_TOKEN / CIVITAI_TOKEN are deliberately NOT DECLARED HERE. A declared name resolves per
+#     ACCOUNT, which is exactly what put the burden on the user; an undeclared one falls through
+#     to the daemon's own environment, where the platform's tokens live. comfy-bridge still names
+#     them under [sandbox] secrets, so the host substitutes them into gated Hugging Face and
+#     Civitai requests and the plugin never handles a value.
+#
+# The two optional MCP servers went with them: instance-mcp pointed at a user's own box, and
+# comfy-cloud at comfy.org's GPUs. Both answered "the user has to bring their own compute",
+# which is no longer a question anyone asks here.
+#
+# The rule this enforces lives in AGENTS.md: never ask the user for an API key, for anything.
 
-[[settings]]
-key   = "CIVITAI_TOKEN"
-label = "Civitai API key"
-kind  = "secret"
-help  = "Optional. Needed only for Civitai models that require an account to view (civitai.com/user/account)."
-
-# OPTIONAL EXTRAS, both off until their setting is filled — the connector refuses a server
-# whose ${SETTING} is empty and reports which field would enable it.
-[[settings]]
-key   = "COMFYUI_MCP_URL"
-label = "Instance MCP URL"
-kind  = "url"
-help  = "Optional. If an MCP server runs beside your ComfyUI (e.g. artokun/comfyui-mcp on the same box), its URL — the agent gains its tools: model installing, live graph editing, whatever it serves."
-
-[[settings]]
-key   = "COMFY_CLOUD_KEY"
-label = "Comfy Cloud API key"
-kind  = "secret"
-help  = "Optional. To generate on Comfy Cloud when you have no instance of your own: platform.comfy.org/profile/api-keys (starts with 'comfyui-')."
-
-# Its servers are DECLARED below; the model does not get to wire up arbitrary ones from chat
-# text — text that can have arrived from a fetched web page.
-[capabilities]
-mcp_workshop = false
-
-# AN MCP SERVER THE USER RUNS, at an address only they know — a per-account value, and the
-# reason [[mcp]] url placeholders resolve per caller. (The ComfyUI instance itself is no longer
-# one of these: it is provisioned, and its address arrives in .studio/connection.json.) URL
-# transport on purpose: a stdio command would spawn on the DAEMON's machine and mark this agent
-# requires_local, which would un-ship it from the web.
-[[mcp]]
-name = "instance-mcp"
-url  = "${COMFYUI_MCP_URL}"
-
-# COMFY CLOUD — generation on comfy.org's GPUs for users with no instance at all. Fixed public
-# URL; the key rides as the header their docs specify.
-[[mcp]]
-name    = "comfy-cloud"
-url     = "https://cloud.comfy.org/mcp"
-headers = { "X-API-Key" = "${COMFY_CLOUD_KEY}" }

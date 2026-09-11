@@ -177,5 +177,15 @@ class GpuReleaseTool(Tool):
             return ToolResult.text(f"gpu_release failed: {type(e).__name__}: {e}", is_error=True)
 
 
-def register():
-    return [GpuEnsureTool(), GpuReleaseTool()]
+def register(api, ctx):
+    """The loader's contract — `(api, ctx)`, and tools handed to `api.register_tool`.
+
+    Written the other way round at first (a no-arg function returning a list), which loads
+    perfectly well in-process and fails ONLY in the sandbox, where enumeration is a separate
+    call: "TypeError: register() takes 0 positional arguments but 2 were given". The plugin then
+    ships NO tools, and the agent is left being told by every comfy_* error to call gpu_ensure —
+    a tool that does not exist. comfy-bridge's register has always had this shape; this one
+    should have copied it.
+    """
+    api.register_tool(GpuEnsureTool())
+    api.register_tool(GpuReleaseTool())

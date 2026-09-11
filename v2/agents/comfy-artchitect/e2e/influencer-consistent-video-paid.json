@@ -1,12 +1,19 @@
 {
   "id": "influencer-consistent-video-paid",
   "agent_id": "comfy-artchitect",
-  "goal": "The whole agentic loop on the hardest real brief: one reference photo, a talking-head video, identity consistent throughout. The agent must RESEARCH what actually does character-consistent video today rather than reciting a pipeline, price the paid options in credits, stop at the approve gate with those numbers, and only after a yes build the graph around the approved service. What this catches: designing first and discovering the bill later, quoting 'this costs money' instead of a number, and asking the user for an API key that the platform already holds.",
+  "goal": "The whole agentic loop on the hardest real brief: one supplied reference photo, a talking-head video, identity consistent throughout. The agent must find the photo it was given, RESEARCH what actually does character-consistent video today rather than reciting a pipeline, price the paid options in credits, stop at the approve gate with those numbers, and only after a yes rent a GPU and build around the approved service. What this catches: designing before the bill is known, quoting 'this costs money' instead of a number, asking the user for an API key the platform already holds, and ignoring the reference image it was handed.",
   "turns": [
-    "I want a short video of an AI influencer \u2014 a woman \u2014 talking to camera, built from ONE reference photo of her, and she has to look like the SAME person all the way through. I'll send you the photo once the workflow is ready. Use the best quality option there is, I don't mind what it costs.",
-    "Approved: all of them. Go ahead and build it."
+    {
+      "text": "I want a short video of an AI influencer \u2014 a woman \u2014 talking to camera, built from the ONE reference photo of her I've just added. She has to look like the SAME person all the way through. Use the best quality option there is, I don't mind what it costs.",
+      "reference_media": [
+        "assets/influencer-reference.png"
+      ]
+    },
+    {
+      "text": "Approved: all of them. Go ahead and build it and run it."
+    }
   ],
-  "_comment_checks": "Turn 1 is the gate: an approve fence with a PIPE-delimited row and a credit number in it. Turn 2 is the build. `no_key_request` is the regression guard for the rule that replaced BYOK \u2014 every paid model here is a partner node the platform authenticates, so any request for the user's own key is a bug, not a preference.",
+  "_comment_checks": "gpu_ensure is the one that failed last time \u2014 the plugin shipped no tools, so the agent was told by every comfy_* error to call a tool that did not exist. comfy_upload proves the supplied photo actually reached the instance rather than being designed around as a placeholder.",
   "checks": [
     {
       "name": "completed"
@@ -29,6 +36,10 @@
     },
     {
       "name": "tool_called",
+      "tool": "gpu_ensure"
+    },
+    {
+      "name": "tool_called",
       "tool": "comfy_emit"
     },
     {
@@ -36,8 +47,8 @@
     },
     {
       "name": "max_turns",
-      "n": 14
+      "n": 16
     }
   ],
-  "max_turns": 14
+  "max_turns": 16
 }
