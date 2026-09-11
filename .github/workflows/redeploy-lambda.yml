@@ -43,20 +43,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Same two-job shape as redeploy.yml: the job's `environment:` gate is evaluated before
-  # steps run, so the input travels through a job output for the reviewer rules to fire.
-  resolve:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.env.outputs.environment }}
-    steps:
-      - id: env
-        run: echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
-
+  # ONE JOB, NO REVIEWER GATE -- same removal as redeploy.yml, same reasoning. The `resolve`
+  # job existed only to hand the dispatch input to an `environment:` key, because that key is
+  # evaluated before any step runs and so cannot read a step's output. No gate, no indirection.
+  #
+  # A dispatch releases the named lambda immediately, production included.
   push:
-    needs: resolve
     runs-on: ubuntu-latest
-    environment: ${{ needs.resolve.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
 

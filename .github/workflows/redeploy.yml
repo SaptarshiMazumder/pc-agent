@@ -51,21 +51,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A job's `environment:` gate is evaluated BEFORE its steps run, so it cannot read a value a
-  # step computed. Passing the input through a job OUTPUT is what makes the reviewer rules on
-  # staging/production actually fire. Same two-job shape as deploy.yml, same reason.
-  resolve:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.env.outputs.environment }}
-    steps:
-      - id: env
-        run: echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
-
+  # ONE JOB, NO REVIEWER GATE. This used to be split in two: a `resolve` job whose only purpose
+  # was to republish the dispatch input as a job OUTPUT, so that `environment:` on the real job
+  # could read it and fire the GitHub Environment protection rules. A job's environment gate is
+  # evaluated before its steps run and therefore cannot read a step's output, which is the only
+  # reason that split existed. With the gate gone the indirection has nothing left to serve.
+  #
+  # WHAT THAT MEANS: a dispatch of this workflow deploys immediately, for EVERY environment
+  # including production. Whoever can run the workflow can roll production without a second
+  # pair of eyes. deploy.yml still carries its own gate, so the push-triggered path to
+  # production remains reviewed and branch-restricted; this manual path does not.
   redeploy:
-    needs: resolve
     runs-on: ubuntu-latest
-    environment: ${{ needs.resolve.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
 
