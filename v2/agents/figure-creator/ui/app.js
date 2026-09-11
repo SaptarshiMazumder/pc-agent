@@ -16,7 +16,7 @@
  * owns identity and credentials; this file only decides which surface should be visible.
  */
 
-const BUILD = '1.3.5-current-auth'
+const BUILD = '1.3.6-shared-billing'
 console.log('figure-creator app', BUILD)
 
 const AGENT_ID = 'figure-creator'
@@ -30,63 +30,14 @@ let lastAccountId
 let authRequest = null
 let authRequested = false
 
-/**
- * WHO IS SIGNED IN, and the way out — supplied by the app because both halves need a credential,
- * and the surface bundle deliberately never touches one.
- *
- * `credits` is the accounts service's own `/me/credits`, the ONE money endpoint a client may call
- * (it resolves the account from the token, so there is no parameter to tamper with). The token
- * comes from the manager rather than storage, so a spent one is renewed before the call instead
- * of returning a 401 the footer would have to interpret.
- */
+/** Identity and balance for the shared shell. All money operations belong to the SDK's
+ * BillingClient; the shared Credits screen owns the catalogue and interactive checkout. */
 function accountAdapter(account) {
-  const manager = agentd.identity({ client })
+  const shop = agentd.billing({ client })
   return {
     email: account.email || '',
     async credits() {
-      const base = await agentd.accountsUrl({ client })
-      if (!base) return null // a deployment with no accounts service does not meter
-      const token = await manager.accessToken()
-      if (!token) return null
-      const r = await fetch(base.replace(/\/$/, '') + '/me/credits', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (!r.ok) return null
-      const d = await r.json()
-      return Number(d.credits_remaining || 0)
-    },
-    /** The catalogue is PUBLIC — no token — and it carries the rail's own description of what a
-     *  purchase does, which the page prints verbatim rather than interpreting. */
-    async products() {
-      const base = await agentd.accountsUrl({ client })
-      if (!base) return { products: [], provider: '', note: '' }
-      const r = await fetch(base.replace(/\/$/, '') + '/products?kind=credit_pack')
-      if (!r.ok) return { products: [], provider: '', note: '' }
-      const d = await r.json()
-      return { products: d.products || [], provider: String(d.provider || ''), note: String(d.payment_note || '') }
-    },
-    /** ONE product id, nothing else. Price and credit count are read server-side from the
-     *  products row, so a client cannot post itself a fortune. The idempotency key is per press:
-     *  a double-click or a retried request buys one pack, not two. */
-    async buy(productId) {
-      const base = await agentd.accountsUrl({ client })
-      const token = await manager.accessToken()
-      if (!base || !token) throw new Error('sign in to buy credits')
-      const r = await fetch(base.replace(/\/$/, '') + '/me/purchase', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: productId,
-          idempotency_key: `fc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-        })
-      })
-      const d = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(String(d.detail || `purchase failed (HTTP ${r.status})`))
-      return {
-        credits: Number(d.credits || 0),
-        creditsRemaining: Number(d.credits_remaining || 0),
-        detail: String((d.payment || {}).detail || '')
-      }
+      return (await shop.credits(AGENT_ID))?.creditsRemaining ?? null
     },
     async signOut() {
       await agentd.authLogout({ client })
