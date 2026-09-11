@@ -179,6 +179,13 @@ to transient instance state.
    they never rent anything. Call it HERE, not earlier: phase 1 is research and design, which
    need documentation rather than hardware, and a machine started before the design exists is
    billed for nothing.
+
+   **ANYTHING THAT TOUCHES THE INSTANCE NEEDS IT FIRST** — `comfy_upload` and `comfy_download`
+   just as much as validate, install and run. Uploading a reference image is talking to the
+   instance, so it fails without one; that is the step this list used to omit, and an agent that
+   uploaded before starting the machine got a transport error that said nothing about GPUs and
+   gave up. If a comfy tool tells you no GPU is running, the answer is ALWAYS `gpu_ensure`,
+   never a question to the user.
    - It answers **`starting`** for the first few minutes. That is normal, not a failure: keep
      working — refine the plan, re-read the reference workflow — and call it again. Do NOT report
      it to the user as a problem, and do NOT ask them to do anything about it.

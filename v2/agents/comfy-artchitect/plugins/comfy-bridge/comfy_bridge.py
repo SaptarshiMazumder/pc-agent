@@ -172,6 +172,17 @@ class _NoInstance:
         return {}
 
 
+def _no_instance() -> "ToolResult":
+    """The same guidance _NoInstance carries, as a tool result.
+
+    UPLOAD AND DOWNLOAD BUILD THEIR OWN FETCH CALLS — one posts a multipart file, the other
+    appends a query — so neither goes through `_get`/`_post` and neither got the empty-URL guard.
+    They passed "" straight to the broker, which refused with "a fetch request needs a url": true,
+    unactionable, and nothing to do with the real problem, which is that no GPU is running.
+    """
+    return ToolResult.text(_NoInstance.error, is_error=True)
+
+
 def _get(path: str, timeout_s: float = 30.0):
     url = _url(path)
     return fetch(url, headers=_headers(), timeout_s=timeout_s) if url else _NoInstance()
@@ -432,6 +443,8 @@ class ComfyUploadTool(Tool):
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        if _override() is None:
+            return _no_instance()
         try:
             paths = [str(p).strip() for p in (params.get("paths") or []) if str(p).strip()]
             if not paths:
@@ -528,6 +541,8 @@ class ComfyDownloadTool(Tool):
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        if _override() is None:
+            return _no_instance()
         try:
             entries = [e for e in (params.get("files") or []) if isinstance(e, dict)]
             if not entries:
