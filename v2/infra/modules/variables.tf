@@ -930,6 +930,18 @@ variable "services" {
         # environment, which is what stops each user being asked for their own.
         HF_TOKEN      = "HF_TOKEN"
         CIVITAI_TOKEN = "CIVITAI_TOKEN"
+        # THE DAEMON HAD NO INTERNAL KEY AT ALL, which is why anything of its that talks to the
+        # accounts service got "internal key required". Two things were silently affected:
+        #
+        #   * agent_runtime/infrastructure/accounts.py reports model USAGE to /usage with this
+        #     header, and no-ops without it (there is a one-time log guard for exactly that) —
+        #     so the spend ledger has been proxy-side only on this deployment
+        #   * comfy-artchitect's vast-bridge authenticates to /vast/* with it, to rent a GPU on
+        #     the caller's behalf
+        #
+        # The vault field is ACCOUNTS_INTERNAL_KEY (already present, shared with the web and
+        # accounts services); the daemon reads it under its AGENTD_ prefix.
+        AGENTD_ACCOUNTS_INTERNAL_KEY = "ACCOUNTS_INTERNAL_KEY"
       }
       efs = true
       # STOP-THEN-START (0%/100%), not the rolling default. Two reasons, either sufficient:
