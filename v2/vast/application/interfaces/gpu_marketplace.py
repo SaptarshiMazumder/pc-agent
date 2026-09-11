@@ -32,7 +32,7 @@ class GpuMarketplace(Protocol):
         ...
 
     def create(self, offer_id: int, *, label: str, image: str, disk_gb: int, comfy_port: int,
-               onstart: str = "") -> int:
+               publish_ports: tuple = (), onstart: str = "") -> int:
         """Rent `offer_id`, stamped with `label`, and return the marketplace's instance id."""
         ...
 

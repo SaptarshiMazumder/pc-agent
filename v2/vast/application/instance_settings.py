@@ -13,7 +13,22 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class InstanceSettings:
-    image: str = "vastai/comfy:latest"
+    #: THE IMAGE, AND IT MUST BE A TAG THAT EXISTS. `vastai/comfy:latest` does not: the repo
+    #: publishes 113 versioned tags and no `latest` at all, so an instance rented with it sits
+    #: in `loading` FOREVER, pulling something that will never arrive, billing the whole time.
+    #: Nothing errors — the marketplace rented exactly what it was asked for.
+    #:
+    #: That failure is invisible from our side (status "loading" is also what a legitimate
+    #: multi-GB pull looks like) which is why it burned real money before anyone checked Docker
+    #: Hub. Pin a real tag, and re-pin deliberately rather than reaching for a floating one.
+    image: str = "vastai/comfy:v0.35.0-cuda-13.2-py312"
+
+    #: EVERY PORT VAST'S OWN COMFYUI TEMPLATE PUBLISHES, not just ComfyUI's. Taken from that
+    #: template rather than reasoned about: 1111 is the Instance Portal the image's supervisor
+    #: serves, and the rest are what it expects to have. Publishing only 8188 is the sort of
+    #: "we only need this one" trim that works until the thing you trimmed was load-bearing for
+    #: boot. `comfy_port` is still the one an address is read back from.
+    publish_ports: tuple = (1111, 8080, 8188, 8288, 8384, 10100, 10200, 72299)
     disk_gb: int = 60
     comfy_port: int = 8188
 

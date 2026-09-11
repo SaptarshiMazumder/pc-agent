@@ -124,6 +124,7 @@ class InstanceService:
             image=cfg.image,
             disk_gb=cfg.disk_gb,
             comfy_port=cfg.comfy_port,
+            publish_ports=cfg.publish_ports,
         )
         with self._db() as c:
             self._store.mark_running(

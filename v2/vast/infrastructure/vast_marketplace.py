@@ -138,6 +138,7 @@ class VastMarketplace:
         image: str,
         disk_gb: int,
         comfy_port: int,
+        publish_ports: tuple = (),
         onstart: str = "",
     ) -> int:
         body: dict = {
@@ -146,7 +147,10 @@ class VastMarketplace:
             "disk": int(disk_gb),
             "label": label,
             "runtype": "args",
-            "env": {f"-p {comfy_port}:{comfy_port}": "1"},
+            # Vast takes published ports as docker-style args in `env`, one key each.
+            "env": {
+                f"-p {p}:{p}": "1" for p in (publish_ports or (comfy_port,))
+            },
         }
         if onstart:
             body["onstart"] = onstart

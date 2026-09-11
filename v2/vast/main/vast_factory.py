@@ -30,7 +30,10 @@ SECRET_FIELDS: tuple[str, ...] = ("VAST_API_KEY",)
 def settings_from_env() -> InstanceSettings:
     """Deployment policy, with defaults that are safe rather than generous."""
     return InstanceSettings(
-        image=os.environ.get("VAST_IMAGE", "").strip() or "vastai/comfy:latest",
+        # The default lives on InstanceSettings, with the note on why a floating tag is not
+        # safe here. Duplicating it meant one place got fixed and the other kept renting
+        # machines to pull an image that does not exist.
+        image=os.environ.get("VAST_IMAGE", "").strip() or InstanceSettings.image,
         disk_gb=int(os.environ.get("VAST_DISK_GB", "") or 60),
         comfy_port=int(os.environ.get("VAST_COMFY_PORT", "") or 8188),
         max_hourly_usd=float(os.environ.get("VAST_MAX_HOURLY_USD", "") or 0.50),
