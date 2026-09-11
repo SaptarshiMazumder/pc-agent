@@ -22,4 +22,6 @@ description = "Probe a ComfyUI instance, read what it has installed, research wh
 # The instance address is no longer a setting — it arrives in .studio/connection.json from
 # vast-bridge (or comfy_connect), so there is no ${…} host to declare here any more.
 net     = []
-secrets = ["HF_TOKEN", "CIVITAI_TOKEN"]
+# COMFY_API_KEY rides in the /prompt BODY (extra_data.api_key_comfy_org) rather than a
+# header — the host substitutes it there now, so this plugin names it and never holds it.
+secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY"]

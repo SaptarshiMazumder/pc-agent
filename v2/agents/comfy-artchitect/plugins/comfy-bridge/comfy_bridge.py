@@ -722,12 +722,14 @@ _RUN_WAIT_CAP_S = 100.0
 # URLs and HEADERS only, deliberately (a credential substituted into a BODY would land back in
 # something the plugin can read). This one has to go in the body, so the plugin holds it.
 
-_COMFY_KEY_ENV = "COMFY_API_KEY"
-
-
-def _platform_comfy_key() -> str:
-    """The publisher's Comfy account key, from the daemon's environment. "" when unset."""
-    return os.environ.get(_COMFY_KEY_ENV, "").strip()
+#: The publisher's Comfy account key, AS A NAME. Declared in plugin.toml [sandbox] secrets and
+#: substituted by the host into the outgoing body — this code never holds the value.
+#:
+#: It used to be read from os.environ here, which works in-process and returns "" inside the
+#: sandbox: an installed agent's plugins are granted `secrets = {}` by design. The broker now
+#: substitutes declared names in JSON bodies as it always has in headers, so the key can reach
+#: `extra_data` without this plugin ever seeing it — and without the agent being made trusted.
+_COMFY_KEY_REF = "${COMFY_API_KEY}"
 
 
 def _quote_for(prompt: dict):
@@ -887,20 +889,15 @@ class ComfyRunTool(Tool):
                         "to partner-nodes.json.",
                         is_error=True,
                     )
-                key = _platform_comfy_key()
-                if not key:
-                    return ToolResult.text(
-                        "this workflow uses paid partner nodes, but this deployment has no Comfy "
-                        "account key configured, so they cannot run. Rebuild the graph with "
-                        "open-weight nodes, or tell the user the paid route is unavailable here.",
-                        is_error=True,
-                    )
                 charge_credits = quote.credits
                 affordable, why = _affordable(charge_credits)
                 if not affordable:
                     return ToolResult.text(why, is_error=True)
-                # THE KEY GOES IN extra_data, NEVER IN THE GRAPH — see the note above.
-                body["extra_data"] = {"api_key_comfy_org": key}
+                # THE KEY GOES IN extra_data AS A PLACEHOLDER — see the note above. If the
+                # deployment holds no key the host leaves it literal and the partner node
+                # answers 401 with the name visible, which is a debuggable failure rather than
+                # a silent one.
+                body["extra_data"] = {"api_key_comfy_org": _COMFY_KEY_REF}
 
             res = _post("/api/prompt", body)
             if res.status == 400:

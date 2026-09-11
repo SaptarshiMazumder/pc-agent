@@ -47,12 +47,47 @@ from agent_runtime.domain.sandbox_net import (
     host_of,
     matches_any,
     scheme_of,
+    substitute,
     undeclared_placeholders,
 )
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.net import outbound
 
 log = logging.getLogger("agentd")
+
+
+def _body_strings(body) -> list:
+    """Every string inside a JSON body, so the undeclared-name guard can see them."""
+    out: list = []
+    if isinstance(body, str):
+        out.append(body)
+    elif isinstance(body, dict):
+        for k, v in body.items():
+            out.append(str(k))
+            out.extend(_body_strings(v))
+    elif isinstance(body, (list, tuple)):
+        for v in body:
+            out.extend(_body_strings(v))
+    return out
+
+
+def _substituted_body(body, values: dict):
+    """The same substitution headers get, applied through a JSON structure.
+
+    Keys as well as values: a credential can be either half of a pair, and leaving keys alone
+    would be an arbitrary line drawn where nothing changes.
+    """
+    from agent_runtime.domain.sandbox_net import substitute
+
+    if not values or body is None:
+        return body
+    if isinstance(body, str):
+        return substitute(body, values)
+    if isinstance(body, dict):
+        return {substitute(str(k), values): _substituted_body(v, values) for k, v in body.items()}
+    if isinstance(body, list):
+        return [_substituted_body(v, values) for v in body]
+    return body
 
 #: Ceilings for ONE tool run, overridable via `config.sandbox_fetch_limits`. Generous but finite,
 #: on the same reasoning as the model limits: a ceiling that trips on legitimate work gets
@@ -102,7 +137,7 @@ class SandboxFetchBroker:
         request_id = str(request.get("id") or "")
         started = time.monotonic()
         try:
-            url, headers = self._authorize(request)
+            url, headers, secret_values = self._authorize(request)
         except _Refused as refusal:
             return self._reply(
                 request_id,
@@ -146,8 +181,11 @@ class SandboxFetchBroker:
             method=str(request.get("method") or "GET").upper(),
             headers=headers,
             params=request.get("params") or None,
-            json=request.get("json"),
-            data=str(request.get("data") or ""),
+            # THE BODY GETS THE SAME TREATMENT AS THE HEADERS. An API whose credential rides
+            # in the payload (ComfyUI's /prompt extra_data) is otherwise unreachable from a
+            # sandboxed plugin — see _substituted_body.
+            json=_substituted_body(request.get("json"), secret_values),
+            data=substitute(str(request.get("data") or ""), secret_values),
             file_path=file_path,
             file_field=str(request.get("file_field") or "file"),
             form_fields=request.get("form_fields") or None,
@@ -374,7 +412,14 @@ class SandboxFetchBroker:
             )
 
         raw_headers = {str(k): str(v) for k, v in (request.get("headers") or {}).items()}
-        strings = [url, *raw_headers.values(), str(request.get("data") or "")]
+        # THE BODY IS SCANNED TOO, now that it is substituted: the guard has to cover every
+        # surface a name can be smuggled through, or it merely moves the hole.
+        strings = [
+            url,
+            *raw_headers.values(),
+            str(request.get("data") or ""),
+            *_body_strings(request.get("json")),
+        ]
         stray = undeclared_placeholders(strings, tuple(self._declared) + self._host_settings())
         if stray:
             raise _Refused(
@@ -383,18 +428,17 @@ class SandboxFetchBroker:
                 "call time is how a plugin would read a key it was never given.",
                 outcome="secret-denied",
             )
-        return url, self._substituted(raw_headers)
+        values = self._declared_values()
+        return url, {k: substitute(v, values) for k, v in raw_headers.items()}, values
 
-    def _substituted(self, headers: dict) -> dict:
-        """Fill in the DECLARED `${NAME}`s from the host's environment.
+    def _declared_values(self) -> dict:
+        """Resolve every DECLARED `${NAME}` from the host's environment, once per request.
 
         Resolved here and nowhere else, so the value exists only in this process, only for the
         duration of one request. A name the host cannot resolve is left as the literal `${NAME}`
         by `substitute` — the provider then answers 401 with the placeholder visible, which is a
         debuggable failure, unlike a header that silently went missing.
         """
-        from agent_runtime.domain.sandbox_net import substitute
-
         values = {}
         for name in self._declared:
             # Same resolution as the unsandboxed path (`net.outbound._resolved`), through the
@@ -413,7 +457,7 @@ class SandboxFetchBroker:
                 self._plugin_id,
                 ", ".join(missing),
             )
-        return {k: substitute(v, values) for k, v in headers.items()}
+        return values
 
     def _from_config(self, name: str) -> str:
         """A declared name may also be answered by the plugin's own settings block, which is
