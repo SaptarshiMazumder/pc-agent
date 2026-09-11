@@ -24,4 +24,8 @@ description = "Probe a ComfyUI instance, read what it has installed, research wh
 net     = []
 # COMFY_API_KEY rides in the /prompt BODY (extra_data.api_key_comfy_org) rather than a
 # header — the host substitutes it there now, so this plugin names it and never holds it.
-secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY"]
+# AGENTD_ACCOUNTS_INTERNAL_KEY authorises the credit gate and the debit in comfy_run. It has
+# to be DECLARED even though the value never arrives here: the broker refuses a ${NAME} a
+# plugin did not list, so an undeclared one fails as "undeclared secret" rather than as the
+# 401 you would expect, which reads like a credential problem and is not one.
+secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY", "AGENTD_ACCOUNTS_INTERNAL_KEY"]
