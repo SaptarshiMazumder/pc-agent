@@ -485,3 +485,99 @@ resource "aws_cloudwatch_metric_alarm" "no_successful_logins" {
   period      = var.login_absence_window_minutes * 60
   dimensions  = { service = local.svc_accounts, outcome = "ok" }
 }
+
+# ── the Lambda services ──────────────────────────────────────────────────────
+#
+# NOTHING WATCHED THESE AT ALL. Eleven alarms above, and every one of them is about the ECS
+# fleet, the ledger or the load balancer -- `unhealthy_targets` even iterates `local.alb_services`
+# and so skips the Lambda target groups by construction. Each of these four could fail one
+# hundred percent of its invocations and the first report would be a person noticing:
+#
+#   publish         an author's Publish button returns an error and the listing never appears
+#   builder         every agent window build fails, so create/edit of a windowed agent is broken
+#   executor        every untrusted tool call fails -- the sandbox is DOWN, and the daemon's
+#                   fallback behaviour is the thing microVMs exist to prevent
+#   scheduled-jobs  renewals and the billing clock stop; already covered for SILENCE by the
+#                   absence alarm in scheduler.tf, but not for a function that runs and throws
+#
+# ONE MAP, TWO ALARMS EACH, gated on the function existing: a Lambda that was never brought up
+# has no metrics, and an alarm on a function that does not exist sits INSUFFICIENT_DATA forever
+# and teaches everyone to ignore it.
+locals {
+  lambda_alarm_targets = merge(
+    local.builder_enabled ? { builder = local.builder_name } : {},
+    local.publish_enabled ? { publish = local.publish_name } : {},
+    local.executor_enabled ? { executor = local.executor_name } : {},
+    { scheduled-jobs = aws_lambda_function.scheduled_jobs.function_name },
+  )
+}
+
+# ERRORS: the function ran and threw. Threshold 0 over five minutes, because for these four
+# there is no acceptable error rate -- none of them is on a retried hot path where a trickle is
+# normal, so any error is a real user hitting a real failure.
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  for_each = local.lambda_alarm_targets
+
+  alarm_name          = "${local.name_prefix}-${each.key}-errors"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = each.value }
+  statistic           = "Sum"
+  period              = 300
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  evaluation_periods  = 1
+  # NOT breaching when absent: a Lambda publishes nothing while idle, and these are all
+  # request-driven. Missing data means nobody called it, not that it is broken.
+  treat_missing_data = "notBreaching"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = [aws_sns_topic.alerts.arn]
+  tags               = local.common_tags
+
+  alarm_description = <<-EOT
+    The ${each.key} Lambda is throwing. Nothing else reports this: no ALB health check covers a
+    Lambda target group, and the caller sees a plain 5xx it cannot distinguish from a network
+    fault.
+
+    Diagnose:
+      aws logs tail /aws/lambda/${each.value} --since 30m --follow
+
+    Most often it is the IMAGE: a Lambda pins an image DIGEST, so a tag pushed without the
+    terraform apply that bumps it leaves the old code running, and a half-released image fails
+    every invocation identically. Check the function's image_uri against the tag in tfvars.
+  EOT
+}
+
+# THROTTLES: the function was refused a concurrency slot and never ran at all. A different
+# failure from Errors and invisible in it -- the invocation produces no error because there was
+# no execution, so a throttled service looks merely slow.
+resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
+  for_each = local.lambda_alarm_targets
+
+  alarm_name          = "${local.name_prefix}-${each.key}-throttles"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  dimensions          = { FunctionName = each.value }
+  statistic           = "Sum"
+  period              = 300
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  evaluation_periods  = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+  tags                = local.common_tags
+
+  alarm_description = <<-EOT
+    ${each.key} is being throttled: invocations are refused before they run, so they produce no
+    error and no log line. The account's unreserved concurrency is exhausted -- by this function
+    or by any other in the region sharing the pool.
+
+    The executor is the one that hurts: one microVM per untrusted tool call means concurrency
+    scales with ACTIVE AGENT TURNS, not with users, so a burst of agents each running a few
+    tools reaches the ceiling quickly.
+
+    Raise the account concurrency limit, or give this function reserved concurrency so it cannot
+    be starved by a neighbour.
+  EOT
+}

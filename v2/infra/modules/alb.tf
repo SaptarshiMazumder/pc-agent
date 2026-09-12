@@ -35,7 +35,14 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
   idle_timeout       = 4000 # keep long-lived WebSocket connections (daemon) alive
-  tags               = local.common_tags
+
+  # THE LOAD BALANCER IS THE ADDRESS. Every client bakes the platform URL, and a replacement ALB
+  # comes back on a different hostname — which is exactly what `hibernate` warns about. In an
+  # environment that is torn down often that is acceptable; in production it is an outage that
+  # outlives the mistake, so production turns this on and a delete has to be un-protected first.
+  enable_deletion_protection = var.alb_deletion_protection
+
+  tags = local.common_tags
 }
 
 # One target group per service — the pool the ALB forwards to.

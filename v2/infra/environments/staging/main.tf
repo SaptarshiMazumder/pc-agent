@@ -100,7 +100,12 @@ module "stack" {
   # microVM per call. Same two-step bring-up; bringing it up also flips the daemon's sandbox
   # backend to "microvm" (services.tf computed_env). redeploy.sh --only executor releases it
   # (the image builds FROM the daemon image, so the daemon must be pushed first).
-  executor_image_tag     = var.executor_image_tag
+  executor_image_tag = var.executor_image_tag
+  # REFUSE TO PLAN A DAEMON THAT WOULD RUN UNTRUSTED CODE IN ITS OWN CONTAINER. Off during the
+  # first bring-up of an environment, because ECR is created by that same apply and the image
+  # cannot exist yet; on afterwards, so clearing the tag later fails at plan time instead of
+  # silently returning the sandbox backend to "subprocess".
+  require_executor       = var.require_executor
   publish_engine_url     = var.publish_engine_url
   publish_engine_sha256  = var.publish_engine_sha256
   publish_engine_version = var.publish_engine_version
@@ -318,6 +323,19 @@ variable "builder_image_tag" {
   description = "Image tag in the builder ECR repo. Empty = no builder Lambda (agent window builds then fail on hosted, loudly)."
   type        = string
   default     = ""
+}
+
+variable "require_executor" {
+  description = <<-EOT
+    Refuse to plan if the executor Lambda is absent. Without it the daemon's sandbox backend
+    computes to "subprocess" and untrusted plugins, the exec tool and fenced shell commands run
+    inside the daemon's own container rather than a microVM -- silently, with no error anywhere.
+
+    TRUE HERE: the executor is released and this environment is where the microVM path is
+    exercised, so a regression that quietly turns isolation off should stop an apply.
+  EOT
+  type        = bool
+  default     = true
 }
 
 variable "executor_image_tag" {

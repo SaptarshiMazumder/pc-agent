@@ -225,6 +225,16 @@ resource "aws_iam_role_policy" "publish" {
 
 # ─────────────────────────────── function ───────────────────────────────
 
+# Created explicitly rather than left to Lambda: a log group Lambda creates for itself has NO
+# retention policy, so every line it ever writes is stored forever at $0.03/GB/month. The same
+# note is on scheduled_jobs in scheduler.tf; this is the one the other three were missing.
+resource "aws_cloudwatch_log_group" "publish" {
+  count             = local.publish_enabled ? 1 : 0
+  name              = "/aws/lambda/${local.publish_name}"
+  retention_in_days = 14
+  tags              = local.common_tags
+}
+
 resource "aws_lambda_function" "publish" {
   count = local.publish_enabled ? 1 : 0
 
@@ -290,6 +300,8 @@ resource "aws_lambda_function" "publish" {
       LOG_LEVEL        = "INFO"
     }
   }
+
+  depends_on = [aws_cloudwatch_log_group.publish]
 
   tags = merge(local.common_tags, { Name = local.publish_name, Component = "publish" })
 }

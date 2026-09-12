@@ -343,6 +343,24 @@ h2 { font-size: var(--fs-lead); }
 .hovertip-title { font-size: var(--fs-help); font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
 .hovertip-sub { margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim); white-space: nowrap; }
 
+/* THE ACCOUNT MENU IS A FLOATING SURFACE, AND THIS THEME'S `--bg2` IS NOT.
+   `common/auth/auth.css` paints it `--bg2`, which is correct against the token's own description
+   ("a card, a menu, anything sitting ON a surface"). This theme then redefines `--bg2` as
+   rgba(255,255,255,.028) — a TINT that only reads as a surface because the window ground sits
+   behind it. The menu is portalled to <body> and fixed over the rail, so what sat behind it was
+   the conversation list: 2.8% white over the Recent rows, which is to say transparent, with the
+   titles legible straight through the email and the Sign out row.
+
+   `--pop` is the answer theme.css already wrote down for exactly this case ("A menu has the
+   conversation list behind it instead, so it needs a real colour") and it is what every popup
+   this agent owns already uses — the tooltip and the chat menu directly below.
+
+   REPAINTED HERE, NOT IN `common/auth/auth.css`. That stylesheet is the agent's to edit, but it
+   is also re-copied from templates/_common/ whenever the shared modules are refreshed, and only
+   the .tsx is compared against the source — so a local fix there would be reverted with nothing
+   to report it. This file is the agent's own and loads after the module. */
+.agentd-pm-menu { background: var(--pop); }
+
 /* the per-chat ... menu */
 .chat-menu {
   position: fixed; z-index: 61; min-width: 196px;

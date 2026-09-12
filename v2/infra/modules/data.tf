@@ -37,9 +37,11 @@ resource "random_password" "identity_kek" {
 # you set the REAL values later via the AWS CLI (set-keys.ps1), so they never touch git or
 # Terraform state.
 resource "aws_secretsmanager_secret" "app" {
-  name                    = "${var.project}/${var.environment}/app"
-  description             = "App secrets (model-proxy master key + provider API keys)"
-  recovery_window_in_days = 0 # dev: delete immediately on destroy (no 30-day recycle-bin hold)
+  name        = "${var.project}/${var.environment}/app"
+  description = "App secrets (model-proxy master key + provider API keys)"
+  # 0 in dev and staging (delete immediately, no recycle-bin hold); 30 in production, where this
+  # secret holds the KEK that wraps the token signing key and losing it locks every account out.
+  recovery_window_in_days = var.secret_recovery_window_days
   tags                    = local.common_tags
 }
 

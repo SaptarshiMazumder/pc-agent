@@ -264,6 +264,29 @@ resource "aws_ecs_task_definition" "svc" {
     }
   }])
 
+  # UNTRUSTED CODE MUST NOT RUN ON THE DAEMON'S BOX once this deployment says so.
+  #
+  # `AGENTD_SANDBOX_BACKEND` above computes to "subprocess" whenever the executor Lambda is not
+  # built, and that is a SILENT downgrade: every untrusted plugin, sandbox enumeration and fenced
+  # shell command moves back inside this container, nothing errors, nothing warns, and the only
+  # evidence is this task definition. Correct for dev, unacceptable anywhere real.
+  #
+  # A PRECONDITION RATHER THAN A VALIDATION because the fact spans two variables — Terraform's
+  # variable validation cannot see past its own — and this is where the consequence is actually
+  # stamped, so the error lands next to the thing it is about. It fails at PLAN time, before
+  # anything is built.
+  #
+  # It cannot protect the first apply of a new environment: ECR is created by that apply, so the
+  # image cannot exist and the tag must be empty. `require_executor` stays off through bootstrap
+  # and goes on once the executor is released — after which clearing the tag, dropping the
+  # variable, or applying with `-var executor_image_tag=` is refused instead of accepted.
+  lifecycle {
+    precondition {
+      condition     = !(var.require_executor && each.key == "daemon") || local.executor_enabled
+      error_message = "require_executor is set but executor_image_tag is empty, so the daemon would run untrusted tools in its own container (AGENTD_SANDBOX_BACKEND=subprocess) instead of a microVM. Release the executor first: redeploy-lambda.sh <env> --only executor, then set executor_image_tag."
+    }
+  }
+
   tags = merge(local.common_tags, { Component = each.key })
 }
 

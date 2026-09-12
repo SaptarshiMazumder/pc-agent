@@ -38,6 +38,86 @@ variable "ecr_force_delete" {
   default     = true
 }
 
+variable "ecr_keep_images" {
+  description = <<-EOT
+    How many TAGGED images to keep per repository before the oldest are expired. Untagged
+    layers go after 7 days regardless.
+
+    WITHOUT THIS EVERY IMAGE IS KEPT FOREVER, and CI makes that grow fast: redeploy.sh pushes
+    `:latest` plus a permanent `:<git-sha>` on every single run, so each deploy adds a tag that
+    nothing will ever remove. At roughly a gigabyte an image across eight repositories, the bill
+    climbs quietly and nothing ever reports it.
+
+    20 keeps a long rollback window — far more builds back than anyone has ever needed to
+    reach — while bounding the total.
+  EOT
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.ecr_keep_images >= 1
+    error_message = "ecr_keep_images must be at least 1, or there would be nothing to roll back to."
+  }
+}
+
+variable "secret_recovery_window_days" {
+  description = <<-EOT
+    How long a DELETED app secret stays recoverable. 0 = gone the instant it is deleted.
+
+    ZERO IS A DEV CONVENIENCE AND A PRODUCTION HAZARD. This secret holds the LiteLLM master key,
+    the accounts internal key, DATABASE_URL, every payment credential, and AGENTD_IDENTITY_KEK —
+    which wraps the token signing key at rest. Losing the KEK does not merely lose a secret: it
+    makes every stored token unreadable, so the deployment cannot verify anyone.
+
+    A `terraform destroy`, a resource rename, or a `state rm` followed by an apply all delete it.
+    At 0 there is no undo. 30 is AWS's maximum recycle-bin hold and costs nothing.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.secret_recovery_window_days == 0 || (var.secret_recovery_window_days >= 7 && var.secret_recovery_window_days <= 30)
+    error_message = "secret_recovery_window_days must be 0 (delete immediately) or between 7 and 30."
+  }
+}
+
+variable "alb_deletion_protection" {
+  description = <<-EOT
+    Refuse to delete the load balancer until this is turned off again.
+
+    IT IS THE ADDRESS, not just a resource: every client bakes the platform URL, and `hibernate`
+    already documents that losing the ALB changes that URL and strands every one of them. In an
+    environment that is rebuilt often that is a feature; in production it is an outage that
+    outlives the mistake, because the new ALB comes back on a different name.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "require_executor" {
+  description = <<-EOT
+    REFUSE TO PLAN A DAEMON THAT WOULD RUN UNTRUSTED CODE ON ITS OWN BOX.
+
+    With no executor Lambda, `AGENTD_SANDBOX_BACKEND` computes to "subprocess" (services.tf) and
+    every untrusted plugin, sandbox enumeration and fenced shell command runs inside the daemon
+    container instead of a microVM. That is the pre-microvm behaviour, it is correct for dev, and
+    it is invisible: nothing errors, nothing warns, and the only way to notice is to read the
+    task definition.
+
+    THIS DOES NOT PROTECT THE FIRST APPLY, and cannot. ECR is created by that same apply, so the
+    image cannot exist yet and `executor_image_tag` MUST be empty for it — turning this on before
+    the executor is released would deadlock the bring-up. Leave it off through bootstrap and turn
+    it on once `redeploy-lambda.sh <env> --only executor` has run.
+
+    WHAT IT ACTUALLY CATCHES is the regression afterwards: the tag being cleared, the variable
+    being dropped from a tfvars file, someone applying with `-var executor_image_tag=`. Any of
+    those silently returns the deployment to running stranger code on the daemon's box. With this
+    set they fail at plan time instead.
+  EOT
+  type        = bool
+  default     = false
+}
+
 # ── EC2 capacity for ECS (ec2_capacity.tf) ──────────────────────────────────
 
 variable "ec2_capacity_enabled" {

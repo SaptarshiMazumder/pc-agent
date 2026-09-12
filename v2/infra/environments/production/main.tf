@@ -127,7 +127,12 @@ module "stack" {
   # microVM per call. Same two-step bring-up; bringing it up also flips the daemon's sandbox
   # backend to "microvm" (services.tf computed_env). redeploy.sh --only executor releases it
   # (the image builds FROM the daemon image, so the daemon must be pushed first).
-  executor_image_tag     = var.executor_image_tag
+  executor_image_tag = var.executor_image_tag
+  # REFUSE TO PLAN A DAEMON THAT WOULD RUN UNTRUSTED CODE IN ITS OWN CONTAINER. Off during the
+  # first bring-up of an environment, because ECR is created by that same apply and the image
+  # cannot exist yet; on afterwards, so clearing the tag later fails at plan time instead of
+  # silently returning the sandbox backend to "subprocess".
+  require_executor       = var.require_executor
   publish_engine_url     = var.publish_engine_url
   publish_engine_sha256  = var.publish_engine_sha256
   publish_engine_version = var.publish_engine_version
@@ -138,6 +143,20 @@ module "stack" {
   # the environment could be deployed exactly once and every release after it would fail at the
   # push. `redeploy.sh --tag <sha>` puts a permanent reference alongside it, which is what a
   # rollback should name anyway: a build, not whatever :latest points at today.
+  # ── production-only hardening. The rest of this file is staging's, byte for byte; these are
+  # the settings where being rebuilt-often and being real genuinely differ.
+  #
+  # 30-DAY SECRET RECOVERY, not staging's 0. This secret holds AGENTD_IDENTITY_KEK, which wraps
+  # the token signing key at rest -- delete it with no recycle-bin hold and every stored token
+  # becomes unreadable, which locks out every account at once rather than losing a credential.
+  secret_recovery_window_days = 30
+
+  # DELETION PROTECTION ON THE LOAD BALANCER, because it IS the address: every client bakes the
+  # platform URL, and a replacement ALB returns on a different hostname. Staging leaves this off
+  # so `hibernate` and down.ps1 keep working, which is exactly the capability production should
+  # not have by accident.
+  alb_deletion_protection = true
+
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
   model_proxy_desired_count = var.model_proxy_desired_count
@@ -355,6 +374,21 @@ variable "builder_image_tag" {
   description = "Image tag in the builder ECR repo. Empty = no builder Lambda (agent window builds then fail on hosted, loudly)."
   type        = string
   default     = ""
+}
+
+variable "require_executor" {
+  description = <<-EOT
+    Refuse to plan if the executor Lambda is absent. Without it the daemon's sandbox backend
+    computes to "subprocess" and untrusted plugins, the exec tool and fenced shell commands run
+    inside the daemon's own container rather than a microVM -- silently, with no error anywhere.
+
+    FALSE ONLY UNTIL THE EXECUTOR IS RELEASED. The first apply creates ECR, so
+    executor_image_tag must be empty for it and this must be off. Step 6 of the bring-up
+    in the header pushes the executor image; TURN THIS ON immediately after, and before
+    this environment serves anybody.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "executor_image_tag" {
