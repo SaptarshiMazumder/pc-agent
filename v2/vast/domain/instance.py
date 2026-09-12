@@ -57,6 +57,13 @@ class Offer:
     #: Vast's test verdict on the machine: "verified", "unverified" (never ran it), or
     #: "deverified" (ran it and FAILED). Only the last is disqualifying on its own.
     verification: str = ""
+    #: The highest CUDA the HOST'S DRIVER supports. The image is built against a CUDA version;
+    #: a host whose driver is older starts the container fine and fails at the first kernel —
+    #: which is how a $0.23 A5000 with CUDA 12.8 would have "rendered" on a CUDA 13 image.
+    cuda_max_good: float = 0.0
+    #: Free disk the host can give this rental, in GB. We ask for 60 at create; a host with
+    #: less either refuses or gives less, and neither is visible until models fail to land.
+    disk_gb: int = 0
 
 
 @dataclass(frozen=True)

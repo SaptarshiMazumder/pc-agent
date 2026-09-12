@@ -40,6 +40,7 @@ class GpuMarketplace(Protocol):
         min_compute_cap: int = 0,
         gpu_denylist: tuple = (),
         require_verified: bool = False,
+        min_disk_gb: int = 0,
     ) -> list[Offer]:
         """Rentable machines within a price ceiling, cheapest first. The ceiling is a FILTER,
         not a sort — "cheapest available" on a bad day is still whatever the market charges.

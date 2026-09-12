@@ -109,6 +109,7 @@ class VastMarketplace:
         min_compute_cap: int = 0,
         gpu_denylist: tuple = (),
         require_verified: bool = False,
+        min_disk_gb: int = 0,
     ) -> list[Offer]:
         """Rentable machines that are actually worth renting, cheapest first.
 
@@ -142,6 +143,9 @@ class VastMarketplace:
             query["inet_down"] = {"gte": int(min_inet_down)}
         if min_compute_cap:
             query["compute_cap"] = {"gte": int(min_compute_cap)}
+        if min_disk_gb:
+            # We ask for this much at create; a host that cannot give it is not a candidate.
+            query["disk_space"] = {"gte": int(min_disk_gb)}
         if secure_cloud_only:
             # SECURE CLOUD = `datacenter` in the QUERY, `hosting_type == 1` on the ROW. The
             # query field filters server-side (28 offers became 5 when it was added) but the
@@ -166,6 +170,8 @@ class VastMarketplace:
                 datacenter=int(row.get("hosting_type") or 0) == 1,
                 compute_cap=int(row.get("compute_cap") or 0),
                 verification=str(row.get("verification") or ""),
+                cuda_max_good=float(row.get("cuda_max_good") or 0.0),
+                disk_gb=int(float(row.get("disk_space") or 0)),
             )
             for row in (payload.get("offers") or [])
         ]
@@ -196,6 +202,13 @@ class VastMarketplace:
             if o.verification == "deverified":
                 continue
             if require_verified and o.verification != "verified":
+                continue
+            # The two filters that were only ever in the request, re-checked on the result
+            # like the rest — a driver too old for the image is the one that turns a
+            # successful rental into a machine that cannot render.
+            if min_cuda and o.cuda_max_good and o.cuda_max_good < float(min_cuda):
+                continue
+            if min_disk_gb and o.disk_gb and o.disk_gb < int(min_disk_gb):
                 continue
             keep.append(o)
         return keep

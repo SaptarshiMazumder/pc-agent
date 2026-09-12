@@ -33,6 +33,7 @@ from vast.application.instance_settings import InstanceSettings
 from vast.application.interfaces.gpu_marketplace import GpuMarketplace
 from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
+from vast.application.offer_ranking import rank_offers
 from vast.domain.errors import (
     BudgetExhausted,
     CapacityFull,
@@ -140,7 +141,13 @@ class InstanceService:
             min_compute_cap=cfg.min_compute_cap,
             gpu_denylist=cfg.gpu_denylist,
             require_verified=cfg.require_verified,
+            min_disk_gb=cfg.disk_gb,
+            limit=cfg.search_limit,
         )
+        # QUALITY FIRST, PRICE WITHIN — see offer_ranking. The search returns the pool under
+        # the ceiling cheapest-first; this reorders it so the offer-walk below starts from the
+        # best card the ceiling allows rather than the cheapest thing that cleared the filters.
+        offers = rank_offers(offers, cfg.gpu_catalogue)
         if not offers:
             tier = "Secure Cloud (datacenter) machine" if cfg.secure_cloud_only else "machine"
             vram = f" with {cfg.min_vram_gb}GB+ VRAM" if cfg.min_vram_gb else ""

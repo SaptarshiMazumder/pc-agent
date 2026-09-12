@@ -102,7 +102,12 @@ class InstanceSettings:
 
     #: Minimum CUDA the HOST's driver supports. The image is built against a CUDA version; a
     #: host too old to run it starts and then fails in a way that looks like our bug.
-    min_cuda: float = 12.4
+    #: BOUND TO THE IMAGE TAG ABOVE. vastai/comfy:…-cuda-13.2 ships torch cu130, which needs a
+    #: CUDA 13 driver; a host reporting cuda_max_good 12.8 starts the container and fails at
+    #: the first kernel. The floor was 12.4, and the next rental under it would have been a
+    #: $0.23 A5000 at 12.8 — the L4 the user was rented reported 12.4. Change the image, change
+    #: this.
+    min_cuda: float = 13.0
     #: Mbps down. Every run pulls multi-GB weights, so a slow host is not cheap, it is a longer
     #: bill for the same work.
     min_inet_down: int = 100
@@ -127,6 +132,32 @@ class InstanceSettings:
     #: did, without having to be kept up to date. Set it only to pin a deployment to specific
     #: cards.
     gpu_allowlist: tuple = ()
+
+    #: THE CARDS WORTH PAYING FOR, IN QUALITY ORDER — PC_Rent's Vast catalogue, with its speed
+    #: weights kept only as an ORDER (they are Blender render speeds; the order is what carries
+    #: over). Matched by longest substring so Vast's variants ("RTX PRO 6000 Max-Q") count.
+    #: The picker takes the best tier the ceiling allows and the cheapest offer of that tier —
+    #: not the cheapest card, which is how an L4 got rented while an RTX PRO 6000 sat at $1.74.
+    #:
+    #: ONE DEPARTURE FROM THEIR ORDER: the RTX PRO 6000 ranks first. Their list is ordered for
+    #: Blender, where an H100 NVL edges it; this agent runs diffusion and video models, where
+    #: the PRO 6000's 96GB and Blackwell generation are worth more than the H100's memory
+    #: bandwidth — and on the live market it was $1.69/hr against the H100 NVL's $2.95. With
+    #: their order the picker took the H100 and paid the ceiling; with this one it takes the
+    #: better card for the job and leaves $1.26/hr on the table.
+    #: Empty = any card, cheapest first (the old behaviour).
+    gpu_catalogue: tuple = (
+        ("RTX PRO 6000", 3.0),
+        ("H200 NVL", 2.8), ("H100 SXM", 2.5), ("H100 NVL", 2.45),
+        ("RTX 5090", 2.0), ("RTX 6000Ada", 1.85), ("A100 SXM4", 1.85), ("L40S", 1.75),
+        ("A100 PCIE", 1.7), ("L40", 1.55), ("RTX 5880Ada", 1.5), ("RTX 4090", 1.45),
+        ("RTX 4080S", 1.3), ("RTX A6000", 1.3), ("A40", 1.0),
+    )
+
+    #: HOW MANY OFFERS TO LOOK AT before choosing. Cheapest-first only ever needed the first
+    #: twenty; a quality-first choice needs to see the whole pool under the ceiling, or the
+    #: best card is simply not in the page. 200 is more than the datacenter pool has ever been.
+    search_limit: int = 200
 
     #: No contact and no lease for this long, and the reaper takes it.
     idle_seconds: float = 600.0
