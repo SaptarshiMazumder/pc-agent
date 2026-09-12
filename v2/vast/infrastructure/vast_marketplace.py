@@ -37,7 +37,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from vast.domain.errors import MarketplaceError
+from vast.domain.errors import MarketplaceError, OfferGone
 from vast.domain.instance import MachineInstance, Offer
 
 DEFAULT_BASE = "https://console.vast.ai/api/v0"
@@ -189,8 +189,19 @@ class VastMarketplace:
         }
         if onstart:
             body["onstart"] = onstart
-        payload = self._call("PUT", f"/asks/{int(offer_id)}/", body)
+        try:
+            payload = self._call("PUT", f"/asks/{int(offer_id)}/", body)
+        except MarketplaceError as e:
+            # 410 `no_such_ask`: "Instance type N is no longer available" — somebody rented it
+            # (or the host delisted it) in the second since we searched. That is the one
+            # failure the caller should answer with the NEXT candidate rather than a report,
+            # so it gets its own name. Everything else stays a MarketplaceError.
+            if e.status == 410 or "no_such_ask" in (e.body or ""):
+                raise OfferGone(int(offer_id), e.body) from e
+            raise
         if not payload.get("success", True):
+            if str(payload.get("error") or "") == "no_such_ask":
+                raise OfferGone(int(offer_id), json.dumps(payload)[:400])
             raise MarketplaceError("create", 200, json.dumps(payload)[:400])
         new_id = payload.get("new_contract") or payload.get("instance_id")
         if not new_id:

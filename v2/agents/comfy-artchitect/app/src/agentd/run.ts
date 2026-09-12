@@ -21,6 +21,16 @@ import { useApp } from '../state/store'
  *  straight to the instance and the model only ever hears its filename. */
 const REFERENCE_DIR = 'references'
 
+/** THE MAP FROM CHAT TO ITS MEDIA IS A FOLDER: references/<chat-key>/. The workspace is the
+ *  ACCOUNT's, shared by every conversation, so a flat references/ showed a new chat every file
+ *  every earlier chat had added — and the agent, told to use "the reference", picked one. Keyed
+ *  by the session key the daemon already carries into every tool call, so comfy_upload can find
+ *  this chat's folder with nothing new crossing the wire. Chat keys are already path-safe
+ *  ("chat-<time>-<rand>"); the replace is there for any key that is not, and the plugin applies
+ *  the SAME rule so the two sides name the same folder. */
+export const referenceDirFor = (sessionKey: string) =>
+  `${REFERENCE_DIR}/${sessionKey.replace(/[^A-Za-z0-9._-]/g, '_') || '_'}`
+
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
   const send = useCallback(
@@ -118,6 +128,7 @@ export function useRun(client: AgentdClient | null) {
       if (!client || !files.length) return
       const { currentSessionKey: existing, newSession, append } = useApp.getState()
       const key = existing || newSession(true)
+      const dir = referenceDirFor(key)
 
       // Reference files are uploaded immediately and never rendered in this window, so avoid
       // decoding a throwaway local thumbnail for what may be a very large source image.
@@ -128,7 +139,7 @@ export function useRun(client: AgentdClient | null) {
         try {
           const res: any = await client.request('workspace.upload', {
             agentId: AGENT_ID,
-            path: REFERENCE_DIR,
+            path: dir,
             name: f.name,
             dataBase64: f.dataBase64,
           })
@@ -151,12 +162,13 @@ export function useRun(client: AgentdClient | null) {
       }
       if (!saved.length) return
 
-      // ONE instruction turn, first person so it reads as the user's own ask. Names the files and
-      // the folder so the agent can comfy_upload them without seeing a single pixel.
+      // ONE instruction turn, first person so it reads as the user's own ask. Names the FULL
+      // paths — this chat's folder included — so the agent can comfy_upload them verbatim
+      // without seeing a single pixel or guessing which folder is this conversation's.
       const them = saved.length > 1 ? 'them' : 'it'
-      const list_ = saved.join(', ')
+      const list_ = saved.map((name) => `${dir}/${name}`).join(', ')
       const msg =
-        `I've added reference media to my workspace under ${REFERENCE_DIR}/: ${list_}. ` +
+        `I've added reference media for this chat: ${list_}. ` +
         `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
         `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again.`
       await send(msg)

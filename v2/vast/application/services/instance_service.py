@@ -5,9 +5,12 @@ worker and time out anyway. So `ensure` claims the slot, starts the rental and r
 `starting` — and each later call refreshes the address until one exists. Readiness needs no
 background poller, because the caller is already polling.
 
-LAZY BY DESIGN. Nothing here runs when a chat opens. The agent calls `ensure` at the first step
-that genuinely needs a GPU, because research and workflow design need documentation, not
-hardware. Renting on session open would bill for every chat someone opens and abandons.
+CALLED EAGERLY, BY DESIGN — and this was "lazy by design" first. The studio window calls `ensure`
+the moment it opens and the agent calls it as its first step, because a cold machine takes minutes
+to become reachable and that wait belongs while the user reads a plan, not after it. The earlier
+worry — renting on session open bills for every chat someone opens and abandons — is what the
+idle reaper answers: a machine nobody uses stops itself. This service does not decide WHEN it is
+called; it only has to make every call safe to repeat.
 
 THE SLOT BELONGS TO THE ACCOUNT, NOT THE CHAT. Ten chats, one machine — settled by `claim`,
 which is settled by a unique index, so a second chat cannot rent a second GPU however exactly it
@@ -31,6 +34,7 @@ from vast.domain.errors import (
     CapacityFull,
     MarketplaceError,
     NoOfferAvailable,
+    OfferGone,
     SlotLost,
 )
 from vast.domain.instance import InstanceRow, label_for
@@ -114,23 +118,45 @@ class InstanceService:
                 f"no machine with {cfg.min_vram_gb}GB+ VRAM at or below "
                 f"${cfg.max_hourly_usd:.2f}/hr right now"
             )
-        offer = offers[0]
-        if offer.hourly_usd > cfg.max_hourly_usd:
-            # The search already filtered on price. This catches a marketplace that ignored it,
-            # which is the difference between a limit and a suggestion.
+        # THE FIRST CANDIDATE IS THE ONE MOST LIKELY TO BE GONE. The list is cheapest-first, and
+        # the cheapest listing is exactly what every other buyer is about to take, so on a busy
+        # day the rent races the search and loses by a second. A single attempt turned that race
+        # into "gpu_ensure failed": the slot was freed, but nothing called again, and the user
+        # sat with no machine. Walk the candidates instead — each is a different host — and
+        # only when every one has gone is there genuinely nothing to rent right now.
+        gone: list[int] = []
+        instance_id: int | None = None
+        for offer in offers:
+            if offer.hourly_usd > cfg.max_hourly_usd:
+                # The search already filtered on price. This catches a marketplace that ignored
+                # it, which is the difference between a limit and a suggestion.
+                raise NoOfferAvailable(
+                    f"offer {offer.offer_id} is ${offer.hourly_usd:.2f}/hr, over the "
+                    f"${cfg.max_hourly_usd:.2f} ceiling"
+                )
+            try:
+                instance_id = market.create(
+                    offer.offer_id,
+                    label=label_for(row.id),
+                    image=cfg.image,
+                    disk_gb=cfg.disk_gb,
+                    comfy_port=cfg.comfy_port,
+                    publish_ports=cfg.publish_ports,
+                )
+            except OfferGone as e:
+                # Not a fault, and not ours to surface yet: the next candidate is a different
+                # machine. Anything ELSE `create` raises — a refused request, a credit problem,
+                # a reply with no instance id — propagates untouched, because it would refuse
+                # the next offer just the same.
+                log.info("vast: %s — trying the next candidate", e)
+                gone.append(offer.offer_id)
+                continue
+            break
+        if instance_id is None:
             raise NoOfferAvailable(
-                f"offer {offer.offer_id} is ${offer.hourly_usd:.2f}/hr, over the "
-                f"${cfg.max_hourly_usd:.2f} ceiling"
+                f"all {len(gone)} candidate machines were taken by other buyers before one could "
+                "be rented — try again in a moment"
             )
-
-        instance_id = market.create(
-            offer.offer_id,
-            label=label_for(row.id),
-            image=cfg.image,
-            disk_gb=cfg.disk_gb,
-            comfy_port=cfg.comfy_port,
-            publish_ports=cfg.publish_ports,
-        )
         with self._db() as c:
             self._store.mark_running(
                 c,

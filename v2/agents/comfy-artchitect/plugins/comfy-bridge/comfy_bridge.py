@@ -34,7 +34,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.run_context import current_run_context, current_workspace
 from agent_runtime.infrastructure.net.outbound import fetch
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
@@ -83,6 +83,62 @@ def _model_enums(catalogue: dict):
 # Same constant as vast_bridge._CONN_FILE, duplicated rather than imported so neither plugin
 # depends on the other's load order; the contract is the path and the {url, auth} shape.
 _CONN_FILE = ".studio/connection.json"
+
+
+# THIS CHAT'S REFERENCE MEDIA LIVES IN ITS OWN FOLDER: references/<chat-key>/. The window writes
+# there (run.ts referenceDirFor) and this is the ONLY place comfy_upload will read from. The
+# workspace is the account's, shared by every conversation, and a flat references/ meant a new
+# chat saw every file every earlier chat had added — plus uploads/, the chat pastes — and the
+# agent, told to use "the reference", picked one from another conversation. The folder is the
+# map from chat to media; the gate below is what makes it binding.
+_REFERENCES_DIR = "references"
+
+
+def _chat_folder(session_key: str) -> str:
+    """The folder name for one chat. THE SAME RULE AS run.ts — the two must agree or the window
+    writes where the plugin never looks. Chat keys are already path-safe; e2e and peer keys
+    carry colons, which this folds to underscores."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", session_key or "") or "_"
+
+
+def _chat_reference_dir(root: Path) -> Path:
+    ctx = current_run_context()
+    return root / _REFERENCES_DIR / _chat_folder(getattr(ctx, "session_key", "") if ctx else "")
+
+
+def _locate_reference(root: Path, chat_dir: Path, path: str) -> str | None:
+    """The WORKSPACE-RELATIVE path of the file `path` names, IF it is one of this chat's
+    references; None otherwise.
+
+    Matched by BASENAME inside the chat folder, so `references/x.png`, `references/<chat>/x.png`
+    and plain `x.png` all mean the same file — the model is told the full path, but the gate is
+    "is this file in this chat's folder", not "did the model spell the folder right". An
+    absolute path, or a name that is not in the folder, is refused: that is exactly the
+    another-chat's-file and chat-paste case this exists to stop.
+
+    RELATIVE ON PURPOSE, and this is the third time this lesson has been paid for in this file.
+    The path goes to the host's fetch, and in the sandbox the plugin's idea of the workspace is
+    /tmp/exec-<id>/ws — a guest path the host does not own, so an absolute one is refused as
+    "outside this run's files". A relative path means the same file on both sides: the host
+    resolves it against the run's workspace, and so does the in-process fetch.
+    """
+    p = Path(path)
+    if p.is_absolute():
+        return None
+    try:
+        base = root.resolve()
+        chat = chat_dir.resolve()
+    except OSError:
+        return None
+    cand = (base / p).resolve()
+    if cand.is_file():
+        try:
+            cand.relative_to(chat)
+            return cand.relative_to(base).as_posix()
+        except ValueError:
+            pass
+    by_name = chat / p.name
+    return by_name.relative_to(base).as_posix() if by_name.is_file() else None
 
 
 def _override() -> dict | None:
@@ -406,19 +462,19 @@ class ComfyUploadTool(Tool):
     label = "Upload images to ComfyUI"
     default_retryable = True
     description = (
-        "Push image files from this run's workspace to the ComfyUI instance's input folder, so "
-        "a LoadImage node can use them. THE USER'S IMAGES ARE IN TWO PLACES: `references/` "
-        "holds what they added as reference media (real filenames, e.g. "
-        "references/influencer-reference.png), and `uploads/` holds what they attached in chat "
-        "(uuid-prefixed, e.g. uploads/a1b2-face.png). Look in BOTH. Upload BEFORE emitting any "
-        "workflow that loads an image, and wire the SERVER-SIDE names this returns — never the "
-        "local paths — into each LoadImage node's `image` input. "
-        "SEVERAL IMAGES MEANS SEVERAL ROLES (start frame, end frame, mask, identity "
-        "reference). Work out which is which from the user's own words and the filenames, "
-        "upload them all in one call, and SAY THE MAPPING in your plan — 'face.png is the "
-        "identity reference, bg.png is the background' — so they can correct it in one line. Do "
-        "not stop and ask; a stated mapping they can fix beats a question they have to answer "
-        "before anything is built."
+        "Push this chat's reference media to the ComfyUI instance's input folder, so a "
+        "LoadImage node can use it. THE ONLY FILES THIS WILL SEND ARE THE ONES THE USER ADDED "
+        "TO THIS CONVERSATION with the Add reference media button — the message that announced "
+        "them names their exact paths (references/<chat>/name.png). Nothing else exists as far "
+        "as this tool is concerned: not files another conversation added, not images pasted "
+        "into the chat (uploads/), not anything you find with ls. If nothing was added to this "
+        "chat, this tool says so — tell the user to add it with Add reference media; never "
+        "substitute a file from anywhere else. Upload BEFORE emitting any workflow that loads "
+        "an image, and wire the SERVER-SIDE names this returns — never the local paths — into "
+        "each LoadImage node's `image` input. SEVERAL IMAGES MEANS SEVERAL ROLES (start frame, "
+        "end frame, mask, identity reference): work out which is which from the user's words "
+        "and the filenames, upload them all in one call, and SAY THE MAPPING in your plan so a "
+        "wrong guess costs them one line to correct."
     )
     parameters = {
         "type": "object",
@@ -451,12 +507,36 @@ class ComfyUploadTool(Tool):
             # the process CWD, which is nowhere near this run's uploads/.
             root = Path(current_workspace(".") or ".")
 
+            # THE GATE. Only this chat's folder is readable here — see _chat_reference_dir.
+            chat_dir = _chat_reference_dir(root)
+            available = (
+                sorted(f.name for f in chat_dir.iterdir() if f.is_file())
+                if chat_dir.is_dir()
+                else []
+            )
+            if not available:
+                return ToolResult.text(
+                    "nothing has been added to THIS chat with Add reference media, so there is "
+                    "nothing to upload. Only media added to this conversation can go to the "
+                    "instance — never a file from another chat, and never an image pasted into "
+                    "the chat. Ask the user to add it with the Add reference media button, then "
+                    "upload it.",
+                    is_error=True,
+                )
+
             uploaded: dict = {}
             failures: list[str] = []
             for path in paths:
                 if abort.is_set():
                     break
-                p = Path(path)
+                located = _locate_reference(root, chat_dir, path)
+                if located is None:
+                    failures.append(
+                        f"{path}: not a file added to THIS chat. This chat's reference media: "
+                        + ", ".join(available)
+                        + ". Only those can go to the instance."
+                    )
+                    continue
                 # `overwrite` on purpose: iterating means re-sending a file under the same
                 # name, and "input/foo (1).png" quietly diverging from what the workflow names
                 # is exactly the kind of drift nobody can debug from here.
@@ -467,7 +547,11 @@ class ComfyUploadTool(Tool):
                     _url("/api/upload/image"),
                     method="POST",
                     headers=_headers(),
-                    file_path=str(p if p.is_absolute() else root / p),
+                    # WORKSPACE-RELATIVE — see _locate_reference. `root / p` here was the
+                    # bug: inside the sandbox that is /tmp/exec-<id>/ws/…, a guest path the
+                    # host refuses as "outside this run's files", and the tool then reported
+                    # "could not reach the instance" about a file it never sent.
+                    file_path=located,
                     file_field="image",
                     form_fields=form,
                     timeout_s=120.0,

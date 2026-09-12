@@ -50,8 +50,13 @@ def build_vast_router(
         if not service.configured:
             # No credentials on this deployment. Say so plainly rather than failing deeper —
             # desktop and local dev land here, and "not configured" is the honest answer.
+            #
+            # 501, NOT 503. 503 is this router's word for "temporary — ask again in a minute"
+            # (no offer this minute, the platform at its machine limit), and the window now
+            # polls on it. A deployment with no key would poll forever. 501 Not Implemented is
+            # what this is: the feature does not exist on this server.
             raise HTTPException(
-                status_code=503, detail="GPU renting is not configured on this deployment"
+                status_code=501, detail="GPU renting is not configured on this deployment"
             )
 
     def _account(payload: dict) -> str:

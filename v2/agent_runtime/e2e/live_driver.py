@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -99,8 +100,13 @@ async def drive(
 
             for rel in turn.reference_media:
                 fp = _resolve(scenario, rel)
+                # THE SAME FOLDER THE WINDOW WOULD USE: references/<chat-key>/. The agent's
+                # comfy_upload reads only its own chat's folder (comfy_bridge._chat_folder —
+                # the same fold of unsafe characters), so a reference staged at the root would
+                # be refused exactly as another chat's file is.
                 res = await transport.call("workspace.upload", {
-                    "agentId": scenario.agent_id, "path": "references",
+                    "agentId": scenario.agent_id,
+                    "path": f"references/{re.sub(r'[^A-Za-z0-9._-]', '_', session_key)}",
                     "name": fp.name,
                     "dataBase64": base64.b64encode(fp.read_bytes()).decode("ascii"),
                 })

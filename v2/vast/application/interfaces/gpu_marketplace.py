@@ -33,7 +33,12 @@ class GpuMarketplace(Protocol):
 
     def create(self, offer_id: int, *, label: str, image: str, disk_gb: int, comfy_port: int,
                publish_ports: tuple = (), onstart: str = "") -> int:
-        """Rent `offer_id`, stamped with `label`, and return the marketplace's instance id."""
+        """Rent `offer_id`, stamped with `label`, and return the marketplace's instance id.
+
+        Raises `OfferGone` when the offer is no longer rentable — taken or withdrawn since the
+        search — so the caller can move to the next candidate. Every other failure is a
+        `MarketplaceError`, and is NOT something to retry into: a refused request or a credit
+        problem will refuse the next offer just the same."""
         ...
 
     def destroy(self, instance_id: int) -> None:

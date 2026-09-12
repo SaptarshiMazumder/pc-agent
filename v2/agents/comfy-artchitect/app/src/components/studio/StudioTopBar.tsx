@@ -82,7 +82,9 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
                 // the first few minutes of every session now that the machine is pre-warmed.
                 gpu.state === 'starting'
                 ? 'starting GPU…'
-                : probe.state === 'down'
+                : gpu.state === 'waiting'
+                  ? 'waiting for a GPU…'
+                  : probe.state === 'down'
                   ? 'no instance'
                   : 'instance'}
         </span>

@@ -23,7 +23,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
-export type GpuState = 'idle' | 'starting' | 'ready' | 'unavailable'
+/** 'waiting' = the platform could not rent one THIS minute (no offer under its filters, or its
+ *  machine limit) and said so as a temporary refusal. Polled like 'starting', only slower —
+ *  distinct from 'unavailable', which is a refusal time will not fix and is not polled. */
+export type GpuState = 'idle' | 'starting' | 'waiting' | 'ready' | 'unavailable'
 
 export interface GpuWarmup {
   state: GpuState
@@ -39,6 +42,10 @@ export interface GpuWarmup {
 /** How often to re-ask while a machine is still coming up. A cold pull is minutes, so polling
  *  faster buys nothing but requests. */
 const POLL_MS = 20_000
+/** How often to re-ask when the marketplace had nothing this minute. Offers appear on the scale
+ *  of minutes, and each ask is a search plus possibly a rental attempt — once a minute is
+ *  enough to turn a thin market at 15:14 into a GPU at 15:17 with nobody doing anything. */
+const WAIT_POLL_MS = 60_000
 
 export function useGpuWarmup(client: AgentdClient | undefined, enabled = true): GpuWarmup {
   const [state, setState] = useState<GpuState>('idle')
@@ -56,17 +63,33 @@ export function useGpuWarmup(client: AgentdClient | undefined, enabled = true): 
         const res = (await client.request('tools.invoke', {
           name: 'gpu_ensure',
           params: {},
-        })) as { text?: string; details?: { ready?: boolean; url?: string; hourly_usd?: number } }
+        })) as {
+          text?: string
+          details?: {
+            ready?: boolean
+            url?: string
+            hourly_usd?: number
+            waiting?: boolean
+            detail?: string
+          }
+        }
         const d = res?.details || {}
         setHourlyUsd(Number(d.hourly_usd || 0))
         if (d.ready && d.url) {
           setUrl(String(d.url))
           setState('ready')
+          setError('')
+        } else if (d.waiting) {
+          // The platform could not rent one this minute and said it is temporary. Shown, and
+          // asked again — this is the case that used to end as 'unavailable' and stop polling,
+          // which left the session without a GPU unless the model happened to try again.
+          setError(String(d.detail || '').trim())
+          setState('waiting')
         } else {
           // "starting" is the normal answer for the first few minutes, not a failure.
           setState('starting')
+          setError('')
         }
-        setError('')
       } catch (e) {
         // A deployment with no GPU service says so here. Recorded, not retried into the ground:
         // the agent is perfectly able to design a workflow without hardware.
@@ -84,10 +107,11 @@ export function useGpuWarmup(client: AgentdClient | undefined, enabled = true): 
   }, [enabled, client, ask])
 
   useEffect(() => {
-    // Poll ONLY while something is still coming up. Once ready — or once the platform has said
-    // it cannot — there is nothing a timer can learn, and an idle window should cost nothing.
-    if (state !== 'starting') return
-    const t = setInterval(ask, POLL_MS)
+    // Poll ONLY while something is still coming up — booting, or waiting for the market. Once
+    // ready — or once the platform has said it cannot — there is nothing a timer can learn, and
+    // an idle window should cost nothing.
+    if (state !== 'starting' && state !== 'waiting') return
+    const t = setInterval(ask, state === 'waiting' ? WAIT_POLL_MS : POLL_MS)
     return () => clearInterval(t)
   }, [state, ask])
 

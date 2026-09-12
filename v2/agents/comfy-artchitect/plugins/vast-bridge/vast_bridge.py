@@ -66,6 +66,22 @@ def _unavailable(what: str) -> ToolResult:
     )
 
 
+class _PlatformRefused(RuntimeError):
+    """The platform answered, and said no. Carries the status because the status is the
+    difference between "ask again in a minute" and "stop asking"."""
+
+    def __init__(self, detail: str, status: int) -> None:
+        super().__init__(detail)
+        self.status = status
+
+    @property
+    def transient(self) -> bool:
+        # 503 is the router's word for a refusal that time will fix: no offer under the filters
+        # this minute, or the platform at its concurrent-machine limit. 402 (budget) and 501
+        # (not configured) are refusals that time will not fix, and must not be polled.
+        return self.status == 503
+
+
 def _call(path: str, body: dict | None, method: str = "POST") -> dict:
     """One request to the platform, THROUGH THE HOST.
 
@@ -81,7 +97,7 @@ def _call(path: str, body: dict | None, method: str = "POST") -> dict:
                 detail = str((res.json() or {}).get("detail") or "")
             except ValueError:
                 detail = res.text[:300]
-        raise RuntimeError(detail or res.error or f"HTTP {res.status}")
+        raise _PlatformRefused(detail or res.error or f"HTTP {res.status}", int(res.status or 0))
     return res.json() if res.text.strip() else {}
 
 
@@ -149,6 +165,22 @@ class GpuEnsureTool(Tool):
                 "so there is nothing to shut down by hand.",
                 details=state,
             )
+        except _PlatformRefused as e:
+            if e.transient:
+                # A STATE, NOT A FAILURE — and deliberately not `is_error`. tools.invoke turns an
+                # error result into a raised exception and drops `details` on the floor, so an
+                # error here would leave the window with nothing but prose and no way to tell
+                # "no offer this minute" from "no key on this deployment". As a normal result
+                # the window reads `waiting` and keeps asking; the model reads the text and
+                # keeps working. Before this, one thin minute on the marketplace ended the
+                # session's chance of a GPU unless the model happened to try again.
+                return ToolResult.text(
+                    f"no GPU could be rented right now — {e}. This is temporary: the window "
+                    "keeps asking on its own, so carry on with research and design and call "
+                    "gpu_ensure again in a minute. Do NOT ask the user to do anything.",
+                    details={"ready": False, "waiting": True, "detail": str(e)},
+                )
+            return ToolResult.text(f"gpu_ensure failed: {e}", is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)
 

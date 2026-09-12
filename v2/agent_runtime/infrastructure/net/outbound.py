@@ -94,6 +94,20 @@ def _resolved(value: str) -> str:
     return substitute(resolved, names)
 
 
+def _in_workspace(path: str) -> Path:
+    """A relative file path means WORKSPACE-relative — the same convention the sandbox broker
+    applies on the host, so a plugin can name `uploads/photo.png` and mean the same file on
+    both paths. Without this the unsandboxed fetch read and wrote against the process CWD,
+    which on a daemon is nowhere near the run; the sandboxed one was right and the in-process
+    one silently was not. An absolute path is left alone."""
+    from agent_runtime.application.run_context import current_workspace
+
+    p = Path(path)
+    if p.is_absolute():
+        return p
+    return Path(current_workspace(".") or ".") / p
+
+
 def fetch(
     url: str,
     *,
@@ -147,11 +161,11 @@ def fetch(
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
         files = None
         if file_path:
-            p = Path(file_path)
+            p = _in_workspace(file_path)
             files = {file_field: (p.name, p.read_bytes(), guess_mime(p))}
         with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
             if save_path:
-                dest = Path(save_path)
+                dest = _in_workspace(save_path)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with client.stream(
                     method.upper(),
