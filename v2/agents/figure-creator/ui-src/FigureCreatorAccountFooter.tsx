@@ -11,8 +11,8 @@ export function FigureCreatorAccountFooter(props: ComponentProps<typeof SharedAc
   if (!account) return null
   return (
     <div className="fc-account-container">
-      <div className="fc-billing-entry"><FigureCreatorCreditsDialog /></div>
       <SharedAccountFooter {...props} account={account} />
+      <div className="fc-billing-entry"><FigureCreatorCreditsDialog /></div>
     </div>
   )
 }

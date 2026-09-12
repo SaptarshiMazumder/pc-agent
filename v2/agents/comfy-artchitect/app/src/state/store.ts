@@ -59,6 +59,12 @@ export interface ChatSession {
   usage: ContextUsage | null
   /** Files the agent wrote during the turn now in flight, waiting for a message to hang under. */
   pendingArtifacts: Artifact[]
+  /** Its SAVED transcript is on its way. Deliberately not `running`: nothing is being generated,
+   *  the window simply does not have the messages yet — and the two states look identical from
+   *  the outside while meaning opposite things. Without this, a conversation being fetched is
+   *  indistinguishable from a brand-new one, which is how the "what should we build?" opening
+   *  ended up rendering over a chat the user had just clicked. */
+  loadingHistory: boolean
 }
 
 const EMPTY: ChatSession = {
@@ -67,6 +73,7 @@ const EMPTY: ChatSession = {
   pending: [],
   usage: null,
   pendingArtifacts: [],
+  loadingHistory: false,
 }
 
 export interface AppState {
@@ -103,7 +110,22 @@ export interface AppState {
   currentSessionKey: string
   /** The sidebar's list of saved conversations. */
   chats: ChatRow[]
+  /** The list arrived. Clears both flags below — a successful read is also the answer to "why
+   *  is it empty", so an old error must not survive it. */
   setChats: (rows: ChatRow[]) => void
+  /** Is that list being read right now? TRUE at boot, because the window opens INTO a fetch:
+   *  starting false draws an empty rail for the length of a round trip, and an empty rail reads
+   *  as "you have no conversations" rather than as "not yet". */
+  chatsLoading: boolean
+  /** Why the list could not be read. Shown, never swallowed — a failed fetch and an account with
+   *  no history produce the same empty rail, and only one of them is the user's own doing. */
+  chatsError: string
+  /** A read is starting. `forget` DROPS the rows first, and that is the whole point of the flag:
+   *  after an account switch what is on screen belongs to the PREVIOUS user, which is worse than
+   *  showing nothing. An ordinary refresh keeps its rows — see the implementation. */
+  beginChatsLoad: (forget?: boolean) => void
+  /** The read failed: stop waiting, and say what happened. */
+  failChatsLoad: (message: string) => void
 
   openSession: (key: string, items?: ThreadItem[]) => void
   /** `show` decides whether the view switches to the chat. TRUE for a person clicking "New
@@ -171,7 +193,21 @@ export const useApp = create<AppState>((set) => ({
   sessions: {},
   currentSessionKey: '',
   chats: [],
-  setChats: (chats) => set({ chats }),
+  setChats: (chats) => set({ chats, chatsLoading: false, chatsError: '' }),
+  chatsLoading: true,
+  chatsError: '',
+  beginChatsLoad: (forget = false) =>
+    set((s) => ({
+      chats: forget ? [] : s.chats,
+      // THE SPINNER IS FOR AN EMPTY RAIL. A refresh that already has rows to show goes on showing
+      // them: blanking a list the user is reading, in order to fetch the same list again, is a
+      // flicker and not information. Only an account change (`forget`) or a genuinely empty rail
+      // is worth waiting on visibly — which is also what keeps the routine refresh on every
+      // session switch from strobing the whole column.
+      chatsLoading: forget || s.chats.length === 0,
+      chatsError: '',
+    })),
+  failChatsLoad: (chatsError) => set({ chatsLoading: false, chatsError }),
 
   openSession: (key, items = []) =>
     set((s) => ({

@@ -1,15 +1,14 @@
 /* Figure Creator — what is THIS AGENT'S rather than agentd's.
  *
- * Everything structural comes from vendor/agentd-shell.css (the shell's own stylesheet, vendored
- * verbatim). This file only ever holds three kinds of thing:
+ * Shared components come from vendor/agentd-shell.css. This file holds the product-specific
+ * layout and theme without changing those components or another agent:
  *
  *   1. the accent, so the window reads as Figure Creator and not as a second agentd;
  *   2. loading and connection-error states around the shared sign-in card;
- *   3. the handful of elements this window has and the shell does not.
+ *   3. the compact studio sidebar and account/credits entry points.
  *
- * KEEP IT SHORT ON PURPOSE. Every rule added here is a rule that stops following the product:
- * restyle the shell and this file is what fails to move. If something here starts to look like
- * layout, it belongs in the shell's stylesheet instead. */
+ * Scope sidebar rules to this window's sidebar; never restyle the canvas or billing page
+ * incidentally. Shared tokens keep both themes consistent. */
 
 :root {
   /* Figure Creator's accent — a deeper indigo than the shell's lime, because this window is a
@@ -23,12 +22,71 @@
 html, body { height: 100%; margin: 0; }
 .app-root { height: 100vh; }
 
-/* The workspace tree in the sidebar gets its own scroll region under the chat list, so a long
-   conversation list never pushes the files out of reach. */
+/* Chats use the height they need, capped for long histories. Files get the remaining space
+   instead of being squeezed under a mostly empty chat list. Both scroll independently. */
+.app-root .sidebar:not(.sidebar--rail) { min-height: 0; }
+.app-root .sidebar > .brand { flex-shrink: 0; }
+.app-root .sidebar > .sidebar-scroll {
+  flex: 0 1 auto; min-height: min(96px, 15vh); max-height: 40%;
+  padding-bottom: 12px; scrollbar-gutter: stable;
+}
+.app-root .sidebar .section-label { color: var(--dim); }
+.app-root .sidebar-scroll > .row:first-child {
+  min-height: 36px; margin-bottom: 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); font-weight: var(--fw-semi);
+}
 .app-files {
-  display: flex; flex-direction: column; min-height: 0;
-  max-height: 42%; overflow-y: auto; padding: 0 12px 10px;
-  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; flex: 1 1 0; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; padding: 0 12px 10px;
+  border-top: 1px solid var(--border); scrollbar-gutter: stable;
+}
+.app-files > .section-label {
+  position: sticky; top: 0; z-index: 3; flex: none; height: 36px;
+  padding: 10px 8px; background: var(--bg2);
+}
+.app-files .ws-tree { flex: none; min-width: 0; }
+.app-files .ws-toolbar {
+  position: sticky; top: 36px; z-index: 2; display: grid;
+  grid-template-columns: 1fr 1fr 30px; gap: 6px; margin: 0;
+  padding: 4px 0 10px; background: var(--bg2);
+}
+.app-files .ws-toolbar .btn {
+  min-width: 0; min-height: 32px; padding: 5px 8px; border-radius: 8px;
+  gap: 5px; font-size: 12px; white-space: nowrap; justify-content: center;
+}
+.app-files .ws-toolbar .icon-btn { width: 30px; height: 32px; margin: 0; }
+
+/* A name owns the first line. Metadata and row actions share the second, never competing
+   with the name for width. Folder indentation still comes from the shared tree's depth. */
+.app-files .ws-row {
+  display: grid; grid-template-columns: 14px 16px minmax(0, 1fr) auto;
+  grid-template-areas: "caret icon name name" ". . meta actions";
+  align-items: center; column-gap: 6px; row-gap: 2px;
+  padding-top: 8px; padding-bottom: 8px; margin: 2px 0;
+  border: 0; border-radius: 8px;
+}
+.app-files .ws-row:has(.ws-caret:empty) {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-areas: "icon name name" ". meta actions";
+}
+.app-files .ws-caret { grid-area: caret; }
+.app-files .ws-caret:empty { display: none; }
+.app-files .ws-ico { grid-area: icon; align-self: start; padding-top: 2px; color: var(--dim); }
+.app-files .ws-ico--dir { color: var(--accent-text); }
+.app-files .ws-name {
+  grid-area: name; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+  color: var(--text); font-size: 13px; line-height: 1.4;
+}
+.app-files .ws-meta {
+  grid-area: meta; min-width: 0; margin: 0; color: var(--dim); font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-files .ws-actions { grid-area: actions; justify-self: end; }
+.app-files .hover-btn { min-width: 24px; min-height: 24px; align-items: center; justify-content: center; }
+.app-files .ws-row:focus-within .hover-btn { opacity: 1; }
+.app-files .ws-newfolder { width: calc(100% - 18px); max-width: 100%; }
+.app-root .sidebar button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
 /* Loading and retryable errors remain visible while no authenticated workspace is mounted. */
@@ -56,10 +114,10 @@ html, body { height: 100%; margin: 0; }
    profile menu is a popover wired to pages an app-scoped socket cannot call — so the rules live
    here, built from the shell's tokens so they follow a restyle anyway. */
 .app-account {
-  margin-top: auto; display: flex; flex-direction: column; gap: 6px;
-  padding: 10px 12px 12px; border-top: 1px solid var(--border);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px;
+  padding: 0;
 }
-.app-account-who { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.app-account-who { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
 .app-account-mark {
   display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
   flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--accent-text);
@@ -68,9 +126,10 @@ html, body { height: 100%; margin: 0; }
   flex: 1; min-width: 0; font-size: 12.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.app-account-credits { font-size: 11.5px; color: var(--dim); padding-left: 32px; }
+.app-account-credits { grid-column: 1; grid-row: 2; align-self: center; font-size: 11.5px; color: var(--dim); }
 .app-account-credits.empty { color: var(--danger); font-weight: var(--fw-semi); }
-.app-account-actions { display: flex; gap: 4px; padding-left: 28px; }
+.app-account-actions { grid-column: 2; grid-row: 2; display: flex; gap: 4px; }
+.app-account-actions .cv-btn { width: 30px; height: 30px; padding: 0; justify-content: center; }
 
 /* The main column holds either the chat or the settings page. The chat stays MOUNTED while
    settings is open (a run must not lose its stream), so its wrapper has to keep filling the
@@ -79,8 +138,14 @@ html, body { height: 100%; margin: 0; }
 .app-pane[hidden] { display: none; }
 
 /* Product navigation around the unchanged shared credits screen. */
-.fc-account-container { margin-top: auto; flex: none; }
+.fc-account-container {
+  flex: none; display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 12px 12px; padding: 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 12px;
+}
 .fc-billing-entry { padding: 10px 12px; }
+.fc-account-container > .fc-billing-entry { padding: 0; }
+.fc-account-container .fc-credits-link { min-height: 32px; border-radius: 8px; font-size: 12px; }
 .fc-credits-link { width: 100%; justify-content: center; }
 .fc-settings-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fc-settings-pane > .fc-billing-entry { align-self: flex-end; }

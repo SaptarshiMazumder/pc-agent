@@ -19,12 +19,14 @@
  * does exactly once, at the moment you had not yet asked.
  */
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { onIdentityChanged } from '@agentd/client'
 import {
   ArrowRight,
   ArrowUpRight,
   Boxes,
   Gauge,
+  Loader2,
   PanelLeft,
   PanelRight,
   Plug,
@@ -201,13 +203,46 @@ export default function App() {
     }
   }, [connected, client])
 
+  /* READING THE SAVED-CONVERSATION LIST — the one place that does it, so the rail's waiting and
+     error states have a single owner. A rejection is reported rather than dropped: `listSessions`
+     used to be a bare `.then`, which meant a failed read left an empty rail that looked exactly
+     like an account with no history. */
+  const refreshChats = useCallback(
+    (forget = false) => {
+      const { beginChatsLoad, setChats, failChatsLoad } = useApp.getState()
+      beginChatsLoad(forget)
+      /* NOT OVER A SOCKET THAT IS MID-REDIAL. Signing in re-dials the connection, so an identity
+         change reaches us while it is between credentials — a read issued now either fails or
+         answers for the account that has just left. Marking the list as loading and letting the
+         effect below issue it when the socket is back is the same wait with the right answer at
+         the end of it, instead of an error flashing up and correcting itself. */
+      if (!connected || !client) return
+      void listSessions(client)
+        .then(setChats)
+        .catch((e) =>
+          failChatsLoad(String((e as Error)?.message || e) || 'could not read your conversations'),
+        )
+    },
+    [connected, client],
+  )
+
   /* A conversation to type into, and the list of the saved ones. Both wait for the socket: a
      window that lists nothing because it asked too early looks like a window with no history. */
   useEffect(() => {
     if (!connected || !client) return
     if (!currentKey) newSession(false) // a session to type into, NOT a view change
-    void listSessions(client).then((rows) => useApp.getState().setChats(rows))
-  }, [connected, client, currentKey, newSession])
+    refreshChats()
+  }, [connected, client, currentKey, newSession, refreshChats])
+
+  /* THE ACCOUNT CHANGED — signed in, signed out, or switched. Every row in the rail belongs to
+     whoever was signed in a moment ago, so they are DROPPED and re-read rather than left standing
+     until a replacement happens to arrive. That gap is the whole complaint: a switch took long
+     enough that the previous user's conversations sat there looking like the new user's.
+
+     `onIdentityChanged` and not a daemon frame: it is the SDK's own identity bus, it fires only
+     on a genuine change of the resolved account (not on a token refresh), and it is what actually
+     exists — the vendored client emits no `auth.changed` event at all. */
+  useEffect(() => onIdentityChanged(() => refreshChats(true)), [refreshChats])
 
   /* RESUME A SAVED CHAT. Clicking a Recent row switches `currentKey` to a saved session that
      `openSession` seeded EMPTY (it must not clobber a live run). Here is where its transcript
@@ -222,14 +257,34 @@ export default function App() {
     if (!isSaved || !cur || cur.items.length > 0 || cur.running) return
     if (historyTried.current.has(currentKey)) return
     historyTried.current.add(currentKey)
-    void loadHistory(client, currentKey).then((items) => {
-      if (!items.length) return
-      // Only fill if still empty — a run may have started streaming while the fetch was in
-      // flight, and the live items win. `patch`, not `openSession`: the session already exists
-      // (seeded empty), and openSession deliberately never overwrites an existing one's items.
-      const now = useApp.getState().sessions[currentKey]
-      if (now && now.items.length === 0) useApp.getState().patch(currentKey, { items })
-    })
+    /* Captured, because this resolves LATER and `currentKey` will have moved on if the user
+       clicks a second row while the first is still in flight. Writing the answer into whatever
+       is open now would drop one conversation's transcript into another. */
+    const key = currentKey
+    /* SAID BEFORE IT IS ASKED FOR. The flag is what the conversation column reads to draw a
+       spinner instead of the opening screen, and it has to be set in the same tick as the
+       request or there is a frame where the chat is empty, not loading, and showing four cards
+       inviting the user to start something else. */
+    useApp.getState().patch(key, { loadingHistory: true })
+    void loadHistory(client, key)
+      .then((items) => {
+        // Only fill if still empty — a run may have started streaming while the fetch was in
+        // flight, and the live items win. `patch`, not `openSession`: the session already exists
+        // (seeded empty), and openSession deliberately never overwrites an existing one's items.
+        const now = useApp.getState().sessions[key]
+        if (!now) return
+        useApp.getState().patch(key, {
+          loadingHistory: false,
+          ...(items.length && now.items.length === 0 ? { items } : {}),
+        })
+      })
+      .catch(() => {
+        // FORGOTTEN, so a second click asks again. Leaving the key in the set would make one
+        // failed read permanent for the life of the page: the row would stay clickable and go on
+        // opening an opening screen where a conversation is.
+        historyTried.current.delete(key)
+        useApp.getState().patch(key, { loadingHistory: false })
+      })
   }, [connected, client, currentKey, chats, sessions])
 
   /* THE CARD OVER EVERYTHING, when the account menu asks to sign in. `<Gate>` in main.tsx
@@ -241,6 +296,10 @@ export default function App() {
      would be a lie the first time somebody opened a real conversation. */
   const openChat = chats.find((c) => c.sessionId === currentKey)
   const empty = session.items.length === 0
+  /* A SAVED CONVERSATION ON ITS WAY IS NOT AN EMPTY ONE. Both have nothing in `items`, which is
+     why `empty` alone could never tell them apart — and getting it wrong puts the opening screen
+     over the chat the user just clicked. */
+  const loadingHistory = session.loadingHistory
   /* `pct` ARRIVES AS A FRACTION (0-1), not a percentage — the daemon sends `used / limit`
      rounded to 4 places. Rounding it straight to an integer floored every real conversation to
      "0% ctx" (anything under half a window), which read as a broken meter rather than a wrong
@@ -292,8 +351,9 @@ export default function App() {
                user's own provider accounts; this agent is web-delivered and metered by
                the platform, with no local mode to switch into — so the fields could never
                take effect, and a settings page offering a dead control makes the live ones
-               look doubtful too. (The keys this agent DOES need — COMFYUI_URL, PROVIDER_KEYS
-               — are declared settings and still show above.) */
+               look doubtful too. (This agent declares no settings at all — the instance is
+               provisioned and the model keys are the platform's — so the page is intentionally
+               near-empty.) */
             <Settings client={client} agentId={AGENT_ID} hideSecrets />
           )
         ) : (
@@ -308,7 +368,14 @@ export default function App() {
                 <span className="st-live-dot" />
                 <div className="st-convo-titles">
                   <span className="st-convo-title">
-                    {empty ? AGENT_NAME : openChat?.title || 'New conversation'}
+                    {/* The rail already knows this conversation's name, so the header can carry it
+                        while the transcript is still coming. Falling back to the agent's name here
+                        would say "Comfy Artchitect" over a chat that is demonstrably not new. */}
+                    {loadingHistory
+                      ? openChat?.title || 'Opening conversation…'
+                      : empty
+                        ? AGENT_NAME
+                        : openChat?.title || 'New conversation'}
                   </span>
                   {latestWorkflow && (
                     <span className="st-convo-sub st-mono">{latestWorkflow}</span>
@@ -329,7 +396,17 @@ export default function App() {
               </div>
 
               <div className="st-convo-body">
-                {empty ? (
+                {loadingHistory ? (
+                  /* WAITING, AND SAYING SO. Deliberately not the opening below: the four cards
+                     invite the user to start a DIFFERENT chat from the one they just clicked, and
+                     a transcript that then lands underneath makes the window look as if it
+                     changed its mind. Nothing here is clickable, because there is nothing useful
+                     to do for the second or two this lasts. */
+                  <div className="chat-loading">
+                    <Loader2 className="ld-spin" size={20} strokeWidth={1.8} />
+                    <span>Opening conversation…</span>
+                  </div>
+                ) : empty ? (
                   /* THE OPENING. Not a placeholder — the only screen guaranteed to be read. */
                   <div className="opening">
                     <span className="opening-eyebrow">

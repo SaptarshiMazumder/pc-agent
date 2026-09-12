@@ -19,6 +19,7 @@
 import {
   Building2,
   CreditCard,
+  Loader2,
   MessageSquareText,
   Plus,
   Settings2,
@@ -27,7 +28,6 @@ import {
 import type { ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
-import { loadHistory } from '../agentd/sessions'
 
 import { when } from '../agentd/sessions'
 import { ProfileMenu } from '../common/auth/ProfileMenu'
@@ -94,26 +94,18 @@ export function Sidebar({
   sharedGroupLabel?: string
 }) {
   const chats = useApp((s) => s.chats)
+  const chatsLoading = useApp((s) => s.chatsLoading)
+  const chatsError = useApp((s) => s.chatsError)
   const openSession = useApp((s) => s.openSession)
   const currentKey = useApp((s) => s.currentSessionKey)
   const connected = status === 'open'
 
-  /** Open a saved chat AND fetch what was said in it. Opening first keeps the click feeling
-   *  instant (the view switches now, the messages land when they arrive); the fetch is what was
-   *  missing entirely -- the rail used to switch to a thread nobody had loaded, so every saved
-   *  conversation opened blank. A failure leaves the thread as it was rather than replacing it
-   *  with emptiness that looks like a conversation with nothing in it. */
-  const open = (sessionId: string): void => {
-    openSession(sessionId)
-    if (!client) return
-    void loadHistory(client, sessionId)
-      .then((items) => {
-        if (items.length) openSession(sessionId, items)
-      })
-      .catch(() => {
-        /* left as-is: the rail still shows the row, and re-clicking retries */
-      })
-  }
+  /** Open a saved chat. THE TRANSCRIPT IS NOT FETCHED HERE, and that is the change: this used to
+   *  call `loadHistory` as well as App's own effect, so one click asked the daemon for the same
+   *  history twice — and neither request recorded that it was in flight, which is why the chat
+   *  column showed its "new conversation" screen the whole time. App owns the fetch now, in one
+   *  guarded effect keyed to the open session, and the rail is presentation again. */
+  const open = (sessionId: string): void => openSession(sessionId)
 
   return (
     <aside className="rail sidebar">
@@ -193,22 +185,39 @@ export function Sidebar({
           middle
         ) : (
           <>
-            {chats.length > 0 && <div className="section-label">Recent</div>}
-            <div className="agents-list">
-              {chats.map((c) => (
-                <button
-                  key={c.sessionId}
-                  className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
-                  onClick={() => open(c.sessionId)}
-                  title={c.title || 'Untitled'}
-                >
-                  <span className="row-main">
-                    <span className="row-title">{c.title || 'Untitled'}</span>
-                    <span className="row-sub">{c.snippet || when(c.modified)}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+            {/* The heading stands while the list is being read, so the spinner has something to
+                belong to. Keyed to the same condition as the body below — a label over nothing is
+                worse than no label. */}
+            {(chatsLoading || chats.length > 0) && <div className="section-label">Recent</div>}
+            {chatsLoading ? (
+              /* NOT AN EMPTY LIST. Those look identical and mean opposite things, and the moment
+                 it matters most is right after an account switch: the rows are gone because they
+                 were the last user's, and the new ones are still on their way. */
+              <div className="rail-loading">
+                <Loader2 className="ld-spin" size={14} strokeWidth={1.9} />
+                <span>Loading conversations…</span>
+              </div>
+            ) : chatsError ? (
+              /* Said out loud rather than shown as emptiness — a rail with no rows because the
+                 read FAILED is not a rail with no rows because there is no history. */
+              <p className="rail-error">{chatsError}</p>
+            ) : (
+              <div className="agents-list">
+                {chats.map((c) => (
+                  <button
+                    key={c.sessionId}
+                    className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
+                    onClick={() => open(c.sessionId)}
+                    title={c.title || 'Untitled'}
+                  >
+                    <span className="row-main">
+                      <span className="row-title">{c.title || 'Untitled'}</span>
+                      <span className="row-sub">{c.snippet || when(c.modified)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

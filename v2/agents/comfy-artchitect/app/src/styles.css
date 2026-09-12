@@ -250,6 +250,25 @@ h2 { font-size: var(--fs-lead); }
   color: var(--faint); font-weight: var(--fw-semi); padding: 13px 8px 6px;
 }
 .section-label:first-child { padding-top: 10px; }
+
+/* WAITING FOR THE RECENT LIST, said rather than shown as emptiness. These two sit under the
+   RECENT header in place of the rows: one for a read in flight, one for a read that failed. An
+   empty rail, a rail still loading and a rail whose fetch errored all looked identical before
+   this, and the difference matters most right after an account switch — when the rows are gone
+   because they belonged to the previous user.
+
+   `.ld-spin` rather than the existing `.spin`: that one is only ever defined scoped (.tool-status,
+   .todo-step) and animates the CHILD svg, so defining it bare here would make those spans rotate
+   around their own spinning icons. */
+.rail-loading {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 10px; font-size: var(--fs-small); color: var(--faint);
+}
+.rail-error {
+  margin: 0; padding: 2px 8px 10px;
+  font-size: var(--fs-small); line-height: 1.5; color: var(--danger); text-wrap: pretty;
+}
+.ld-spin { flex: none; animation: ag-spin 1s linear infinite; }
 /* The RECENTS header scrolls WITH its list rather than pinning, so the list's top soft-fade
    applies cleanly — a pinned header sits in the fade zone and gets dimmed. */
 .sidebar-scroll > .section-label {
@@ -1066,6 +1085,16 @@ h2 { font-size: var(--fs-lead); }
    centred 720px measure belongs to the bare-thread layout it came from. */
 .stage-main > .composer-wrap { padding: 0; }
 .stage-main > .composer-wrap > .composer { max-width: none; }
+
+/* ── a conversation on its way ─────────────────────────────────────────────────────────────── */
+/* Occupies the chat column in place of the opening below, for as long as a saved transcript is
+   being fetched. Same box, so nothing jumps when the thread replaces it. */
+.chat-loading {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: var(--sp-panel);
+  font-size: var(--fs-small); color: var(--faint);
+}
 
 /* ── the opening ───────────────────────────────────────────────────────────────────────────── */
 .opening {

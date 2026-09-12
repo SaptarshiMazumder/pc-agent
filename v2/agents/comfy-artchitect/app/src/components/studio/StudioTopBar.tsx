@@ -107,14 +107,14 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
           </div>
 
           {probe.state === 'down' ? (
-            /* THE FAILURE, AND THE FIX — in the tool's own words, because they name which of the
-               three it is: no URL set, a refused credential, or a box that is not running. */
+            /* THE FAILURE, IN THE TOOL'S OWN WORDS — and no fix for the user to apply, because
+               there is none: the GPU is started for them, and there is no URL or setting to
+               correct. A box still booting is the common case here, and it clears itself. */
             <>
               <p className="sb-err st-mono">{probe.error || 'the instance did not answer'}</p>
               <p className="sb-note">
-                Set <span className="st-mono">COMFYUI_URL</span> in Settings to the full URL your
-                provider gave you (vast/RunPod include a <span className="st-mono">?token=</span> —
-                paste it whole), or paste that URL straight into the conversation.
+                The GPU is started for you and usually takes a few minutes to answer. Nothing to
+                set or paste — if it stays down, the agent will say so in the chat.
               </p>
             </>
           ) : (

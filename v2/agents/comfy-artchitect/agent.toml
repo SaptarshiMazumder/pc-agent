@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.45.0"
+version = "1.47.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"
@@ -72,8 +72,10 @@ allow = [
 # was the friction this agent exists to remove, and a setting nobody should ever need to touch is
 # worse than no setting: it invites a stale value that silently shadows the real instance.
 #
-# `comfy_connect` remains as the escape hatch for someone who DOES have their own box — it writes
-# the same file from a URL pasted in chat, so the mechanism is one, not two.
+# THERE IS NO ESCAPE HATCH EITHER. `comfy_connect` — a URL pasted in chat, written to the same
+# file — was removed: the sandbox does not fence hosts, so it was the one way this agent could be
+# pointed at a machine the platform neither rented nor controls. ComfyUI runs on the provisioned
+# instance or it does not run.
 
 # RESEARCH CREDENTIALS, both optional. `comfy_research` reads model cards and reference
 # workflows from Hugging Face and Civitai; public models need no token. A gated model

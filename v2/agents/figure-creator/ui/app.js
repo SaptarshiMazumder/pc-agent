@@ -16,7 +16,7 @@
  * owns identity and credentials; this file only decides which surface should be visible.
  */
 
-const BUILD = '1.3.6-shared-billing'
+const BUILD = '1.3.7-sidebar-layout'
 console.log('figure-creator app', BUILD)
 
 const AGENT_ID = 'figure-creator'

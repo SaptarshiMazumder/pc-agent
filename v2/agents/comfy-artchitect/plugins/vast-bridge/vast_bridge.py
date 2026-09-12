@@ -14,9 +14,15 @@ ONE MACHINE PER USER, SHARED BY EVERY CHAT. The slot is the account's, enforced 
 index server-side, so calling this from a second conversation returns the SAME instance rather
 than renting another.
 
-LAZY: call it at the first step that genuinely needs a GPU — validate, install or run. Research
-and workflow design need documentation, not hardware, and renting before then bills for every
-chat someone opens and abandons.
+EAGER, NOT LAZY — and this was the other way round first. Lazy reads better on paper: research and
+workflow design need documentation rather than hardware, so a machine started at session open is
+idle for the first few minutes. Measured against a real rental that argument loses to the clock. A
+cold instance takes MINUTES to become reachable, and starting it at the first step that needs it
+puts every one of those minutes exactly where the user is waiting to see something happen. Started
+up front, the same wait is spent while they read the plan. What makes it safe is the idle reaper:
+a machine nobody uses stops itself, so the cost of being early is a few idle minutes and the cost
+of being late is the user watching a spinner. The studio window starts one too (useGpuWarmup), so
+in the common case the agent's first call finds a machine already booting.
 """
 
 from __future__ import annotations
@@ -84,12 +90,14 @@ class GpuEnsureTool(Tool):
     label = "Start or reuse this user's GPU"
     default_retryable = True
     description = (
-        "Get a ComfyUI instance for this user, starting one if they have none. Call it at the "
-        "FIRST step that actually needs hardware — comfy_validate, comfy_install or comfy_run — "
-        "never before, because research and comfy_emit need no GPU. Booting takes a few minutes: "
-        "if it answers 'starting', keep working and call again. Every chat this user has shares "
-        "ONE machine, so calling this from another conversation reuses the same one. Pass "
-        "lease_minutes before a long render so the idle reaper does not stop it mid-job."
+        "Get a ComfyUI instance for this user, starting one if they have none. Call it FIRST — "
+        "the first tool call of the job, before any research — because a cold machine takes "
+        "MINUTES to become reachable and that wait should happen while you work, not after you "
+        "finish. It answers 'starting' for the first few minutes: that is the expected result, "
+        "not a failure, so keep working and call it again when you actually need the address. "
+        "Every chat this user has shares ONE machine, so calling this from another conversation "
+        "reuses the same one. Pass lease_minutes before a long render so the idle reaper does "
+        "not stop it mid-job."
     )
     parameters = {
         "type": "object",

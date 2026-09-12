@@ -72,8 +72,6 @@ export const MILESTONES: Record<string, Read> = {
   comfy_download: (_a, _r, isError) => (isError ? null : { label: 'Outputs pulled into the chat' }),
 
   comfy_upload: (_a, _r, isError) => (isError ? null : { label: 'Reference sent to the instance' }),
-
-  comfy_connect: (_a, _r, isError) => (isError ? null : { label: 'Instance connected' }),
 }
 
 /** The milestone for one finished tool call, or null to render it as an ordinary tool row. */

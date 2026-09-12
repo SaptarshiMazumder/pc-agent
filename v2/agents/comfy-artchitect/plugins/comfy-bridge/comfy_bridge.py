@@ -1,12 +1,17 @@
 """ComfyUI bridge — the agent's only route to a running instance.
 
 EVERY REQUEST GOES THROUGH THE HOST. `fetch` is the brokered call: this module never opens a
-socket, never reads an environment variable, never spawns anything. The URL is written as
-`${COMFYUI_URL}/api/...` and the credential as `${COMFYUI_AUTH}`; the host substitutes both from
-the CALLER's settings at the last moment. That is what lets one copy of this agent serve several
-people pointing at different boxes, and it is why none of these values appear in this file.
+socket, never reads an environment variable, never spawns anything.
+
+THE INSTANCE IS PROVISIONED, AND ONLY EVER PROVISIONED. `gpu_ensure` (plugins/vast-bridge) asks
+the platform for this user's machine and writes its address to `.studio/connection.json`; every
+tool here reads that file and nothing else. There is no setting, no pasted URL and no manual
+override — the pasted-URL path (`comfy_connect`) was removed because the sandbox no longer
+fences hosts, so it was the one way this agent could be pointed at a box the platform did not
+rent and does not control. One copy of this agent serves everyone because the FILE is per
+workspace, not because anything in here is per caller.
 (`comfy_research`, in its own module, uses the same brokered `fetch` to reach Hugging Face and
-Civitai — the network is open for plugins; the instance's address is still per caller.)
+Civitai.)
 
 THE `/api` PREFIX IS DELIBERATE. ComfyUI registers every route twice — `/prompt` and
 `/api/prompt` — and hosted proxies (vast's portal, RunPod, Modal) route on `/api/*` while
@@ -71,18 +76,18 @@ def _model_enums(catalogue: dict):
                     yield node_class, input_name, [v for v in values if isinstance(v, str)]
 
 
-# WHERE A CHAT-PASTED CONNECTION LIVES. When the settings page defeats someone, they can paste
-# their instance URL straight into the conversation and `comfy_connect` records it here, in the
-# run's own workspace. Every tool then uses it. Precedence: this file WINS when it exists,
-# because it only exists when the user explicitly pasted a connection just now — that intent
-# should beat a stale or empty setting. `comfy_connect` with no url clears it, handing control
-# back to the settings.
+# THE HANDOVER FILE. `gpu_ensure` writes {url, auth} here the moment the rented machine answers,
+# and every tool in this module reads it. It is the ONLY source of the instance's address: no
+# setting, no environment variable, no URL a user pasted. `gpu_release` deletes it, so a tool
+# called after the machine is gone reports "no GPU is running" rather than dialling a corpse.
+# Same constant as vast_bridge._CONN_FILE, duplicated rather than imported so neither plugin
+# depends on the other's load order; the contract is the path and the {url, auth} shape.
 _CONN_FILE = ".studio/connection.json"
 
 
 def _override() -> dict | None:
-    """The chat-pasted connection for this run, or None. {url, auth} — `url` already normalised
-    by `comfy_connect` (token folded onto the query, path clean), `auth` a header value or ''."""
+    """The provisioned connection for this run, or None. {url, auth}: `url` as the platform wrote
+    it, `auth` a header value or '' (a rented box carries none today)."""
     try:
         raw = (Path(current_workspace(".") or ".") / _CONN_FILE).read_text(encoding="utf-8")
         data = json.loads(raw)
@@ -91,30 +96,11 @@ def _override() -> dict | None:
         return None
 
 
-def _normalise_pasted_url(pasted: str) -> str:
-    """A URL a user pasted -> a base the plugin can append `/api/...` to without breaking it.
-
-    Same fold the host does for a `${SETTING}`, but here in the plugin because the value is a
-    LITERAL it holds (not a placeholder the host resolves): split off a `?token=`/userinfo,
-    keep origin + path, and remember the query to re-attach per request. Returns the origin+path
-    with the query stripped; the query is recovered by `_split_query`.
-    """
-    from urllib.parse import urlsplit, urlunsplit
-
-    p = urlsplit(pasted.strip())
-    host = p.hostname or ""
-    if p.port:
-        host = f"{host}:{p.port}"
-    if p.username:
-        host = (p.username + (f":{p.password}" if p.password else "") + "@" + host)
-    return urlunsplit((p.scheme, host, p.path.rstrip("/"), "", "")) + (
-        f"#q={p.query}" if p.query else ""
-    )
-
-
 def _split_query(base: str) -> tuple[str, str]:
-    """(origin+path, query) from a base `_normalise_pasted_url` produced — the query rides in a
-    `#q=` fragment so it survives storage and is re-attached at request time."""
+    """(origin+path, query) from a stored base. A provider that hands out `?token=…` URLs has
+    the query folded into a `#q=` fragment so it survives storage and is re-attached at request
+    time; a plain `http://ip:port` — what the platform writes today — passes through untouched.
+    Kept for the day a rented box needs a token, not for anything a user types."""
     if "#q=" in base:
         b, q = base.split("#q=", 1)
         return b, q
@@ -122,14 +108,9 @@ def _split_query(base: str) -> tuple[str, str]:
 
 
 def _headers() -> dict:
-    """The credential headers. When a chat-pasted connection is active, its auth (if any) rides
-    as a literal Authorization value; otherwise the PLACEHOLDER form the host substitutes from
-    the per-account settings.
-
-    The placeholders are written unconditionally in the settings case because this code cannot
-    see whether a setting is filled in — and must not, that is the point. An unset one
-    substitutes to nothing and the request goes out without it.
-    """
+    """The credential headers: whatever `auth` the handover file carries, or nothing. A rented
+    box has no auth today, so this is empty in practice; the seam stays so a provider that
+    fronts the instance with a header can be adopted in `gpu_ensure` without touching a tool."""
     conn = _override()
     auth = str((conn or {}).get("auth") or "")
     return {"Authorization": auth} if auth else {}
@@ -138,11 +119,11 @@ def _headers() -> dict:
 def _url(path: str) -> str:
     """The URL for one API path, from the connection file. "" when there is no instance.
 
-    THERE IS NO SETTINGS FALLBACK ANY MORE. The address is provisioned — `gpu_ensure` rents the
-    machine and writes .studio/connection.json, and `comfy_connect` writes the same file from a
-    URL pasted in chat. A `${COMFYUI_URL}` placeholder here would now resolve to nothing and go
-    out as a request to a garbage address, reported as "could not reach the instance" — which
-    reads as a broken GPU rather than as "no GPU has been started yet".
+    THERE IS NO FALLBACK. The address is provisioned — `gpu_ensure` rents the machine and writes
+    .studio/connection.json — and that file is the only place it comes from. A `${COMFYUI_URL}`
+    placeholder here would resolve to nothing and go out as a request to a garbage address,
+    reported as "could not reach the instance" — which reads as a broken GPU rather than as "no
+    GPU has been started yet".
     """
     conn = _override()
     if conn is None:
@@ -1504,98 +1485,6 @@ class ComfyNodeInstallTool(Tool):
             )
 
 
-class ComfyConnectTool(Tool):
-    name = "comfy_connect"
-    label = "Connect from a pasted URL"
-    default_retryable = True
-    description = (
-        "Use a ComfyUI instance the user PASTED INTO THE CHAT, when the settings page didn't "
-        "work for them. Give it the URL they pasted (vast/RunPod give one with a ?token=… in "
-        "it — pass it whole); this validates it by probing, and if it answers, every comfy tool "
-        "uses it for this workspace until changed. Call with an empty url to clear it and go "
-        "back to the saved settings. NOTE: a URL pasted in chat is visible to you and saved in "
-        "the workspace, unlike a setting — for a long-lived secret, the settings page is better; "
-        "this is the quick path when someone can't find it."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "url": {
-                "type": "string",
-                "description": "The full instance URL the user pasted (token and all). Empty to "
-                "clear the pasted connection and use settings instead.",
-            },
-            "auth": {
-                "type": "string",
-                "description": "Only if the instance needs a HEADER instead of a URL token — the "
-                "whole value, e.g. 'Bearer …'. Usually leave empty; vast/RunPod carry the token "
-                "in the URL.",
-            },
-        },
-    }
-
-    async def execute(self, tool_call_id, params, abort, on_update=None):
-        try:
-            conn_path = Path(current_workspace(".") or ".") / _CONN_FILE
-            pasted = str(params.get("url") or "").strip()
-            if not pasted:
-                conn_path.unlink(missing_ok=True)
-                return ToolResult.text(
-                    "cleared the pasted connection — comfy tools will use the saved settings now."
-                )
-            if "//" not in pasted or not pasted.lower().startswith(("http://", "https://")):
-                return ToolResult.text(
-                    f"that does not look like a URL: {pasted!r}. It should start with http:// or "
-                    "https:// — paste the address your provider gave you.",
-                    is_error=True,
-                )
-            normalised = _normalise_pasted_url(pasted)
-            auth = str(params.get("auth") or "").strip()
-
-            # Validate before saving: probe the pasted instance directly, so a bad paste never
-            # silently shadows a working setting. Write ONLY on a real answer.
-            base, query = _split_query(normalised)
-            probe_url = f"{base}/api/system_stats" + (f"?{query}" if query else "")
-            res = fetch(
-                probe_url, headers={"Authorization": auth} if auth else None, timeout_s=30.0
-            )
-            if not res.ok:
-                return ToolResult.text(
-                    _failed(res, "connect")
-                    + "\nThe pasted connection was NOT saved. Check the URL is exactly what your "
-                    "provider shows, and that the instance is running.",
-                    is_error=True,
-                )
-
-            conn_path.parent.mkdir(parents=True, exist_ok=True)
-            conn_path.write_text(
-                json.dumps({"url": normalised, "auth": auth}), encoding="utf-8"
-            )
-            data = res.json() if res.text.strip() else {}
-            system = data.get("system") or {}
-            devices = data.get("devices") or []
-            lines = [
-                "connected using the URL you pasted — I'll use it for this session.",
-                f"ComfyUI {system.get('comfyui_version') or 'unknown'}",
-            ]
-            for d in devices:
-                free = int(d.get("vram_free") or 0) // (1024**3)
-                total = int(d.get("vram_total") or 0) // (1024**3)
-                lines.append(f"{d.get('name') or d.get('type')}: {free} GB free of {total} GB")
-            import studio_state
-
-            first = devices[0] if devices else {}
-            studio_state.set_instance(
-                version=system.get("comfyui_version"),
-                gpu=first.get("name") or first.get("type"),
-                vram_free=first.get("vram_free"),
-                vram_total=first.get("vram_total"),
-            )
-            return ToolResult.text("\n".join(lines), details=data)
-        except Exception as e:  # noqa: BLE001
-            return ToolResult.text(f"comfy_connect failed: {type(e).__name__}: {e}", is_error=True)
-
-
 class ComfyStudioStateTool(Tool):
     name = "comfy_studio_state"
     label = "Studio telemetry"
@@ -1881,7 +1770,6 @@ def register(api, ctx):
     from comfy_emit import ComfyEmitTool
     from comfy_research import ComfyResearchTool
 
-    api.register_tool(ComfyConnectTool())
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
     api.register_tool(ComfyProbeTool())
