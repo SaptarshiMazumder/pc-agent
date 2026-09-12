@@ -83,31 +83,6 @@ resource "aws_iam_role_policy_attachment" "scheduled_jobs_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# The function's own security group. It could have reused the service SG (whose self-rule
-# already permits this traffic), but a distinct group is what makes "the scheduler may talk
-# to accounts" visible in the console instead of implied.
-resource "aws_security_group" "scheduled_jobs" {
-  name        = "${local.name_prefix}-scheduled-jobs"
-  description = "Scheduled-jobs Lambda: outbound to the services only"
-  vpc_id      = aws_vpc.main.id
-  tags        = merge(local.common_tags, { Name = "${local.name_prefix}-scheduled-jobs" })
-}
-
-resource "aws_vpc_security_group_egress_rule" "scheduled_jobs_all" {
-  security_group_id = aws_security_group.scheduled_jobs.id
-  ip_protocol       = "-1"
-  cidr_ipv4         = "0.0.0.0/0"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "svc_from_scheduled_jobs" {
-  security_group_id            = aws_security_group.service.id
-  description                  = "accounts from the scheduled-jobs Lambda"
-  ip_protocol                  = "tcp"
-  from_port                    = local.services["accounts"].port
-  to_port                      = local.services["accounts"].port
-  referenced_security_group_id = aws_security_group.scheduled_jobs.id
-}
-
 resource "aws_lambda_function" "scheduled_jobs" {
   function_name    = "${local.name_prefix}-scheduled-jobs"
   role             = aws_iam_role.scheduled_jobs.arn
@@ -122,14 +97,27 @@ resource "aws_lambda_function" "scheduled_jobs" {
   memory_size = 128
   description = "Runs the accounts service's scheduled endpoints (ledger snapshot, renewals, breakage)."
 
-  # In the VPC on purpose: this lets the function call accounts by its private
-  # service-discovery name, so the internal key never travels over the public internet.
-  # The cost is no internet route (public subnets, no NAT), which is why the key is an env
-  # var rather than a Secrets Manager read — see the handler's header for that trade.
-  vpc_config {
-    subnet_ids         = aws_subnet.public[*].id
-    security_group_ids = [aws_security_group.scheduled_jobs.id]
-  }
+  # OUTSIDE THE VPC, DELIBERATELY. It used to sit in the public subnets so it could reach
+  # accounts by a private service-discovery name and keep the internal key off the public
+  # internet. Two things broke that:
+  #
+  #   * A VPC LAMBDA'S ENI HAS NO PUBLIC IP, so a "public" subnet buys it nothing — an internet
+  #     gateway route is useless with no address to NAT from. Reaching anything off-VPC needs a
+  #     NAT gateway (~$32/mo), which was never there. The function could not egress at all.
+  #   * `local.accounts_internal_url` resolves to the PUBLIC ALB once accounts runs on EC2, so
+  #     the private service-discovery name it was placed here to use no longer exists.
+  #
+  # Two correct-looking decisions that collided, and the result was silent: every job returned
+  # "unreachable / Connection timed out" once a minute for days. Subscription renewals and the
+  # ledger snapshot had not run either — this was not a GPU-reaper problem, it was the whole
+  # clock.
+  #
+  # The privacy argument does not survive either: THE DAEMON ALREADY SENDS THIS SAME INTERNAL
+  # KEY TO THIS SAME PUBLIC ALB (services.tf, AGENTD_ACCOUNTS_URL + the AGENTD_ prefixed key).
+  # Keeping this function unable to work preserved nothing that was still true.
+  #
+  # Out of the VPC it uses AWS-managed networking, reaches the ALB over TLS like any other
+  # client, and costs nothing extra.
 
   environment {
     variables = {
