@@ -2,8 +2,10 @@
 
 ENSURE DOES NOT BLOCK. Renting and booting takes minutes; a request that waited would hold a
 worker and time out anyway. So `ensure` claims the slot, starts the rental and returns
-`starting` — and each later call refreshes the address until one exists. Readiness needs no
-background poller, because the caller is already polling.
+`starting` — and each later call refreshes the address until one exists AND ANSWERS. A machine
+is `running` at the marketplace for minutes before ComfyUI inside it serves, and `ready` here
+means it serves: the platform asks it before saying so. Readiness needs no background poller,
+because the caller is already polling.
 
 CALLED EAGERLY, BY DESIGN — and this was "lazy by design" first. The studio window calls `ensure`
 the moment it opens and the agent calls it as its first step, because a cold machine takes minutes
@@ -28,6 +30,7 @@ from typing import Any
 
 from vast.application.instance_settings import InstanceSettings
 from vast.application.interfaces.gpu_marketplace import GpuMarketplace
+from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
 from vast.domain.errors import (
     BudgetExhausted,
@@ -53,6 +56,7 @@ class InstanceService:
         marketplace: Callable[[], GpuMarketplace],
         settings: InstanceSettings,
         now: Callable[[], float],
+        probe: InstanceProbe,
     ) -> None:
         # `marketplace` is a FACTORY, not an instance. Composition happens at import time while
         # the API key arrives later from the secret store; a client built eagerly would capture
@@ -62,6 +66,7 @@ class InstanceService:
         self._marketplace = marketplace
         self._settings = settings
         self._now = now
+        self._probe = probe
 
     @property
     def configured(self) -> bool:
@@ -247,6 +252,27 @@ class InstanceService:
             with self._db() as c:
                 return self._store.by_id(c, row.id) or row
         if live is None or not live.url:
+            return row
+        if not self._probe.answers(live.url):
+            # AN ADDRESS THAT DOES NOT ANSWER IS NOT READY. The marketplace says `running` the
+            # moment the container is up; ComfyUI inside it is still pulling the image and
+            # loading models for minutes after. Handing the address out in that window is
+            # what made an agent conclude the box was stuck and release it mid-boot.
+            now = self._now()
+            if now - row.created_at > self._settings.starting_grace_seconds:
+                # It has had the whole start-up grace and never served. Give it back — the
+                # reason matches the cooldown's pattern, so the next rental skips this host —
+                # and the caller's next `ensure` rents a different one.
+                log.warning(
+                    "vast: host %s never answered within %ss; releasing",
+                    live.instance_id, int(self._settings.starting_grace_seconds),
+                )
+                self.release(
+                    row.account_id,
+                    reason="host failed to start: ComfyUI never answered within the start-up grace",
+                )
+                with self._db() as c:
+                    return self._store.by_id(c, row.id) or row
             return row
         with self._db() as c:
             self._store.mark_ready(c, row.id, url=live.url, now=self._now())

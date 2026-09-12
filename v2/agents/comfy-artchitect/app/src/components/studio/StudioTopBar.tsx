@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import type { StudioState } from './useStudioState'
-import { useGpuWarmup } from './useGpuWarmup'
+import type { GpuWarmup } from './useGpuWarmup'
 import { useInstanceProbe } from './useInstanceProbe'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
@@ -31,12 +31,16 @@ function ago(ts: number): string {
   return `${Math.round(s / 3600)}h ago`
 }
 
-function InstanceChip({ state, client }: { state: StudioState; client?: AgentdClient }) {
-  // START THE MACHINE THE MOMENT THE WINDOW OPENS. A cold GPU takes minutes to become
-  // reachable, and those minutes otherwise land when the user is waiting on the agent. This
-  // moves the wait into the part of the session they spend reading a plan. Idempotent per
-  // account, so several windows produce one rental — see useGpuWarmup.
-  const gpu = useGpuWarmup(client)
+function InstanceChip({
+  state,
+  client,
+  gpu,
+}: {
+  state: StudioState
+  client?: AgentdClient
+  /** The window's one GPU poller — owned by App, which also resumes a waiting turn from it. */
+  gpu: GpuWarmup
+}) {
   const probe = useInstanceProbe(client)
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -108,6 +112,20 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
             </button>
           </div>
 
+          {gpu.state === 'ready' && gpu.url && (
+            /* THE LINK THE USER ASKED FOR: their instance, in a new tab — ComfyUI's own web UI
+               on the rented machine, the one place they can watch a queue and outputs
+               directly. The Vast console is the platform's account, not theirs, so it is not
+               offered. Nothing else knows this address: `gpu.url` is what the platform
+               handed the agent. */
+            <a className="sb-link st-mono" href={gpu.url} target="_blank" rel="noreferrer">
+              open ComfyUI ↗
+            </a>
+          )}
+          {gpu.state === 'waiting' && (
+            <p className="sb-note">{gpu.error || 'no GPU free this minute — asking again'}</p>
+          )}
+
           {probe.state === 'down' ? (
             /* THE FAILURE, IN THE TOOL'S OWN WORDS — and no fix for the user to apply, because
                there is none: the GPU is started for them, and there is no URL or setting to
@@ -156,11 +174,13 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
 export function StudioTopBar({
   state,
   client,
+  gpu,
   credits,
   onCredits,
 }: {
   state: StudioState
   client?: AgentdClient
+  gpu: GpuWarmup
   credits: number | null
   onCredits: () => void
 }) {
@@ -170,7 +190,7 @@ export function StudioTopBar({
 
       <span className="sb-spacer" />
 
-      <InstanceChip state={state} client={client} />
+      <InstanceChip state={state} client={client} gpu={gpu} />
 
       <button className="sb-credits" onClick={onCredits} title="Credits">
         {credits != null ? credits.toLocaleString() : '—'}

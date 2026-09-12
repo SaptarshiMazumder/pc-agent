@@ -65,6 +65,11 @@ export interface ChatSession {
    *  indistinguishable from a brand-new one, which is how the "what should we build?" opening
    *  ended up rendering over a chat the user had just clicked. */
   loadingHistory: boolean
+  /** The last turn ended with the GPU not yet usable — gpu_ensure's final answer was
+   *  "starting" or "waiting" — and nothing has been sent since. When the window's own poll
+   *  sees the machine come ready, this is what tells it to send the continue the user would
+   *  otherwise type. Cleared by any send. */
+  awaitingGpu: boolean
 }
 
 const EMPTY: ChatSession = {
@@ -74,6 +79,7 @@ const EMPTY: ChatSession = {
   usage: null,
   pendingArtifacts: [],
   loadingHistory: false,
+  awaitingGpu: false,
 }
 
 export interface AppState {

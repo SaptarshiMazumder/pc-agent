@@ -52,6 +52,7 @@ import { Thread } from './components/Thread'
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
 import WorkflowShelf, { collectWorkflows } from './components/workflows/WorkflowShelf'
+import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 
@@ -118,6 +119,25 @@ export default function App() {
   const sessions = useApp((s) => s.sessions)
 
   const { send, abort, addFiles, removeFile, sendReferences } = useRun(client)
+
+  // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
+  // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
+  // the same question.
+  const gpu = useGpuWarmup(client)
+
+  /* THE "CONTINUE" BUTTON, PRESSED BY CODE. A turn that ends while the machine is still
+     coming up leaves the agent asleep until something wakes it, and that something used to be
+     the user — "so will u automatically do it? are u monitoring it urself?" — clicking Continue
+     every few minutes. The window IS monitoring it; this is the click. Only for a turn that
+     ended cleanly while waiting (awaitingGpu), only while nothing is running, and only once:
+     the send clears the flag, so a turn that ends waiting again earns its own resume. */
+  useEffect(() => {
+    if (gpu.state !== 'ready' || !currentKey) return
+    const cur = useApp.getState().sessions[currentKey]
+    if (!cur || cur.running || cur.loadingHistory || !cur.awaitingGpu) return
+    useApp.getState().patch(currentKey, { awaitingGpu: false })
+    void send('The GPU is ready now — continue from where you stopped.')
+  }, [gpu.state, gpu.url, currentKey, send])
 
   /* THE FILES THIS CONVERSATION MADE — not every conversation's.
      Artifacts hang off the turn that produced them, which is right for the transcript and wrong
@@ -481,6 +501,7 @@ export default function App() {
 
             <StudioDashboard
               client={client ?? undefined}
+              gpu={gpu}
               running={session.running}
               artifacts={artifacts}
               credits={credits}

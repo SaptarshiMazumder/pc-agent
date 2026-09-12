@@ -16,6 +16,7 @@ from vast.application.instance_settings import InstanceSettings
 from vast.application.services.instance_reaper import InstanceReaper
 from vast.application.services.instance_service import InstanceService
 from vast.infrastructure.sql_instance_store import SqlInstanceStore
+from vast.infrastructure.http_instance_probe import HttpInstanceProbe
 from vast.infrastructure.vast_marketplace import VastMarketplace
 
 #: Secret names this module needs. The host adds these to whatever it already loads, so the
@@ -79,6 +80,7 @@ def build_service(
         ),
         settings=cfg,
         now=now,
+        probe=HttpInstanceProbe(),
     )
 
 

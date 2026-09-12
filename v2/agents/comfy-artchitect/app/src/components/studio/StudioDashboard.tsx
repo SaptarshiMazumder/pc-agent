@@ -20,6 +20,8 @@ import { useEffect, useMemo } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
+import type { GpuWarmup } from './useGpuWarmup'
+
 import type { Artifact } from '../../agentd/artifacts'
 import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
@@ -32,12 +34,14 @@ import './studio.css'
 
 export function StudioDashboard({
   client,
+  gpu,
   running,
   artifacts,
   credits,
   onCredits,
 }: {
   client: AgentdClient | undefined
+  gpu: GpuWarmup
   running: boolean
   /** Everything the agent wrote this session — the rail's whole content. */
   artifacts: Artifact[]
@@ -78,7 +82,13 @@ export function StudioDashboard({
 
   return (
     <div className="st-dash">
-      <StudioTopBar state={state} client={client} credits={credits} onCredits={onCredits} />
+      <StudioTopBar
+        state={state}
+        client={client}
+        gpu={gpu}
+        credits={credits}
+        onCredits={onCredits}
+      />
       <ActiveRunStrip state={state} client={client} />
 
       <div className="st-body">

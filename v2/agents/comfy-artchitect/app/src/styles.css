@@ -1238,3 +1238,16 @@ h2 { font-size: var(--fs-lead); }
 }
 .approve-go:hover:not(:disabled) { background: var(--prim-bg-h); }
 .approve-go:disabled { opacity: .55; cursor: default; }
+
+/* The instance link in the top-bar popover — a plain, obviously-clickable line. */
+.sb-link {
+  display: inline-block;
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: var(--accent, #c9f24b);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sb-link:hover {
+  filter: brightness(1.15);
+}

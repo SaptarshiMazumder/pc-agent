@@ -27,7 +27,9 @@ in the common case the agent's first call finds a machine already booting.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
@@ -101,6 +103,21 @@ def _call(path: str, body: dict | None, method: str = "POST") -> dict:
     return res.json() if res.text.strip() else {}
 
 
+def _waiting(e: _PlatformRefused) -> ToolResult:
+    """A STATE, NOT A FAILURE — and deliberately not `is_error`. tools.invoke turns an error
+    result into a raised exception and drops `details` on the floor, so an error here would
+    leave the window with nothing but prose and no way to tell "no offer this minute" from "no
+    key on this deployment". As a normal result the window reads `waiting` and keeps asking;
+    the model reads the text and keeps working. Before this, one thin minute on the
+    marketplace ended the session's chance of a GPU unless the model happened to try again."""
+    return ToolResult.text(
+        f"no GPU could be rented right now — {e}. This is temporary: the window keeps asking "
+        "on its own, so carry on with research and design and call gpu_ensure again in a "
+        "minute. Do NOT ask the user to do anything.",
+        details={"ready": False, "waiting": True, "detail": str(e)},
+    )
+
+
 class GpuEnsureTool(Tool):
     name = "gpu_ensure"
     label = "Start or reuse this user's GPU"
@@ -124,7 +141,16 @@ class GpuEnsureTool(Tool):
                     "Hold the machine against the idle timer for this long — use it when "
                     "submitting a render that will run for a while. Capped server-side."
                 ),
-            }
+            },
+            "wait_seconds": {
+                "type": "integer",
+                "description": (
+                    "How long this call waits for the machine to be READY, asking the platform "
+                    "every 10 seconds. Default 90 — so a five-minute boot is three calls, not "
+                    "fifteen. Pass 0 for the very first call of the session, which only needs "
+                    "to START the machine while you research."
+                ),
+            },
         },
     }
 
@@ -134,8 +160,36 @@ class GpuEnsureTool(Tool):
             if not account_id:
                 return _unavailable("gpu_ensure")
             lease = max(0, int(params.get("lease_minutes") or 0)) * 60
-
-            state = _call("/vast/ensure", {"account_id": account_id})
+            # WAIT HERE, NOT IN THE CONVERSATION. Booting is minutes; a tool that answered
+            # "starting" and returned made every one of those minutes a turn — six identical
+            # calls, a loop guard, and a user clicking "Continue" to wake the agent each time.
+            # comfy_run already polls inside the call under the sandbox's ~120s cap; this does
+            # the same. A temporary refusal ("no machine this minute") is waited through too,
+            # since the market changes on exactly this timescale.
+            raw_wait = params.get("wait_seconds")
+            wait = 90 if raw_wait is None else max(0, min(int(raw_wait), 100))
+            deadline = time.monotonic() + wait
+            refusal: _PlatformRefused | None = None
+            while True:
+                try:
+                    state = _call("/vast/ensure", {"account_id": account_id})
+                    refusal = None
+                except _PlatformRefused as e:
+                    if not e.transient:
+                        raise
+                    refusal, state = e, {}
+                ready = bool(state.get("ready")) and bool(state.get("url"))
+                remaining = deadline - time.monotonic()
+                if ready or remaining <= 0 or abort.is_set():
+                    break
+                if on_update is not None:
+                    on_update(ToolResult.text(
+                        ("no machine free yet" if refusal else "still booting")
+                        + f" — asking again ({int(remaining)}s left in this wait)"
+                    ))
+                await asyncio.sleep(min(10.0, remaining))
+            if refusal is not None:
+                return _waiting(refusal)
             if lease:
                 # One extra call rather than folding the lease into ensure: a lease is a
                 # statement about work in flight, and ensure is called when there may be none.
@@ -146,9 +200,11 @@ class GpuEnsureTool(Tool):
             url = str(state.get("url") or "")
             if not state.get("ready") or not url:
                 return ToolResult.text(
-                    "the GPU is still starting — this takes a few minutes on a fresh machine. "
-                    "Carry on with research or design and call gpu_ensure again in a minute; do "
-                    "NOT treat this as a failure and do not ask the user to do anything.",
+                    "the GPU is still starting — this takes a few minutes on a fresh machine, "
+                    "and 'starting' now means ComfyUI on it has not answered yet, not merely "
+                    "that the box exists. Carry on with research or design and call gpu_ensure "
+                    "again; do NOT treat this as a failure, do NOT try to restart anything, and "
+                    "do not ask the user to do anything.",
                     details=state,
                 )
 
@@ -167,19 +223,7 @@ class GpuEnsureTool(Tool):
             )
         except _PlatformRefused as e:
             if e.transient:
-                # A STATE, NOT A FAILURE — and deliberately not `is_error`. tools.invoke turns an
-                # error result into a raised exception and drops `details` on the floor, so an
-                # error here would leave the window with nothing but prose and no way to tell
-                # "no offer this minute" from "no key on this deployment". As a normal result
-                # the window reads `waiting` and keeps asking; the model reads the text and
-                # keeps working. Before this, one thin minute on the marketplace ended the
-                # session's chance of a GPU unless the model happened to try again.
-                return ToolResult.text(
-                    f"no GPU could be rented right now — {e}. This is temporary: the window "
-                    "keeps asking on its own, so carry on with research and design and call "
-                    "gpu_ensure again in a minute. Do NOT ask the user to do anything.",
-                    details={"ready": False, "waiting": True, "detail": str(e)},
-                )
+                return _waiting(e)
             return ToolResult.text(f"gpu_ensure failed: {e}", is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)
