@@ -38,6 +38,29 @@ class InstanceSettings:
     max_hourly_usd: float = 0.50
     min_vram_gb: int = 24
 
+    #: HOW RELIABLE THE HOST MUST BE. Vast scores every machine on whether it actually starts
+    #: and stays up, and we were not looking: a rented box came back
+    #: "Error: GPU error, unable to start instance" and we paid for it until the reaper's grace
+    #: expired. This is the single filter that would have skipped it.
+    min_reliability: float = 0.95
+
+    #: Minimum CUDA the HOST's driver supports. The image is built against a CUDA version; a
+    #: host too old to run it starts and then fails in a way that looks like our bug.
+    min_cuda: float = 12.4
+    #: Mbps down. Every run pulls multi-GB weights, so a slow host is not cheap, it is a longer
+    #: bill for the same work.
+    min_inet_down: int = 100
+
+    #: THE CARDS WE WILL ACTUALLY RUN ON. Without this the cheapest-first sort found a
+    #: CMP 170HX — a crypto-MINING card with no display output and crippled CUDA — and rented it
+    #: at $0.40/hr, three times what a working RTX 3090 was going for. "Cheapest that clears a
+    #: VRAM number" is not the same as "good", and mining cards are the clearest proof.
+    #: Empty tuple = allow anything the numeric filters accept.
+    gpu_allowlist: tuple = (
+        "RTX 5090", "RTX 4090", "RTX 4080", "RTX 3090", "RTX 3090 Ti",
+        "RTX A5000", "RTX A6000", "RTX 6000Ada", "L40S", "L40", "A100", "H100",
+    )
+
     #: No contact and no lease for this long, and the reaper takes it.
     idle_seconds: float = 600.0
 

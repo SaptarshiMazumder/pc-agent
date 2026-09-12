@@ -102,7 +102,12 @@ class InstanceService:
         market = self._marketplace()
         cfg = self._settings
         offers = market.search_offers(
-            max_hourly_usd=cfg.max_hourly_usd, min_vram_gb=cfg.min_vram_gb
+            max_hourly_usd=cfg.max_hourly_usd,
+            min_vram_gb=cfg.min_vram_gb,
+            min_reliability=cfg.min_reliability,
+            min_cuda=cfg.min_cuda,
+            min_inet_down=cfg.min_inet_down,
+            gpu_allowlist=cfg.gpu_allowlist,
         )
         if not offers:
             raise NoOfferAvailable(

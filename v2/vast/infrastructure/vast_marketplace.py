@@ -95,8 +95,24 @@ class VastMarketplace:
     # ---------------------------------------------------------------- offers
 
     def search_offers(
-        self, *, max_hourly_usd: float, min_vram_gb: int, limit: int = 20
+        self,
+        *,
+        max_hourly_usd: float,
+        min_vram_gb: int,
+        limit: int = 20,
+        min_reliability: float = 0.0,
+        min_cuda: float = 0.0,
+        min_inet_down: int = 0,
+        gpu_allowlist: tuple = (),
     ) -> list[Offer]:
+        """Rentable machines that are actually worth renting, cheapest first.
+
+        CHEAPEST-THAT-CLEARS-A-VRAM-NUMBER IS NOT "GOOD", and the marketplace will happily prove
+        it: this returned a CMP 170HX — a mining card with crippled CUDA — at three times the
+        price of a working RTX 3090, and separately a host that answered
+        "Error: GPU error, unable to start instance" the moment it was rented. `reliability2` is
+        the filter that skips the second; the allowlist skips the first.
+        """
         query = {
             "rentable": {"eq": True},
             "verified": {"eq": True},
@@ -108,6 +124,12 @@ class VastMarketplace:
             "type": "on-demand",
             "limit": int(limit),
         }
+        if min_reliability:
+            query["reliability2"] = {"gte": float(min_reliability)}
+        if min_cuda:
+            query["cuda_max_good"] = {"gte": float(min_cuda)}
+        if min_inet_down:
+            query["inet_down"] = {"gte": int(min_inet_down)}
         # GET WITH THE QUERY URL-ENCODED, verified against the live API. Vast's docs describe a
         # `PUT /bundles/` taking `{"q": …}`; that path 404s and the POST form 400s. This is the
         # one that answers, and it is why this adapter was probed before anything was built on
@@ -124,9 +146,22 @@ class VastMarketplace:
             )
             for row in (payload.get("offers") or [])
         ]
-        # The ceiling is re-applied to the RESULT, not trusted from the request: a query
-        # parameter the marketplace silently drops would otherwise become an unbounded bill.
-        return [o for o in offers if o.offer_id and o.hourly_usd <= max_hourly_usd]
+        # EVERY FILTER IS RE-APPLIED TO THE RESULT, not trusted from the request. A query
+        # parameter the marketplace silently drops would otherwise become an unbounded bill, or
+        # a mining card. The allowlist is matched here rather than in the query because Vast's
+        # gpu_name is free text and an `in` clause on it misses "RTX 4090 D" and friends.
+        keep = []
+        for o in offers:
+            if not o.offer_id or o.hourly_usd > max_hourly_usd:
+                continue
+            if o.gpu_ram_mb and o.gpu_ram_mb < int(min_vram_gb) * 1024:
+                continue
+            if gpu_allowlist and not any(
+                name.lower() in o.gpu_name.lower() for name in gpu_allowlist
+            ):
+                continue
+            keep.append(o)
+        return keep
 
     # ---------------------------------------------------------------- lifecycle
 
