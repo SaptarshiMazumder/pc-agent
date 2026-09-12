@@ -13,15 +13,22 @@ import urllib.request
 
 
 class HttpInstanceProbe:
-    def __init__(self, timeout_s: float = 5.0) -> None:
-        # Short on purpose: this runs inside a poll the window makes every 20 seconds, and a
-        # machine that takes longer than this to answer a stats call is not ready anyway.
+    def __init__(self, timeout_s: float = 10.0) -> None:
+        # Short, but not too short: this runs inside a poll the window makes every 20 seconds,
+        # and a machine that takes longer than this to answer a stats call is not ready anyway.
+        # Ten rather than five because ComfyUI's FIRST /api/system_stats initialises CUDA and
+        # can take several seconds on a cold process; a probe that gave up at five would keep
+        # reporting a serving machine as "not yet" for as long as that first call kept getting
+        # cut off.
         self._timeout_s = timeout_s
 
-    def answers(self, url: str) -> bool:
-        req = urllib.request.Request(
-            f"{url.rstrip('/')}/api/system_stats", headers={"Accept": "application/json"}
-        )
+    def answers(self, url: str, auth: str = "") -> bool:
+        headers = {"Accept": "application/json"}
+        if auth:
+            # The portal fronts ComfyUI with auth; WEB_PASSWORD is honoured as a Bearer token.
+            # Without it a booted, healthy machine answers 401 and would never read as ready.
+            headers["Authorization"] = f"Bearer {auth}"
+        req = urllib.request.Request(f"{url.rstrip('/')}/api/system_stats", headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self._timeout_s) as res:
                 if res.status != 200:

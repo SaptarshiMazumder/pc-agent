@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+import secrets
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -86,6 +87,14 @@ class InstanceService:
             row, mine = self._store.claim(c, account_id, now)
 
         if not mine:
+            # A POLL IS INTEREST. Nothing else touches last_seen_at while a machine boots —
+            # claim returns the row as it is, and the agent takes no lease until it renders —
+            # so a machine polled every ten seconds looked idle from the moment it was rented
+            # and the reaper destroyed it mid-boot at 600s, in front of the user who was
+            # waiting for it. Every ensure marks the row seen; a machine nobody asks about for
+            # ten minutes is still reaped, which is the rule that was meant.
+            with self._db() as c:
+                self._store.heartbeat(c, account_id, now=now)
             # Another call owns the rental. Refresh in case it became reachable since — but
             # never start a second one.
             return self._refresh(row)
@@ -144,6 +153,9 @@ class InstanceService:
         # into "gpu_ensure failed": the slot was freed, but nothing called again, and the user
         # sat with no machine. Walk the candidates instead — each is a different host — and
         # only when every one has gone is there genuinely nothing to rent right now.
+        # THIS RENTAL'S OWN SECRET, minted before the loop so every attempt in it shares one:
+        # the machine that finally starts is the one it was set on.
+        auth_token = secrets.token_urlsafe(24)
         gone: list[int] = []
         instance_id: int | None = None
         for offer in offers:
@@ -162,6 +174,8 @@ class InstanceService:
                     disk_gb=cfg.disk_gb,
                     comfy_port=cfg.comfy_port,
                     publish_ports=cfg.publish_ports,
+                    env=cfg.container_env,
+                    auth_token=auth_token,
                 )
             except OfferGone as e:
                 # Not a fault, and not ours to surface yet: the next candidate is a different
@@ -185,6 +199,7 @@ class InstanceService:
                 machine_id=offer.machine_id,
                 hourly_usd=offer.hourly_usd,
                 now=now,
+                auth_token=auth_token,
             )
             fresh = self._store.by_id(c, row.id)
         if fresh is None:
@@ -253,7 +268,7 @@ class InstanceService:
                 return self._store.by_id(c, row.id) or row
         if live is None or not live.url:
             return row
-        if not self._probe.answers(live.url):
+        if not self._probe.answers(live.url, row.auth_token):
             # AN ADDRESS THAT DOES NOT ANSWER IS NOT READY. The marketplace says `running` the
             # moment the container is up; ComfyUI inside it is still pulling the image and
             # loading models for minutes after. Handing the address out in that window is

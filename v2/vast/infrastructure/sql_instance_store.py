@@ -20,7 +20,7 @@ from vast.domain.instance import LIVE_STATES, InstanceRow
 
 _COLS = (
     "id, account_id, instance_id, machine_id, url, state, hourly_usd, "
-    "created_at, last_seen_at, lease_until, dead_at, dead_reason"
+    "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token"
 )
 _LIVE = ",".join("?" for _ in LIVE_STATES)
 
@@ -39,6 +39,7 @@ def _row(r: Any) -> InstanceRow:
         lease_until=float(r["lease_until"] or 0.0),
         dead_at=float(r["dead_at"]) if r["dead_at"] is not None else None,
         dead_reason=str(r["dead_reason"] or ""),
+        auth_token=str(r["auth_token"] or ""),
     )
 
 
@@ -153,12 +154,12 @@ class SqlInstanceStore:
 
     def mark_running(
         self, c: Any, row_id: str, *, instance_id: int, machine_id: int,
-        hourly_usd: float, now: float,
+        hourly_usd: float, now: float, auth_token: str = "",
     ) -> None:
         c.execute(
             "UPDATE vast_instances SET instance_id=?, machine_id=?, hourly_usd=?, "
-            "last_seen_at=? WHERE id=?",
-            (int(instance_id), int(machine_id), float(hourly_usd), now, row_id),
+            "last_seen_at=?, auth_token=? WHERE id=?",
+            (int(instance_id), int(machine_id), float(hourly_usd), now, auth_token, row_id),
         )
 
     def mark_ready(self, c: Any, row_id: str, *, url: str, now: float) -> None:

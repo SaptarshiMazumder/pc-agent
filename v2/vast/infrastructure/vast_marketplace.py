@@ -212,17 +212,25 @@ class VastMarketplace:
         comfy_port: int,
         publish_ports: tuple = (),
         onstart: str = "",
+        env: tuple = (),
+        auth_token: str = "",
     ) -> int:
+        # ONE DICT CARRIES BOTH: Vast's `env` takes docker-style port keys ("-p 8188:8188": "1")
+        # and plain variables side by side — it is what the CLI's `--env` string parses into.
+        # The variables are what the image's supervisor reads to start ComfyUI at all
+        # (PORTAL_CONFIG → /etc/portal.yaml); WEB_PASSWORD is the one credential the portal's
+        # auth honours from outside, and it is this rental's alone.
+        container: dict = {f"-p {p}:{p}": "1" for p in (publish_ports or (comfy_port,))}
+        container.update({str(k): str(v) for k, v in (env or ())})
+        if auth_token:
+            container["WEB_PASSWORD"] = auth_token
         body: dict = {
             "client_id": "me",
             "image": image,
             "disk": int(disk_gb),
             "label": label,
             "runtype": "args",
-            # Vast takes published ports as docker-style args in `env`, one key each.
-            "env": {
-                f"-p {p}:{p}": "1" for p in (publish_ports or (comfy_port,))
-            },
+            "env": container,
         }
         if onstart:
             body["onstart"] = onstart

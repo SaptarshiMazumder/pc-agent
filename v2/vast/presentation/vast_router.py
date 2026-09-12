@@ -26,11 +26,15 @@ from vast.domain.instance import InstanceRow
 
 def _view(row: InstanceRow | None) -> dict:
     if row is None:
-        return {"state": "none", "ready": False, "url": ""}
+        return {"state": "none", "ready": False, "url": "", "auth": ""}
     return {
         "state": row.state,
         "ready": row.ready,
         "url": row.url,
+        # The Authorization header value the machine expects, verbatim — the comfy tools write
+        # it into the handover file and send it on every call. Only ever given to the account
+        # that owns the rental, over the internal-key route this router already requires.
+        "auth": f"Bearer {row.auth_token}" if row.auth_token else "",
         "hourly_usd": row.hourly_usd,
         "instance_id": row.instance_id,
     }

@@ -12,9 +12,15 @@ from typing import Any
 
 #: Bump when adding a step to _STEPS. Kept in lockstep with the SQLite ledger: one module, one
 #: shape, two engines.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _STEPS: dict[int, str] = {
+    2: """
+    -- The per-rental secret that opens the machine (WEB_PASSWORD at launch, Bearer token in
+    -- use). A column rather than a derivation from a server secret, so rotating that secret
+    -- cannot lock the platform out of every machine it is currently paying for.
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS auth_token TEXT NOT NULL DEFAULT '';
+    """,
     1: """
     -- See vast/infrastructure/sqlite_schema.py for why the partial unique index is the feature
     -- rather than an optimisation, why dead rows are kept, and why there is no foreign key.

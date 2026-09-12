@@ -15,8 +15,9 @@ from typing import Protocol
 
 
 class InstanceProbe(Protocol):
-    def answers(self, url: str) -> bool:
-        """True when ComfyUI at `url` serves its API. False for everything else — refused,
+    def answers(self, url: str, auth: str = "") -> bool:
+        """True when ComfyUI at `url` serves its API, presenting `auth` (a Bearer secret) if
+        the machine requires one — and a rented machine does. False for everything else — refused,
         timed out, a non-200, a body that is not JSON. NEVER RAISES: the caller is a poll, and
         the next poll is the retry."""
         ...

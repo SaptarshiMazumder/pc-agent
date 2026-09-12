@@ -212,7 +212,13 @@ class GpuEnsureTool(Tool):
             # the rented box the instance for every comfy_* tool in this workspace.
             conn = Path(current_workspace(".") or ".") / _CONN_FILE
             conn.parent.mkdir(parents=True, exist_ok=True)
-            conn.write_text(json.dumps({"url": url, "auth": ""}), encoding="utf-8")
+            # `auth` is the Authorization header value the machine expects — a rented box is
+            # fronted by the portal's auth, and this is the one credential it honours. The
+            # comfy tools send it on every call; the file is per workspace, so it never leaves
+            # this user's run.
+            conn.write_text(
+                json.dumps({"url": url, "auth": str(state.get("auth") or "")}), encoding="utf-8"
+            )
 
             hourly = float(state.get("hourly_usd") or 0.0)
             return ToolResult.text(

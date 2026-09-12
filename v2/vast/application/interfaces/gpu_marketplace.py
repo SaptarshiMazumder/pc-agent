@@ -50,7 +50,8 @@ class GpuMarketplace(Protocol):
         ...
 
     def create(self, offer_id: int, *, label: str, image: str, disk_gb: int, comfy_port: int,
-               publish_ports: tuple = (), onstart: str = "") -> int:
+               publish_ports: tuple = (), onstart: str = "", env: tuple = (),
+               auth_token: str = "") -> int:
         """Rent `offer_id`, stamped with `label`, and return the marketplace's instance id.
 
         Raises `OfferGone` when the offer is no longer rentable — taken or withdrawn since the

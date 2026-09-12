@@ -23,6 +23,32 @@ class InstanceSettings:
     #: Hub. Pin a real tag, and re-pin deliberately rather than reaching for a floating one.
     image: str = "vastai/comfy:v0.35.0-cuda-13.2-py312"
 
+    #: WHAT VAST'S OWN COMFYUI TEMPLATE PASSES, minus two things. This is why ComfyUI never
+    #: answered on ANY host today — the instance log said it in one line, over and over:
+    #:
+    #:     Skipping comfyui startup (not in /etc/portal.yaml)
+    #:
+    #: The image's supervisor starts only what PORTAL_CONFIG names; portal.yaml is generated
+    #: from it at boot. We rented the bare image with nothing but port keys, so every machine
+    #: came up with ComfyUI never started and billed for as long as it was left. Taken verbatim
+    #: from template 264313 (22,667 rentals), which is what a human gets from the "ComfyUI"
+    #: button. The two omissions: OPEN_BUTTON_TOKEN (Vast generates its own; we pass
+    #: WEB_PASSWORD per rental instead — see auth_token) and PROVISIONING_SCRIPT, whose default
+    #: downloads one multi-GB Civitai checkpoint nobody asked for at every boot; the image
+    #: already ships ComfyUI-Manager, and the agent installs exactly what its workflow needs.
+    container_env: tuple = (
+        ("OPEN_BUTTON_PORT", "1111"),
+        ("JUPYTER_DIR", "/"),
+        ("DATA_DIRECTORY", "/workspace/"),
+        (
+            "PORTAL_CONFIG",
+            "localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI|"
+            "localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal|"
+            "localhost:8384:18384:/:Syncthing",
+        ),
+        ("COMFYUI_ARGS", "--disable-auto-launch --port 18188 --enable-cors-header"),
+    )
+
     #: EVERY PORT VAST'S OWN COMFYUI TEMPLATE PUBLISHES, not just ComfyUI's. Taken from that
     #: template rather than reasoned about: 1111 is the Instance Portal the image's supervisor
     #: serves, and the rest are what it expects to have. Publishing only 8188 is the sort of

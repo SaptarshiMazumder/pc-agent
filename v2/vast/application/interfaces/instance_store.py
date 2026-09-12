@@ -33,7 +33,7 @@ class InstanceStore(Protocol):
         ...
 
     def mark_running(self, c: Any, row_id: str, *, instance_id: int, machine_id: int,
-                     hourly_usd: float, now: float) -> None:
+                     hourly_usd: float, now: float, auth_token: str = "") -> None:
         """Record the rental. Called the instant the marketplace returns an id — BEFORE the
         machine is reachable — so a crash after this point still leaves a row the sweeps can
         reconcile against."""

@@ -111,6 +111,11 @@ class InstanceRow:
     lease_until: float
     dead_at: float | None
     dead_reason: str
+    #: THE SECRET THAT OPENS THIS MACHINE. Set as WEB_PASSWORD when it is rented — the one
+    #: credential the portal's auth honours from outside — and handed to the agent as a Bearer
+    #: header value. Per rental, never reused: a token that outlived its machine would open the
+    #: next tenant's. Empty only on rows written before the column existed.
+    auth_token: str = ""
 
     @property
     def live(self) -> bool:

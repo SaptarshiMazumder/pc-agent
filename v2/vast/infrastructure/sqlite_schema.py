@@ -12,9 +12,15 @@ from __future__ import annotations
 import sqlite3
 
 #: Bump when adding a step to _STEPS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _STEPS: dict[int, str] = {
+    2: """
+    -- The per-rental secret that opens the machine (WEB_PASSWORD at launch, Bearer token in
+    -- use). A column rather than a derivation from a server secret, so rotating that secret
+    -- cannot lock the platform out of every machine it is currently paying for.
+    ALTER TABLE vast_instances ADD COLUMN auth_token TEXT NOT NULL DEFAULT '';
+    """,
     1: """
     -- One row per GPU rented on a user's behalf.
     --
