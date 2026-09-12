@@ -63,6 +63,25 @@ class MachineInstance:
     machine_id: int
     hourly_usd: float
     url: str | None
+    #: The marketplace's own words about this machine, e.g. "Preparing GPUs..." or
+    #: "Error: GPU error, unable to start instance." The only place a dead host announces itself.
+    status_msg: str = ""
+
+    @property
+    def dead(self) -> bool:
+        """Is this machine never going to come up?
+
+        WHY THIS IS READ FROM A MESSAGE rather than a status. A failed host sits in `created`
+        forever — the same status a healthy one passes through on its way up — so status alone
+        cannot tell "booting" from "broken", and polling waits out the full grace period paying
+        for a machine that announced its own death in the first minute. `status_msg` is where it
+        says so.
+
+        MATCHED LOOSELY, on purpose: the exact wording is Vast's to change, and the cost of
+        missing a new phrasing (wait for the reaper, as before) is much lower than the cost of
+        mistaking a healthy boot for a corpse and re-renting in a loop.
+        """
+        return "error" in (self.status_msg or "").lower()
 
 
 @dataclass(frozen=True)

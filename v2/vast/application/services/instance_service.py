@@ -195,6 +195,16 @@ class InstanceService:
         except MarketplaceError:
             log.warning("could not refresh instance %s", row.instance_id, exc_info=True)
             return row
+        if live is not None and live.dead:
+            # THIS MACHINE ANNOUNCED ITS OWN DEATH. Destroy it and free the slot NOW: the caller
+            # is polling, so their very next `ensure` rents a different host and the user sees a
+            # slightly longer start rather than a fifteen-minute wait for the reaper's grace to
+            # expire on a box that was never going to serve. Two of four real rentals needed
+            # this, one of them after the reliability filter was already in place.
+            log.warning("vast: host %s failed to start (%s)", live.instance_id, live.status_msg)
+            self.release(row.account_id, reason=f"host failed to start: {live.status_msg}"[:200])
+            with self._db() as c:
+                return self._store.by_id(c, row.id) or row
         if live is None or not live.url:
             return row
         with self._db() as c:

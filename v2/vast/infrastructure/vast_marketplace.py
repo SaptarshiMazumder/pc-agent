@@ -232,6 +232,7 @@ class VastMarketplace:
             machine_id=int(row.get("machine_id") or 0),
             hourly_usd=float(row.get("dph_total") or 0.0),
             url=self._url_for(row),
+            status_msg=str(row.get("status_msg") or ""),
         )
 
     def _url_for(self, row: dict) -> str | None:
