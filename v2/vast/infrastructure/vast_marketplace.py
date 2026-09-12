@@ -104,6 +104,11 @@ class VastMarketplace:
         min_cuda: float = 0.0,
         min_inet_down: int = 0,
         gpu_allowlist: tuple = (),
+        secure_cloud_only: bool = False,
+        exclude_machines: frozenset[int] | set[int] = frozenset(),
+        min_compute_cap: int = 0,
+        gpu_denylist: tuple = (),
+        require_verified: bool = False,
     ) -> list[Offer]:
         """Rentable machines that are actually worth renting, cheapest first.
 
@@ -115,10 +120,15 @@ class VastMarketplace:
         """
         query = {
             "rentable": {"eq": True},
-            "verified": {"eq": True},
+            # THE `verified` BADGE IS OPT-IN. It is Vast's hardware-test pass, not a statement
+            # about where the machine lives, and requiring it cut a thin Secure Cloud pool to a
+            # handful. DEverified — ran the test and failed — is refused on the result below
+            # whatever this says.
+            **({"verified": {"eq": True}} if require_verified else {}),
             "external": {"eq": False},
             "num_gpus": {"eq": 1},
-            "gpu_ram": {"gte": int(min_vram_gb) * 1024},
+            # A VRAM floor of 0 is "any", and Vast is happier without the clause than with gte 0.
+            **({"gpu_ram": {"gte": int(min_vram_gb) * 1024}} if min_vram_gb else {}),
             "dph_total": {"lte": float(max_hourly_usd)},
             "order": [["dph_total", "asc"]],
             "type": "on-demand",
@@ -130,6 +140,16 @@ class VastMarketplace:
             query["cuda_max_good"] = {"gte": float(min_cuda)}
         if min_inet_down:
             query["inet_down"] = {"gte": int(min_inet_down)}
+        if min_compute_cap:
+            query["compute_cap"] = {"gte": int(min_compute_cap)}
+        if secure_cloud_only:
+            # SECURE CLOUD = `datacenter` in the QUERY, `hosting_type == 1` on the ROW. The
+            # query field filters server-side (28 offers became 5 when it was added) but the
+            # rows come back without a `datacenter` key at all — they carry `hosting_type`,
+            # 0 for a community host and 1 for a datacenter — so that is what the result
+            # check below reads. `verified` is NOT this: it is the hardware-test badge, and a
+            # home rig carries it just as well.
+            query["datacenter"] = {"eq": True}
         # GET WITH THE QUERY URL-ENCODED, verified against the live API. Vast's docs describe a
         # `PUT /bundles/` taking `{"q": …}`; that path 404s and the POST form 400s. This is the
         # one that answers, and it is why this adapter was probed before anything was built on
@@ -143,6 +163,9 @@ class VastMarketplace:
                 gpu_ram_mb=int(row.get("gpu_ram") or 0),
                 num_gpus=int(row.get("num_gpus") or 0),
                 hourly_usd=float(row.get("dph_total") or 0.0),
+                datacenter=int(row.get("hosting_type") or 0) == 1,
+                compute_cap=int(row.get("compute_cap") or 0),
+                verification=str(row.get("verification") or ""),
             )
             for row in (payload.get("offers") or [])
         ]
@@ -154,11 +177,25 @@ class VastMarketplace:
         for o in offers:
             if not o.offer_id or o.hourly_usd > max_hourly_usd:
                 continue
+            if secure_cloud_only and not o.datacenter:
+                continue
+            if o.machine_id in exclude_machines:
+                continue
             if o.gpu_ram_mb and o.gpu_ram_mb < int(min_vram_gb) * 1024:
                 continue
             if gpu_allowlist and not any(
                 name.lower() in o.gpu_name.lower() for name in gpu_allowlist
             ):
+                continue
+            if min_compute_cap and o.compute_cap and o.compute_cap < int(min_compute_cap):
+                continue
+            if any(bad.lower() in o.gpu_name.lower() for bad in gpu_denylist):
+                continue
+            # A machine Vast tested and FAILED is out whether or not the badge is required;
+            # "unverified" merely never took the test and is admitted unless it is.
+            if o.verification == "deverified":
+                continue
+            if require_verified and o.verification != "verified":
                 continue
             keep.append(o)
         return keep

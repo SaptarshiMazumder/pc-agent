@@ -101,6 +101,21 @@ class SqlInstanceStore:
             total += rate * max(0.0, end - float(r["created_at"])) / 3600.0
         return total
 
+    def failed_machines_since(self, c: Any, since: float) -> set[int]:
+        """Hosts that failed to start since `since`, by machine id, across EVERY account.
+
+        Read from our own rows rather than asked of the marketplace: the reason string is what
+        `_refresh` wrote when the host announced its death ("host failed to start: …"), and no
+        provider score moves fast enough to reflect a failure fifteen minutes old — the same
+        machine was still the cheapest, still 0.98-reliable, and rented again.
+        """
+        rows = c.execute(
+            "SELECT DISTINCT machine_id FROM vast_instances WHERE machine_id IS NOT NULL "
+            "AND dead_at IS NOT NULL AND dead_at>=? AND dead_reason LIKE 'host failed to start%'",
+            (since,),
+        ).fetchall()
+        return {int(r["machine_id"]) for r in rows}
+
     # ------------------------------------------------------------------ claim
 
     def claim(self, c: Any, account_id: str, now: float) -> tuple[InstanceRow, bool]:

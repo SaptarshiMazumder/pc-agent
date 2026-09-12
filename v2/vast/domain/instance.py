@@ -46,6 +46,17 @@ class Offer:
     gpu_ram_mb: int
     num_gpus: int
     hourly_usd: float
+    #: Vast's SECURE CLOUD — a datacenter host (hosting_type 1) — as opposed to Community Cloud,
+    #: which is an individual's machine at home. `verified` is a different thing entirely: the
+    #: hardware-test badge, which a home rig in Bulgaria carries just as well.
+    datacenter: bool = False
+    #: NVIDIA compute capability x100 as Vast reports it: 750 Turing, 800/860 Ampere, 890 Ada,
+    #: 900 Hopper. The one number that separates a modern card from a 2016 one, whatever the
+    #: name says — which is what the GPU allowlist was doing with a list that was always short.
+    compute_cap: int = 0
+    #: Vast's test verdict on the machine: "verified", "unverified" (never ran it), or
+    #: "deverified" (ran it and FAILED). Only the last is disqualifying on its own.
+    verification: str = ""
 
 
 @dataclass(frozen=True)

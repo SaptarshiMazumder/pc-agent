@@ -78,8 +78,10 @@ def _model_enums(catalogue: dict):
 
 # THE HANDOVER FILE. `gpu_ensure` writes {url, auth} here the moment the rented machine answers,
 # and every tool in this module reads it. It is the ONLY source of the instance's address: no
-# setting, no environment variable, no URL a user pasted. `gpu_release` deletes it, so a tool
-# called after the machine is gone reports "no GPU is running" rather than dialling a corpse.
+# setting, no environment variable, no URL a user pasted. It outlives the machine: the idle
+# reaper reclaims the instance server-side and nothing here is told, so a tool called after
+# that dials a dead address and reports "could not reach the instance — call gpu_ensure",
+# which rents (or reuses) one and rewrites this file. That is the whole recovery path.
 # Same constant as vast_bridge._CONN_FILE, duplicated rather than imported so neither plugin
 # depends on the other's load order; the contract is the path and the {url, auth} shape.
 _CONN_FILE = ".studio/connection.json"

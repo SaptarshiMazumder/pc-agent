@@ -185,36 +185,6 @@ class GpuEnsureTool(Tool):
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)
 
 
-class GpuReleaseTool(Tool):
-    name = "gpu_release"
-    label = "Give the GPU back"
-    default_retryable = False
-    description = (
-        "Stop this user's GPU now instead of waiting for it to time out. Use it only when the "
-        "user says they are finished, or when they ask for it — never routinely at the end of a "
-        "job, because the next request would then pay the several-minute start-up again."
-    )
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, tool_call_id, params, abort, on_update=None):
-        try:
-            account_id = current_account_id()
-            if not account_id:
-                return _unavailable("gpu_release")
-            state = _call("/vast/release", {"account_id": account_id})
-            # Drop the pointer too, or the comfy tools keep dialling an address that is gone and
-            # report a connection error instead of "there is no instance".
-            (Path(current_workspace(".") or ".") / _CONN_FILE).unlink(missing_ok=True)
-            return ToolResult.text(
-                "GPU released — billing has stopped."
-                if state.get("released")
-                else "there was no GPU running for this user.",
-                details=state,
-            )
-        except Exception as e:  # noqa: BLE001
-            return ToolResult.text(f"gpu_release failed: {type(e).__name__}: {e}", is_error=True)
-
-
 def register(api, ctx):
     """The loader's contract — `(api, ctx)`, and tools handed to `api.register_tool`.
 
@@ -225,5 +195,11 @@ def register(api, ctx):
     a tool that does not exist. comfy-bridge's register has always had this shape; this one
     should have copied it.
     """
+    # ONE TOOL. There was a `gpu_release` beside it — "give the machine back now" — and the
+    # first model to hold it used it as a restart button: a host that was `running` but whose
+    # ComfyUI was still loading looked "stuck", so it released the machine mid-boot, threw away
+    # the minutes already spent, and rented another. The idle reaper reclaims a machine nobody
+    # uses within ten minutes anyway, so the tool bought at most ten minutes of billing and
+    # cost a whole boot. The platform's /vast/release still exists for operators; the agent
+    # does not get to make that call.
     api.register_tool(GpuEnsureTool())
-    api.register_tool(GpuReleaseTool())

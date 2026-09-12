@@ -36,8 +36,23 @@ def settings_from_env() -> InstanceSettings:
         image=os.environ.get("VAST_IMAGE", "").strip() or InstanceSettings.image,
         disk_gb=int(os.environ.get("VAST_DISK_GB", "") or 60),
         comfy_port=int(os.environ.get("VAST_COMFY_PORT", "") or 8188),
-        max_hourly_usd=float(os.environ.get("VAST_MAX_HOURLY_USD", "") or 0.50),
-        min_vram_gb=int(os.environ.get("VAST_MIN_VRAM_GB", "") or 24),
+        max_hourly_usd=float(
+            os.environ.get("VAST_MAX_HOURLY_USD", "") or InstanceSettings.max_hourly_usd
+        ),
+        # "0" / "false" / "no" turn it off; anything else (and unset) keeps Secure Cloud only.
+        secure_cloud_only=(os.environ.get("VAST_SECURE_CLOUD_ONLY", "").strip().lower()
+                           not in ("0", "false", "no")),
+        failed_machine_cooldown_seconds=float(
+            os.environ.get("VAST_FAILED_MACHINE_COOLDOWN_SECONDS", "")
+            or InstanceSettings.failed_machine_cooldown_seconds
+        ),
+        min_vram_gb=int(os.environ.get("VAST_MIN_VRAM_GB", "") or InstanceSettings.min_vram_gb),
+        min_compute_cap=int(
+            os.environ.get("VAST_MIN_COMPUTE_CAP", "") or InstanceSettings.min_compute_cap
+        ),
+        # Off unless a deployment says so; see InstanceSettings.require_verified.
+        require_verified=(os.environ.get("VAST_REQUIRE_VERIFIED", "").strip().lower()
+                          in ("1", "true", "yes")),
         idle_seconds=float(os.environ.get("VAST_IDLE_SECONDS", "") or 600),
         monthly_cap_usd=float(os.environ.get("VAST_MONTHLY_CAP_USD", "") or 20.0),
         max_live_instances=int(os.environ.get("VAST_MAX_LIVE_INSTANCES", "") or 10),

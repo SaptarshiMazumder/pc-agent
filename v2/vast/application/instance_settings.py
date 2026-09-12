@@ -35,8 +35,38 @@ class InstanceSettings:
     #: A CEILING THE MARKETPLACE NEVER SEES PAST: passed as a filter on the offer search, and
     #: re-checked on the chosen offer before renting, because a filter the market ignores is not
     #: a limit. Renting is the irreversible step; it gets the second look.
-    max_hourly_usd: float = 0.50
-    min_vram_gb: int = 24
+    #: THE CEILING FOLLOWS THE TIER. This was $0.50 while Community Cloud was allowed, and a
+    #: community RTX 3090 at $0.14 cleared it easily. Secure Cloud (below) has nothing at that
+    #: price: measured on the live market, the floor under every other filter is an A100 80GB
+    #: at $1.00/hr — when it is there at all — then H100s from $2.20. A ceiling that finds
+    #: nothing is not a saving, it is a user with no GPU. $3.00 admits the H100 band: four
+    #: machines when this was measured, the first level that is not a coin flip.
+    max_hourly_usd: float = 3.00
+
+    #: SECURE CLOUD ONLY. Vast's datacenter tier — ISO-certified hosts, static addresses,
+    #: hardware nobody is also gaming on — as opposed to Community Cloud, which is somebody's
+    #: home rig and was where every host that failed to start today came from. `verified` did
+    #: NOT express this: it is the hardware-test badge, and a home machine carries it too.
+    secure_cloud_only: bool = True
+
+    #: THE `verified` BADGE IS NOT REQUIRED. It is Vast's own hardware-test pass, and requiring
+    #: it took a Secure Cloud pool that was already thin down to a handful: datacenter hosts
+    #: often list machines that have simply never run the test. Secure Cloud is the trust
+    #: decision; this badge was a second gate on top of it. A card Vast has DEverified — ran
+    #: the test and failed it — is still refused, regardless of this: that is a different fact.
+    require_verified: bool = False
+
+    #: NEVER THE SAME CORPSE TWICE. A host that fails to start is released on the next poll,
+    #: and the next rental is cheapest-first — which is the same host, because it is still the
+    #: cheapest listing and its failure did not change its price. Seen live: machine 108820
+    #: died with "GPU error", was released, and was rented again within the quarter hour. A
+    #: machine that failed to start in this window is skipped, however cheap it is.
+    failed_machine_cooldown_seconds: float = 24 * 3600.0
+    #: 16GB, DOWN FROM 24. With Secure Cloud the 24GB floor left a pool of one machine at a
+    #: time; the agent already sizes its weights to the card it probes (fp8 and quantised
+    #: variants over full precision), so a 16GB datacenter card is a smaller job, not a broken
+    #: one. Below 16GB the video models this agent is for do not fit at all. 0 = any.
+    min_vram_gb: int = 16
 
     #: HOW RELIABLE THE HOST MUST BE. Vast scores every machine on whether it actually starts
     #: and stays up, and we were not looking: a rented box came back
@@ -51,15 +81,26 @@ class InstanceSettings:
     #: bill for the same work.
     min_inet_down: int = 100
 
-    #: THE CARDS WE WILL ACTUALLY RUN ON. Without this the cheapest-first sort found a
-    #: CMP 170HX — a crypto-MINING card with no display output and crippled CUDA — and rented it
-    #: at $0.40/hr, three times what a working RTX 3090 was going for. "Cheapest that clears a
-    #: VRAM number" is not the same as "good", and mining cards are the clearest proof.
-    #: Empty tuple = allow anything the numeric filters accept.
-    gpu_allowlist: tuple = (
-        "RTX 5090", "RTX 4090", "RTX 4080", "RTX 3090", "RTX 3090 Ti",
-        "RTX A5000", "RTX A6000", "RTX 6000Ada", "L40S", "L40", "A100", "H100",
-    )
+    #: THE FLOOR ON HOW MODERN THE CARD IS, as a number every card reports. 750 = Turing (RTX 20xx,
+    #: T4, Quadro RTX): the first generation with fp16 tensor cores, and the oldest thing worth
+    #: loading a diffusion model on. This REPLACES a GPU-name allowlist that was always missing
+    #: something — it had to grow by hand for the RTX PRO 6000, then the H200 — and that silently
+    #: re-imposed a 24GB floor after the VRAM floor was removed, because every name on it was a
+    #: 24GB+ card. Vast reports compute capability x100: 610 Pascal, 750 Turing, 800/860 Ampere,
+    #: 890 Ada, 900 Hopper.
+    min_compute_cap: int = 750
+
+    #: THE ONE FAMILY A NUMBER DOES NOT CATCH. The CMP 170HX is a crypto-MINING card — no display
+    #: output, crippled CUDA — and it reports compute capability 800 and "64GB", so the floor
+    #: above and any VRAM floor both pass it, and it is what a cheapest-first sort rented in
+    #: production at three times the price of a working RTX 3090. Substring match on gpu_name.
+    gpu_denylist: tuple = ("CMP",)
+
+    #: An optional allowlist, substring-matched on gpu_name. EMPTY = ANY, and empty is the
+    #: default now: Secure Cloud plus the compute floor plus the denylist do the job a name list
+    #: did, without having to be kept up to date. Set it only to pin a deployment to specific
+    #: cards.
+    gpu_allowlist: tuple = ()
 
     #: No contact and no lease for this long, and the reaper takes it.
     idle_seconds: float = 600.0

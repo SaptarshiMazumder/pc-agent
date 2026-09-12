@@ -25,10 +25,28 @@ class GpuMarketplace(Protocol):
         configured" plainly instead of failing somewhere deeper."""
         ...
 
-    def search_offers(self, *, max_hourly_usd: float, min_vram_gb: int, limit: int = 20
-                      ) -> list[Offer]:
+    def search_offers(
+        self,
+        *,
+        max_hourly_usd: float,
+        min_vram_gb: int,
+        limit: int = 20,
+        min_reliability: float = 0.0,
+        min_cuda: float = 0.0,
+        min_inet_down: int = 0,
+        gpu_allowlist: tuple = (),
+        secure_cloud_only: bool = False,
+        exclude_machines: frozenset[int] | set[int] = frozenset(),
+        min_compute_cap: int = 0,
+        gpu_denylist: tuple = (),
+        require_verified: bool = False,
+    ) -> list[Offer]:
         """Rentable machines within a price ceiling, cheapest first. The ceiling is a FILTER,
-        not a sort — "cheapest available" on a bad day is still whatever the market charges."""
+        not a sort — "cheapest available" on a bad day is still whatever the market charges.
+
+        `secure_cloud_only` restricts to the provider's datacenter tier; `exclude_machines`
+        are hosts the caller has learned not to trust (they failed to start recently). Every
+        filter is the adapter's to enforce on the RESULT as well as in the request."""
         ...
 
     def create(self, offer_id: int, *, label: str, image: str, disk_gb: int, comfy_port: int,

@@ -56,9 +56,10 @@ to transient instance state.
 2. **`comfy_probe` — intel, NOT a gate.** Connectivity + GPU/VRAM class is the one instance fact
    that *sharpens* a design; it is not a fact the design cannot proceed without. The machine you
    started in step 0 is usually still booting here, so the probe not answering is the EXPECTED
-   state, not a problem: say in one line what you are assuming (a 24 GB card from the platform's
-   allowlist, so fp8/quantised weights over full precision) and carry straight on to the
-   research sweep and `comfy_emit`. The workflow file is written from DOCUMENTATION, not from
+   state, not a problem: say in one line what you are assuming (a modern datacenter card of
+   unknown size — so fp8/quantised weights over full precision, and re-check the VRAM with
+   `comfy_probe` once it answers before committing to a 14B video model) and carry straight on
+   to the research sweep and `comfy_emit`. The workflow file is written from DOCUMENTATION, not from
    the box — that is the whole reason DESIGN comes before PROVISION.
 
    **THE INSTANCE IS THE PLATFORM'S AND NOBODY ELSE'S.** There is no URL to ask for, no setting

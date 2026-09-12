@@ -63,6 +63,11 @@ class InstanceStore(Protocol):
         """Dollars this account has run up since `since`, counting machines still running."""
         ...
 
+    def failed_machines_since(self, c: Any, since: float) -> set[int]:
+        """Machine ids of hosts that FAILED TO START since `since`, across every account — the
+        ones the next rental must skip however cheap they are."""
+        ...
+
     def record_sweep(self, c: Any, *, now: float) -> None:
         """Stamp that a reaper sweep completed — the dead-man alarm's input."""
         ...

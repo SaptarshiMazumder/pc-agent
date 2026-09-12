@@ -105,6 +105,15 @@ class InstanceService:
 
         market = self._marketplace()
         cfg = self._settings
+        # Hosts that failed to start recently, from our own ledger. Cheapest-first would rent
+        # the same dead machine straight back — it is still the cheapest, and its failure did
+        # not move its price or its provider score.
+        with self._db() as c:
+            excluded = (
+                self._store.failed_machines_since(c, now - cfg.failed_machine_cooldown_seconds)
+                if cfg.failed_machine_cooldown_seconds
+                else set()
+            )
         offers = market.search_offers(
             max_hourly_usd=cfg.max_hourly_usd,
             min_vram_gb=cfg.min_vram_gb,
@@ -112,11 +121,17 @@ class InstanceService:
             min_cuda=cfg.min_cuda,
             min_inet_down=cfg.min_inet_down,
             gpu_allowlist=cfg.gpu_allowlist,
+            secure_cloud_only=cfg.secure_cloud_only,
+            exclude_machines=excluded,
+            min_compute_cap=cfg.min_compute_cap,
+            gpu_denylist=cfg.gpu_denylist,
+            require_verified=cfg.require_verified,
         )
         if not offers:
+            tier = "Secure Cloud (datacenter) machine" if cfg.secure_cloud_only else "machine"
+            vram = f" with {cfg.min_vram_gb}GB+ VRAM" if cfg.min_vram_gb else ""
             raise NoOfferAvailable(
-                f"no machine with {cfg.min_vram_gb}GB+ VRAM at or below "
-                f"${cfg.max_hourly_usd:.2f}/hr right now"
+                f"no {tier}{vram} at or below ${cfg.max_hourly_usd:.2f}/hr right now"
             )
         # THE FIRST CANDIDATE IS THE ONE MOST LIKELY TO BE GONE. The list is cheapest-first, and
         # the cheapest listing is exactly what every other buyer is about to take, so on a busy
