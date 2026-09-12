@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import type { StudioState } from './useStudioState'
+import { useGpuWarmup } from './useGpuWarmup'
 import { useInstanceProbe } from './useInstanceProbe'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
@@ -31,6 +32,11 @@ function ago(ts: number): string {
 }
 
 function InstanceChip({ state, client }: { state: StudioState; client?: AgentdClient }) {
+  // START THE MACHINE THE MOMENT THE WINDOW OPENS. A cold GPU takes minutes to become
+  // reachable, and those minutes otherwise land when the user is waiting on the agent. This
+  // moves the wait into the part of the session they spend reading a plan. Idempotent per
+  // account, so several windows produce one rental — see useGpuWarmup.
+  const gpu = useGpuWarmup(client)
   const probe = useInstanceProbe(client)
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -71,9 +77,14 @@ function InstanceChip({ state, client }: { state: StudioState; client?: AgentdCl
             ? 'testing…'
             : probe.state === 'live'
               ? 'instance'
-              : probe.state === 'down'
-                ? 'no instance'
-                : 'instance'}
+              : // A GPU still coming up is NOT "no instance" — saying so invites the user to go
+                // looking for a problem that is a boot in progress. It is the honest label for
+                // the first few minutes of every session now that the machine is pre-warmed.
+                gpu.state === 'starting'
+                ? 'starting GPU…'
+                : probe.state === 'down'
+                  ? 'no instance'
+                  : 'instance'}
         </span>
       </button>
 

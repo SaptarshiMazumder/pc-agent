@@ -303,8 +303,15 @@ class ComfyInventoryTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         import studio_state
 
-        if not studio_state.has_emitted():
-            return ToolResult.text(_INVENTORY_TOO_EARLY, is_error=True)
+        # THE GATE IS FOR THE AGENT'S REASONING, NOT THE WINDOW'S PANEL. A `tools.invoke` from
+        # the app is a person looking at a dashboard, not a model choosing what to build around,
+        # and it runs under a different session key — so the emit marker would never be set and
+        # the instance panel's model list would be refused forever.
+        from agent_runtime.application.run_context import current_run_context
+
+        if not getattr(current_run_context(), "direct_invoke", False):
+            if not studio_state.has_emitted():
+                return ToolResult.text(_INVENTORY_TOO_EARLY, is_error=True)
         try:
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
