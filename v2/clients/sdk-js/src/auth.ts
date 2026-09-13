@@ -15,7 +15,7 @@
  */
 
 import type { AgentdClient } from './client'
-import { authUrl, fetchToken, forgetIdentityCache, identity } from './identity'
+import { authUrl, forgetIdentityCache, identity } from './identity'
 import { platformStatus, type DaemonOptions } from './platform-status'
 import { loadMode, saveMode, type RunMode } from './session'
 
@@ -43,8 +43,14 @@ export interface AuthOptions extends DaemonOptions {
 export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
   const status = await platformStatus(opts)
   const canUseCloud = !!status.canUseCloud
-  // The runtime's answer, not a stored session's: a window has nothing of its own to consult.
-  const tok = await fetchToken(opts)
+  // THROUGH THE FETCHER, NOT A RAW READ. This used to call fetchToken() directly, so every hook
+  // that asked — the gate, useAuth, credits, orgs, the artifact rail — was its own round trip to
+  // /auth/refresh: bursts of four or five a second after a sign-in, enough to empty the accounts
+  // service's per-IP budget and turn the user's next password attempt into "too many attempts".
+  // The fetcher is single-flight and cached in memory only; forget() at sign-in/sign-out keeps
+  // it honest, and its signature comparison is where "this is a different person" is decided —
+  // so reading through it is also what makes that decision fire on every status read.
+  const tok = await identity(opts).state()
   const signedIn = tok.state === 'ok'
   return {
     available: !!String(status.accountsUrl || ''),

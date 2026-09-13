@@ -601,7 +601,7 @@ function fromPage(options = {}) {
 async function authStatus(opts = {}) {
   const status = await platformStatus(opts);
   const canUseCloud = !!status.canUseCloud;
-  const tok = await fetchToken(opts);
+  const tok = await identity(opts).state();
   const signedIn = tok.state === "ok";
   return {
     available: !!String(status.accountsUrl || ""),

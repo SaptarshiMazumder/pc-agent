@@ -128,6 +128,19 @@ def build_auth_router(
         if rate_limit is not None:
             rate_limit(request)
 
+    def _guard_unmetered(request: Request) -> None:
+        """Availability only — NO brute-force budget. For the routes that present a TOKEN rather
+        than a credential: a refresh token is a 256-bit secret nobody guesses at 30 tries a minute,
+        and a logout revokes what it presents. Metering them was actively harmful: every window
+        renews its identity through /refresh — several times per sign-in, once per hook that asks —
+        so a user's own window emptied the per-IP budget and their next PASSWORD attempt got
+        "too many attempts". The budget now guards the two routes a password actually reaches."""
+        if not available():
+            raise HTTPException(
+                status_code=501,
+                detail="token auth is not configured on this deployment (AGENTD_AUTH_ISSUER unset)",
+            )
+
     # EVERY HANDLER PUTS ITS try/except OUTSIDE `with make_service()`, and that is not a style
     # preference. The factory owns the transaction, so it has to SEE the domain exception to
     # decide whether the request's writes survive. Catching inside the `with` converts the
@@ -179,7 +192,7 @@ def build_auth_router(
 
     @router.post("/refresh")
     def refresh(request: Request, response: Response, payload: dict = Body(...)) -> dict:
-        _guard(request)
+        _guard_unmetered(request)  # a token, not a guess — see _guard_unmetered
         token = str(payload.get("refresh_token") or "")
         # Cookie mode: the body carries no token because the browser was never allowed to see
         # one. The cookie IS the session; rotation re-sets it below.
@@ -237,7 +250,7 @@ def build_auth_router(
 
     @router.post("/logout")
     def logout(request: Request, response: Response, payload: dict = Body(default={})) -> dict:
-        _guard(request)
+        _guard_unmetered(request)  # revokes what it presents; nothing to brute-force
         token = str((payload or {}).get("refresh_token") or "") or str(
             request.cookies.get(COOKIE_NAME) or ""
         )
