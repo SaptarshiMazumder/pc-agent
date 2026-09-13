@@ -67,10 +67,15 @@ export function ReferenceMedia({
           image exist and they do opposite things: this button feeds the WORKFLOW (the person,
           the garment, a start frame — uploaded to the workspace, never a model call); the chat
           box feeds the MODEL's eyes (judge a render, "what's wrong here"). People used the chat
-          for references and got a workflow built around a placeholder. */}
+          for references and got a workflow built around a placeholder.
+
+          SHORT ON PURPOSE. The longer version explained the whole mechanism and read as a
+          paragraph of small print above the composer — which is the one place on the screen
+          where nobody is reading paragraphs. Two sentences: what this button is for, and the
+          mistake it exists to stop. */}
       <span className="refmedia-note">
-        Reference images and videos <b>for generation</b> go here — select several at once.
-        Images pasted or dropped into the chat are only looked at, never generated from.
+        Add media to be used as references from here. Images in the chat don’t get used in the
+        video or image generation.
       </span>
       <input
         ref={pickRef}

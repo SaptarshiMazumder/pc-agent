@@ -74,7 +74,14 @@
 
 .st-convo-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .st-convo-body .opening { padding: 22px 18px; }
-.st-convo-foot { flex: none; border-top: 1px solid var(--border); padding: 12px 14px; }
+/* ONE LEFT EDGE FOR EVERYTHING IN THE FOOT. The inset used to be split between here (14px) and
+   the composer's own wrapper (26px), so the reference-media block started 26px to the LEFT of
+   the composer it belongs to. Holding the inset at this level instead means both children begin
+   at the same place by construction rather than by two numbers someone has to keep equal.
+   Scoped to the studio foot: `.composer-wrap` is shared with other surfaces that want their own
+   padding (see `.stage-main > .composer-wrap`). */
+.st-convo-foot { flex: none; border-top: 1px solid var(--border); padding: 12px 26px; }
+.st-convo-foot .composer-wrap { padding-inline: 0; }
 
 /* ── the file explorer ────────────────────────────────────────────────────────────────────── */
 /* Rows, not cards. A card has to fit a name into a fixed box and ellipsises what will not go —
@@ -172,9 +179,19 @@
 
 /* Reference media — a quiet chip above the composer. Distinct from the composer's own attach
    button on purpose: this sends INPUT to the workflow, not context to the model. */
-.refmedia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
-.refmedia-note { flex: 1 1 260px; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
-.refmedia-note b { font-weight: var(--fw-semi, 600); color: var(--text); }
+/* A COLUMN, NOT A WRAPPING ROW. The note used to be `flex: 1 1 260px` beside the button, so it
+   took whatever width was left over — and this column is USER-RESIZABLE, which means "whatever
+   is left over" is a different shape every time somebody drags the handle: the text ran to the
+   far edge, sat vertically centred against a pill it did not line up with, and at some widths
+   wrapped to a second row that left the button stranded. Stacked, it is the same layout at
+   every width, and the button keeps its own line directly above the composer it belongs to. */
+/* THE SAME BOX AS THE COMPOSER. `.composer` is capped at 720px and centred in whatever the foot
+   gives it, so a block that merely sat flush left drifted out of line the moment the column was
+   dragged wider than that cap. Matching the cap and the centring keeps the two sharing an edge
+   at every width, which is the only way this stays aligned in a column the user can resize. */
+.refmedia { display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  width: 100%; max-width: 720px; margin: 0 auto 8px; }
+.refmedia-note { font-size: 11.5px; line-height: 1.4; color: var(--faint); text-wrap: pretty; }
 .refmedia-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
   border: 1px dashed var(--border); border-radius: 999px; background: transparent;
   color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; transition: all .12s; }
