@@ -215,9 +215,13 @@ class _NoInstance:
         return {}
 
 
-#: The platform, by NAME — the host substitutes it, as vast-bridge does. Only leases go here.
+#: The platform, by NAME — the host substitutes both, as vast-bridge does: the address, and the
+#: credential (the internal key on a hosted daemon, the signed-in person's token on a desktop).
+#: Leases, the credit check and the debit all go here — NOT through `accounts.api_base()`, which
+#: is daemon-process state and reads as empty inside a sandbox: the debit that used it returned
+#: "charged" without charging anyone, on every paid run, on the web.
 _ACCOUNTS = "${AGENTD_ACCOUNTS_URL}"
-_INTERNAL = {"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"}
+_AUTH = {"Authorization": "Bearer ${AGENTD_PLATFORM_TOKEN}"}
 
 
 def _lease(seconds: int) -> None:
@@ -233,7 +237,7 @@ def _lease(seconds: int) -> None:
         f"{_ACCOUNTS}/vast/heartbeat",
         method="POST",
         json={"account_id": account_id, "lease_seconds": int(seconds)},
-        headers=_INTERNAL,
+        headers=_AUTH,
         timeout_s=15.0,
     )
 
@@ -981,19 +985,14 @@ def _charge(credits: int, note: str) -> tuple[bool, str]:
     ~140 credits, two orders of magnitude larger, so the gate is what does the real work here and
     this is only the settlement.
     """
-    from agent_runtime.infrastructure import accounts
-
-    account_id = accounts.account_id()
+    account_id = current_account_id()
     if not account_id or credits <= 0:
         return True, ""
-    base = (accounts.api_base() or "").rstrip("/")
-    if not base:
-        return True, ""
     res = fetch(
-        f"{base}/debit",
+        f"{_ACCOUNTS}/debit",
         method="POST",
         json={"account_id": account_id, "credits": int(credits), "agent_id": "comfy-artchitect"},
-        headers={"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"},
+        headers=_AUTH,
         timeout_s=30.0,
     )
     if res.ok:
@@ -1007,15 +1006,12 @@ def _affordable(credits: int) -> tuple[bool, str]:
     THE GATE THAT ACTUALLY BITES. Fails OPEN when the balance cannot be read — an accounts blip
     must not block a user who has paid, and the settlement below still records the spend.
     """
-    from agent_runtime.infrastructure import accounts
-
-    account_id = accounts.account_id()
-    base = (accounts.api_base() or "").rstrip("/")
-    if not account_id or not base or credits <= 0:
+    account_id = current_account_id()
+    if not account_id or credits <= 0:
         return True, ""
     res = fetch(
-        f"{base}/budget/{account_id}",
-        headers={"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"},
+        f"{_ACCOUNTS}/budget/{account_id}",
+        headers=_AUTH,
         timeout_s=20.0,
     )
     if not res.ok:

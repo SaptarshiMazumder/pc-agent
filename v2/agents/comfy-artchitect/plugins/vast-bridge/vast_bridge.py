@@ -43,9 +43,11 @@ _CONN_FILE = ".studio/connection.json"
 
 
 #: THE CREDENTIAL AS A NAME, NOT A VALUE. The host substitutes this at the moment the request
-#: leaves, so this plugin cannot read the key, keep it, or send it anywhere else — the same rule
-#: comfy-bridge's tokens follow. Declared in plugin.toml under [sandbox] secrets.
-_INTERNAL = {"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"}
+#: leaves, so this plugin cannot read it, keep it, or send it anywhere else — the same rule
+#: comfy-bridge's tokens follow. Declared in plugin.toml under [sandbox] secrets. What the name
+#: resolves to is the host's business: the internal service key on a hosted daemon, the
+#: signed-in person's own token on a desktop one — the platform accepts either as a bearer.
+_AUTH = {"Authorization": "Bearer ${AGENTD_PLATFORM_TOKEN}"}
 
 
 #: The platform's address, as a NAME the host folds in. Declared in plugin.toml's [sandbox] net,
@@ -100,7 +102,7 @@ def _call(path: str, body: dict | None, method: str = "POST") -> dict:
     plugins are sandboxed and never get a socket, so a private http client works on the author's
     machine and fails for everyone else. It also substitutes the `${…}` credential above.
     """
-    res = fetch(f"{_BASE}{path}", method=method, json=body, headers=_INTERNAL, timeout_s=60.0)
+    res = fetch(f"{_BASE}{path}", method=method, json=body, headers=_AUTH, timeout_s=60.0)
     if not res.ok:
         detail = ""
         if res.text.strip():

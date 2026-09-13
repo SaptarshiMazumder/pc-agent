@@ -50,15 +50,18 @@ def build_router(
     db: Callable[[], AbstractContextManager[Any]],
     now: Callable[[], float],
     require_internal: Callable[[str | None], bool],
+    resolve_bearer: Callable[[str], str | None],
 ):
     """The /vast/* routes, wired and ready to mount.
 
-    `require_internal` is the host's own answer to "is this caller trusted" — passed in rather
-    than re-implemented, so this module cannot disagree with the service it is mounted in about
-    who is allowed to spend money.
+    `require_internal` is the host's own answer to "is this caller trusted", and
+    `resolve_bearer` its answer to "whose access token is this" — both passed in rather than
+    re-implemented, so this module cannot disagree with the service it is mounted in about who
+    is allowed to spend money.
     """
     return build_vast_router(
         service=build_service(db=db, now=now),
         reaper=build_reaper(db=db, now=now),
         require_internal=require_internal,
+        resolve_bearer=resolve_bearer,
     )

@@ -45,42 +45,63 @@ def build_vast_router(
     service: InstanceService,
     reaper: InstanceReaper,
     require_internal: Callable[[str | None], bool],
+    resolve_bearer: Callable[[str], str | None],
 ) -> APIRouter:
     router = APIRouter()
 
-    def _guard(key: str | None) -> None:
-        if not require_internal(key):
-            raise HTTPException(status_code=401, detail="internal key required")
+    def _bearer_of(authorization: str | None) -> str:
+        a = (authorization or "").strip()
+        return a[len("Bearer "):].strip() if a.startswith("Bearer ") else ""
+
+    def _claimed(payload: dict) -> str:
+        return str((payload or {}).get("account_id") or "").strip()
+
+    def _caller(x_internal_key: str | None, authorization: str | None, claimed: str) -> str:
+        """WHO IS SPENDING. Two kinds of caller, one rule each:
+
+          * trusted infra — the internal key, as a header or as the bearer — speaks for any
+            account it NAMES (`account_id` in the payload or the path), as it always has;
+          * a person — their own access token as the bearer — speaks for themselves only. The
+            account is the token's; a payload or path naming somebody else is refused.
+
+        The second kind is what lets a DESKTOP daemon, which holds no server secret and must
+        not, rent a machine for the person signed in to it. Resolution of the token is the
+        host's (`resolve_bearer`), the same check its other user-facing routes use.
+        """
         if not service.configured:
-            # No credentials on this deployment. Say so plainly rather than failing deeper —
-            # desktop and local dev land here, and "not configured" is the honest answer.
-            #
-            # 501, NOT 503. 503 is this router's word for "temporary — ask again in a minute"
-            # (no offer this minute, the platform at its machine limit), and the window now
-            # polls on it. A deployment with no key would poll forever. 501 Not Implemented is
-            # what this is: the feature does not exist on this server.
+            # No credentials on this deployment. 501, NOT 503: 503 is this router's word for
+            # "temporary — ask again in a minute", and the window polls on it. A deployment
+            # with no key would poll forever. 501 is what this is: the feature does not exist
+            # on this server.
             raise HTTPException(
                 status_code=501, detail="GPU renting is not configured on this deployment"
             )
-
-    def _account(payload: dict) -> str:
-        account_id = str(payload.get("account_id") or "").strip()
-        if not account_id:
-            raise HTTPException(status_code=400, detail="account_id required")
-        return account_id
+        bearer = _bearer_of(authorization)
+        if require_internal(x_internal_key) or (bearer and require_internal(bearer)):
+            if not claimed:
+                raise HTTPException(status_code=400, detail="account_id required")
+            return claimed
+        if not bearer:
+            raise HTTPException(status_code=401, detail="internal key or bearer token required")
+        account = resolve_bearer(bearer) or ""
+        if not account:
+            raise HTTPException(status_code=401, detail="invalid or expired token")
+        if claimed and claimed != account:
+            raise HTTPException(status_code=403, detail="not your account")
+        return account
 
     @router.post("/vast/ensure")
     def ensure(
-        payload: dict = Body(default={}), x_internal_key: str | None = Header(default=None)
+        payload: dict = Body(default={}),
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> dict:
         """This account's instance, renting one if it has none. Safe to call repeatedly, and
         never blocks on the boot — poll it."""
-        _guard(x_internal_key)
+        account = _caller(x_internal_key, authorization, _claimed(payload))
         try:
-            return _view(service.ensure(_account(payload)))
+            return _view(service.ensure(account))
         except BudgetExhausted as e:
-            # 402 Payment Required, and the code matters: this is the one refusal here that a
-            # retry will never fix, so it must not look like the transient ones below.
             raise HTTPException(status_code=402, detail=str(e)) from e
         except CapacityFull as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
@@ -92,48 +113,58 @@ def build_vast_router(
 
     @router.post("/vast/heartbeat")
     def heartbeat(
-        payload: dict = Body(default={}), x_internal_key: str | None = Header(default=None)
+        payload: dict = Body(default={}),
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> dict:
         """"Still using it." `lease_seconds` covers a submitted render, so a long job is not
         mistaken for an abandoned one; it is capped by the service."""
-        _guard(x_internal_key)
-        alive, row = service.heartbeat(
-            _account(payload), float(payload.get("lease_seconds") or 0.0)
-        )
+        account = _caller(x_internal_key, authorization, _claimed(payload))
+        alive, row = service.heartbeat(account, float(payload.get("lease_seconds") or 0.0))
         return {"alive": alive, **_view(row)}
 
     @router.post("/vast/idle")
     def idle(
-        payload: dict = Body(default={}), x_internal_key: str | None = Header(default=None)
+        payload: dict = Body(default={}),
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> dict:
         """"Nobody is here." The daemon says so when an account's last window disconnects and
         when a run ends with no window watching; the reaper then counts ten minutes from the
         last real contact and does not let the box argue."""
-        _guard(x_internal_key)
-        marked, row = service.idle(_account(payload))
+        account = _caller(x_internal_key, authorization, _claimed(payload))
+        marked, row = service.idle(account)
         return {"idle": marked, **_view(row)}
 
     @router.get("/vast/status/{account_id}")
-    def status(account_id: str, x_internal_key: str | None = Header(default=None)) -> dict:
-        _guard(x_internal_key)
-        return _view(service.status(account_id))
+    def status(
+        account_id: str,
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict:
+        account = _caller(x_internal_key, authorization, account_id)
+        return _view(service.status(account))
 
     @router.post("/vast/release")
     def release(
-        payload: dict = Body(default={}), x_internal_key: str | None = Header(default=None)
+        payload: dict = Body(default={}),
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> dict:
         """Give the machine back now rather than waiting for the idle sweep."""
-        _guard(x_internal_key)
-        released = service.release(_account(payload), reason="released by user")
+        account = _caller(x_internal_key, authorization, _claimed(payload))
+        released = service.release(account, reason="released by user")
         return {"released": released, **_view(None)}
 
     @router.get("/vast/spend/{account_id}")
-    def spend(account_id: str, x_internal_key: str | None = Header(default=None)) -> dict:
+    def spend(
+        account_id: str,
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict:
         """What this account has spent on GPUs this month, and what is left."""
-        _guard(x_internal_key)
-        return service.spend_this_month(account_id)
-
-    # ------------------------------------------------------------------ the clock
+        account = _caller(x_internal_key, authorization, account_id)
+        return service.spend_this_month(account)
 
     @router.post("/vast/reap")
     def reap(x_internal_key: str | None = Header(default=None)) -> dict:

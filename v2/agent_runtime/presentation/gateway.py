@@ -1132,6 +1132,10 @@ class Gateway:
     #: ws -> account id, for the one question the disconnect path asks: was that the account's
     #: LAST window? If so the platform is told nobody is using its GPU (see _client_left).
     client_accounts: dict = field(default_factory=dict)
+    #: ws -> that account's session token, kept beside the id for the same one caller: when
+    #: the socket has closed there is no current account left to speak as, and on a desktop
+    #: daemon the token IS how the platform is spoken to (see accounts.platform_token).
+    client_tokens: dict = field(default_factory=dict)
     # global in-flight cap for public tools.invoke (created lazily on the running loop)
     _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
@@ -2910,6 +2914,7 @@ class Gateway:
             )
         )
         self.client_accounts[ws] = str((account or {}).get("account_id") or "")
+        self.client_tokens[ws] = str((account or {}).get("session_token") or "")
         if account is not None:
             log.info(
                 "connection %s authorized: account=%s <%s>",
@@ -2949,6 +2954,7 @@ class Gateway:
                             accounts.org_ids_from(account),
                         )
                         self.client_accounts[ws] = str((account or {}).get("account_id") or "")
+                        self.client_tokens[ws] = str((account or {}).get("session_token") or "")
                         await ws.send(dump_frame(response))
                         continue
                     response = await self._dispatch(frame, client_id, scope, public, account)
@@ -2963,6 +2969,7 @@ class Gateway:
             self.client_public.discard(ws)
             self.client_identities.pop(ws, None)
             left_account = self.client_accounts.pop(ws, "")
+            left_token = self.client_tokens.pop(ws, "")
             # WHO HUNG UP, BY THE WIRE'S OWN WORD. Every mystery mid-run death of 2026-08-29
             # started as an unexplained disconnect; the close code says whether the client
             # closed (1000/1001), the daemon's keepalive gave up on a frozen client (1011),
@@ -2974,7 +2981,7 @@ class Gateway:
                 f", reason {ws.close_reason!r}" if getattr(ws, "close_reason", "") else "",
             )
             await self._detach_client_runs(client_id)
-            self._client_left(left_account)
+            self._client_left(left_account, left_token)
 
     async def _auth_update(self, req: Request, current: dict | None) -> tuple[dict | None, Response]:
         """Swap this connection's access token in place — no reconnect, no dropped run.
@@ -6869,7 +6876,7 @@ class Gateway:
         self._gpu_keepalive_at[account_id] = now
         asyncio.create_task(accounts.gpu_heartbeat(account_id))
 
-    def _client_left(self, account_id: str) -> None:
+    def _client_left(self, account_id: str, token: str = "") -> None:
         """A socket closed, or a run ended with nobody watching. If no window of this account is
         connected any more, tell the platform nobody is using its GPU: the lease is dropped and
         the box's own busy report stops counting, so ten quiet minutes later the machine is
@@ -6880,7 +6887,7 @@ class Gateway:
         still here, and nothing is said."""
         if not account_id or any(a == account_id for a in self.client_accounts.values()):
             return
-        asyncio.create_task(accounts.gpu_idle(account_id))
+        asyncio.create_task(accounts.gpu_idle(account_id, token))
 
     def _session_running(self, row: dict) -> bool:
         """Is there a live run on this session right now? For the rail: a reloaded window has
@@ -7127,7 +7134,10 @@ class Gateway:
             # account's behalf; with them gone and no window to say otherwise, the platform is
             # told, and ten quiet minutes later the machine is destroyed instead of thirty.
             if handle.detached_at is not None:
-                self._client_left(str((account or {}).get("account_id") or ""))
+                self._client_left(
+                    str((account or {}).get("account_id") or ""),
+                    str((account or {}).get("session_token") or ""),
+                )
             # A TURN THAT ENDED ON A CHECKPOINT IS STAMPED — the mechanism behind "nothing runs
             # before the user has answered". Only a turn that ended normally: an aborted or
             # crashed one asked nobody anything. Best-effort, like the file it writes.

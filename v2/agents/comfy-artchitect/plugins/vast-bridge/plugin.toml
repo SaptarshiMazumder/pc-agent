@@ -20,10 +20,11 @@ description = "Start or reuse the ComfyUI GPU this user is entitled to, and hand
 # `net` is empty because the one address this plugin reaches — the daemon's own accounts service
 # — comes from daemon config, not from a setting an agent could name.
 #
-# The internal key is DECLARED, never held: the host substitutes `${AGENTD_ACCOUNTS_INTERNAL_KEY}`
-# into the outgoing request, so this code cannot read the value or send it anywhere else.
+# The credential is DECLARED, never held: the host substitutes `${AGENTD_PLATFORM_TOKEN}` into
+# the outgoing request — the internal service key on a hosted daemon, the signed-in person's own
+# token on a desktop one — so this code cannot read the value or send it anywhere else.
 # BOTH ARE NAMES, NEVER VALUES. The host folds ${AGENTD_ACCOUNTS_URL} into the URL and
 # substitutes the key into the header at the moment the request leaves, so this plugin stays
 # UNTRUSTED and sandboxed: it knows where it is going only in the sense that it named a setting.
 net     = ["${AGENTD_ACCOUNTS_URL}"]
-secrets = ["AGENTD_ACCOUNTS_INTERNAL_KEY"]
+secrets = ["AGENTD_PLATFORM_TOKEN"]

@@ -1058,6 +1058,17 @@ def _require_internal(x_internal_key: str | None) -> bool:
 
 
 
+def _account_id_for_bearer(token: str) -> str | None:
+    """A person's access token -> their account id, or None. The GPU router's answer to "whose
+    token is this" — the same check `/resolve` and `/budget` make, handed over as a function so
+    the vast module never touches this service's tables."""
+    try:
+        with _db() as c:
+            return str(_account_for_token(c, token)["id"])
+    except HTTPException:
+        return None
+
+
 @app.get("/budget/{account_id}")
 def budget(
     account_id: str,
@@ -1296,7 +1307,11 @@ def my_credits(
 
 
 @app.post("/debit")
-def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default=None)) -> dict:
+def debit(
+    payload: dict = Body(...),
+    x_internal_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
     """Consume credits. HARD STOP: never goes negative, never partially debits.
 
     No overdraft is not a policy choice, it is what makes the whole model work. Because the
@@ -1304,8 +1319,17 @@ def debit(payload: dict = Body(...), x_internal_key: str | None = Header(default
     is what allows paying a creator immediately while inference is still to come. Allow an
     overdraft and one heavy user erases the margin from twenty others.
     """
+    # TRUSTED INFRA DEBITS ANYONE IT NAMES; A PERSON DEBITS ONLY THEMSELVES. The second path is
+    # the desktop daemon settling a paid ComfyUI run for the account signed in to it — a debit
+    # someone could only ever aim at their own balance.
     if not _require_internal(x_internal_key):
-        raise HTTPException(status_code=401, detail="internal key required")
+        token = _bearer(authorization)
+        with _db() as c:
+            own = str(_account_for_token(c, token)["id"])
+        claimed = (payload.get("account_id") or "").strip()
+        if claimed and claimed != own:
+            raise HTTPException(status_code=403, detail="not your account")
+        payload = {**payload, "account_id": own}
     account_id = (payload.get("account_id") or "").strip()
     credits = max(0, int(payload.get("credits") or 0))
     agent_id = (payload.get("agent_id") or "").strip()
@@ -2413,7 +2437,9 @@ app.include_router(
 )
 
 app.include_router(
-    vast.build_router(db=_db, now=_now, require_internal=_require_internal)
+    vast.build_router(
+        db=_db, now=_now, require_internal=_require_internal, resolve_bearer=_account_id_for_bearer
+    )
 )
 
 app.include_router(

@@ -289,7 +289,23 @@ class SandboxFetchBroker:
         """
         from agent_runtime.application.run_context import current_setting_value
 
-        return current_setting_value(name) or self._from_config(name) or ""
+        value = current_setting_value(name) or self._from_config(name) or ""
+        if value:
+            return value
+        # THE PLATFORM'S OWN TWO NAMES, answered by the host when nothing else does. A desktop
+        # daemon has no AGENTD_ACCOUNTS_URL in its environment and no server key at all — but it
+        # knows where the platform is (it signed in there) and who is signed in. So a plugin
+        # that names the platform reaches it, on the desktop as the person, on the web as the
+        # daemon. Resolved here, at the moment the request leaves, and nowhere the plugin can see.
+        if name == "AGENTD_ACCOUNTS_URL":
+            from agent_runtime.infrastructure import accounts
+
+            return accounts.api_base() or ""
+        if name == "AGENTD_PLATFORM_TOKEN":
+            from agent_runtime.infrastructure import accounts
+
+            return accounts.platform_token()
+        return ""
 
     def _resolve_url(self, url: str) -> str:
         """Substitute the settings a plugin may use in a URL, BEFORE anything is checked.

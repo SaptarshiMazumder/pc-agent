@@ -332,6 +332,19 @@ async def resolve(token: str) -> dict | None:
     return acc
 
 
+def platform_token() -> str:
+    """THE ONE CREDENTIAL A PLUGIN MAY SEND THE PLATFORM, by the name AGENTD_PLATFORM_TOKEN: the
+    internal service key when this daemon is trusted infra (hosted), else the CURRENT account's
+    own session token (desktop — the person signed in to this daemon, spending their own
+    credits, renting for themselves). "" when neither exists. The value is resolved host-side
+    by the sandbox broker at the moment a request leaves; the plugin only ever holds the name."""
+    internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
+    if internal:
+        return internal
+    acc = current_account.get()
+    return str((acc or {}).get("session_token") or "")
+
+
 def _auth_headers() -> dict:
     """Credential for authenticated accounts-service calls: the internal service key when this
     daemon is trusted infra (AGENTD_ACCOUNTS_INTERNAL_KEY set), else the CURRENT account's own
@@ -420,29 +433,34 @@ async def gpu_heartbeat(acct_id: str) -> bool:
     return bool(answer.get("alive")) if answer else False
 
 
-async def gpu_idle(acct_id: str) -> bool:
+async def gpu_idle(acct_id: str, token: str = "") -> bool:
     """Tell the platform NOBODY is using this account's rented GPU: its last window has gone
     (a sign-out ends with the socket dropping; so does a closed tab) or its run ended with no
     window watching. The platform drops the lease and stops letting the box argue; ten quiet
     minutes later the machine is destroyed instead of thirty. The next heartbeat cancels it, so
     a reload that comes straight back costs nothing. Same silence rules as gpu_heartbeat."""
-    answer = await _gpu_post("/vast/idle", acct_id, {})
+    answer = await _gpu_post("/vast/idle", acct_id, {}, token=token)
     return bool(answer.get("idle")) if answer else False
 
 
-async def _gpu_post(path: str, acct_id: str, body: dict) -> dict | None:
-    """One internal-key POST to the GPU service. Best-effort, never raises: None when it was
-    not sent or not answered with 200 — the callers are keepalives, and a platform blip must
-    never become a run failure."""
+async def _gpu_post(path: str, acct_id: str, body: dict, token: str = "") -> dict | None:
+    """One POST to the GPU service as whoever this daemon is: the internal key (hosted), else
+    the account's own session token — `token` when the caller still holds one (a socket that
+    just closed has no current account any more), else the current account's. Best-effort,
+    never raises: None when it was not sent or not answered with 200 — the callers are
+    keepalives, and a platform blip must never become a run failure."""
     if path in _gpu_unavailable or not _enabled or not acct_id or _client is None:
         return None
     internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
-    if not internal:
+    bearer = token or platform_token()
+    if internal:
+        headers = {"X-Internal-Key": internal}
+    elif bearer:
+        headers = {"Authorization": f"Bearer {bearer}"}
+    else:
         return None
     try:
-        r = await _client.post(
-            path, headers={"X-Internal-Key": internal}, json={"account_id": acct_id, **body}
-        )
+        r = await _client.post(path, headers=headers, json={"account_id": acct_id, **body})
         if r.status_code == 200:
             return dict(r.json() or {})
         if r.status_code in (404, 501):
