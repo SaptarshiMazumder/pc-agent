@@ -152,6 +152,7 @@ var TokenFetcher = class {
   forget() {
     this.answer = null;
     this.inflight = null;
+    if (typeof window !== "undefined") void this.state();
   }
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
    *  need to know WHY ask `state()`. */

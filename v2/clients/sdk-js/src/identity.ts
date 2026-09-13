@@ -168,6 +168,14 @@ class TokenFetcher {
   forget(): void {
     this.answer = null
     this.inflight = null
+    // AND RE-RESOLVE NOW. Forgetting alone only helps whoever asks NEXT — and on a hosted window
+    // nobody does: authStatus reads the token directly, the daemon has no runtime session to
+    // broadcast `auth.changed` for, so a sign-out left the identity listeners silent, the gate
+    // never re-probed, and the page kept the previous person's state. The re-read below is what
+    // makes a credential change visible: `state()` compares the new answer's signature with the
+    // old one and fires the listeners — and, after boot, starts the page over. Browser only; a
+    // test or a script that forgets a cache has no page to move.
+    if (typeof window !== 'undefined') void this.state()
   }
 
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
