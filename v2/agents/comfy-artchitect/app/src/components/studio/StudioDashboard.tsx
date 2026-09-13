@@ -23,7 +23,6 @@ import type { AgentdClient } from '@agentd/client'
 import type { GpuWarmup } from './useGpuWarmup'
 
 import type { Artifact } from '../../agentd/artifacts'
-import { useChatReferences } from '../../agentd/references'
 import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
@@ -55,23 +54,15 @@ export function StudioDashboard({
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
 
-  // THE REFERENCES THIS CHAT ADDED, beside what the agent made. Inputs and outputs are one
-  // subject to the person looking — "what did it have, what did it make" — and the tree already
-  // keys on the path, so `references/` simply appears as a folder next to `workflows/`.
-  const currentKey = useApp((s) => s.currentSessionKey)
-  const referencesVersion = useApp((s) => s.referencesVersion)
-  const references = useChatReferences(client, currentKey, referencesVersion)
-  const files = useMemo(() => {
-    const seen = new Set(artifacts.map((a) => a.path))
-    return [...artifacts, ...references.filter((r) => !seen.has(r.path))]
-  }, [artifacts, references])
+  // `artifacts` is the chat's ONE merged list — what the thread declared plus what the chat's
+  // folders hold on disk (App.tsx, agentd/workspace-files.ts). This pane only shows it.
 
   // SELECT BY PATH, RESOLVE BY LOOKUP. Holding the Artifact object itself would pin a stale copy:
   // the same file is re-declared as later turns touch it (a size arrives, a render finishes), and
   // the pane would keep showing the first version it was handed.
   const selected = useMemo(
-    () => files.find((a) => a.path === selectedPath) || null,
-    [files, selectedPath],
+    () => artifacts.find((a) => a.path === selectedPath) || null,
+    [artifacts, selectedPath],
   )
 
   // NOTHING OPENS BY ITSELF. The pane is a response to a click and only that — no auto-open, no
@@ -89,8 +80,8 @@ export function StudioDashboard({
   // chat's files, so switching conversations can leave a path selected that belongs to another —
   // and the pane would then show a file the rail beside it does not list.
   useEffect(() => {
-    if (selectedPath && !files.some((a) => a.path === selectedPath)) setSelectedPath('')
-  }, [files, selectedPath, setSelectedPath])
+    if (selectedPath && !artifacts.some((a) => a.path === selectedPath)) setSelectedPath('')
+  }, [artifacts, selectedPath, setSelectedPath])
 
   return (
     <div className="st-dash">
@@ -106,7 +97,7 @@ export function StudioDashboard({
       <div className="st-body">
         <aside className="st-rail">
           <FileExplorer
-            artifacts={files}
+            artifacts={artifacts}
             selected={selected}
             onSelect={(a) => setSelectedPath(a.path)}
           />

@@ -56,6 +56,7 @@ import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
+import { mergeFiles, useChatWorkspaceFiles } from './agentd/workspace-files'
 
 import Credits from './common/credits/Credits'
 import LiveReload from './common/dev/LiveReload'
@@ -178,12 +179,19 @@ export default function App() {
       ),
     [sessions, currentKey],
   )
+  /* WHAT IS ON DISK IN THIS CHAT'S FOLDERS, beside what the thread declared. The folders are the
+     truth (agentd/workspace-files.ts): a file the agent wrote is listed because it exists, not
+     because every hop between the tool and this window agreed to mention it. One merged list,
+     made once here, feeds the file rail, the workflow shelf and the header alike. */
+  const workspaceVersion = useApp((s) => s.workspaceVersion)
+  const listed = useChatWorkspaceFiles(client ?? undefined, currentKey, workspaceVersion)
+  const files = useMemo(() => mergeFiles(artifacts, listed), [artifacts, listed])
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */
   const latestWorkflow = useMemo(() => {
-    const wf = collectWorkflows(artifacts)[0]
+    const wf = collectWorkflows(files)[0]
     return wf?.api?.name || wf?.ui?.name || ''
-  }, [artifacts])
+  }, [files])
 
   const chatSide = useApp((s) => s.chatSide)
   const chatWidth = useApp((s) => s.chatWidth)
@@ -424,7 +432,7 @@ export default function App() {
         ) : view === 'orgs' ? (
           <OrgView client={client ?? undefined} />
         ) : view === 'workflows' ? (
-          <WorkflowShelf artifacts={artifacts} />
+          <WorkflowShelf artifacts={files} />
         ) : view === 'settings' ? (
           /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
              `onRestart` too if your window can restart the daemon — some settings only take
@@ -570,7 +578,7 @@ export default function App() {
               client={client ?? undefined}
               gpu={gpu}
               running={session.running}
-              artifacts={artifacts}
+              artifacts={files}
               credits={credits}
               onCredits={() => setView('credits')}
             />

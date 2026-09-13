@@ -977,6 +977,15 @@ h2 { font-size: 16px; }
 .composer-send.ready { background: var(--prim-bg); color: var(--prim-ink); }
 .composer-send.ready:hover { background: var(--prim-bg-h); }
 .composer-send.stop { background: var(--prim-bg); color: var(--prim-ink); }
+/* STOP PRESSED, RUN NOT ENDED. Abort is a signal: the daemon kills what it can, but a tool
+   already inside a blocking call only lets go when that call returns. The button holds this
+   state until `running` actually goes false, so the wait is visible instead of looking like a
+   click that never landed. Disabled, because pressing it again does nothing but feel worse. */
+.composer-send.is-stopping { background: var(--border2); color: var(--faint); cursor: default; }
+.composer-hint .hint-stopping { color: var(--accent-text); font-weight: var(--fw-semi); }
+/* The spin animation, unscoped — `ag-spin` exists here but was only ever applied through
+   component-specific rules, so an icon anywhere else rendered motionless. */
+.ld-spin { flex: none; animation: ag-spin 1s linear infinite; }
 .composer-send.stop:hover { background: var(--prim-bg-h); }
 
 .att-limit { align-self: center; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); }

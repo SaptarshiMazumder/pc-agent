@@ -52,6 +52,7 @@ web = true
 allow = [
   "web_search", "web_fetch",
   "update_plan", "verify_answer", "show_files",
+  "ask_user",
 ]
 
 # NO [tools.fs] write_roots, and that is deliberate 窶・it is the one declaration that would break

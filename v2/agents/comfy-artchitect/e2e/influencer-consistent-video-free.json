@@ -17,10 +17,7 @@
     {
       "name": "completed"
     },
-    {
-      "name": "message_says",
-      "pattern": "```\\s*approve"
-    },
+    { "name": "tool_succeeded", "tool": "ask_user" },
     {
       "name": "tool_called",
       "tool": "comfy_emit"

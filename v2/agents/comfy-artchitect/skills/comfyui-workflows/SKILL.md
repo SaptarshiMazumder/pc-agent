@@ -228,7 +228,7 @@ for a resolution the generator cannot do natively.
 1. **Start here, then research.** The sweep confirms the pick and finds the wiring; it does not
    rediscover 2024.
 2. **Free is a choice the user makes**, not a default. "Best quality" means the top of the paid
-   column; say the credits and let the approve block decide.
+   column; say the credits and let the ask (`ask_user`) decide.
 3. **A deprecated node is a wrong node.** The search shows the successor on the same instance.
 4. **The version in the graph is the version the user approved.** Kling 2.6 is not Kling v3.
 5. **Partner nodes are researched at the source** — `docs.comfy.org/tutorials/partner-nodes/<provider>`

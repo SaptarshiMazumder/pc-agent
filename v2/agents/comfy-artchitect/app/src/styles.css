@@ -853,6 +853,12 @@ h2 { font-size: var(--fs-lead); }
 .composer-send.ready { background: var(--prim-bg); color: var(--prim-ink); }
 .composer-send.ready:hover { background: var(--prim-bg-h); }
 .composer-send.stop { background: var(--prim-bg); color: var(--prim-ink); }
+/* STOP PRESSED, RUN NOT ENDED. Abort is a signal: the daemon kills what it can, but a tool
+   already inside a blocking call only lets go when that call returns. The button holds this
+   state until `running` actually goes false, so the wait is visible instead of looking like a
+   click that never landed. Disabled, because pressing it again does nothing but feel worse. */
+.composer-send.is-stopping { background: var(--border2); color: var(--faint); cursor: default; }
+.composer-hint .hint-stopping { color: var(--accent-text); font-weight: var(--fw-semi); }
 .composer-send.stop:hover { background: var(--prim-bg-h); }
 
 .att-limit { align-self: center; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-small); color: var(--faint); }
@@ -1278,3 +1284,23 @@ h2 { font-size: var(--fs-lead); }
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
 }
+
+/* The ask (AskPanel) — `ask_user` drawn as checkboxes, answer boxes and a list, in the approve
+   panel's clothes: `.approve-row`/`.approve-go` above are shared with it. */
+.ask-title { margin: 0 0 8px; font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); text-wrap: pretty; }
+.ask-section {
+  margin: 10px 0 4px; font-size: var(--fs-tiny); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--faint);
+}
+.ask-q { display: flex; flex-direction: column; gap: 4px; padding: 6px 9px; }
+.ask-q-label { font-size: var(--fs-row); color: var(--text); text-wrap: pretty; }
+.ask-q input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  background: var(--bg3); color: var(--text);
+  border: 1px solid var(--border2); border-radius: var(--r-control);
+  font: inherit; font-size: var(--fs-control);
+}
+.ask-q input:focus { outline: none; border-color: var(--accent); }
+.ask-q input:disabled { opacity: .6; }
+.ask-wf { margin: 0; padding: 0 9px 0 26px; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-row); color: var(--text); }
+.ask-wf b { font-weight: var(--fw-semi); }

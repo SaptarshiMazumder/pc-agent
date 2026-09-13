@@ -43,7 +43,6 @@ from agent_runtime.application.services.image_thumbnail_service import (
     ImageThumbnailService,
 )
 from agent_runtime.config import Config, client_accounts_url
-from agent_runtime.domain.checkpoint import is_checkpoint_message
 from agent_runtime.infrastructure import checkpoint_marker
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
@@ -2663,6 +2662,24 @@ class Gateway:
         arts = result.get("artifacts") if isinstance(result, dict) else None
         if arts:
             event.payload["artifacts"] = arts
+
+    def _stamp_checkpoint(self, event: AgentEvent, agent_id: str | None, handle) -> None:
+        """Arm the paid gate when a CHECKPOINT TOOL returns: the tool declares itself
+        (`checkpoint = True` on its class, the way canvas tools declare `artifact_action`), so
+        nothing here knows it by name, and a refused call — an ask with no prices — arms nothing.
+        The stamp is per session in the run's workspace (checkpoint_marker), where the sandboxed
+        tools that spend money read it. Best-effort, like the file it writes."""
+        if event.type != "tool_execution_end" or (event.payload or {}).get("isError"):
+            return
+        tool = self.service.find_tool(str((event.payload or {}).get("toolName") or ""), agent_id)
+        if not getattr(tool, "checkpoint", False):
+            return
+        try:
+            checkpoint_marker.present(
+                self._resolve_workspace(agent_id), handle.session_key, handle.run_id
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("checkpoint stamp failed for %s", handle.session_key)
 
     def _presented_token(self, ws: ServerConnection) -> str:
         """The client's bearer credential: `?token=` on the connect URL (the only slot a browser
@@ -7034,10 +7051,6 @@ class Gateway:
         # the RunContext without importing infrastructure (v2/.importlinter forbids it).
         set_trace_ids(handle.run_id, "")
         _run_started = time.perf_counter()
-        # THE LAST THING THE ASSISTANT SAID this turn. Read at teardown: a turn that ends on a
-        # checkpoint message (domain/checkpoint) stamps the workspace, and the tools that spend
-        # money read the stamp. A list, because a closure cannot rebind a plain name.
-        _last_assistant_text = [""]
 
         async def on_event(event: AgentEvent) -> None:
             # PROOF OF LIFE, for the silence watchdog in `_run_watched`. Stamped on EVERY event
@@ -7045,16 +7058,6 @@ class Gateway:
             # list of "events that count" is a list that eventually omits the one a slow tool
             # emits.
             handle.last_event_at = time.monotonic()
-            if event.type == "message_end":
-                _m = (event.payload or {}).get("message") or {}
-                if isinstance(_m, dict) and _m.get("role") == "assistant":
-                    _t = "".join(
-                        str(c.get("text") or "")
-                        for c in (_m.get("content") or [])
-                        if isinstance(c, dict) and c.get("type") == "text"
-                    )
-                    if _t.strip():
-                        _last_assistant_text[0] = _t
             # A RUN PRODUCING EVENTS IS AN ACCOUNT IN USE — whatever the tool. The rented GPU's
             # idle clock only moves when something tells the platform; the agent's tools talk
             # to the instance. Once a minute per account, off the same stamp as the watchdog.
@@ -7062,6 +7065,12 @@ class Gateway:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
             self._enrich_artifacts(event)
+            # THE ASK IS A TOOL CALL, AND ITS RETURN IS THE STAMP. A tool that declares itself a
+            # checkpoint (`ask_user`) has just put a question in front of the user: stamp the
+            # conversation NOW, not at the end of the turn, so a tool that spends money later in
+            # this same turn finds "presented, unanswered" and refuses. The user's next message
+            # is the answer (see _chat_send). Nothing is inferred from prose any more.
+            self._stamp_checkpoint(event, agent_id, handle)
             await self._broadcast(handle.session_key, handle.run_id, event, agent_id)
             # OBSERVABILITY: durably record EVERY event so a run is viewable even with no client
             # attached (cron/channel/heartbeat/sub-agent). Best-effort; never breaks the run.
@@ -7138,16 +7147,6 @@ class Gateway:
                     str((account or {}).get("account_id") or ""),
                     str((account or {}).get("session_token") or ""),
                 )
-            # A TURN THAT ENDED ON A CHECKPOINT IS STAMPED — the mechanism behind "nothing runs
-            # before the user has answered". Only a turn that ended normally: an aborted or
-            # crashed one asked nobody anything. Best-effort, like the file it writes.
-            if status == "ok" and mode == RunMode.INTERACTIVE and is_checkpoint_message(_last_assistant_text[0]):
-                try:
-                    checkpoint_marker.present(
-                        self._resolve_workspace(agent_id), handle.session_key, handle.run_id
-                    )
-                except Exception:  # noqa: BLE001
-                    log.exception("checkpoint stamp failed for %s", handle.session_key)
             # Auto-title an interactive chat after its first exchange (LM-Studio style):
             # fire-and-forget so it never delays the run; skips cron/heartbeat/aborted and
             # sessions that already have a title. Titles are conversation data (server-side),

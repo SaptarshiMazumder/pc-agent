@@ -1,0 +1,9 @@
+# ask — the `ask_user` tool: the ONE way an agent stops to ask before it spends the user's money
+# or builds around guesses. Always registered, no settings: what it asks is entirely the call's
+# arguments, and what it does to the daemon (arm the paid gate) is declared on the tool class.
+
+id          = "ask"
+name        = "Ask the user"
+kind        = "native"
+entry       = "ask_plugin:register"
+description = "Stop and ask the user a structured question — paid services to approve, brief-check questions with defaults — before building. The daemon arms the paid gate on the call; the window renders checkboxes and answer boxes."

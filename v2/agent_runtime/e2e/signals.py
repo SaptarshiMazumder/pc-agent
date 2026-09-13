@@ -114,9 +114,13 @@ _NON_BUILD_EXACT = frozenset({
 #: for turns that hand work back.
 _SUGGEST_FENCE_RX = re.compile(r"(?:```|~~~)\s*suggest\s*\n[\s\S]*?(?:(?:```|~~~)|\Z)", re.I)
 
-#: A trailing ```approve fence — the paid-services gate, and THE ONE SANCTIONED STOP in this agent.
-#: It is the one terminal state that must never read as a stall: the agent researched, settled the
-#: design, and then deliberately stopped to ask which paid services it may bill the user for.
+#: The ask — `ask_user`, the paid-services-and-brief gate, and THE ONE SANCTIONED STOP in this
+#: agent. It is the one terminal state that must never read as a stall: the agent researched,
+#: settled the design, and then deliberately stopped to ask which paid services it may bill the
+#: user for and what the output should contain.
+#:
+#: A TOOL CALL, NOT A FENCE. It used to be a trailing ```approve block, and every model spelled it
+#: a little differently; the harness now looks for the call, exactly as the daemon does.
 #:
 #: NO BUILD TOOL RUNS, BY DESIGN. Emitting a workflow before that answer is the exact failure the
 #: gate exists to prevent — the cost would then be discovered at run time, with the graph already
@@ -124,19 +128,19 @@ _SUGGEST_FENCE_RX = re.compile(r"(?:```|~~~)\s*suggest\s*\n[\s\S]*?(?:(?:```|~~~
 #:
 #: Without this, a PERFECT gate run scored `never_acted` ("all talk, no work") as an AGENT fault,
 #: pointing the fix loop at the very behaviour the gate was built to produce.
-_APPROVE_FENCE_RX = re.compile(r"(?:```|~~~)\s*approve\s*\n[\s\S]*?(?:(?:```|~~~)|\Z)", re.I)
+ASK_TOOL = "ask_user"
 
 
 def _ended_on_approval_gate(trace: Trace) -> bool:
-    """Did the run finish waiting on the paid-services checkboxes?
+    """Did the run finish waiting on the ask?
 
-    ONLY THE LAST THING SAID COUNTS. A fence emitted mid-run and then followed by a turn that did
-    nothing is still a stall — the gate excuses stopping to ask, not going quiet afterwards.
+    ONLY THE LAST TURN THAT DID ANYTHING COUNTS, and it must hold a successful `ask_user` call.
+    An ask mid-run followed by a turn that did nothing is still a stall — the gate excuses
+    stopping to ask, not going quiet afterwards. A refused call (no prices) is not an ask.
     """
     for turn in reversed(trace.turns):
-        text = turn.last_assistant
-        if text:
-            return bool(_APPROVE_FENCE_RX.search(text))
+        if turn.tools or (turn.last_assistant or "").strip():
+            return any(t.name == ASK_TOOL and t.ok for t in turn.tools)
     return False
 
 #: Phrases that mark an assistant turn as ASKING or DEFERRING rather than acting. Deliberately

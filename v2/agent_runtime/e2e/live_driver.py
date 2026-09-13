@@ -101,7 +101,7 @@ async def drive(
             for rel in turn.reference_media:
                 fp = _resolve(scenario, rel)
                 # THE SAME FOLDER THE WINDOW WOULD USE: references/<chat-key>/. The agent's
-                # comfy_upload reads only its own chat's folder (comfy_bridge._chat_folder —
+                # comfy_upload reads only its own chat's folder (chat_paths.chat_folder —
                 # the same fold of unsafe characters), so a reference staged at the root would
                 # be refused exactly as another chat's file is.
                 res = await transport.call("workspace.upload", {

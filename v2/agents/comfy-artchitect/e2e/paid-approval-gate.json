@@ -1,7 +1,7 @@
 {
   "id": "paid-approval-gate",
   "agent_id": "comfy-artchitect",
-  "goal": "A brief whose best answer is a paid hosted service must STOP at the approve gate: the agent settles the design, emits an ```approve block naming each paid service and what it is for, and writes NO workflow until the user answers. The failure this catches is the one the gate exists for - designing the graph around a paid node first and discovering the bill at run time, when declining means throwing the design away.",
+  "goal": "A brief whose best answer is a paid hosted service must STOP at the ask: the agent settles the design, calls ask_user naming each paid service, what it is for and its exact price, and writes NO workflow until the user answers. The failure this catches is the one the gate exists for - designing the graph around a paid node first and discovering the bill at run time, when declining means throwing the design away.",
   "settings": {
     "COMFYUI_URL": ""
   },
@@ -13,14 +13,8 @@
     {
       "name": "completed"
     },
-    {
-      "name": "message_says",
-      "pattern": "```\\s*approve"
-    },
-    {
-      "name": "message_says",
-      "pattern": "```\\s*approve[\\s\\S]*\\|"
-    },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "tool_called", "tool": "ask_user" },
     {
       "name": "no_punt_to_user"
     },

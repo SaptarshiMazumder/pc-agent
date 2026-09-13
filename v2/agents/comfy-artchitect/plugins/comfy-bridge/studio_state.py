@@ -354,11 +354,10 @@ def node_install_allowed() -> tuple[bool, str]:
 def checkpoint_answered(name: str) -> tuple[bool, str]:
     """May `name` run (or be installed for)? Only after the user has ANSWERED the ask.
 
-    The daemon stamps `presented_at` when a turn ENDS on the ask (an approve block, or a suggest
-    block whose first chip is "You decide"), and `answered_at` when the next user message
-    arrives. The ask comes BEFORE the emit (AGENTS.md 3.5), so the only question is whether this
-    conversation's latest ask has an answer. A new ask resets the answer, so a new job in the
-    same chat waits for its own yes.
+    The daemon stamps `presented_at` the moment `ask_user` returns — the ask is a tool call, not
+    a block of prose — and `answered_at` when the next user message arrives. The ask comes BEFORE
+    the emit (AGENTS.md 3.5), so the only question is whether this conversation's latest ask has
+    an answer. A new ask resets the answer, so a new job in the same chat waits for its own yes.
     """
     session = _session()
     if not session:
@@ -367,10 +366,10 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
     presented = float(rec.get("presented_at") or 0.0)
     answered = float(rec.get("answered_at") or 0.0)
     how = (
-        "End the turn with the ask (AGENTS.md 3.5): the models and their exact credits, the "
-        "brief-check questions with your defaults, the workflow(s) by role name, and an approve "
-        "block if anything is paid or a suggest block whose first chip is 'You decide — keep the "
-        "defaults and build' if not. Build and run only in the turn AFTER the user answers."
+        "Call `ask_user` (AGENTS.md 3.5) with the paid services and their exact dollars and "
+        "credits from comfy_price, the brief-check questions with your defaults, and the "
+        "workflow(s) by role name — then end the turn. Build and run only in the turn AFTER the "
+        "user answers."
     )
     if not presented:
         return False, f"'{name}': no ask has been presented in this conversation. {how}"

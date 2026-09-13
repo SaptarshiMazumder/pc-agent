@@ -41,6 +41,8 @@ from agent_runtime.application.run_context import (
 )
 from agent_runtime.infrastructure.net.outbound import fetch
 
+import chat_paths
+
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
 #: previous version of this tool was a hardcoded list of seven loaders, which made every model
 #: family that loads differently (Flux and friends live in unet/ behind UNETLoader, not
@@ -91,25 +93,13 @@ def _model_enums(catalogue: dict):
 _CONN_FILE = ".studio/connection.json"
 
 
-# THIS CHAT'S REFERENCE MEDIA LIVES IN ITS OWN FOLDER: references/<chat-key>/. The window writes
-# there (run.ts referenceDirFor) and this is the ONLY place comfy_upload will read from. The
-# workspace is the account's, shared by every conversation, and a flat references/ meant a new
-# chat saw every file every earlier chat had added — plus uploads/, the chat pastes — and the
+# THIS CHAT'S REFERENCE MEDIA LIVES IN ITS OWN FOLDER: references/<chat-key>/ — named by
+# chat_paths, which also names the chat's workflows/ and outputs/ twins and documents the contract
+# with the window that writes and lists them. This is the ONLY place comfy_upload will read from.
+# The workspace is the account's, shared by every conversation, and a flat references/ meant a
+# new chat saw every file every earlier chat had added — plus uploads/, the chat pastes — and the
 # agent, told to use "the reference", picked one from another conversation. The folder is the
 # map from chat to media; the gate below is what makes it binding.
-_REFERENCES_DIR = "references"
-
-
-def _chat_folder(session_key: str) -> str:
-    """The folder name for one chat. THE SAME RULE AS run.ts — the two must agree or the window
-    writes where the plugin never looks. Chat keys are already path-safe; e2e and peer keys
-    carry colons, which this folds to underscores."""
-    return re.sub(r"[^A-Za-z0-9._-]", "_", session_key or "") or "_"
-
-
-def _chat_reference_dir(root: Path) -> Path:
-    ctx = current_run_context()
-    return root / _REFERENCES_DIR / _chat_folder(getattr(ctx, "session_key", "") if ctx else "")
 
 
 def _locate_reference(root: Path, chat_dir: Path, path: str) -> str | None:
@@ -690,8 +680,8 @@ class ComfyUploadTool(Tool):
             # the process CWD, which is nowhere near this run's uploads/.
             root = Path(current_workspace(".") or ".")
 
-            # THE GATE. Only this chat's folder is readable here — see _chat_reference_dir.
-            chat_dir = _chat_reference_dir(root)
+            # THE GATE. Only this chat's folder is readable here — see chat_paths.
+            chat_dir = chat_paths.chat_dir(root, chat_paths.REFERENCES)
             available = (
                 sorted(f.name for f in chat_dir.iterdir() if f.is_file())
                 if chat_dir.is_dir()
@@ -848,7 +838,9 @@ class ComfyDownloadTool(Tool):
                 # fine and then every consumer of the name is refused, which reads as the download
                 # having failed when it did not. A relative path means the same file to the
                 # sandbox, to the fs tools, and to the window.
-                rel = f"outputs/{Path(filename).name}"
+                # THIS CHAT'S outputs/ FOLDER, like its references (chat_paths): the window lists
+                # exactly that folder, and another conversation's renders stay out of it.
+                rel = f"{chat_paths.chat_rel(chat_paths.OUTPUTS)}/{Path(filename).name}"
                 # THE QUERY GOES IN THE PATH, NOT IN `params`. This was the one call in the plugin
                 # that used httpx's `params=`, and it was the one call that 401'd on any instance
                 # whose URL carries a token. The host folds `${COMFYUI_URL}`'s own query — the
@@ -2015,7 +2007,7 @@ class ComfyPriceTool(Tool):
     default_retryable = True
     description = (
         "What ComfyUI's paid partner nodes cost, in credits. Call it BEFORE choosing between a "
-        "paid and a free route, and before the approve block, so the user is shown real numbers "
+        "paid and a free route, and before the ask (ask_user), so the user is shown real numbers "
         "instead of 'this costs money'. With no arguments it lists every paid provider and model "
         "available. Give it a workflow name to price that emitted graph exactly, including "
         "video duration and resolution. The user is charged these credits when the run is "
@@ -2027,8 +2019,8 @@ class ComfyPriceTool(Tool):
             "workflow": {
                 "type": "string",
                 "description": (
-                    "An emitted workflow to price exactly, e.g. 'workflows/talking-head.api.json'"
-                    " or just its name. Omit to list the whole catalogue."
+                    "An emitted workflow to price exactly: the path comfy_emit returned, or just"
+                    " its name. Omit to list the whole catalogue."
                 ),
             }
         },
@@ -2125,24 +2117,29 @@ class ComfyPriceTool(Tool):
 
 
 def _workflow_name(path) -> str:
-    """`workflows/storyboard.api.json` -> `storyboard`: the ROLE name comfy_emit was given, which
-    is what every per-workflow record is keyed by."""
+    """`workflows/<chat>/storyboard.api.json` -> `storyboard`: the ROLE name comfy_emit was
+    given, which is what every per-workflow record is keyed by."""
     base = Path(str(path)).name
     return base[:-9] if base.endswith(".api.json") else (base[:-5] if base.endswith(".json") else base)
 
 
 def _workflow_path(name: str):
-    """An emitted workflow by name, however loosely the caller named it."""
+    """An emitted workflow by name, however loosely the caller named it: the path comfy_emit
+    returned (`workflows/<chat>/x.api.json`), or just `x`. A bare name is looked for in THIS
+    chat's folder (chat_paths) — another conversation's workflow is not this job's."""
     root = Path(current_workspace(".") or ".")
     candidate = Path(name)
-    if candidate.is_absolute() or name.startswith("workflows/"):
-        return root / candidate if not candidate.is_absolute() else candidate
+    if candidate.is_absolute():
+        return candidate
+    if name.startswith(f"{chat_paths.WORKFLOWS}/"):
+        return root / candidate
     stem = name[:-9] if name.endswith(".api.json") else name.removesuffix(".json")
-    for guess in (f"workflows/{stem}.api.json", f"workflows/{stem}.json", name):
+    folder = chat_paths.chat_rel(chat_paths.WORKFLOWS)
+    for guess in (f"{folder}/{stem}.api.json", f"{folder}/{stem}.json", name):
         path = root / guess
         if path.exists():
             return path
-    return root / f"workflows/{stem}.api.json"
+    return root / f"{folder}/{stem}.api.json"
 
 
 def register(api, ctx):

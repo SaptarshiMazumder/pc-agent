@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
+import { CHAT_DIRS } from '../../agentd/workspace-files'
 import { isCanvasImportable, setDragPayload } from './dragOut'
 
 interface Dir {
@@ -46,10 +47,23 @@ function relative(path: string): string {
   return at >= 0 ? norm.slice(at + '/workspace/'.length) : norm.split('/').pop() || norm
 }
 
+/** The path as the tree shows it: workspace-relative, without the chat's own folder. Each of this
+ *  chat's folders (`workflows/<chat>/`, `outputs/<chat>/`, `references/<chat>/` — see
+ *  agentd/workspace-files.ts) exists so that a workspace shared by every conversation can be
+ *  listed per chat; the panel only ever holds one chat's files, so that segment tells the person
+ *  reading nothing and is dropped. */
+const CHAT_ROOTS = new Set<string>(CHAT_DIRS)
+
+function displayParts(path: string): string[] {
+  const parts = relative(path).split('/').filter(Boolean)
+  if (parts.length >= 3 && CHAT_ROOTS.has(parts[0])) parts.splice(1, 1)
+  return parts
+}
+
 function buildTree(artifacts: Artifact[]): Dir {
   const root: Dir = { name: '', dirs: new Map(), files: [] }
   for (const a of artifacts) {
-    const parts = relative(a.path).split('/').filter(Boolean)
+    const parts = displayParts(a.path)
     const fileName = parts.pop()
     if (!fileName) continue
     let node = root

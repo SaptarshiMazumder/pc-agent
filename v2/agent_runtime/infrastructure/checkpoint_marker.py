@@ -1,9 +1,9 @@
 """The checkpoint stamp — one JSON file in the run's workspace, written by the daemon, read by
 the tools that spend money.
 
-TWO MOMENTS. `present()` when an interactive turn ENDS on a checkpoint message
-(domain/checkpoint.is_checkpoint_message); `answer()` when the next user message arrives on that
-session. A tool that wants to run a workflow asks: was a checkpoint presented after this
+TWO MOMENTS. `present()` the moment a checkpoint TOOL returns — `ask_user` (plugins/ask), which
+declares `checkpoint = True` and which the gateway stamps on its tool_execution_end; `answer()`
+when the next user message arrives on that session. A tool that wants to run a workflow asks: was a checkpoint presented after this
 workflow first existed, and has it been answered since? Both answers live here.
 
 IN THE WORKSPACE, because that is the one place the daemon and a sandboxed plugin both reach:
@@ -46,7 +46,7 @@ def _save(workspace: str, sessions: dict) -> None:
 
 
 def present(workspace: str, session_key: str, run_id: str = "") -> None:
-    """A turn on `session_key` just ended on a checkpoint. Resets any earlier answer: a new
+    """A checkpoint tool just returned on `session_key`. Resets any earlier answer: a new
     checkpoint is a new question."""
     if not workspace or not session_key:
         return

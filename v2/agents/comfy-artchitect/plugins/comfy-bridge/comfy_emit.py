@@ -27,9 +27,7 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
-#: Where workflows land. Inside the run's workspace — never computed from __file__, which is
-#: where the plugin lives rather than where this user's files go.
-_SUBDIR = "workflows"
+import chat_paths
 
 
 def _slug(name: str) -> str:
@@ -127,7 +125,9 @@ class ComfyEmitTool(Tool):
 
             ui = self._ui_graph(nodes, api)
 
-            root = Path(current_workspace(".") or ".") / _SUBDIR
+            # Inside the run's workspace — never computed from __file__, which is where the
+            # plugin lives rather than where this user's files go — and in THIS chat's folder.
+            root = Path(current_workspace(".") or ".") / chat_paths.chat_rel(chat_paths.WORKFLOWS)
             root.mkdir(parents=True, exist_ok=True)
             api_path = root / f"{name}.api.json"
             ui_path = root / f"{name}.json"
@@ -146,8 +146,13 @@ class ComfyEmitTool(Tool):
             # Relative means the same file to the sandbox, the fs tools and the window alike — the
             # only form that survives the guest/host boundary. Subprocess sandboxes never showed
             # this, because there both sides are one filesystem.
-            api_rel = f"{_SUBDIR}/{api_path.name}"
-            ui_rel = f"{_SUBDIR}/{ui_path.name}"
+            #
+            # AND INSIDE THIS CHAT'S OWN FOLDER (chat_paths): the workspace is the account's, so a
+            # flat workflows/ held every conversation's files at once, and two jobs that named a
+            # workflow the same overwrote each other's. The window lists exactly this folder.
+            folder = chat_paths.chat_rel(chat_paths.WORKFLOWS)
+            api_rel = f"{folder}/{api_path.name}"
+            ui_rel = f"{folder}/{ui_path.name}"
 
             # THE DESIGN NOW EXISTS, which is what unlocks comfy_inventory — see studio_state.
             try:

@@ -255,6 +255,9 @@ function fold(
       // never doubles it.
       const made = readArtifacts(ev.artifacts)
       if (made.length) {
+        // A tool landed a file: the panel re-reads the chat's folders (agentd/workspace-files.ts)
+        // rather than trusting this declaration to be the whole story.
+        get().bumpWorkspace()
         on((s) => {
           const shown = s.items.flatMap((it) =>
             it.kind === 'bot' && it.artifacts ? it.artifacts : [],
@@ -307,6 +310,9 @@ function fold(
      * had said it: a bubble, with a copy button, in the transcript's own voice. It is a fact
      * about the run, so it reads like the other facts about the run. */
     case 'agent_end': {
+      // The turn is over and whatever it wrote is on disk: the panel re-reads the chat's folders,
+      // declared or not (agentd/workspace-files.ts).
+      get().bumpWorkspace()
       on((s) => {
         const items = ev.error
           ? [

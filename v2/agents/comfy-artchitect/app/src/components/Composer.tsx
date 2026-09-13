@@ -4,7 +4,7 @@
  * three ways — paste, drag-drop, and a button — because people reach for all three.
  */
 
-import { ArrowUp, Paperclip, Plus, Square, Upload } from 'lucide-react'
+import { ArrowUp, Loader2, Paperclip, Plus, Square, Upload } from 'lucide-react'
 
 import { useEffect, useRef, useState } from 'react'
 
@@ -67,6 +67,20 @@ export function Composer({
 }) {
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
+  /* STOP WAS PRESSED, AND THE RUN HAS NOT ENDED YET.
+   *
+   * Abort is not instant and cannot be: the daemon signals the run and kills what it can, but a
+   * tool already inside a blocking call (a big download, a render being polled) only lets go when
+   * that call returns. Before this, the button simply sat there looking unpressed for as long as
+   * that took, so the honest reading was "Stop is broken" — and the second and third clicks that
+   * followed did nothing either.
+   *
+   * Cleared by `running` going false, which is the real end of the run — never by a timer, which
+   * would claim it had stopped without knowing. */
+  const [stopping, setStopping] = useState(false)
+  useEffect(() => {
+    if (!running) setStopping(false)
+  }, [running])
   const areaRef = useRef<HTMLTextAreaElement>(null)
 
   /* A user message's Edit action loads its text back in here to tweak and re-send. The seed is an
@@ -236,8 +250,24 @@ export function Composer({
           )}
           <span className="grow" />
           {running ? (
-            <button className="composer-send stop" title="Stop the run" onClick={onAbort}>
-              <Square size={13} fill="currentColor" strokeWidth={0} />
+            <button
+              className={`composer-send stop${stopping ? ' is-stopping' : ''}`}
+              title={
+                stopping
+                  ? 'Stopping — waiting for the step in flight to finish'
+                  : 'Stop the run'
+              }
+              disabled={stopping}
+              onClick={() => {
+                setStopping(true)
+                onAbort()
+              }}
+            >
+              {stopping ? (
+                <Loader2 size={14} strokeWidth={2.2} className="ld-spin" />
+              ) : (
+                <Square size={13} fill="currentColor" strokeWidth={0} />
+              )}
             </button>
           ) : (
             <button
@@ -255,6 +285,10 @@ export function Composer({
             to carry its own ` · `, which is how a hint ends up starting with a stray dot the
             moment one of them is absent. */}
         <div className="composer-hint">
+          {/* SAID IN WORDS, not only as a spinner on a 36px button. "Why is it still going?" is
+              the question the spinner alone leaves unanswered — this names what is being waited
+              on, so the delay reads as a step finishing rather than as a click that missed. */}
+          {stopping && <span className="hint-stopping">stopping — finishing the step in flight</span>}
           <span className="hint-model">{model || 'no model yet'}</span>
           {credits !== null && (
             <>

@@ -120,6 +120,14 @@ export function Thread({
         running={running}
         onSuggest={onSuggest}
         onDecide={onDecide}
+        // AN ASK IS ANSWERED BY THE NEXT USER MESSAGE, however it was typed — the same rule the
+        // daemon stamps by (checkpoint_marker.answer). Read off the thread here so the panel
+        // shows as answered after a reload too, not only in the window that pressed the button.
+        answered={
+          item.kind === 'tool' && item.name === 'ask_user'
+            ? items.slice(i + 1).some((it) => it.kind === 'user')
+            : undefined
+        }
       />)
   })
 

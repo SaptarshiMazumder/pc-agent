@@ -17,7 +17,7 @@
 import { useState } from 'react'
 
 import { milestoneFor } from './milestones'
-import { Approvals, parseApprovals } from './Approvals'
+import { AskPanel } from './AskPanel'
 import { Suggestions, parseSuggestions } from './Suggestions'
 import {
   AlertTriangle,
@@ -114,28 +114,18 @@ function UserMessage({ item }: { item: UserItem & { ts?: number } }) {
 function AssistantMessage({
   item,
   onSuggest,
-  onDecide,
 }: {
   item: BotItem & { ts?: number }
   onSuggest?: (prompt: string) => void
-  /** A paid-service verdict SENDS, unlike a suggestion chip, which only fills the box. Ticking
-   *  boxes and pressing Confirm is already the deliberate act; making the user press Enter after
-   *  it would be asking twice. */
-  onDecide?: (reply: string) => void
 }) {
   const stamp = item.ts ? timeLabel(item.ts) : ''
   /* SPLIT THE OFFER OUT OF THE PROSE. The agent ends a turn with a `suggest` fence; it is chips,
      not text, so it must never reach the markdown renderer. Parsed on every render rather than
      memoised: it is one regex over one message, and a stale split would show a half-streamed
      fence. While STREAMING the raw text is shown untouched — a partial fence is not a menu. */
-  const { body: afterSuggest, suggestions } = item.streaming
+  const { body, suggestions } = item.streaming
     ? { body: item.text, suggestions: [] as ReturnType<typeof parseSuggestions>['suggestions'] }
     : parseSuggestions(item.text)
-  /* The `approve` fence gets the same treatment, off the SAME prose: a message may carry both,
-     and each block must be lifted out before the markdown renderer sees it. */
-  const { body, approvals } = item.streaming
-    ? { body: afterSuggest, approvals: [] as ReturnType<typeof parseApprovals>['approvals'] }
-    : parseApprovals(afterSuggest)
   return (
     <div className="msg-item msg-row">
       {/* THE AGENT'S MARK, beside its own words. The user's turn is a bubble and needs no label;
@@ -151,7 +141,6 @@ function AssistantMessage({
           {item.streaming && <span className="caret" />}
         </div>
         <ArtifactView artifacts={item.artifacts} />
-        {onDecide && <Approvals items={approvals} onDecide={onDecide} />}
         {onSuggest && <Suggestions items={suggestions} onPick={onSuggest} />}
         {!item.streaming && (item.text || stamp) && (
           <div className="msg-meta">
@@ -359,21 +348,26 @@ export default function MessageItem({
   running,
   onSuggest,
   onDecide,
+  answered,
 }: {
   item: ThreadItem
   running: boolean
   /** Put a suggested next action in the composer. Absent = chips are not offered. */
   onSuggest?: (prompt: string) => void
-  /** SEND a paid-service verdict. Absent = the approval gate is not offered, and an agent that
-   *  emits the fence would then be waiting on an answer the window cannot give — so a window
-   *  that renders paid work should always pass this. */
+  /** SEND the answer to an `ask_user` call (AskPanel). Ticking boxes and pressing the button is
+   *  already the deliberate act; making the user press Enter after it would be asking twice.
+   *  Absent = the ask is shown but cannot be answered from here, and an agent that asked would
+   *  wait on an answer the window cannot give — so a window that renders paid work always
+   *  passes this. */
   onDecide?: (reply: string) => void
+  /** For an `ask_user` item: a user message follows it in the thread, so it has its answer. */
+  answered?: boolean
 }) {
   switch (item.kind) {
     case 'user':
       return <UserMessage item={item} />
     case 'bot':
-      return <AssistantMessage item={item} onSuggest={onSuggest} onDecide={onDecide} />
+      return <AssistantMessage item={item} onSuggest={onSuggest} />
     case 'think':
       /* agentd's reasoning block: a quiet accent-ruled aside, always visible, no cap and no fold.
          THIS WINDOW USED TO CONTAIN IT — a fixed-height box that scrolled itself while streaming
@@ -392,6 +386,17 @@ export default function MessageItem({
         </div>
       )
     case 'tool':
+      // ask_user renders as the ask itself — checkboxes and answer boxes read from the call's
+      // arguments (AskPanel) once the daemon has accepted the call. A refused ask (a service
+      // without its price) stays a plain tool row carrying its error, so a malformed question is
+      // never put to the user.
+      if (item.name === 'ask_user' && item.done && !item.isError) {
+        return (
+          <div className="msg-item">
+            <AskPanel item={item} answered={!!answered} onDecide={onDecide} />
+          </div>
+        )
+      }
       // update_plan renders as a checklist panel (its plan lives in the call args, so it shows
       // live without a round-trip); every other tool stays a text log.
       if (item.name === 'update_plan' && Array.isArray((item.args as { plan?: unknown }).plan)) {

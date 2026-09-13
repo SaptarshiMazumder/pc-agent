@@ -14,22 +14,8 @@ import { useCallback } from 'react'
 
 import { MAX_CHAT_IMAGE_BYTES, MAX_FILES, readFile } from './chat'
 import { AGENT_ID } from './client'
+import { chatDirFor } from './workspace-files'
 import { useApp } from '../state/store'
-
-/** Where reference media lands in the agent's workspace. NOT `uploads/` (chat attachments, which
- *  the model sees as vision): reference media is INPUT for the ComfyUI workflow, so it goes
- *  straight to the instance and the model only ever hears its filename. */
-const REFERENCE_DIR = 'references'
-
-/** THE MAP FROM CHAT TO ITS MEDIA IS A FOLDER: references/<chat-key>/. The workspace is the
- *  ACCOUNT's, shared by every conversation, so a flat references/ showed a new chat every file
- *  every earlier chat had added — and the agent, told to use "the reference", picked one. Keyed
- *  by the session key the daemon already carries into every tool call, so comfy_upload can find
- *  this chat's folder with nothing new crossing the wire. Chat keys are already path-safe
- *  ("chat-<time>-<rand>"); the replace is there for any key that is not, and the plugin applies
- *  the SAME rule so the two sides name the same folder. */
-export const referenceDirFor = (sessionKey: string) =>
-  `${REFERENCE_DIR}/${sessionKey.replace(/[^A-Za-z0-9._-]/g, '_') || '_'}`
 
 /** The one turn that tells the agent what was added and what to do with it.
  *
@@ -170,7 +156,11 @@ export function useRun(client: AgentdClient | null) {
       if (!client || !files.length) return
       const { currentSessionKey: existing, newSession, append } = useApp.getState()
       const key = existing || newSession(true)
-      const dir = referenceDirFor(key)
+      // THE CHAT'S OWN references/ FOLDER (workspace-files.ts): keyed by the session key the
+      // daemon already carries into every tool call, so comfy_upload finds it with nothing new
+      // crossing the wire. NOT `uploads/` (chat attachments, which the model sees as vision):
+      // reference media is INPUT for the workflow, and the model only ever hears its filename.
+      const dir = chatDirFor('references', key)
 
       // Reference files are uploaded immediately and never rendered in this window, so avoid
       // decoding a throwaway local thumbnail for what may be a very large source image.
@@ -203,8 +193,8 @@ export function useRun(client: AgentdClient | null) {
         ])
       }
       if (!saved.length) return
-      // The folder changed; the file panel reads it (agentd/references.ts).
-      useApp.getState().bumpReferences()
+      // The folder changed; the file panel reads it (agentd/workspace-files.ts).
+      useApp.getState().bumpWorkspace()
       const paths = saved.map((name) => `${dir}/${name}`)
 
       /* THE UPLOAD IS DONE; SAYING SO MAY HAVE TO WAIT. A turn cannot be sent while one is
