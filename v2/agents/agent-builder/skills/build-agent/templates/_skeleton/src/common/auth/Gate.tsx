@@ -16,7 +16,7 @@
  * from a broken window, and the probe is a round trip to a daemon that may not be there.
  */
 
-import { authStatus, type AgentdClient } from '@agentd/client'
+import { authStatus, onIdentityChanged, type AgentdClient } from '@agentd/client'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import SignIn from './SignIn'
@@ -67,7 +67,20 @@ export default function Gate({
       })
   }, [client, demand])
 
-  useEffect(check, [check])
+  useEffect(() => {
+    check()
+    // RE-PROBE ON EVERY AUTH CHANGE, not only at mount. A window that signed out used to keep
+    // rendering the app — signed out, with a "○" avatar and a "Local" persona — because this
+    // gate had already answered "through" once and was never asked again. The SDK reloads the
+    // window on an identity change as well; this is the same rule kept where the decision lives,
+    // so the gate is right even for the frames before that reload lands.
+    const offSocket = client?.on('auth.changed', check)
+    const offIdentity = onIdentityChanged(check)
+    return () => {
+      offSocket?.()
+      offIdentity()
+    }
+  }, [check, client])
 
   if (verdict === 'sign-in') return <SignIn product={product} onDone={check} />
   if (verdict === 'blocked') return <Blocked product={product} />

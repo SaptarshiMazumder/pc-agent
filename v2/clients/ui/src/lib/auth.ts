@@ -215,6 +215,15 @@ export function getSession(): Session | null {
   return cached
 }
 
+/** THE WINDOW STARTS OVER on any sign-in or sign-out. Rebuilding the socket moves the daemon to
+ *  the new identity; it does nothing for the state this page already holds — the rail, the open
+ *  conversations, the balance — and every piece of it that did not re-read kept the previous
+ *  user's. Two accounts signed in one after the other saw each other's history until F5, so the
+ *  honest response to the identity changing is F5. */
+function hardRefresh(): void {
+  if (typeof window !== 'undefined' && window.location) window.location.reload()
+}
+
 export function signOut(): void {
   if (isDesktop) {
     // The RUNTIME forgets and revokes (every window on this machine signs out together —
@@ -225,6 +234,7 @@ export function signOut(): void {
       machine = null
       announce()
       gateway.reconnect()
+  hardRefresh()
     })()
     return
   }
@@ -234,6 +244,7 @@ export function signOut(): void {
   // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps treating
   // this client as the old account until the socket is rebuilt without it.
   gateway.reconnect()
+  hardRefresh()
 }
 
 /**
@@ -293,6 +304,7 @@ async function enter(args: {
     const s = getSession()
     if (!s) throw new Error('signed in, but the runtime returned no session — try again')
     gateway.reconnect()
+  hardRefresh()
     return s
   }
   const p = await tokens().login(args)
@@ -304,6 +316,7 @@ async function enter(args: {
   // The credential lives in the socket url, so the daemon goes on treating this client as whoever
   // it was until the socket is rebuilt with the new one.
   gateway.reconnect()
+  hardRefresh()
   return s
 }
 

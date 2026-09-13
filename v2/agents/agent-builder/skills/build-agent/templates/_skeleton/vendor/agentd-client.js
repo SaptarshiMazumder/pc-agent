@@ -173,8 +173,12 @@ var TokenFetcher = class {
         this.push(a, prev);
         const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
         if (sig !== this.sig) {
+          const prevSig = this.sig;
+          const transient = (x) => x === "accounts_unreachable";
+          const afterBoot = prevSig !== "";
           this.sig = sig;
           notifyIdentityChanged();
+          if (afterBoot && !transient(prevSig) && !transient(sig)) reloadWindow();
         }
       });
     }
@@ -212,6 +216,10 @@ function notifyIdentityChanged() {
     } catch {
     }
   }
+}
+function reloadWindow() {
+  const w = typeof window !== "undefined" ? window : void 0;
+  if (w && w.location && typeof w.location.reload === "function") w.location.reload();
 }
 function onIdentityChanged(cb) {
   identityListeners.add(cb);

@@ -197,8 +197,25 @@ class TokenFetcher {
         // keeps the same signature and stays silent.
         const sig = a.state === 'ok' ? `ok:${a.accountId || ''}` : a.state
         if (sig !== this.sig) {
+          // A CHANGE AFTER BOOT IS A DIFFERENT PERSON, AND THE PAGE STARTS OVER. Listeners were
+          // meant to let each piece of the window re-read itself, and every piece that did not
+          // subscribe kept the previous user's state: two accounts signed in one after the other
+          // saw one another's conversations and credits until someone pressed F5. A window's
+          // state is one identity's state, so the honest response to the identity changing is
+          // the same as F5. Boot is the one resolution that must not do this — `sig` is empty
+          // until the first answer lands, and only a change FROM a resolved identity reloads.
+          //
+          // NOT ON A BLIP. `accounts_unreachable` is a transient — the session is intact and the
+          // window is told to keep working — so a change into or out of it is not a change of
+          // identity, and reloading on it would drop a working page over a network hiccup:
+          // exactly the bug family this file replaced. Only ok<->signed-out/expired and
+          // account A -> account B start the page over.
+          const prevSig = this.sig
+          const transient = (x: string) => x === 'accounts_unreachable'
+          const afterBoot = prevSig !== ''
           this.sig = sig
           notifyIdentityChanged()
+          if (afterBoot && !transient(prevSig) && !transient(sig)) reloadWindow()
         }
       })
     }
@@ -249,6 +266,13 @@ function notifyIdentityChanged(): void {
       /* a listener must never break identity resolution */
     }
   }
+}
+
+/** Start the window over. A browser only: everything else that embeds this SDK — a Node script,
+ *  a test — has no page to reload and no per-identity state to shed. */
+function reloadWindow(): void {
+  const w = typeof window !== 'undefined' ? window : undefined
+  if (w && w.location && typeof w.location.reload === 'function') w.location.reload()
 }
 
 /** Subscribe to identity changes (sign-in, sign-out, account switch). Returns the unsubscribe.

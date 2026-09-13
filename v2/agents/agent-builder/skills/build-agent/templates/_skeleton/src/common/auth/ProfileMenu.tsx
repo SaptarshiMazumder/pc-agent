@@ -89,13 +89,21 @@ export function ProfileMenu({
         createPortal(
           <div className="agentd-pm-menu" style={{ left: at.left, bottom: at.bottom }}>
           <div className="agentd-pm-head">
-            <div className="agentd-pm-name">{signedIn ? auth?.email || 'Signed in' : 'Local'}</div>
+            {/* "LOCAL" IS A DESKTOP FACT. A hosted window that is signed out is not "Local" and has
+                no BYOK to speak of — it is signed out, and the only thing to do is sign in. The
+                gate normally keeps this state off the screen entirely; the words are for the
+                frames before it does. */}
+            <div className="agentd-pm-name">
+              {signedIn ? auth?.email || 'Signed in' : auth?.required ? 'Signed out' : 'Local'}
+            </div>
             <div className="agentd-pm-desc">
               {signedIn
                 ? 'Cloud · platform keys, metered'
-                : canSignIn
-                  ? 'Your own keys (BYOK) — sign in to use Cloud'
-                  : 'This build has no accounts service, so there is nobody to sign in as.'}
+                : auth?.required
+                  ? 'Sign in to continue.'
+                  : canSignIn
+                    ? 'Your own keys (BYOK) — sign in to use Cloud'
+                    : 'This build has no accounts service, so there is nobody to sign in as.'}
             </div>
             {error && <div className="agentd-pm-err">{error}</div>}
           </div>
