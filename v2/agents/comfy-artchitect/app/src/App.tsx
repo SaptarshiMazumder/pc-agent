@@ -119,7 +119,7 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile, sendReferences } = useRun(client)
+  const { send, abort, addFiles, removeFile, sendReferences, flushReferences } = useRun(client)
 
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
@@ -146,6 +146,20 @@ export default function App() {
     useApp.getState().patch(currentKey, { awaitingGpu: false })
     void send('The GPU is ready now — continue from where you stopped.')
   }, [gpu.state, gpu.url, currentKey, send])
+
+  /* THE SECOND HALF OF "ADD REFERENCE MEDIA", sent when it becomes legal to send it.
+     The file itself went up the moment it was picked — an upload never had to wait for anything.
+     What had to wait is the sentence naming it, because a turn cannot be sent while one is
+     running; so the paths sat in `pendingReferences` and this is what hands them over. Same
+     shape as the resume above: watch for the condition, clear the flag, send once. Before this,
+     both halves were gated together and the button was simply dead for the whole turn — which is
+     precisely when the agent is mid-install and about to ask for the very photo you are holding. */
+  useEffect(() => {
+    if (!currentKey) return
+    const cur = sessions[currentKey]
+    if (!cur || cur.running || cur.loadingHistory || !cur.pendingReferences.length) return
+    void flushReferences()
+  }, [sessions, currentKey, flushReferences])
 
   /* THE FILES THIS CONVERSATION MADE — not every conversation's.
      Artifacts hang off the turn that produced them, which is right for the transcript and wrong
@@ -516,7 +530,11 @@ export default function App() {
               <div className="st-convo-foot">
                 <ReferenceMedia
                   onReferences={(files) => sendReferences(files)}
-                  disabled={!connected || session.running}
+                  /* NOT `|| session.running` any more — see the component. The upload works
+                     mid-turn; only the sentence naming it waits, and that is queued. */
+                  disabled={!connected}
+                  disabledReason="Not connected to the daemon — reconnecting"
+                  queued={session.pendingReferences.length > 0}
                 />
                 <Composer
                   running={session.running}

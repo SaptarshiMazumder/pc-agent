@@ -31,6 +31,25 @@ const REFERENCE_DIR = 'references'
 export const referenceDirFor = (sessionKey: string) =>
   `${REFERENCE_DIR}/${sessionKey.replace(/[^A-Za-z0-9._-]/g, '_') || '_'}`
 
+/** The one turn that tells the agent what was added and what to do with it.
+ *
+ *  A FUNCTION BECAUSE IT HAS TWO CALLERS NOW. Media added between turns is announced at once;
+ *  media added DURING a turn is held and announced when that turn ends. Two copies of this
+ *  sentence would be two things to keep in step, and the agent's behaviour depends on its exact
+ *  wording — "don't ask me to paste it again" is load-bearing.
+ *
+ *  First person, so it reads as the user's own ask, and FULL paths (this chat's folder included)
+ *  so the agent can comfy_upload them verbatim without seeing a pixel or guessing which folder
+ *  belongs to this conversation. */
+export function referenceInstruction(paths: string[]): string {
+  const them = paths.length > 1 ? 'them' : 'it'
+  return (
+    `I've added reference media for this chat: ${paths.join(', ')}. ` +
+    `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
+    `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again.`
+  )
+}
+
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
   const send = useCallback(
@@ -161,20 +180,50 @@ export function useRun(client: AgentdClient | null) {
         ])
       }
       if (!saved.length) return
+      const paths = saved.map((name) => `${dir}/${name}`)
 
-      // ONE instruction turn, first person so it reads as the user's own ask. Names the FULL
-      // paths — this chat's folder included — so the agent can comfy_upload them verbatim
-      // without seeing a single pixel or guessing which folder is this conversation's.
-      const them = saved.length > 1 ? 'them' : 'it'
-      const list_ = saved.map((name) => `${dir}/${name}`).join(', ')
-      const msg =
-        `I've added reference media for this chat: ${list_}. ` +
-        `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
-        `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again.`
-      await send(msg)
+      /* THE UPLOAD IS DONE; SAYING SO MAY HAVE TO WAIT. A turn cannot be sent while one is
+         already running, and that is the only half of this that ever needed to wait — so the
+         paths go in the queue and `flushReferences` announces them the moment the run ends.
+         Re-read rather than closed over: the upload above was awaited, and a run can have
+         started (or finished) while it was in flight. */
+      const now = useApp.getState().sessions[key]
+      if (now?.running) {
+        useApp.getState().patch(key, {
+          pendingReferences: [...(now.pendingReferences || []), ...paths],
+        })
+        // SAID IN THE THREAD, because otherwise this is a click with no visible consequence for
+        // however long the turn lasts — indistinguishable from the button having done nothing.
+        append(key, [
+          {
+            kind: 'system',
+            tone: 'info',
+            text: `Added ${paths.join(', ')} — the agent is mid-turn, so I'll hand ${
+              paths.length > 1 ? 'them' : 'it'
+            } over as soon as this one finishes.`,
+            ts: Date.now(),
+          },
+        ])
+        return
+      }
+      await send(referenceInstruction(paths))
     },
     [client, send],
   )
 
-  return { send, abort, addFiles, removeFile, sendReferences }
+  /** Hand over whatever `sendReferences` had to hold. Called by the window when a run ends —
+   *  App owns WHEN (it is watching the run), this owns WHAT IS SAID.
+   *
+   *  The queue is cleared BEFORE the send, not after: `send` sets `running` true again, and a
+   *  flush that cleared afterwards would still see a full queue on the re-render in between and
+   *  announce the same files twice. Same order as the GPU resume beside it, for the same reason. */
+  const flushReferences = useCallback(async (): Promise<void> => {
+    const { currentSessionKey: key, sessions, patch } = useApp.getState()
+    const queued = sessions[key]?.pendingReferences || []
+    if (!queued.length) return
+    patch(key, { pendingReferences: [] })
+    await send(referenceInstruction(queued))
+  }, [send])
+
+  return { send, abort, addFiles, removeFile, sendReferences, flushReferences }
 }

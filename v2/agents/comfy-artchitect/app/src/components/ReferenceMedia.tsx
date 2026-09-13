@@ -13,10 +13,24 @@ import { useRef, useState } from 'react'
 export function ReferenceMedia({
   onReferences,
   disabled,
+  disabledReason = '',
+  queued = false,
 }: {
   onReferences: (files: FileList | File[]) => Promise<void>
-  /** While a run is going / the socket is closed: sending would race the current turn. */
+  /** ONLY when the upload itself cannot happen — i.e. no daemon connection.
+   *
+   *  It used to be `!connected || running` too, and that was the bug: adding reference media is
+   *  an upload AND a message, only the message has to wait for a turn to end, and gating both on
+   *  `running` killed the upload at the one moment it is most wanted. The message is queued now
+   *  (see `pendingReferences`), so a run in flight is no longer a reason to refuse the click. */
   disabled: boolean
+  /** WHY it is off, shown on hover. A control that greys out for more than one reason and names
+   *  none of them sends people looking for the wrong fault — this button's two states were
+   *  "no daemon" and "agent is busy", identical on screen, and the busy one got diagnosed as a
+   *  connection problem. */
+  disabledReason?: string
+  /** Something is uploaded and waiting on the current turn to end before the agent is told. */
+  queued?: boolean
 }) {
   const pickRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -37,11 +51,17 @@ export function ReferenceMedia({
         type="button"
         className="refmedia-btn"
         disabled={disabled || busy}
-        title="Send reference image/video to the workflow — goes to the ComfyUI instance, not the chat model"
+        title={
+          disabled && disabledReason
+            ? disabledReason
+            : 'Send reference image/video to the workflow — goes to the ComfyUI instance, not the chat model'
+        }
         onClick={() => pickRef.current?.click()}
       >
         <ImagePlus size={15} strokeWidth={1.8} />
-        <span>{busy ? 'Adding…' : 'Add reference media'}</span>
+        <span>
+          {busy ? 'Adding…' : queued ? 'Added — handing over after this turn' : 'Add reference media'}
+        </span>
       </button>
       <input
         ref={pickRef}
