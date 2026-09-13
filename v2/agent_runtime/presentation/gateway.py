@@ -2416,17 +2416,48 @@ class Gateway:
             return deny(404, "Not Found")
 
         try:
-            size = p.stat().st_size
+            st = p.stat()
         except OSError:
             return deny(404, "Not Found")
+        size = st.st_size
 
-        # optional single byte-range (video seeking / resumable fetch)
-        start, end, status, reason = 0, size - 1, 200, "OK"
+        # A VALIDATOR, SO `no-cache` CAN ACTUALLY DO ITS JOB.
+        #
+        # This response has always said `Cache-Control: no-cache` — revalidate before reusing —
+        # and shipped nothing to revalidate WITH. A browser with no validator has one option:
+        # download the whole thing again. So every reopen of the same render re-read it from EFS
+        # and re-sent every byte to the client, and bytes to the internet are the part of this
+        # that costs money (EFS reads on a bursting filesystem do not).
+        #
+        # size + mtime, which `stat` above already fetched, so the validator costs no I/O. STRONG
+        # rather than weak (`W/`): these bytes are exactly determined by the file, and `If-Range`
+        # only accepts a strong validator — a weak one would silently disable range revalidation
+        # for the <video> seeking this handler exists to support.
+        etag = f'"{size:x}-{st.st_mtime_ns:x}"'
+
         rng = ""
         try:
             rng = headers.get("Range") or ""
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - websocket header adapters may only partly map
             rng = ""
+        try:
+            if_none_match = headers.get("If-None-Match") or ""
+        except Exception:  # noqa: BLE001
+            if_none_match = ""
+
+        # UNCHANGED => NO BODY. Guarded to whole-file requests on purpose: a conditional RANGE
+        # request is what `If-Range` is for, and answering one with a 304 is a good way to
+        # confuse a media element mid-seek. A range is served normally and carries the ETag, so
+        # the next `If-Range` still validates.
+        if not rng and if_none_match and etag in {t.strip() for t in if_none_match.split(",")}:
+            hdrs = Headers()
+            hdrs["ETag"] = etag
+            hdrs["Cache-Control"] = "no-cache"
+            hdrs["Vary"] = "Authorization"
+            return HttpResponse(304, "Not Modified", hdrs, b"")
+
+        # optional single byte-range (video seeking / resumable fetch)
+        start, end, status, reason = 0, size - 1, 200, "OK"
         if rng.startswith("bytes=") and size > 0:
             spec = rng[len("bytes=") :].split(",")[0].strip()
             lo, _, hi = spec.partition("-")
@@ -2451,6 +2482,12 @@ class Gateway:
         hdrs["Content-Length"] = str(len(body))
         hdrs["Accept-Ranges"] = "bytes"
         hdrs["Cache-Control"] = "no-cache"
+        # Sent on every answer, not just the 200: this is what the client quotes back in
+        # `If-None-Match` (or `If-Range`) to earn the 304 above. Without it here, the shortcut
+        # can never fire, because nothing ever told the browser what to ask about.
+        hdrs["ETag"] = etag
+        # The URL carries a credential and names user data — browser-private, like /thumbnail.
+        hdrs["Vary"] = "Authorization"
         # inline for media; an ASCII-safe filename helps "save as" for documents
         disp = "inline"
         if p.name.isascii() and '"' not in p.name:
