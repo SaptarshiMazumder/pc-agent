@@ -75,7 +75,8 @@ the person paying is asked once, with the file in front of them.
    path does not exist. Phases 2–4 genuinely need the instance and will wait for it when they
    get there; phase 1 never did.
 3. **Research sweep — all of it, before any graph is drawn.**
-   **It starts from the field guide**: `read` `skills/comfyui-workflows/field-guide.md` — the
+   **It starts from the field guide** — the last section of the `comfyui-workflows` skill (`read`
+   the skill by the path the skill list gives you; a workspace-relative path finds nothing) — the
    current floor per task, paid and open, dated. The sweep confirms or beats it and finds the
    wiring; it never lands below it unless the user asked for cheaper or free, or the VRAM cannot
    carry the open pick. Rediscovering SDXL + AnimateDiff from a web search is the failure this
@@ -510,8 +511,8 @@ rather than trying a third variation.
 22. **Partner nodes are researched at the source, and the sweep starts from the field guide.**
     A hosted model's reference workflow is Comfy's own (`docs.comfy.org/tutorials/partner-nodes/
     <provider>`, the `api_*` templates on comfy.org) plus the node's own spec; Civitai and
-    Hugging Face hold nothing for it. `skills/comfyui-workflows/field-guide.md` is the floor the
-    research confirms or beats — never the ceiling, and never skipped.
+    Hugging Face hold nothing for it. The field-guide section of the `comfyui-workflows` skill is
+    the floor the research confirms or beats — never the ceiling, and never skipped.
 
 ## Settings — there are none, and that is deliberate
 

@@ -43,6 +43,8 @@ from agent_runtime.application.services.image_thumbnail_service import (
     ImageThumbnailService,
 )
 from agent_runtime.config import Config, client_accounts_url
+from agent_runtime.domain.checkpoint import is_checkpoint_message
+from agent_runtime.infrastructure import checkpoint_marker
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     RunMode,
@@ -6692,6 +6694,18 @@ class Gateway:
         if idem and idem in self.idempotency:
             return {"runId": self.idempotency[idem], "deduplicated": True}
 
+        # THE USER'S MESSAGE IS THE ANSWER to a checkpoint this session ended on — a typed reply,
+        # a chip, the approve verdict alike. Not the window's own reference-media announcement
+        # (`origin: "reference"`): that is the window talking, not the person answering.
+        if str(params.get("origin") or "") != "reference":
+            try:
+                checkpoint_marker.answer(
+                    self._resolve_workspace(agent_id or self._agent_for_key(session_key)),
+                    session_key,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("checkpoint answer stamp failed for %s", session_key)
+
         existing = self.runs.get(session_key)
         if existing is not None and existing.task is not None and not existing.task.done():
             # Refused BEFORE a run_id would have existed — exactly the class of failure that
@@ -7013,12 +7027,27 @@ class Gateway:
         # the RunContext without importing infrastructure (v2/.importlinter forbids it).
         set_trace_ids(handle.run_id, "")
         _run_started = time.perf_counter()
+        # THE LAST THING THE ASSISTANT SAID this turn. Read at teardown: a turn that ends on a
+        # checkpoint message (domain/checkpoint) stamps the workspace, and the tools that spend
+        # money read the stamp. A list, because a closure cannot rebind a plain name.
+        _last_assistant_text = [""]
+
         async def on_event(event: AgentEvent) -> None:
             # PROOF OF LIFE, for the silence watchdog in `_run_watched`. Stamped on EVERY event
             # rather than on a chosen few: what matters is that the run is doing something, and a
             # list of "events that count" is a list that eventually omits the one a slow tool
             # emits.
             handle.last_event_at = time.monotonic()
+            if event.type == "message_end":
+                _m = (event.payload or {}).get("message") or {}
+                if isinstance(_m, dict) and _m.get("role") == "assistant":
+                    _t = "".join(
+                        str(c.get("text") or "")
+                        for c in (_m.get("content") or [])
+                        if isinstance(c, dict) and c.get("type") == "text"
+                    )
+                    if _t.strip():
+                        _last_assistant_text[0] = _t
             # A RUN PRODUCING EVENTS IS AN ACCOUNT IN USE — whatever the tool. The rented GPU's
             # idle clock only moves when something tells the platform; the agent's tools talk
             # to the instance. Once a minute per account, off the same stamp as the watchdog.
@@ -7099,6 +7128,16 @@ class Gateway:
             # told, and ten quiet minutes later the machine is destroyed instead of thirty.
             if handle.detached_at is not None:
                 self._client_left(str((account or {}).get("account_id") or ""))
+            # A TURN THAT ENDED ON A CHECKPOINT IS STAMPED — the mechanism behind "nothing runs
+            # before the user has answered". Only a turn that ended normally: an aborted or
+            # crashed one asked nobody anything. Best-effort, like the file it writes.
+            if status == "ok" and mode == RunMode.INTERACTIVE and is_checkpoint_message(_last_assistant_text[0]):
+                try:
+                    checkpoint_marker.present(
+                        self._resolve_workspace(agent_id), handle.session_key, handle.run_id
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("checkpoint stamp failed for %s", handle.session_key)
             # Auto-title an interactive chat after its first exchange (LM-Studio style):
             # fire-and-forget so it never delays the run; skips cron/heartbeat/aborted and
             # sessions that already have a title. Titles are conversation data (server-side),

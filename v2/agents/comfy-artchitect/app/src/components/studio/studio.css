@@ -172,7 +172,9 @@
 
 /* Reference media — a quiet chip above the composer. Distinct from the composer's own attach
    button on purpose: this sends INPUT to the workflow, not context to the model. */
-.refmedia { display: flex; margin-bottom: 8px; }
+.refmedia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.refmedia-note { flex: 1 1 260px; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
+.refmedia-note b { font-weight: var(--fw-semi, 600); color: var(--text); }
 .refmedia-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
   border: 1px dashed var(--border); border-radius: 999px; background: transparent;
   color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; transition: all .12s; }

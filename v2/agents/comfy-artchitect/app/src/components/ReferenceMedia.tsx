@@ -63,6 +63,15 @@ export function ReferenceMedia({
           {busy ? 'Adding…' : queued ? 'Added — handing over after this turn' : 'Add reference media'}
         </span>
       </button>
+      {/* WHICH DOOR IS WHICH, said once where both doors are. Two ways to hand the agent an
+          image exist and they do opposite things: this button feeds the WORKFLOW (the person,
+          the garment, a start frame — uploaded to the workspace, never a model call); the chat
+          box feeds the MODEL's eyes (judge a render, "what's wrong here"). People used the chat
+          for references and got a workflow built around a placeholder. */}
+      <span className="refmedia-note">
+        Reference images and videos <b>for generation</b> go here — select several at once.
+        Images pasted or dropped into the chat are only looked at, never generated from.
+      </span>
       <input
         ref={pickRef}
         type="file"

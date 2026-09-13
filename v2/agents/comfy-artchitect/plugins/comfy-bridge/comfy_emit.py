@@ -154,6 +154,9 @@ class ComfyEmitTool(Tool):
                 import studio_state
 
                 studio_state.mark_emitted()
+                # And WHEN this name first existed here — what decides whether a checkpoint
+                # presented later covers it (studio_state.checkpoint_answered).
+                studio_state.mark_first_emit(name)
             except Exception:  # noqa: BLE001 — a telemetry miss must not fail the emit
                 pass
 

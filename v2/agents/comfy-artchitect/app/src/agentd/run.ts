@@ -12,7 +12,7 @@
 import type { AgentdClient } from '@agentd/client'
 import { useCallback } from 'react'
 
-import { MAX_FILES, readFile } from './chat'
+import { MAX_CHAT_IMAGE_BYTES, MAX_FILES, readFile } from './chat'
 import { AGENT_ID } from './client'
 import { useApp } from '../state/store'
 
@@ -53,7 +53,7 @@ export function referenceInstruction(paths: string[]): string {
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
   const send = useCallback(
-    async (text: string): Promise<void> => {
+    async (text: string, opts: { origin?: 'reference' } = {}): Promise<void> => {
       const body = text.trim()
       const { currentSessionKey: key, sessions, patch, append } = useApp.getState()
       const session = sessions[key]
@@ -82,6 +82,9 @@ export function useRun(client: AgentdClient | null) {
           sessionKey: key,
           message: body,
           ...(wireAttachments.length ? { attachments: wireAttachments } : {}),
+          // The window's own announcement is not the user answering anything — the daemon
+          // must not take it for the answer to a checkpoint. See checkpoint_marker.
+          ...(opts.origin ? { origin: opts.origin } : {}),
         })
       } catch (e) {
         // SURFACED IN THE THREAD, and `running` released. A send that failed silently leaves a
@@ -113,11 +116,31 @@ export function useRun(client: AgentdClient | null) {
 
   /** Stage files for the next send. Read into attachments now, so the composer can show them. */
   const addFiles = useCallback(async (list: FileList | File[]): Promise<void> => {
-    const files = Array.from(list || [])
-    if (!files.length) return
-    const { currentSessionKey: key, sessions, patch } = useApp.getState()
+    const all = Array.from(list || [])
+    if (!all.length) return
+    const { currentSessionKey: key, sessions, patch, append } = useApp.getState()
     const session = sessions[key]
     if (!session) return
+    // THE HARD CAP ON A CHAT IMAGE, said in the thread rather than silently dropped: a paste that
+    // vanishes reads as "the paste failed", and the one thing the person needs to hear is that
+    // this is the wrong door for a big image — the reference button is the right one.
+    const tooBig = all.filter((f) => f.size > MAX_CHAT_IMAGE_BYTES)
+    if (tooBig.length) {
+      const mb = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`
+      append(key, [
+        {
+          kind: 'system',
+          tone: 'error',
+          text:
+            tooBig.map((f) => `${f.name} (${mb(f.size)})`).join(', ') +
+            ` ${tooBig.length > 1 ? 'are' : 'is'} over the ${mb(MAX_CHAT_IMAGE_BYTES)} chat limit. ` +
+            'Chat images are only looked at by the agent — for a generation input use Add reference media.',
+          ts: Date.now(),
+        },
+      ])
+    }
+    const files = all.filter((f) => f.size <= MAX_CHAT_IMAGE_BYTES)
+    if (!files.length) return
     // Apply the cap before reading or decoding. A large drag must not briefly hold every full
     // image and every decoded bitmap merely to discard most of them after Promise.all settles.
     const accepted = files.slice(0, Math.max(0, MAX_FILES - session.pending.length))
@@ -208,7 +231,7 @@ export function useRun(client: AgentdClient | null) {
         ])
         return
       }
-      await send(referenceInstruction(paths))
+      await send(referenceInstruction(paths), { origin: 'reference' })
     },
     [client, send],
   )
@@ -224,7 +247,7 @@ export function useRun(client: AgentdClient | null) {
     const queued = sessions[key]?.pendingReferences || []
     if (!queued.length) return
     patch(key, { pendingReferences: [] })
-    await send(referenceInstruction(queued))
+    await send(referenceInstruction(queued), { origin: 'reference' })
   }, [send])
 
   return { send, abort, addFiles, removeFile, sendReferences, flushReferences }

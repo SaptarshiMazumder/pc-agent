@@ -286,7 +286,8 @@ export function Composer({
             <span className="hint-note">drop to attach</span>
           ) : (
             <span className="hint-keys">
-              Enter to send · Shift+Enter for a new line · paste or drop images
+              Enter to send · Shift+Enter for a new line · paste or drop images — for analysis
+              only, 5 MB each
             </span>
           )}
         </div>

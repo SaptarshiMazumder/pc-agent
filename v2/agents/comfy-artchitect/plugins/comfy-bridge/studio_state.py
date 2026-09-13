@@ -209,3 +209,170 @@ def has_emitted() -> bool:
         return False
     except Exception:  # noqa: BLE001
         return True
+
+
+# ─────────────────────────────── the gates the protocol used to state in prose ─────────────────
+#
+# WHY THESE ARE MECHANICAL. "Emit, validate, THEN install; present the checkpoint, THEN run" was
+# written down in three places and a model ignored all three within an hour of deployment: it
+# emitted a four-node stub to unlock inventory, installed three node packs against no workflow,
+# and called comfy_node_install with a fake pack name to force a restart. Rules a model can skip
+# are suggestions. These are checks: each tool asks a file the previous step wrote, and refuses
+# — naming the step — when it is not there.
+#
+# PER CONVERSATION, like `mark_emitted`: the workspace is shared across every chat this account
+# has, and "some chat once validated something" is not the question.
+#
+# FAIL CLOSED where the answer is knowable. An unreadable record means "no record". Only a run
+# whose session cannot be identified at all is let through — there is nothing to key on, and
+# blocking every call in that case would break the desktop for a rule about conversations.
+
+_VALIDATED_FILE = ".studio/validated.json"
+_FIRST_EMITS_FILE = ".studio/first_emits.json"
+#: Written by the DAEMON (agent_runtime/infrastructure/checkpoint_marker.py), read here. The
+#: daemon sees the transcript — it knows when a turn ended on a checkpoint and when the user
+#: answered — and the tools see the file.
+_CHECKPOINT_FILE = ".studio/checkpoint.json"
+_MAX_SESSIONS = 200
+
+
+def _read_json(rel: str) -> dict:
+    try:
+        data = json.loads((Path(current_workspace(".") or ".") / rel).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_json(rel: str, data: dict) -> None:
+    path = Path(current_workspace(".") or ".") / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+def _prune(sessions: dict) -> dict:
+    if len(sessions) <= _MAX_SESSIONS:
+        return sessions
+    return dict(list(sessions.items())[-_MAX_SESSIONS:])
+
+
+def mark_first_emit(name: str) -> None:
+    """The moment THIS conversation first emitted a workflow of this name. First only: a
+    revision keeps the original time, so a checkpoint presented after the first version still
+    covers the revision the user's answer asked for."""
+    try:
+        session = _session()
+        if not session or not name:
+            return
+        data = _read_json(_FIRST_EMITS_FILE)
+        sessions = data.get("sessions") or {}
+        mine = sessions.get(session) or {}
+        if name not in mine:
+            mine[name] = time.time()
+            sessions[session] = mine
+            _write_json(_FIRST_EMITS_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001 — a record miss must not fail the emit
+        pass
+
+
+def first_emit_at(name: str) -> float:
+    session = _session()
+    if not session:
+        return 0.0
+    return float(((_read_json(_FIRST_EMITS_FILE).get("sessions") or {}).get(session) or {}).get(name) or 0.0)
+
+
+def mark_validated(name: str, missing_files: list, unknown_classes: list) -> None:
+    """What comfy_validate found for this workflow — the ONLY thing that authorises an install."""
+    try:
+        session = _session()
+        if not session or not name:
+            return
+        data = _read_json(_VALIDATED_FILE)
+        sessions = data.get("sessions") or {}
+        mine = sessions.get(session) or {}
+        mine[name] = {
+            "at": time.time(),
+            "missing_files": [str(x) for x in missing_files][:200],
+            "unknown_classes": [str(x) for x in unknown_classes][:200],
+        }
+        sessions[session] = mine
+        _write_json(_VALIDATED_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _validations() -> dict:
+    session = _session()
+    if not session:
+        return {}
+    return (_read_json(_VALIDATED_FILE).get("sessions") or {}).get(session) or {}
+
+
+def install_allowed(filename: str) -> tuple[bool, str]:
+    """May `filename` be installed? Only if a validation in this conversation listed it."""
+    if not _session():
+        return True, ""
+    want = (filename or "").strip().lower()
+    for name, rec in _validations().items():
+        if any(str(f).strip().lower() == want for f in rec.get("missing_files") or []):
+            return True, name
+    return False, (
+        f"no validated workflow in this conversation names '{filename}' as a missing file, so it "
+        "will not be installed. The order is comfy_emit → comfy_validate → comfy_install, and "
+        "validate's missing-file list is the ONLY shopping list (hard rule 3). Validate the "
+        "workflow that needs this file; if validate does not name it, the graph does not need it."
+    )
+
+
+def node_install_allowed() -> tuple[bool, str]:
+    """May a node pack be installed? Only after a validation in this conversation reported a
+    node class the instance lacks."""
+    if not _session():
+        return True, ""
+    for rec in _validations().values():
+        if rec.get("unknown_classes"):
+            return True, ""
+    return False, (
+        "no validated workflow in this conversation reports a missing node class, so no pack will "
+        "be installed. Emit the graph, comfy_validate it, and install only what validate names. "
+        "A class name you could not find is usually a WRONG NAME — comfy_node_search finds the "
+        "real one — not a missing pack. And a pack is never installed to force a restart."
+    )
+
+
+def checkpoint_answered(name: str) -> tuple[bool, str]:
+    """May `name` run? Only after the user has ANSWERED a checkpoint presented for it.
+
+    The daemon stamps `presented_at` when a turn ENDS on a checkpoint (an approve block, or a
+    suggest block whose first chip is "You decide"), and `answered_at` when the next user
+    message arrives. A checkpoint counts for this workflow only if it was presented after the
+    workflow first existed in this conversation — a stub emitted to pass this gate is a
+    different name, or an earlier time, either way not this one.
+    """
+    session = _session()
+    if not session:
+        return True, ""
+    rec = ((_read_json(_CHECKPOINT_FILE).get("sessions") or {}).get(session) or {})
+    presented = float(rec.get("presented_at") or 0.0)
+    answered = float(rec.get("answered_at") or 0.0)
+    first = first_emit_at(name)
+    how = (
+        "End the turn with the checkpoint (AGENTS.md 5.5): the workflow(s) by name, the "
+        "brief-check questions with your defaults, the exact credits, and an approve block if "
+        "anything is paid or a suggest block whose first chip is 'You decide — keep the defaults "
+        "and run' if not. Run only in the turn AFTER the user answers."
+    )
+    if not presented:
+        return False, f"'{name}' cannot run yet: no checkpoint has been presented in this conversation. {how}"
+    if presented < first:
+        return False, (
+            f"'{name}' cannot run yet: the only checkpoint in this conversation was presented "
+            f"before '{name}' existed, so the user has not seen this workflow. {how}"
+        )
+    if answered < presented:
+        return False, (
+            f"'{name}' cannot run yet: the checkpoint was presented but the user has not answered "
+            "it. Do nothing more this turn — the answer arrives as their next message."
+        )
+    return True, ""

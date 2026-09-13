@@ -1076,6 +1076,15 @@ class ComfyRunTool(Tool):
                     is_error=True,
                 )
 
+            # NOTHING RENDERS BEFORE THE USER HAS ANSWERED THE CHECKPOINT — mechanically. The
+            # daemon stamps the checkpoint when a turn ends on one and the answer when the next
+            # message arrives; this tool reads the stamp. See studio_state.checkpoint_answered.
+            import studio_state
+
+            answered, why = studio_state.checkpoint_answered(_workflow_name(path))
+            if not answered:
+                return ToolResult.text(why, is_error=True)
+
             # Secrets go in HERE, not when the workflow was written — see _fill_secrets.
             prompt, missing_keys = _fill_secrets(prompt)
             if missing_keys:
@@ -1426,6 +1435,12 @@ class ComfyInstallTool(Tool):
             kind = str(params.get("kind") or "").strip().lower()
             if not (filename and url and kind):
                 return ToolResult.text("filename, url and kind are all required", is_error=True)
+            # THE SHOPPING LIST IS VALIDATE'S, MECHANICALLY — see studio_state.install_allowed.
+            import studio_state
+
+            allowed, why = studio_state.install_allowed(filename)
+            if not allowed:
+                return ToolResult.text(why, is_error=True)
             if not _manager_present():
                 return ToolResult.text(
                     "this instance has no ComfyUI-Manager, so I cannot install models over its "
@@ -1641,6 +1656,14 @@ class ComfyNodeInstallTool(Tool):
             query = str(params.get("pack") or "").strip()
             if not query:
                 return ToolResult.text("pack is required", is_error=True)
+            # A PACK IS INSTALLED BECAUSE A VALIDATION ASKED FOR ONE — see
+            # studio_state.node_install_allowed. Also what stops "install a fake pack to force
+            # a restart".
+            import studio_state
+
+            allowed, why = studio_state.node_install_allowed()
+            if not allowed:
+                return ToolResult.text(why, is_error=True)
             if not _manager_present():
                 return ToolResult.text(
                     "this instance has no ComfyUI-Manager, so custom node packs cannot be "
@@ -1840,6 +1863,9 @@ class ComfyValidateTool(Tool):
 
             unknown_nodes: list[str] = []
             missing_files: list[str] = []
+            # The same facts without the prose, for the record the install gates read.
+            raw_unknown: list[str] = []
+            raw_missing: list[str] = []
             bad_enums: list[str] = []
             bad_links: list[str] = []
             for nid, entry in graph.items():
@@ -1849,6 +1875,7 @@ class ComfyValidateTool(Tool):
                 spec = catalogue.get(cls)
                 if not isinstance(spec, dict):
                     unknown_nodes.append(f"node {nid}: class '{cls}' does not exist here")
+                    raw_unknown.append(str(cls))
                     continue
                 sections = spec.get("input") or {}
                 specs = {
@@ -1873,6 +1900,7 @@ class ComfyValidateTool(Tool):
                         not choices and value.lower().endswith(_MODEL_EXTS)
                     ):
                         missing_files.append(f"{value}  (for {cls}.{field}, node {nid})")
+                        raw_missing.append(str(value))
                     else:
                         legal = ", ".join(str(c) for c in choices[:8])
                         bad_enums.append(
@@ -1880,6 +1908,15 @@ class ComfyValidateTool(Tool):
                         )
 
             downloading = _downloads_in_flight()
+            # THE RECORD THE INSTALL GATES READ. Written whether or not the graph compiles: a
+            # clean validation is also a fact ("nothing to install"), and comfy_install answers
+            # from this and nothing else.
+            try:
+                import studio_state
+
+                studio_state.mark_validated(_workflow_name(path), raw_missing, raw_unknown)
+            except Exception:  # noqa: BLE001 — the report still goes out
+                pass
             if not (unknown_nodes or missing_files or bad_enums or bad_links):
                 return ToolResult.text(
                     f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
@@ -1984,15 +2021,19 @@ class ComfyPriceTool(Tool):
         ]
         for provider in table.get("providers") or []:
             unit = str(provider.get("unit") or "per_run")
-            suffix = "/second of video" if unit == "per_second" else "/run"
             rows = []
             for model, rates in (provider.get("models") or {}).items():
-                cheapest = min(float(v) for v in rates.values())
-                rows.append((cheapest * markup, model, rates))
+                # RATE TIERS ONLY. `_default` is a rate; `_unit` and `classes` are metadata a
+                # model entry may carry (partner_pricing reads them) and are not numbers.
+                numeric = {k: v for k, v in rates.items() if not str(k).startswith("_") and k != "classes"}
+                numeric["_default"] = rates.get("_default", max(numeric.values()) if numeric else 0.0)
+                cheapest = min(float(v) for v in numeric.values())
+                rows.append((cheapest * markup, model, numeric, str(rates.get("_unit") or unit)))
             rows.sort()
             lines.append(f"\n{provider.get('label')} ({unit.replace('per_', 'per ')}):")
-            for price, model, rates in rows:
-                tiers = [k for k in rates if k != "_default"]
+            for price, model, numeric, model_unit in rows:
+                suffix = "/second of video" if model_unit == "per_second" else "/run"
+                tiers = [k for k in numeric if k != "_default"]
                 extra = f"  [{', '.join(tiers)}]" if tiers else ""
                 lines.append(f"   {model}: {price:.0f} credits{suffix}{extra}")
         lines.append(
@@ -2001,6 +2042,13 @@ class ComfyPriceTool(Tool):
             f"{12.66 * markup:.0f}."
         )
         return "\n".join(lines)
+
+
+def _workflow_name(path) -> str:
+    """`workflows/storyboard.api.json` -> `storyboard`: the ROLE name comfy_emit was given, which
+    is what every per-workflow record is keyed by."""
+    base = Path(str(path)).name
+    return base[:-9] if base.endswith(".api.json") else (base[:-5] if base.endswith(".json") else base)
 
 
 def _workflow_path(name: str):
