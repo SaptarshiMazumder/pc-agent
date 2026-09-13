@@ -67,7 +67,7 @@ class InstanceSettings:
     #: at $1.00/hr — when it is there at all — then H100s from $2.20. A ceiling that finds
     #: nothing is not a saving, it is a user with no GPU. $3.00 admits the H100 band: four
     #: machines when this was measured, the first level that is not a coin flip.
-    max_hourly_usd: float = 3.00
+    max_hourly_usd: float = 1.00
 
     #: SECURE CLOUD ONLY. Vast's datacenter tier — ISO-certified hosts, static addresses,
     #: hardware nobody is also gaming on — as opposed to Community Cloud, which is somebody's

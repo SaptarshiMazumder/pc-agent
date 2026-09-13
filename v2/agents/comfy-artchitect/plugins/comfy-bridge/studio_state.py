@@ -316,7 +316,11 @@ def install_allowed(filename: str) -> tuple[bool, str]:
     want = (filename or "").strip().lower()
     for name, rec in _validations().items():
         if any(str(f).strip().lower() == want for f in rec.get("missing_files") or []):
-            return True, name
+            # NAMED BY A VALIDATION — and the ask has been answered. Installing is Phase 3; the
+            # ask is 3.5. It does not matter that a download is free: it is the design being
+            # built before anyone said yes.
+            ok, why = checkpoint_answered(name)
+            return (True, name) if ok else (False, f"'{filename}' is on '{name}'s install list, but nothing is installed before the ask is answered. {why}")
     return False, (
         f"no validated workflow in this conversation names '{filename}' as a missing file, so it "
         "will not be installed. The order is comfy_emit → comfy_validate → comfy_install, and "
@@ -330,9 +334,15 @@ def node_install_allowed() -> tuple[bool, str]:
     node class the instance lacks."""
     if not _session():
         return True, ""
-    for rec in _validations().values():
+    blocked = ""
+    for name, rec in _validations().items():
         if rec.get("unknown_classes"):
-            return True, ""
+            ok, why = checkpoint_answered(name)
+            if ok:
+                return True, ""
+            blocked = blocked or f"'{name}' needs a node pack, but nothing is installed before the ask is answered. {why}"
+    if blocked:
+        return False, blocked
     return False, (
         "no validated workflow in this conversation reports a missing node class, so no pack will "
         "be installed. Emit the graph, comfy_validate it, and install only what validate names. "
@@ -342,13 +352,13 @@ def node_install_allowed() -> tuple[bool, str]:
 
 
 def checkpoint_answered(name: str) -> tuple[bool, str]:
-    """May `name` run? Only after the user has ANSWERED a checkpoint presented for it.
+    """May `name` run (or be installed for)? Only after the user has ANSWERED the ask.
 
-    The daemon stamps `presented_at` when a turn ENDS on a checkpoint (an approve block, or a
-    suggest block whose first chip is "You decide"), and `answered_at` when the next user
-    message arrives. A checkpoint counts for this workflow only if it was presented after the
-    workflow first existed in this conversation — a stub emitted to pass this gate is a
-    different name, or an earlier time, either way not this one.
+    The daemon stamps `presented_at` when a turn ENDS on the ask (an approve block, or a suggest
+    block whose first chip is "You decide"), and `answered_at` when the next user message
+    arrives. The ask comes BEFORE the emit (AGENTS.md 3.5), so the only question is whether this
+    conversation's latest ask has an answer. A new ask resets the answer, so a new job in the
+    same chat waits for its own yes.
     """
     session = _session()
     if not session:
@@ -356,23 +366,17 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
     rec = ((_read_json(_CHECKPOINT_FILE).get("sessions") or {}).get(session) or {})
     presented = float(rec.get("presented_at") or 0.0)
     answered = float(rec.get("answered_at") or 0.0)
-    first = first_emit_at(name)
     how = (
-        "End the turn with the checkpoint (AGENTS.md 5.5): the workflow(s) by name, the "
-        "brief-check questions with your defaults, the exact credits, and an approve block if "
-        "anything is paid or a suggest block whose first chip is 'You decide — keep the defaults "
-        "and run' if not. Run only in the turn AFTER the user answers."
+        "End the turn with the ask (AGENTS.md 3.5): the models and their exact credits, the "
+        "brief-check questions with your defaults, the workflow(s) by role name, and an approve "
+        "block if anything is paid or a suggest block whose first chip is 'You decide — keep the "
+        "defaults and build' if not. Build and run only in the turn AFTER the user answers."
     )
     if not presented:
-        return False, f"'{name}' cannot run yet: no checkpoint has been presented in this conversation. {how}"
-    if presented < first:
-        return False, (
-            f"'{name}' cannot run yet: the only checkpoint in this conversation was presented "
-            f"before '{name}' existed, so the user has not seen this workflow. {how}"
-        )
+        return False, f"'{name}': no ask has been presented in this conversation. {how}"
     if answered < presented:
         return False, (
-            f"'{name}' cannot run yet: the checkpoint was presented but the user has not answered "
-            "it. Do nothing more this turn — the answer arrives as their next message."
+            f"'{name}': the ask was presented but the user has not answered it. Do nothing more "
+            "this turn — the answer arrives as their next message."
         )
     return True, ""

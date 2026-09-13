@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.58.0"
+version = "1.59.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design · run · repair · iterate"
 color = "#7C5CFF"
@@ -37,8 +37,11 @@ public = false
 [delivery]
 web = true
 
-# The shared tools it may reach. Deliberately short:
-#   read/write/edit/ls/find   author workflow JSON in its own workspace
+# The shared tools it may reach. Deliberately short — and NO FILE TOOLS. Every file this agent
+# has business with goes through a comfy_* tool: comfy_emit writes workflows, comfy_upload sends
+# references, comfy_download brings renders back. With read/ls/find it opened other jobs' stale
+# drafts and anchored on them; with write it hand-wrote a "plan.md" in place of a workflow. Its
+# skill is always loaded, so there is nothing left it needs to read.
 #   web_search/web_fetch      research a model or node it has not met — Civitai, HF, docs
 #   update_plan               the build is multi-step and the user watches it
 #   verify_answer             catches "I made a workflow" when it only described one
@@ -47,7 +50,6 @@ web = true
 # be listed here.
 [tools]
 allow = [
-  "read", "write", "edit", "ls", "find",
   "web_search", "web_fetch",
   "update_plan", "verify_answer", "show_files",
 ]

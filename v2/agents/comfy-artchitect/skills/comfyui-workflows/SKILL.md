@@ -1,7 +1,7 @@
 ---
 name: comfyui-workflows
 description: Use when designing, emitting, running or repairing a ComfyUI workflow — how to research what a model family needs, the two JSON formats, and how to read what an instance rejected.
-always: false
+always: true
 ---
 
 # Building a ComfyUI workflow that runs
@@ -34,21 +34,20 @@ self-contained checkpoint vs a bare unet with separate text encoders and VAE; cf
 20 steps vs 4), and new families ship monthly — so the wiring is **researched, never recalled**:
 
 0. **Which model at all?** START FROM THE FIELD GUIDE AT THE END OF THIS FILE — the current
-   floor per task, paid and open, dated. Then sweep BOTH halves of the landscape to confirm or beat it:
-   `web_search` ("best <task> model <year>", "<task> comfyui workflow") and `comfy_research` on
-   Hugging Face and Civitai for OPEN WEIGHTS, **and** the API-node side — `comfy_node_search` the
-   providers (it returns the REAL class names and flags deprecated ones; class names are not
-   guessable), `comfy_node_spec` the candidates, ComfyUI's partner-node docs, and the current
-   hosted services (Seedance/ByteDance, Wan, Kling, Veo, MiniMax and their successors). HF and
-   Civitai carry open weights only, so a sweep limited to them returns free candidates every
-   time and calls that "the best available".
+   floor per task, paid and open, dated. Then sweep BOTH halves of the landscape to confirm or
+   beat it: `web_search` ("best <task> model <year>", "<task> comfyui workflow") and
+   `comfy_research` on Hugging Face and Civitai for OPEN WEIGHTS, **and** the API-node side —
+   `comfy_node_search` the providers (the REAL class names, with deprecated flags),
+   `comfy_node_spec` the candidates, ComfyUI's partner-node docs, and the current hosted
+   services (Seedance/ByteDance, Wan, Kling, Veo, MiniMax and their successors). HF and Civitai
+   carry open weights only, so a sweep limited to them returns free candidates every time and
+   calls that "the best available".
    - **Rank on fitness for the job, never on price.** The best model wins whether it is open
      weights or a paid API.
    - **Only the user narrows this.** If they said free/local in this conversation, obey it and
      pick the best model that fits the probed VRAM at the smallest variant that does the job.
      If they did not say it, do not infer it and do not default to free — say in one line that
-     the pick is paid and keep building to the checkpoint, where the cost is approved with the
-     workflow in front of the user; offer the free alternative as a `suggest` chip there.
+     the pick is paid and keep building, offering the free alternative as a `suggest` chip.
    - **A paid key lives in Settings, not the chat.** Emit `${NAME}` where the key goes; `comfy_run`
      substitutes it at submit time so the secret never lands in a workflow file.
 1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
@@ -80,8 +79,7 @@ self-contained checkpoint vs a bare unet with separate text encoders and VAE; cf
 
 The classic SD/SDXL checkpoint backbone — an example of what a family's wiring looks like,
 **not a template for other families**. Give `comfy_emit` a node list in this shape; ids are
-yours to choose, keep them stable across iterations so a diff is readable. This file and the
-tool's own parameters are the whole shape — do not go looking for an example in the workspace.
+yours to choose, keep them stable across iterations so a diff is readable.
 
 **Text to image:**
 
@@ -184,7 +182,7 @@ you have not seen in a search or a spec.
 |---|---|---|
 | **Nano Banana Pro** (Gemini 3 Pro Image) | the identity pick: up to 14 references, the same face across poses and scenes | `GeminiImage2Node`, model `gemini-3-pro-image-preview`; references via a Batch Images node |
 | **Seedream 5.0 Pro** | precise edits, layout, text; 10–14 references; layer separation | `ByteDanceSeedreamNodeV3` (`ByteDanceSeedreamNode` is deprecated) |
-| **Flux.2 [max] / [pro]** | up to 8–9 references, best aesthetics per credit | `Flux2ImageNode` / `Flux2MaxImageNode` (`Flux2ProImageNode` is deprecated) |
+| **Flux.2 [max] / [pro]** · **Flux VTO** | up to 8–9 references, best aesthetics per credit; **`FluxVTONode` puts a garment on a person** (the try-on pick) | `Flux2ImageNode` — pro or max by input (`Flux2ProImageNode` and `Flux2MaxImageNode` are deprecated) |
 | open: **FLUX.2 [dev]** | multi-reference editing on the box; the open identity pick | native FLUX.2 nodes; weights on Hugging Face |
 | open: **Qwen-Image 2.0** | 2K native, best text rendering, unified edit | native Qwen-Image nodes |
 | open: **Z-Image** (6B) | fast drafts on any card | native |
