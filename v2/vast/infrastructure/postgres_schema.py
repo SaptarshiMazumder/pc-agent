@@ -12,9 +12,13 @@ from typing import Any
 
 #: Bump when adding a step to _STEPS. Kept in lockstep with the SQLite ledger: one module, one
 #: shape, two engines.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _STEPS: dict[int, str] = {
+    3: """
+    -- DECLARED IDLE — see the SQLite ledger for what it means and who clears it.
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS idle_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+    """,
     2: """
     -- The per-rental secret that opens the machine (WEB_PASSWORD at launch, Bearer token in
     -- use). A column rather than a derivation from a server secret, so rotating that secret

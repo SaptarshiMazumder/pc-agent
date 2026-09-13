@@ -33,23 +33,30 @@ The graph is dictated by the model FAMILY, families wire completely differently 
 self-contained checkpoint vs a bare unet with separate text encoders and VAE; cfg 7 vs cfg 1;
 20 steps vs 4), and new families ship monthly — so the wiring is **researched, never recalled**:
 
-0. **Which model at all?** Sweep BOTH halves of the landscape before committing: `web_search`
-   ("best <task> model <year>", "<task> comfyui workflow") and `comfy_research` on Hugging Face
-   and Civitai for OPEN WEIGHTS, **and** the API-node side — `comfy_node_spec` the API nodes the
-   instance has, ComfyUI's API-node docs, and the current hosted services (Seedance/ByteDance,
-   Kling, Runway, Veo, and their successors). HF and Civitai carry open weights only, so a sweep
-   limited to them returns free candidates every time and calls that "the best available".
+0. **Which model at all?** START FROM `field-guide.md` BESIDE THIS FILE — the current floor per
+   task, paid and open, dated. Then sweep BOTH halves of the landscape to confirm or beat it:
+   `web_search` ("best <task> model <year>", "<task> comfyui workflow") and `comfy_research` on
+   Hugging Face and Civitai for OPEN WEIGHTS, **and** the API-node side — `comfy_node_search` the
+   providers (it returns the REAL class names and flags deprecated ones; class names are not
+   guessable), `comfy_node_spec` the candidates, ComfyUI's partner-node docs, and the current
+   hosted services (Seedance/ByteDance, Wan, Kling, Veo, MiniMax and their successors). HF and
+   Civitai carry open weights only, so a sweep limited to them returns free candidates every
+   time and calls that "the best available".
    - **Rank on fitness for the job, never on price.** The best model wins whether it is open
      weights or a paid API.
    - **Only the user narrows this.** If they said free/local in this conversation, obey it and
      pick the best model that fits the probed VRAM at the smallest variant that does the job.
      If they did not say it, do not infer it and do not default to free — say in one line that
-     the pick is paid and keep building, offering the free alternative as a `suggest` chip.
+     the pick is paid and keep building to the checkpoint, where the cost is approved with the
+     workflow in front of the user; offer the free alternative as a `suggest` chip there.
    - **A paid key lives in Settings, not the chat.** Emit `${NAME}` where the key goes; `comfy_run`
      substitutes it at submit time so the secret never lands in a workflow file.
 1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
    usually their **reference workflow**: fetch it by URL with the same tool. That file is the
-   answer, written by the people who trained the model.
+   answer, written by the people who trained the model. **For a PARTNER node the reference
+   workflow is Comfy's own**: `web_fetch` `https://docs.comfy.org/tutorials/partner-nodes/<provider>/…`
+   or the matching `api_*` workflow on comfy.org/workflows, and `comfy_node_spec` the node —
+   Civitai and Hugging Face hold nothing for a hosted model.
 2. No reference workflow? Fetch the model card / README and pull the facts out: loader, text
    encoder(s), VAE, latent node, sampler/scheduler/steps/cfg/shift. For anything not on HF or
    Civitai, `web_search` the release announcement and fetch what it links.
@@ -73,7 +80,8 @@ self-contained checkpoint vs a bare unet with separate text encoders and VAE; cf
 
 The classic SD/SDXL checkpoint backbone — an example of what a family's wiring looks like,
 **not a template for other families**. Give `comfy_emit` a node list in this shape; ids are
-yours to choose, keep them stable across iterations so a diff is readable.
+yours to choose, keep them stable across iterations so a diff is readable. This file and the
+tool's own parameters are the whole shape — do not go looking for an example in the workspace.
 
 **Text to image:**
 

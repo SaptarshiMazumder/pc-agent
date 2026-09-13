@@ -60,11 +60,20 @@ _BASE = "${AGENTD_ACCOUNTS_URL}"
 
 
 def _unavailable(what: str) -> ToolResult:
+    """A STATE, NOT A FAILURE — for the same reason `_waiting` is one. This deployment has no
+    GPU service (a desktop daemon; a platform without the vast module): nothing to rent, from
+    this call or any later one. As a tool ERROR this made the model treat the whole job as
+    blocked — it wrote a markdown "plan" and asked the user to fix a setting instead of
+    designing. The graph needs documentation, not hardware: research, `comfy_emit`, present at
+    the checkpoint. Only upload/validate/install/run need a machine, and they say so."""
     return ToolResult.text(
-        f"{what}: this deployment has no GPU service configured, so there is nothing to rent. "
-        "Design and emit the workflow anyway — it does not need hardware — and tell the user "
-        "the instance could not be started.",
-        is_error=True,
+        f"{what}: this deployment has no GPU service, so there is no machine to start — not now "
+        "and not later in this conversation; do not call gpu_ensure again. Carry on exactly as if "
+        "it were booting: research, design, `comfy_emit` the workflow into the workspace and "
+        "present it at the checkpoint. Only comfy_upload/validate/install/run need a machine — "
+        "say in one line that it could not be run here. Do NOT ask the user to configure "
+        "anything, and do NOT write a plan in place of the workflow.",
+        details={"ready": False, "unavailable": True, "detail": "no GPU service on this deployment"},
     )
 
 
@@ -230,6 +239,12 @@ class GpuEnsureTool(Tool):
         except _PlatformRefused as e:
             if e.transient:
                 return _waiting(e)
+            if e.status == 501 or "is empty" in str(e):
+                # Not configured (501), or the platform's ADDRESS is not even set — a desktop
+                # daemon, where the broker refuses the ${AGENTD_ACCOUNTS_URL} placeholder before
+                # anything is dialled. Neither is a failure of this call, and neither changes
+                # by asking again.
+                return _unavailable("gpu_ensure")
             return ToolResult.text(f"gpu_ensure failed: {e}", is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)

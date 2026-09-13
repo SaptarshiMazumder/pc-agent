@@ -149,6 +149,10 @@ export interface AppState {
    *  chat found running on reconnect, whose live events must land somewhere while the user is
    *  looking at another one. A no-op for a session that already exists. */
   ensureSession: (key: string) => void
+  /** Bumped when reference media is added, so the file panel re-reads `references/<chat>/`
+   *  at once. A counter rather than the list itself: the folder is the truth, the panel reads it. */
+  referencesVersion: number
+  bumpReferences: () => void
   /** `show` decides whether the view switches to the chat. TRUE for a person clicking "New
    *  chat"; FALSE for boot, which needs a session to type into but must not decide what is on
    *  screen — a dashboard template opens on its dashboard, and the boot call was stomping that. */
@@ -243,6 +247,9 @@ export const useApp = create<AppState>((set) => ({
           ? s.sessions
           : { ...s.sessions, [key]: { ...(s.sessions[key] || EMPTY), items } },
     })),
+
+  referencesVersion: 0,
+  bumpReferences: () => set((s) => ({ referencesVersion: s.referencesVersion + 1 })),
 
   ensureSession: (key) =>
     set((s) => (s.sessions[key] ? {} : { sessions: { ...s.sessions, [key]: { ...EMPTY } } })),

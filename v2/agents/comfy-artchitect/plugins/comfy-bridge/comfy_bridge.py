@@ -238,10 +238,13 @@ def _lease(seconds: int) -> None:
     )
 
 
-#: How long a render or a download may hold the machine without anyone talking to it. The
-#: platform caps it (max_lease_seconds); each poll renews it, so a long job is covered for as
-#: long as something is still watching it.
-_WORK_LEASE_S = 30 * 60
+#: How long a render or a download may hold the machine without anyone talking to it. SHORT,
+#: because it is the weakest of the three witnesses: the daemon heartbeats while the run
+#: produces events, and the reaper asks the box itself whether a render or a download is in
+#: flight. Each poll renews it, so a long job is covered for as long as something is watching
+#: it — and a job nobody is watching is not something to keep paying for. The platform caps
+#: it (max_lease_seconds) regardless.
+_WORK_LEASE_S = 3 * 60
 
 
 def _no_instance() -> "ToolResult":
@@ -481,8 +484,10 @@ class ComfyNodeSpecTool(Tool):
             spec = body.get(node_class)
             if not spec:
                 return ToolResult.text(
-                    f"'{node_class}' is not installed on this instance. comfy_inventory shows "
-                    f"what is; a missing class usually means a custom node pack is not there.",
+                    f"'{node_class}' is not installed on this instance. Class names are guessed "
+                    "wrong more often than packs are missing: comfy_node_search finds the real "
+                    "name from a provider or model word (\"Seedance\", \"Nano Banana\", "
+                    "\"Wan3\"). A missing custom pack is the other cause.",
                     is_error=True,
                 )
             return ToolResult.text(json.dumps(spec, indent=2)[:4000], details=spec)
@@ -490,6 +495,93 @@ class ComfyNodeSpecTool(Tool):
             return ToolResult.text(
                 f"comfy_node_spec failed: {type(e).__name__}: {e}", is_error=True
             )
+
+
+class ComfyNodeSearchTool(Tool):
+    """The catalogue by NAME. `comfy_node_spec` needs an exact class, and the class names of
+    partner nodes are not guessable (Seedance 2.5 is `ByteDance2FirstLastFrameNode`; Nano Banana
+    Pro is `GeminiImage2Node`) — an agent that guessed got "not installed" three times and
+    concluded the model was unavailable. This answers "what is here for <word>" in one call, with
+    the two flags that decide whether a node may be used at all: `api_node` (paid, billed through
+    the platform) and `deprecated` (a successor exists — use it instead).
+
+    ALLOWED BEFORE A DESIGN EXISTS, unlike comfy_inventory: this is the node CATALOGUE, the same
+    for every instance of this ComfyUI version, not the model files someone happened to leave on
+    the box. Knowing that a Seedance node exists does not anchor a design; it is what makes the
+    research actionable."""
+
+    name = "comfy_node_search"
+    label = "Find ComfyUI nodes by name"
+    default_retryable = True
+    description = (
+        "Search the instance's node catalogue by a word — a provider, a model, a task — and get "
+        "the exact class names with their category and the api_node/deprecated flags. Use it to "
+        "find a partner node's real class (\"Seedance\", \"Nano Banana\", \"Wan3\", \"Kling\", "
+        "\"lip sync\") before comfy_node_spec, and to avoid deprecated nodes. Works before any "
+        "workflow exists."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "A word or two: provider, model, task. Case-insensitive; matches "
+                               "class name, display name, category and module.",
+            },
+            "api_only": {
+                "type": "boolean",
+                "description": "Only partner (paid, api_node) nodes. Default false.",
+            },
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        try:
+            query = str(params.get("query") or "").strip().lower()
+            if not query:
+                return ToolResult.text("query is required", is_error=True)
+            api_only = bool(params.get("api_only"))
+            res = _get("/api/object_info", timeout_s=60.0)
+            if not res.ok:
+                return ToolResult.text(_failed(res, "node search"), is_error=True)
+            body = res.json() or {}
+            words = [w for w in query.replace("-", " ").split() if w]
+            rows = []
+            for cls, spec in body.items():
+                if not isinstance(spec, dict):
+                    continue
+                if api_only and not spec.get("api_node"):
+                    continue
+                hay = " ".join(
+                    str(spec.get(k) or "") for k in ("display_name", "category", "python_module")
+                ).lower() + " " + cls.lower()
+                if all(w in hay for w in words):
+                    rows.append((
+                        0 if spec.get("api_node") else 1,
+                        1 if spec.get("deprecated") else 0,
+                        cls,
+                        str(spec.get("display_name") or ""),
+                        str(spec.get("category") or ""),
+                        bool(spec.get("api_node")),
+                        bool(spec.get("deprecated")),
+                    ))
+            rows.sort()
+            if not rows:
+                return ToolResult.text(
+                    f"no node matches '{query}' on this instance. Try a shorter word (a provider "
+                    "or model family), or the pack is not installed — comfy_node_install."
+                )
+            lines = [f"{len(rows)} node(s) match '{query}' (partner nodes first; deprecated last):"]
+            for _, _, cls, disp, cat, api, dep in rows[:30]:
+                flags = " · ".join(f for f in ("PARTNER/paid" if api else "", "DEPRECATED — use its successor" if dep else "") if f)
+                lines.append(f"  {cls}  —  {disp}  [{cat}]" + (f"  {flags}" if flags else ""))
+            if len(rows) > 30:
+                lines.append(f"  … {len(rows) - 30} more; narrow the query")
+            lines.append("Then comfy_node_spec <class> for its inputs and price badge.")
+            return ToolResult.text("\n".join(lines), details={"matches": [r[2] for r in rows[:30]]})
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(f"comfy_node_search failed: {type(e).__name__}: {e}", is_error=True)
 
 
 class ComfyUploadTool(Tool):
@@ -854,6 +946,32 @@ def _quote_for(prompt: dict):
         return None
 
 
+def _unpriced_partner_nodes(prompt: dict, quote) -> list[str]:
+    """Partner nodes the TABLE never heard of — the leak the table cannot close by itself.
+
+    partner-nodes.json recognises a paid node by provider prefix, so a provider Comfy added last
+    week (ByteDance, Gemini image, hosted Wan, for months) matched nothing, priced as a free local
+    node, and ran on the platform's own Comfy balance while the user was charged zero. The
+    instance knows better: every partner node's spec carries `api_node: true`. Any class the
+    quote did not price is asked, and a yes is a refusal upstairs. One small GET per unknown
+    class, deduplicated — a graph names a dozen classes, most of them core."""
+    priced = {i.class_type for i in getattr(quote, "items", [])} | set(getattr(quote, "unpriced", []))
+    unknown = sorted({str(nd.get("class_type") or "") for nd in (prompt or {}).values()
+                      if isinstance(nd, dict)} - priced - {""})
+    leak: list[str] = []
+    for cls in unknown:
+        res = _get(f"/api/object_info/{cls}")
+        if not res.ok:
+            continue  # an unknown class fails validation on its own terms; not this gate's job
+        try:
+            spec = (res.json() or {}).get(cls) or {}
+        except ValueError:
+            continue
+        if spec.get("api_node"):
+            leak.append(cls)
+    return leak
+
+
 def _charge(credits: int, note: str) -> tuple[bool, str]:
     """Debit the caller's credits for a paid run. (ok, message).
 
@@ -988,6 +1106,17 @@ class ComfyRunTool(Tool):
                         "partner-nodes.json.",
                         is_error=True,
                     )
+            elif (leak := _unpriced_partner_nodes(prompt, quote)):
+                # THE SECOND LAYER — see _unpriced_partner_nodes. The instance says these are
+                # partner nodes; the table has no provider for them; so they would have run
+                # unpriced. Refused, naming them, exactly like an unpriced model.
+                return ToolResult.text(
+                    "this workflow uses partner node(s) the price table has no provider for, so "
+                    "it will not be submitted: " + ", ".join(leak)
+                    + ". comfy_price lists what is priced; the operator adds providers in "
+                    "partner-nodes.json.",
+                    is_error=True,
+                )
             elif quote.paid or quote.unpriced:
                 if not quote.ok:
                     return ToolResult.text(
@@ -1901,6 +2030,7 @@ def register(api, ctx):
     api.register_tool(ComfyValidateTool())
     api.register_tool(ComfyInventoryTool())
     api.register_tool(ComfyNodeSpecTool())
+    api.register_tool(ComfyNodeSearchTool())
     api.register_tool(ComfyResearchTool())
     api.register_tool(ComfyUploadTool())
     api.register_tool(ComfyDownloadTool())

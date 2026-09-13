@@ -180,6 +180,8 @@ export function useRun(client: AgentdClient | null) {
         ])
       }
       if (!saved.length) return
+      // The folder changed; the file panel reads it (agentd/references.ts).
+      useApp.getState().bumpReferences()
       const paths = saved.map((name) => `${dir}/${name}`)
 
       /* THE UPLOAD IS DONE; SAYING SO MAY HAVE TO WAIT. A turn cannot be sent while one is

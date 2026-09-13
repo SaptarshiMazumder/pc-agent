@@ -195,8 +195,8 @@ export function FileExplorer({
       </div>
       {total === 0 ? (
         <p className="fx-empty">
-          Nothing written yet — workflows, renders and downloads all land here as the agent makes
-          them.
+          Nothing here yet — the references you add, and the workflows, renders and downloads the
+          agent makes, all land here.
         </p>
       ) : (
         <div className="fx-tree">

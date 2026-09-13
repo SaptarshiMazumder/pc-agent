@@ -19,6 +19,7 @@ then found by searching the node's own inputs.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -111,6 +112,14 @@ def _provider_for(class_type: str, table: dict) -> dict | None:
         for prefix in provider.get("match") or []:
             if str(prefix).lower() in name:
                 return provider
+        # A REGEX for the providers a substring cannot express: the hosted Wan nodes share their
+        # prefix with ComfyUI's free local Wan nodes and differ only in ending with "Api".
+        for pattern in provider.get("match_regex") or []:
+            try:
+                if re.search(str(pattern), name):
+                    return provider
+            except re.error:
+                continue
     return None
 
 
@@ -123,13 +132,21 @@ def _strings_in(inputs: dict) -> list[str]:
     return out
 
 
-def _model_for(provider: dict, inputs: dict) -> str:
+def _model_for(provider: dict, inputs: dict, class_type: str = "") -> str:
     """Which of the provider's models this node names, else the provider's default.
 
-    Longest name first, so "kling-v3-omni" is not swallowed by "kling-v3".
+    THE CLASS FIRST, for models that are their node: BFL's nodes, Kling's lip-sync — nothing in
+    their inputs says which model, the class name does (`classes` on the model entry). Then the
+    inputs, longest name first, so "kling-v3-omni" is not swallowed by "kling-v3".
     """
-    haystack = " ".join(_strings_in(inputs))
     models = provider.get("models") or {}
+    cls = (class_type or "").lower()
+    if cls:
+        for model, rates in models.items():
+            for needle in (rates.get("classes") or []) if isinstance(rates, dict) else []:
+                if str(needle).lower() in cls:
+                    return model
+    haystack = " ".join(_strings_in(inputs))
     for model in sorted(models, key=len, reverse=True):
         if model.lower() in haystack:
             return model
@@ -138,7 +155,8 @@ def _model_for(provider: dict, inputs: dict) -> str:
 
 def _tier_for(rates: dict, inputs: dict) -> tuple[str, float]:
     """The rate for this node's resolution/quality, else the model's `_default`."""
-    named = {k: v for k, v in rates.items() if k != "_default"}
+    # Rate tiers only: `_default` is the fallback, `_unit` and `classes` are metadata.
+    named = {k: v for k, v in rates.items() if not str(k).startswith("_") and k != "classes"}
     if named:
         blob = " ".join(_strings_in(inputs))
         for field_name in _TIER_KEYS:
@@ -184,14 +202,14 @@ def price_workflow(api_graph: dict, table: dict | None = None) -> Quote:
             continue  # a local node: it costs GPU time, which is the rental, not credits
 
         inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
-        model = _model_for(provider, inputs)
+        model = _model_for(provider, inputs, class_type)
         rates = (provider.get("models") or {}).get(model)
         if not rates:
             quote.unpriced.append(class_type)
             continue
 
         tier, rate = _tier_for(rates, inputs)
-        unit = str(provider.get("unit") or "per_run")
+        unit = str(rates.get("_unit") or provider.get("unit") or "per_run")
         quantity = _seconds_for(provider, inputs) if unit == "per_second" else 1.0
         quote.items.append(
             LineItem(

@@ -12,9 +12,15 @@ from __future__ import annotations
 import sqlite3
 
 #: Bump when adding a step to _STEPS.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _STEPS: dict[int, str] = {
+    3: """
+    -- DECLARED IDLE: when the account's last window left, or its unwatched run ended. Zero
+    -- until then; cleared by the next heartbeat. The reaper reads it to stop asking the box
+    -- whether it is busy — a machine working for nobody is not in use.
+    ALTER TABLE vast_instances ADD COLUMN idle_at REAL NOT NULL DEFAULT 0;
+    """,
     2: """
     -- The per-rental secret that opens the machine (WEB_PASSWORD at launch, Bearer token in
     -- use). A column rather than a derivation from a server secret, so rotating that secret

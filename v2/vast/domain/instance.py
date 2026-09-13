@@ -123,10 +123,21 @@ class InstanceRow:
     #: header value. Per rental, never reused: a token that outlived its machine would open the
     #: next tenant's. Empty only on rows written before the column existed.
     auth_token: str = ""
+    #: DECLARED IDLE: the moment the account's last window left (a sign-out, a closed tab, a
+    #: dropped socket) or its unwatched run ended. Zero = nobody has said so. The declaration
+    #: drops the lease and disarms the box's own busy report — a download for nobody is not
+    #: work — and any later contact (a heartbeat, a touch, a new run's events) clears it.
+    idle_at: float = 0.0
 
     @property
     def live(self) -> bool:
         return self.state in LIVE_STATES
+
+    @property
+    def abandoned(self) -> bool:
+        """Has the account's last window left without coming back? While true, the reaper does
+        not ask the box whether it is busy: what it is doing, it is doing for nobody."""
+        return bool(self.idle_at)
 
     @property
     def ready(self) -> bool:

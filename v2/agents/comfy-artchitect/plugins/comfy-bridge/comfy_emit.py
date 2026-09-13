@@ -44,13 +44,22 @@ class ComfyEmitTool(Tool):
     description = (
         "Write a designed workflow to disk in BOTH ComfyUI formats: the API file comfy_run "
         "submits, and the UI file the user imports into their browser. Give it the node list; "
-        "it handles ids, links and layout. Use names that comfy_inventory confirmed exist."
+        "it handles ids, links and layout. Use names that comfy_inventory confirmed exist. "
+        "The NAME is the workflow's ROLE (storyboard, video, upscale) and stays the same for "
+        "the whole conversation: a revision is emitted under the same name and replaces the "
+        "file — never a new name for a new draft."
     )
     parameters = {
         "type": "object",
         "required": ["name", "nodes"],
         "properties": {
-            "name": {"type": "string", "description": "Workflow name, e.g. 'flux-portrait'."},
+            "name": {
+                "type": "string",
+                "description": (
+                    "The workflow's ROLE — 'storyboard', 'video', 'upscale'. Reuse it for every "
+                    "revision; the file is replaced, not duplicated."
+                ),
+            },
             "nodes": {
                 "type": "array",
                 "description": (

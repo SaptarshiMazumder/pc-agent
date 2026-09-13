@@ -1127,6 +1127,9 @@ class Gateway:
     # public sockets). _send_all delivers a frame only where ownership.may_observe says the
     # frame's acting owner is among these. Populated for EVERY connection at _handle_conn.
     client_identities: dict = field(default_factory=dict)
+    #: ws -> account id, for the one question the disconnect path asks: was that the account's
+    #: LAST window? If so the platform is told nobody is using its GPU (see _client_left).
+    client_accounts: dict = field(default_factory=dict)
     # global in-flight cap for public tools.invoke (created lazily on the running loop)
     _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
@@ -2867,6 +2870,7 @@ class Gateway:
                 accounts.org_ids_from(account),
             )
         )
+        self.client_accounts[ws] = str((account or {}).get("account_id") or "")
         if account is not None:
             log.info(
                 "connection %s authorized: account=%s <%s>",
@@ -2905,6 +2909,7 @@ class Gateway:
                             self._hosted(),
                             accounts.org_ids_from(account),
                         )
+                        self.client_accounts[ws] = str((account or {}).get("account_id") or "")
                         await ws.send(dump_frame(response))
                         continue
                     response = await self._dispatch(frame, client_id, scope, public, account)
@@ -2918,6 +2923,7 @@ class Gateway:
             self.client_scopes.pop(ws, None)
             self.client_public.discard(ws)
             self.client_identities.pop(ws, None)
+            left_account = self.client_accounts.pop(ws, "")
             # WHO HUNG UP, BY THE WIRE'S OWN WORD. Every mystery mid-run death of 2026-08-29
             # started as an unexplained disconnect; the close code says whether the client
             # closed (1000/1001), the daemon's keepalive gave up on a frozen client (1011),
@@ -2929,6 +2935,7 @@ class Gateway:
                 f", reason {ws.close_reason!r}" if getattr(ws, "close_reason", "") else "",
             )
             await self._detach_client_runs(client_id)
+            self._client_left(left_account)
 
     async def _auth_update(self, req: Request, current: dict | None) -> tuple[dict | None, Response]:
         """Swap this connection's access token in place — no reconnect, no dropped run.
@@ -6811,6 +6818,19 @@ class Gateway:
         self._gpu_keepalive_at[account_id] = now
         asyncio.create_task(accounts.gpu_heartbeat(account_id))
 
+    def _client_left(self, account_id: str) -> None:
+        """A socket closed, or a run ended with nobody watching. If no window of this account is
+        connected any more, tell the platform nobody is using its GPU: the lease is dropped and
+        the box's own busy report stops counting, so ten quiet minutes later the machine is
+        destroyed. A sign-out ends this way too — the SDK reloads the page on an identity
+        change, which drops the socket. A reload that comes straight back re-attaches and
+        heartbeats, which cancels the declaration; a detached run's events do the same until
+        it ends. Another window of the same account still connected means the account is
+        still here, and nothing is said."""
+        if not account_id or any(a == account_id for a in self.client_accounts.values()):
+            return
+        asyncio.create_task(accounts.gpu_idle(account_id))
+
     def _session_running(self, row: dict) -> bool:
         """Is there a live run on this session right now? For the rail: a reloaded window has
         no memory of what was running, and this is how it finds out without asking N times."""
@@ -7036,6 +7056,12 @@ class Gateway:
                 trigger=handle.trigger,
             )
             telemetry.count("run_total", outcome=status, trigger=handle.trigger)
+            # A RUN THAT ENDED WITH NOBODY WATCHING leaves the account idle NOW — the grace
+            # reaper's abort lands here too. Its events were what kept the GPU alive on the
+            # account's behalf; with them gone and no window to say otherwise, the platform is
+            # told, and ten quiet minutes later the machine is destroyed instead of thirty.
+            if handle.detached_at is not None:
+                self._client_left(str((account or {}).get("account_id") or ""))
             # Auto-title an interactive chat after its first exchange (LM-Studio style):
             # fire-and-forget so it never delays the run; skips cron/heartbeat/aborted and
             # sessions that already have a title. Titles are conversation data (server-side),

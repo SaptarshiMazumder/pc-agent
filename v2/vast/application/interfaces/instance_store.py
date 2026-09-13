@@ -46,6 +46,11 @@ class InstanceStore(Protocol):
         heartbeat cannot shorten one already held over a running render."""
         ...
 
+    def mark_idle(self, c: Any, account_id: str, *, now: float) -> bool:
+        """Nobody is here: drop the lease, stamp `idle_at`, leave the contact clock alone.
+        True if a live row was marked."""
+        ...
+
     def mark_dead(self, c: Any, row_id: str, *, reason: str, now: float) -> None:
         """Free the account's slot. The row is KEPT, never deleted: `reason` is the only record
         of why a machine went away, and that is the first question after a surprising invoice."""

@@ -20,7 +20,7 @@ from vast.domain.instance import LIVE_STATES, InstanceRow
 
 _COLS = (
     "id, account_id, instance_id, machine_id, url, state, hourly_usd, "
-    "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token"
+    "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token, idle_at"
 )
 _LIVE = ",".join("?" for _ in LIVE_STATES)
 
@@ -40,6 +40,7 @@ def _row(r: Any) -> InstanceRow:
         dead_at=float(r["dead_at"]) if r["dead_at"] is not None else None,
         dead_reason=str(r["dead_reason"] or ""),
         auth_token=str(r["auth_token"] or ""),
+        idle_at=float(r["idle_at"] or 0.0),
     )
 
 
@@ -170,12 +171,24 @@ class SqlInstanceStore:
 
     def heartbeat(self, c: Any, account_id: str, *, now: float, lease_until: float = 0.0) -> bool:
         """The lease moves FORWARD ONLY, in SQL rather than in a read-modify-write, so two
-        concurrent heartbeats cannot lose one another's extension."""
+        concurrent heartbeats cannot lose one another's extension. Any contact also cancels a
+        standing "nobody is here" (`idle_at`): whoever is calling, somebody is."""
         cur = c.execute(
-            "UPDATE vast_instances SET last_seen_at=?, "
+            "UPDATE vast_instances SET last_seen_at=?, idle_at=0, "
             "lease_until=CASE WHEN ?>lease_until THEN ? ELSE lease_until END "
             f"WHERE account_id=? AND state IN ({_LIVE})",
             (now, lease_until, lease_until, account_id, *LIVE_STATES),
+        )
+        return bool(getattr(cur, "rowcount", 0))
+
+    def mark_idle(self, c: Any, account_id: str, *, now: float) -> bool:
+        """The account's last window has left. Drops the lease and stamps the declaration; the
+        contact clock (`last_seen_at`) is left where it was — the machine has been untouched
+        since then, and moving it would buy the machine ten more minutes."""
+        cur = c.execute(
+            "UPDATE vast_instances SET lease_until=0, idle_at=? "
+            f"WHERE account_id=? AND state IN ({_LIVE})",
+            (now, account_id, *LIVE_STATES),
         )
         return bool(getattr(cur, "rowcount", 0))
 

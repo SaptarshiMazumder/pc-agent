@@ -102,6 +102,17 @@ def build_vast_router(
         )
         return {"alive": alive, **_view(row)}
 
+    @router.post("/vast/idle")
+    def idle(
+        payload: dict = Body(default={}), x_internal_key: str | None = Header(default=None)
+    ) -> dict:
+        """"Nobody is here." The daemon says so when an account's last window disconnects and
+        when a run ends with no window watching; the reaper then counts ten minutes from the
+        last real contact and does not let the box argue."""
+        _guard(x_internal_key)
+        marked, row = service.idle(_account(payload))
+        return {"idle": marked, **_view(row)}
+
     @router.get("/vast/status/{account_id}")
     def status(account_id: str, x_internal_key: str | None = Header(default=None)) -> dict:
         _guard(x_internal_key)

@@ -1,216 +1,544 @@
 {
   "_comment": "WHAT PAID COMFYUI PARTNER NODES COST, and therefore what we charge for them. Edit this file and redeploy the agent — no code change, which is the whole point of it being data. Prices are ComfyUI credits, taken from https://docs.comfy.org/tutorials/partner-nodes/pricing (~100 credits = $1). They DO drift; re-check this file against that page when Comfy announces changes, and against the account's actual invoice.",
-
-  "_comment_safety": "THE DEFAULT FOR AN UNKNOWN PAID NODE IS TO REFUSE, never to charge nothing. A partner node this file does not price would otherwise run on the publisher's prepaid balance for free, and the first sign would be the invoice. `providers[].match` is how a node is recognised as billable at all: if a class name matches a provider prefix but no model entry prices it, the run is refused with a message naming the class — which is a two-minute edit here rather than a silent leak.",
-
-  "_comment_matching": "A node is priced in two steps: its class_type is matched against a provider prefix, then the node's own inputs are searched for a string naming one of that provider's models. No model match falls back to the provider's `default_model`. This is deliberately loose about exact class names, because Comfy renames and adds nodes faster than this file can track — a provider prefix is far more stable than any one class name.",
-
-  "version": 1,
-  "updated": "2026-09-10",
-
+  "_comment_safety": "THE DEFAULT FOR AN UNKNOWN PAID NODE IS TO REFUSE, never to charge nothing — in TWO layers. Here: a class that matches a provider but no model entry is `unpriced` and the run is refused naming the class. In comfy_run: a class that matches NO provider but that the instance itself marks `api_node` is refused too — that is the case this file cannot see (a provider Comfy added last week), and before that check it ran on the platform's balance for free.",
+  "_comment_matching": "A node is priced in two steps: its class_type is matched against a provider (`match` = substring of the class name; `match_regex` = regex over the lowercased class name, for the providers whose hosted nodes share a prefix with free local ones), then the MODEL is found — first by `classes` (substrings of the class name, for nodes whose model is their class), then by searching the node's own inputs for one of the provider's model names, else the provider's `default_model`. A model's `_unit` overrides the provider's unit (a per-image model inside a per-second provider). This is deliberately loose about exact class names, because Comfy renames and adds nodes faster than this file can track.",
+  "version": 2,
+  "updated": "2026-09-13",
   "credits_per_usd": 100,
-
   "_comment_markup": "What we charge on top of what Comfy charges us. It is not profit-taking so much as insurance: the prices below are a snapshot, Comfy's are live, and a table that has drifted low bills us the difference on every run.",
   "markup": 1.3,
-
   "providers": [
     {
       "id": "kling",
       "label": "Kling (Kuaishou)",
-      "match": ["Kling"],
+      "match": [
+        "Kling"
+      ],
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "kling-v3",
       "models": {
-        "kling-video-o1": { "720p": 17.72, "1080p": 23.63, "_default": 17.72 },
-        "kling-3.0-turbo": { "720p": 23.63, "1080p": 29.54, "_default": 23.63 },
-        "kling-v3": { "720p": 17.72, "1080p": 29.54, "_default": 17.72 },
-        "kling-v3-omni": { "720p": 17.72, "1080p": 44.31, "_default": 17.72 }
-      }
+        "kling-video-o1": {
+          "720p": 17.72,
+          "1080p": 23.63,
+          "_default": 17.72
+        },
+        "kling-3.0-turbo": {
+          "720p": 23.63,
+          "1080p": 29.54,
+          "_default": 23.63
+        },
+        "kling-v3": {
+          "720p": 17.72,
+          "1080p": 29.54,
+          "_default": 17.72
+        },
+        "kling-v3-omni": {
+          "720p": 17.72,
+          "1080p": 44.31,
+          "_default": 17.72
+        },
+        "kling-lipsync": {
+          "_unit": "per_run",
+          "_default": 10.0,
+          "classes": [
+            "KlingLipSync"
+          ]
+        }
+      },
+      "_comment": "KlingVideoNode carries kling-v3 / kling-3.0-turbo in its inputs; KlingImageToVideoWithAudio is Kling 2.6 and prices as the default. Lip-sync nodes name no model, hence `classes`."
     },
     {
       "id": "luma",
       "label": "Luma Ray",
-      "match": ["Luma"],
+      "match": [
+        "Luma"
+      ],
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "ray-3.2",
       "models": {
-        "ray-3.2": { "_default": 25.32 },
-        "ray-2": { "_default": 38.44 },
-        "ray-1-6": { "_default": 21.10 }
+        "ray-3.2": {
+          "_default": 25.32
+        },
+        "ray-2": {
+          "_default": 38.44
+        },
+        "ray-1-6": {
+          "_default": 21.1
+        }
       }
     },
     {
       "id": "runway",
       "label": "Runway",
-      "match": ["Runway"],
+      "match": [
+        "Runway"
+      ],
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "gen4-turbo",
       "models": {
-        "gen4-turbo": { "_default": 15.09 },
-        "aleph2": { "_default": 84.48 }
+        "gen4-turbo": {
+          "_default": 15.09
+        },
+        "aleph2": {
+          "_default": 84.48
+        }
       }
     },
     {
       "id": "veo",
       "label": "Google Veo",
-      "match": ["Veo", "GoogleVeo"],
+      "match": [
+        "Veo",
+        "GoogleVeo"
+      ],
       "unit": "per_second",
       "default_seconds": 8,
       "default_model": "veo-3.1-fast-generate",
       "models": {
-        "veo-3.1-lite": { "_default": 6.33 },
-        "veo-3.1-fast-generate": { "_default": 16.88 },
-        "veo-3.1-generate": { "_default": 42.20 }
-      }
-    },
-    {
-      "id": "sora",
-      "label": "OpenAI Sora",
-      "match": ["Sora"],
-      "unit": "per_second",
-      "default_seconds": 5,
-      "default_model": "sora-2",
-      "models": {
-        "sora-2": { "_default": 21.10 },
-        "sora-2-pro": { "_default": 63.30 }
+        "veo-3.1-lite": {
+          "_default": 6.33
+        },
+        "veo-3.1-fast-generate": {
+          "_default": 16.88
+        },
+        "veo-3.1-generate": {
+          "_default": 42.2
+        }
       }
     },
     {
       "id": "minimax",
       "label": "MiniMax",
-      "match": ["Minimax", "MiniMax"],
+      "match": [
+        "Minimax",
+        "MiniMax"
+      ],
       "unit": "per_second",
       "default_seconds": 6,
       "default_model": "minimax-h3",
       "models": {
-        "minimax-h3": { "768p": 27.16, "2k": 39.22, "_default": 27.16 }
+        "minimax-h3": {
+          "768p": 27.16,
+          "2k": 39.22,
+          "_default": 27.16
+        }
       }
     },
     {
       "id": "pixverse",
       "label": "PixVerse",
-      "match": ["Pixverse", "PixVerse"],
+      "match": [
+        "Pixverse",
+        "PixVerse"
+      ],
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "pixverse-v6",
       "models": {
-        "pixverse-v6": { "360p": 15.09, "720p": 27.16, "1080p": 54.31, "_default": 27.16 }
+        "pixverse-v6": {
+          "360p": 15.09,
+          "720p": 27.16,
+          "1080p": 54.31,
+          "_default": 27.16
+        }
       }
     },
     {
       "id": "vidu",
       "label": "Vidu",
-      "match": ["Vidu"],
+      "match": [
+        "Vidu"
+      ],
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "viduq3-turbo",
       "models": {
-        "viduq3-turbo": { "720p": 12.66, "1080p": 16.88, "_default": 12.66 },
-        "viduq3-pro": { "_default": 31.65 }
+        "viduq3-turbo": {
+          "720p": 12.66,
+          "1080p": 16.88,
+          "_default": 12.66
+        },
+        "viduq3-pro": {
+          "_default": 31.65
+        }
       }
     },
     {
       "id": "bfl",
       "label": "Black Forest Labs (Flux)",
-      "match": ["Flux", "BFL"],
+      "match": [
+        "Flux",
+        "BFL"
+      ],
       "unit": "per_run",
       "default_model": "flux-1.1-pro-ultra",
       "models": {
-        "flux-1.1-pro-ultra": { "_default": 12.66 },
-        "flux-kontext-pro": { "_default": 8.44 },
-        "flux-kontext-max": { "_default": 16.88 },
-        "flux-2-pro": { "_default": 14.77 }
-      }
+        "flux-1.1-pro-ultra": {
+          "_default": 12.66,
+          "classes": [
+            "FluxProUltra"
+          ]
+        },
+        "flux-kontext-pro": {
+          "_default": 8.44,
+          "classes": [
+            "FluxKontextPro"
+          ]
+        },
+        "flux-kontext-max": {
+          "_default": 16.88,
+          "classes": [
+            "FluxKontextMax"
+          ]
+        },
+        "flux-2-pro": {
+          "_default": 16.5,
+          "classes": [
+            "Flux2Pro",
+            "Flux2Image"
+          ]
+        },
+        "flux-2-max": {
+          "_default": 31.0,
+          "classes": [
+            "Flux2Max"
+          ]
+        },
+        "flux-tools": {
+          "_default": 7.5,
+          "classes": [
+            "FluxProExpand",
+            "FluxProFill",
+            "FluxErase",
+            "FluxVTO"
+          ]
+        },
+        "flux-3": {
+          "_unit": "per_second",
+          "hd": 24.31,
+          "fhd": 41.47,
+          "_default": 41.47,
+          "classes": [
+            "Flux3"
+          ]
+        },
+        "flux-video-upscale": {
+          "_unit": "per_second",
+          "_default": 118.8,
+          "classes": [
+            "FluxVideoUpscale"
+          ]
+        }
+      },
+      "_comment": "BFL nodes name no model in their inputs, so every model here is matched by `classes` — the class name IS the model. Flux2ProImageNode is DEPRECATED on ComfyUI 0.35; Flux2ImageNode (pro/max by input) and Flux2MaxImageNode are current. Per-image rates are the worst case of each node's own badge (references and megapixels included); Flux 3 video is per second."
     },
     {
       "id": "recraft",
       "label": "Recraft",
-      "match": ["Recraft"],
+      "match": [
+        "Recraft"
+      ],
       "unit": "per_run",
       "default_model": "recraft-v4",
       "models": {
-        "recraft-v4": { "_default": 52.75 },
-        "recraft-v4.1": { "_default": 44.31 },
-        "recraft-style": { "_default": 21.10 }
+        "recraft-v4": {
+          "_default": 52.75
+        },
+        "recraft-v4.1": {
+          "_default": 44.31
+        },
+        "recraft-style": {
+          "_default": 21.1
+        }
       }
     },
     {
       "id": "ideogram",
       "label": "Ideogram",
-      "match": ["Ideogram"],
+      "match": [
+        "Ideogram"
+      ],
       "unit": "per_run",
       "default_model": "ideogram-v4",
       "models": {
-        "ideogram-v1": { "_default": 18.10 },
-        "ideogram-v4": { "_default": 30.17 },
-        "ideogram-p-image": { "_default": 9.05 }
+        "ideogram-v1": {
+          "_default": 18.1
+        },
+        "ideogram-v4": {
+          "_default": 30.17
+        },
+        "ideogram-p-image": {
+          "_default": 9.05
+        }
       }
     },
     {
       "id": "openai-image",
       "label": "OpenAI image",
-      "match": ["OpenAIGPTImage", "OpenAIDalle", "OpenAIImage"],
+      "match": [
+        "OpenAIGPTImage",
+        "OpenAIDalle",
+        "OpenAIImage"
+      ],
       "unit": "per_run",
       "default_model": "gpt-image-2",
       "models": {
-        "gpt-image-2": { "_default": 30.00 },
-        "dall-e-3": { "_default": 25.32 }
+        "gpt-image-2": {
+          "_default": 30.0
+        },
+        "dall-e-3": {
+          "_default": 25.32
+        }
       }
     },
     {
       "id": "stability",
       "label": "Stability AI",
-      "match": ["Stability", "StableImage"],
+      "match": [
+        "Stability",
+        "StableImage"
+      ],
       "unit": "per_run",
       "default_model": "stable-image-ultra",
       "models": {
-        "stable-image-ultra": { "_default": 16.00 },
-        "stable-image-core": { "_default": 6.00 }
+        "stable-image-ultra": {
+          "_default": 16.0
+        },
+        "stable-image-core": {
+          "_default": 6.0
+        }
       }
     },
     {
       "id": "heygen",
       "label": "HeyGen",
-      "match": ["HeyGen"],
+      "match": [
+        "HeyGen"
+      ],
       "unit": "per_second",
       "default_seconds": 8,
       "default_model": "heygen-avatar",
-      "models": { "heygen-avatar": { "_default": 40.00 } }
+      "models": {
+        "heygen-avatar": {
+          "_default": 40.0
+        }
+      }
     },
     {
       "id": "elevenlabs",
       "label": "ElevenLabs",
-      "match": ["ElevenLabs", "Eleven"],
+      "match": [
+        "ElevenLabs",
+        "Eleven"
+      ],
       "unit": "per_run",
       "default_model": "elevenlabs-tts",
-      "models": { "elevenlabs-tts": { "_default": 25.00 } }
+      "models": {
+        "elevenlabs-tts": {
+          "_default": 25.0
+        }
+      }
     },
     {
       "id": "topaz",
       "label": "Topaz",
-      "match": ["Topaz"],
+      "match": [
+        "Topaz"
+      ],
       "unit": "per_run",
       "default_model": "topaz-upscale",
-      "models": { "topaz-upscale": { "_default": 20.00 } }
+      "models": {
+        "topaz-upscale": {
+          "_default": 20.0
+        }
+      }
     },
     {
       "id": "tripo",
       "label": "Tripo (3D)",
-      "match": ["Tripo"],
+      "match": [
+        "Tripo"
+      ],
       "unit": "per_run",
       "default_model": "tripo",
-      "models": { "tripo": { "_default": 21.10 } }
+      "models": {
+        "tripo": {
+          "_default": 21.1
+        }
+      }
     },
     {
       "id": "rodin",
       "label": "Rodin (3D)",
-      "match": ["Rodin"],
+      "match": [
+        "Rodin"
+      ],
       "unit": "per_run",
       "default_model": "rodin",
-      "models": { "rodin": { "_default": 25.00 } }
+      "models": {
+        "rodin": {
+          "_default": 25.0
+        }
+      }
+    },
+    {
+      "id": "bytedance",
+      "label": "ByteDance (Seedance / Seedream)",
+      "match": [
+        "ByteDance"
+      ],
+      "unit": "per_second",
+      "default_seconds": 5,
+      "default_model": "seedance-2-5",
+      "_comment": "Seedance 2.x nodes are ByteDance2TextToVideoNode / ByteDance2FirstLastFrameNode and name the model in their inputs (dreamina-seedance-2-5-…). Comfy bills them by VIDEO TOKENS (3.229–3.530 credits/1K); the per-second rates are its own 5-second 16:9 24fps example divided by five. 2.0/Fast/Mini carry the 2.5 rates — an over-estimate until the page publishes theirs. Seedance 1.x nodes (ByteDanceImageToVideoNode…) are per clip on the page; audio doubles 1.5 Pro, and the rates below already assume audio. Seedream is per image, hence `_unit`.",
+      "models": {
+        "seedance-2-5": {
+          "480p": 31.0,
+          "720p": 70.0,
+          "1080p": 172.0,
+          "_default": 172.0
+        },
+        "seedance-2-0": {
+          "480p": 31.0,
+          "720p": 70.0,
+          "1080p": 172.0,
+          "_default": 172.0
+        },
+        "seedance-2-0-fast": {
+          "480p": 31.0,
+          "720p": 70.0,
+          "1080p": 172.0,
+          "_default": 172.0
+        },
+        "seedance-2-0-mini": {
+          "480p": 31.0,
+          "720p": 70.0,
+          "1080p": 172.0,
+          "_default": 172.0
+        },
+        "seedance-1-5-pro": {
+          "480p": 4.8,
+          "720p": 10.8,
+          "1080p": 23.6,
+          "_default": 23.6
+        },
+        "seedance-1-0-pro-fast": {
+          "480p": 1.8,
+          "720p": 4.6,
+          "1080p": 9.8,
+          "_default": 9.8
+        },
+        "seedance-1-0-pro": {
+          "480p": 4.6,
+          "720p": 11.0,
+          "1080p": 24.4,
+          "_default": 24.4
+        },
+        "seedream-5-0-pro": {
+          "_unit": "per_run",
+          "1k": 9.5,
+          "2k": 18.99,
+          "_default": 18.99
+        },
+        "seedream-5-0": {
+          "_unit": "per_run",
+          "_default": 3.5
+        },
+        "seedream-4-5": {
+          "_unit": "per_run",
+          "_default": 4.0
+        },
+        "seedream-4-0": {
+          "_unit": "per_run",
+          "_default": 3.0
+        }
+      }
+    },
+    {
+      "id": "google-image",
+      "label": "Google Nano Banana (Gemini image)",
+      "match": [
+        "GeminiImage",
+        "GeminiNanoBanana"
+      ],
+      "unit": "per_run",
+      "default_model": "gemini-3-pro-image",
+      "_comment": "GeminiImage2Node is Nano Banana Pro (gemini-3-pro-image-preview) and Nano Banana 2 (gemini-3.1-flash-image); GeminiNanoBanana2 / …V2 are Nano Banana 2 only; GeminiImageNode is the original 2.5-flash Nano Banana. Prices are the nodes' own badges (USD × 100). Gemini TEXT nodes are not matched and must stay that way — they bill by token.",
+      "models": {
+        "gemini-3-pro-image": {
+          "4k": 28.8,
+          "_default": 16.08
+        },
+        "gemini-3.1-flash-image": {
+          "1k": 8.35,
+          "2k": 12.17,
+          "4k": 18.48,
+          "_default": 12.17
+        },
+        "gemini-3.1-flash-lite-image": {
+          "_default": 8.35
+        },
+        "gemini-2.5-flash-image": {
+          "_default": 3.9
+        }
+      }
+    },
+    {
+      "id": "wan",
+      "label": "Wan (Alibaba, hosted)",
+      "match": [],
+      "match_regex": [
+        "^wan\\d?[a-z]*api$",
+        "^happyhorse[a-z]*api$"
+      ],
+      "unit": "per_second",
+      "default_seconds": 8,
+      "default_model": "wan3.0-video-prime",
+      "_comment": "REGEX, NOT PREFIX: ComfyUI's LOCAL Wan 2.x nodes (WanImageToVideo, WanVaceToVideo, Wan22ImageToVideoLatent…) are free and share the prefix. The hosted ones all end in 'Api' (Wan3ReferenceToVideoApi, Wan3ImageToVideoApi, Wan2ImageToVideoApi…) and name the model in their inputs (wan3.0-video, wan3.0-video-prime, wan2.7-i2v…). Wan 3.0 has no open weights (2026-09): hosted is the only way to run it. Rates are USD/s × 100 by resolution.",
+      "models": {
+        "wan3.0-video-prime": {
+          "480p": 9.72,
+          "720p": 20.02,
+          "1080p": 40.04,
+          "_default": 40.04
+        },
+        "wan3.0-video": {
+          "480p": 7.15,
+          "720p": 14.3,
+          "1080p": 28.6,
+          "_default": 28.6
+        },
+        "wan2.7": {
+          "720p": 20.02,
+          "1080p": 25.74,
+          "_default": 25.74
+        },
+        "wan2.6": {
+          "480p": 5.0,
+          "720p": 10.0,
+          "1080p": 15.0,
+          "_default": 15.0
+        },
+        "wan2.5": {
+          "480p": 5.0,
+          "720p": 10.0,
+          "1080p": 15.0,
+          "_default": 15.0
+        },
+        "happyhorse-1.1": {
+          "720p": 20.02,
+          "1080p": 25.74,
+          "_default": 25.74
+        },
+        "happyhorse-1.0": {
+          "720p": 14.0,
+          "1080p": 24.0,
+          "_default": 24.0
+        }
+      }
     }
   ]
 }

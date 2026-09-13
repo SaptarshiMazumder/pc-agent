@@ -85,6 +85,7 @@ export function useGpuWarmup(
             url?: string
             hourly_usd?: number
             waiting?: boolean
+            unavailable?: boolean
             detail?: string
           }
         }
@@ -100,6 +101,12 @@ export function useGpuWarmup(
           // which left the session without a GPU unless the model happened to try again.
           setError(String(d.detail || '').trim())
           setState('waiting')
+        } else if (d.unavailable) {
+          // No GPU service on this deployment — a desktop daemon, or a platform without the
+          // module. Said as a STATE rather than thrown as an error, so the agent designs on
+          // regardless (a thrown error read as "the job is blocked"). Nothing to poll for.
+          setError(String(d.detail || '').trim())
+          setState('unavailable')
         } else {
           // "starting" is the normal answer for the first few minutes, not a failure.
           setState('starting')

@@ -312,6 +312,16 @@ class InstanceService:
             alive = self._store.heartbeat(c, account_id, now=now, lease_until=lease_until)
             return alive, self._store.live_for(c, account_id)
 
+    def idle(self, account_id: str) -> tuple[bool, InstanceRow | None]:
+        """The account's last window has left, or its unwatched run ended: nobody is using the
+        machine, whatever it is doing. Drops the lease and marks the row abandoned, so the idle
+        clock runs from the last real contact and the reaper stops taking the box's word for it.
+        Any later heartbeat cancels this — a reload that re-attaches is not a departure."""
+        now = self._now()
+        with self._db() as c:
+            marked = self._store.mark_idle(c, account_id, now=now)
+            return marked, self._store.live_for(c, account_id)
+
     def status(self, account_id: str) -> InstanceRow | None:
         with self._db() as c:
             row = self._store.live_for(c, account_id)

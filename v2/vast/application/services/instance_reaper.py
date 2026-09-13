@@ -2,6 +2,8 @@
 
 IDLE SWEEP reads our table: rows nobody has touched for `idle_seconds`, with no live lease, get
 destroyed. This is the expected path and it handles the ordinary case — a user wandered off.
+A row the daemon has DECLARED IDLE (the account's last window left; its run ended with nobody
+watching) has no lease and gets no say from the box: ten quiet minutes and it goes.
 
 ORPHAN SWEEP reads the MARKETPLACE and compares. It exists because of an asymmetry that is easy
 to miss:
@@ -94,16 +96,21 @@ class InstanceReaper:
                 reason = "rental never returned an instance id"
             elif row.idle_since(now) < cfg.idle_seconds:
                 continue
-            elif row.ready and self._probe.busy(row.url, row.auth_token):
+            elif row.ready and not row.abandoned and self._probe.busy(row.url, row.auth_token):
                 # THE CLOCK SAYS IDLE; THE BOX SAYS OTHERWISE. The platform's idle clock only
                 # moves when something talks to the PLATFORM, and a render or a model download
                 # talks to nobody — a machine was destroyed with four downloads in flight for
-                # exactly that reason. The box is the authority on whether it is working.
+                # exactly that reason. The box is the authority on whether it is working —
+                # UNLESS the account was declared idle (its last window left, its run ended
+                # unwatched): then whatever the box is doing, it is doing for nobody, and that
+                # is not a reason to keep paying.
                 result["busy"] += 1
                 log.info("vast reap: %s is idle by the clock but busy on the box — kept", row.id)
                 continue
             else:
-                reason = f"idle for {int(row.idle_since(now))}s"
+                reason = f"idle for {int(row.idle_since(now))}s" + (
+                    f", abandoned {int(now - row.idle_at)}s ago" if row.abandoned else ""
+                )
 
             if self._destroy(row.instance_id, row.id, reason, result):
                 result["idle"] += 1

@@ -15,13 +15,14 @@
  * in a scrolling pane.
  */
 
-import { Check, Copy, Download, X } from 'lucide-react'
+import { Check, Copy, Download, Maximize2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { fileUrl, humanSize, type Artifact } from '../../agentd/artifacts'
 import Markdown from '../Markdown'
 import { CodeBlock } from './CodeBlock'
 import { isCanvasImportable, setDragPayload } from './dragOut'
+import { ImageLightbox } from './ImageLightbox'
 
 /** Text we are willing to render ourselves, by extension. Anything else is offered as a file. */
 const TEXTUAL = /\.(json|txt|md|ya?ml|csv|log|py|js|ts|tsx|css|html|xml|toml|ini|sh)$/i
@@ -32,6 +33,16 @@ export function FileViewer({ file, onClose }: { file: Artifact; onClose?: () => 
   const [error, setError] = useState('')
   const [readable, setReadable] = useState(false)
   const [copied, setCopied] = useState(false)
+  /* HAS THE PICTURE ACTUALLY ARRIVED? A render is megabytes over the daemon's /file endpoint, and
+     an <img> shows nothing at all while it downloads — so without this the pane sits blank for
+     seconds with no clue whether it is loading, empty or broken. (The sibling half of this is the
+     `key` on this component in StudioDashboard: without one, React kept the SAME <img> across a
+     file change and the browser went on painting the PREVIOUS render until the new bytes landed,
+     which is why picking a second image looked like it did nothing at all.) */
+  const [mediaReady, setMediaReady] = useState(false)
+  const [mediaError, setMediaError] = useState('')
+  /** The render, filling the screen instead of a column. */
+  const [zoomed, setZoomed] = useState(false)
 
   const textual = file.kind === 'file' && TEXTUAL.test(file.name)
   const isJson = /\.json$/i.test(file.name)
@@ -113,6 +124,17 @@ export function FileViewer({ file, onClose }: { file: Artifact; onClose?: () => 
             {copied ? <Check size={15} strokeWidth={2} /> : <Copy size={15} strokeWidth={1.8} />}
           </button>
         )}
+        {/* The second way in, for anyone who does not think to click the picture. */}
+        {file.kind === 'image' && (
+          <button
+            className="fv-btn"
+            onClick={() => setZoomed(true)}
+            title="View full size"
+            aria-label="View full size"
+          >
+            <Maximize2 size={15} strokeWidth={1.8} />
+          </button>
+        )}
         <a className="fv-btn" href={href} download={file.name} title="Download this file">
           <Download size={15} strokeWidth={1.8} />
         </a>
@@ -124,7 +146,27 @@ export function FileViewer({ file, onClose }: { file: Artifact; onClose?: () => 
       </header>
 
       <div className="fv-body">
-        {file.kind === 'image' && <img className="fv-media" src={href} alt={file.name} />}
+        {file.kind === 'image' &&
+          (mediaError ? (
+            <p className="fv-error">could not load this image: {mediaError}</p>
+          ) : (
+            <>
+              {!mediaReady && <p className="fv-loading">loading the full image…</p>}
+              {/* CLICKING THE PICTURE OPENS IT PROPERLY. It is the first thing anyone tries, and
+                  the column is too narrow to judge a render in — which is the only thing a render
+                  is ever looked at for. */}
+              <img
+                className="fv-media is-zoomable"
+                src={href}
+                alt={file.name}
+                hidden={!mediaReady}
+                title="Click to view full size"
+                onClick={() => setZoomed(true)}
+                onLoad={() => setMediaReady(true)}
+                onError={() => setMediaError('the daemon would not serve it')}
+              />
+            </>
+          ))}
         {file.kind === 'video' && <video className="fv-media" src={href} controls autoPlay loop />}
         {file.kind === 'audio' && <audio className="fv-audio" src={href} controls />}
         {textual &&
@@ -145,6 +187,10 @@ export function FileViewer({ file, onClose }: { file: Artifact; onClose?: () => 
           </p>
         )}
       </div>
+
+      {zoomed && file.kind === 'image' && (
+        <ImageLightbox src={href} name={file.name} onClose={() => setZoomed(false)} />
+      )}
     </div>
   )
 }

@@ -162,10 +162,12 @@ class InstanceSettings:
     #: No contact and no lease for this long, and the reaper takes it.
     idle_seconds: float = 600.0
 
-    #: The longest one render may hold a machine against the idle timer. Capped so a crashed
-    #: agent cannot keep a GPU forever by claiming to be busy — the lease is a stay of
-    #: execution, not a pardon.
-    max_lease_seconds: float = 1800.0
+    #: The longest one call may hold a machine against the idle timer. SHORT ON PURPOSE: a
+    #: lease is a promise, and the reaper has two better witnesses — the daemon heartbeating
+    #: while a run produces events, and the box itself reporting a render or a download in
+    #: flight. Thirty minutes here meant a sign-out was followed by half an hour of billing for
+    #: a machine nobody could use. Five bridges a submit and the box showing it, no more.
+    max_lease_seconds: float = 300.0
 
     #: How long a row may sit in 'starting' before the reaper treats it as a failed rental.
     #: Longer than any real boot, short enough that a wedged one is not paid for all day.

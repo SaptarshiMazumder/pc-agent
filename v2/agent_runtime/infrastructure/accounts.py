@@ -398,7 +398,10 @@ async def report_usage(
     return None
 
 
-_gpu_heartbeat_unavailable = False
+#: Routes the GPU service answered 404/501 to — asked once, then never again. PER ROUTE: a daemon
+#: newer than its accounts service must not switch heartbeats off because /vast/idle is not
+#: there yet; that is how a machine mid-run gets reaped during a rolling deploy.
+_gpu_unavailable: set[str] = set()
 
 
 async def gpu_heartbeat(acct_id: str) -> bool:
@@ -413,28 +416,43 @@ async def gpu_heartbeat(acct_id: str) -> bool:
 
     Requires the internal key, like the usage ledger: a desktop daemon has none and no-ops. A
     deployment without the GPU service answers 501/404 once and is not asked again."""
-    global _gpu_heartbeat_unavailable
-    if _gpu_heartbeat_unavailable or not _enabled or not acct_id or _client is None:
-        return False
+    answer = await _gpu_post("/vast/heartbeat", acct_id, {"lease_seconds": 0})
+    return bool(answer.get("alive")) if answer else False
+
+
+async def gpu_idle(acct_id: str) -> bool:
+    """Tell the platform NOBODY is using this account's rented GPU: its last window has gone
+    (a sign-out ends with the socket dropping; so does a closed tab) or its run ended with no
+    window watching. The platform drops the lease and stops letting the box argue; ten quiet
+    minutes later the machine is destroyed instead of thirty. The next heartbeat cancels it, so
+    a reload that comes straight back costs nothing. Same silence rules as gpu_heartbeat."""
+    answer = await _gpu_post("/vast/idle", acct_id, {})
+    return bool(answer.get("idle")) if answer else False
+
+
+async def _gpu_post(path: str, acct_id: str, body: dict) -> dict | None:
+    """One internal-key POST to the GPU service. Best-effort, never raises: None when it was
+    not sent or not answered with 200 — the callers are keepalives, and a platform blip must
+    never become a run failure."""
+    if path in _gpu_unavailable or not _enabled or not acct_id or _client is None:
+        return None
     internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
     if not internal:
-        return False
+        return None
     try:
         r = await _client.post(
-            "/vast/heartbeat",
-            headers={"X-Internal-Key": internal},
-            json={"account_id": acct_id, "lease_seconds": 0},
+            path, headers={"X-Internal-Key": internal}, json={"account_id": acct_id, **body}
         )
         if r.status_code == 200:
-            return bool((r.json() or {}).get("alive"))
+            return dict(r.json() or {})
         if r.status_code in (404, 501):
-            _gpu_heartbeat_unavailable = True
-            log.info("accounts: no GPU service on this deployment (http %s) — heartbeats off", r.status_code)
+            _gpu_unavailable.add(path)
+            log.info("accounts: GPU service has no %s on this deployment (http %s) — not asked again", path, r.status_code)
         else:
-            log.debug("accounts gpu heartbeat http %s", r.status_code)
+            log.debug("accounts gpu %s http %s", path, r.status_code)
     except httpx.HTTPError as e:
-        log.debug("accounts gpu heartbeat failed: %s", e)
-    return False
+        log.debug("accounts gpu %s failed: %s", path, e)
+    return None
 
 
 def admin_identities() -> frozenset[str]:

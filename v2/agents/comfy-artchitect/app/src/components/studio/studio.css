@@ -80,7 +80,14 @@
 /* Rows, not cards. A card has to fit a name into a fixed box and ellipsises what will not go —
    which is how `x.api.json` and `x.json` rendered identically. A row can simply be as wide as the
    panel and wrap, and the full name is the whole point of the list. */
-.fx-tree { display: flex; flex-direction: column; max-height: 340px; overflow-y: auto; }
+/* NO max-height. It was 340px with its own overflow, which cut the list off partway down a rail
+   that is full height and already scrolls (.st-rail) — so a run with a dozen outputs showed the
+   first few, a nested scrollbar, and then empty rail underneath. One scroller per column: the
+   rail's. The tree is simply as tall as its contents. */
+.fx-tree { display: flex; flex-direction: column; }
+/* The rail scrolls now, so the heading has to hold its place or "Files · 12" leaves the screen
+   the moment you look for the twelfth. Same treatment as the viewer's own header. */
+.fx-head { position: sticky; top: 0; z-index: 2; background: var(--bg); }
 .fx-row { display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 8px;
   border: 0; border-radius: var(--r-sm, 6px); background: transparent; color: var(--text);
   font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
@@ -136,6 +143,28 @@
 .cb-b { color: #c58fd8; }                   /* true / false / null */
 .cb-p { color: var(--faint); }              /* braces, brackets, commas */
 .fv-media { display: block; max-width: 100%; max-height: 72vh; margin: 0 auto; border-radius: var(--r-sm, 6px); }
+.fv-media.is-zoomable { cursor: zoom-in; }
+
+/* ── the lightbox ──────────────────────────────────────────────────────────────────────────── */
+/* The whole window, for the one question a render is opened to answer. Portalled to <body>, so
+   none of the studio's `overflow: hidden` columns can clip it. */
+.lb {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 16px;
+  /* Opaque enough that the window behind stops competing with the picture — judging a render
+     against a half-visible conversation is the thing this exists to stop. */
+  background: rgba(0, 0, 0, .88);
+  animation: ag-pop var(--dur-fast) var(--ease-smooth);
+}
+.lb-bar { display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.lb-name { font-size: var(--fs-small); color: var(--dim); word-break: break-all; }
+/* CONTAIN, never crop: the whole frame or it is not a preview. `min-height: 0` is what lets the
+   flex child actually shrink to the bar's remaining room instead of overflowing past it. */
+.lb-img {
+  min-height: 0; max-width: 100%; max-height: 100%;
+  object-fit: contain; border-radius: var(--r-sm, 6px); cursor: default;
+}
 .fv-audio { width: 100%; }
 .fv-loading, .fv-error { color: var(--faint); font-size: 12px; }
 .fv-error { color: var(--danger); }

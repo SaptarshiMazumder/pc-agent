@@ -18,7 +18,7 @@
  */
 
 import type { AgentdClient } from '@agentd/client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CatalogOption, FieldSpec } from './schema'
 
 /** What `config.get` hands back. Only the parts this page renders are named. */
@@ -108,6 +108,10 @@ export function useSettings(client: AgentdClient, agentId: string) {
   const [loadError, setLoadError] = useState('')
   const [message, setMessage] = useState<{ text: string; tone: Tone }>({ text: '', tone: '' })
 
+  /** Has a read ever SUCCEEDED? Held in a ref rather than derived from `data`, so the reconnect
+   *  subscription below reads it without having to re-subscribe every time state moves. */
+  const everLoaded = useRef(false)
+
   const load = useCallback(async () => {
     try {
       const res = (await client.request('config.get')) as ConfigData
@@ -116,14 +120,34 @@ export function useSettings(client: AgentdClient, agentId: string) {
       setDraft(JSON.parse(JSON.stringify(res.values || {})))
       setKeys({})
       setLoadError('')
+      everLoaded.current = true
     } catch (e) {
       setLoadError(String((e as Error)?.message || e))
     }
   }, [client])
 
+  /* READ ONCE — AND AGAIN IF THE FIRST ONE HAD NO CONNECTION TO READ OVER.
+   *
+   * `client.request` does not queue: it rejects SYNCHRONOUSLY with "not connected" whenever the
+   * socket is not OPEN, and a dropped socket additionally rejects everything already in flight.
+   * This effect used to fire exactly once, on mount, with `client` stable for the life of the
+   * page — so a settings page opened during a reconnect latched `could not load settings: not
+   * connected` and stayed that way. The only cure was navigating away and back, which UNMOUNTS
+   * and REMOUNTS the page and therefore runs this again; that is why "it works the second time"
+   * and why it never looked like a connection problem.
+   *
+   * ONLY WHEN NOTHING LOADED. A reconnect must not re-read a page that is already showing
+   * values: `load` replaces the draft wholesale, so doing it unconditionally would throw away
+   * whatever the user was in the middle of typing every time the socket blipped. Recovering from
+   * "never got an answer" is the whole job here; a page that has one is already correct.
+   *
+   * RunModeBadge, in the same folder, has always watched the connection this way. */
   useEffect(() => {
     void load()
-  }, [load])
+    return client.onStatus((s) => {
+      if (s === 'open' && !everLoaded.current) void load()
+    })
+  }, [load, client])
 
   /** Where a field's value lives. An agent-scoped field always writes into this agent's own
    *  block — this agent's settings decide how this agent runs. */
