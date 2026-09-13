@@ -135,7 +135,9 @@ def render(ask: dict) -> str:
     line is the first one: the question is in front of the user, and the turn is over."""
     lines = [
         "Asked. The answer arrives as the user's NEXT message — end this turn now: no more "
-        "text after this, no more tool calls."
+        "text after this, no more tool calls. It names what is approved and what is declined "
+        "(a decline is that service only, not all paid options), the answers, and possibly "
+        "'Instead: …' — another model, provider, or free only — which is design input."
     ]
     if ask["title"]:
         lines.append(ask["title"])

@@ -104,6 +104,12 @@ export function AskPanel({
   const [picked, setPicked] = useState<Set<number>>(() => new Set())
   const [answers, setAnswers] = useState<Record<number, string>>({})
   const [sent, setSent] = useState(false)
+  /* THE OTHER BOX — always there, like the "Other" on any real question. The listed services
+     are the agent's picks, not the only options: the person may want a different model or
+     provider, something cheaper, or free/open-source only, and none of that fits a checkbox.
+     What they type goes to the agent verbatim as "Instead: …", which the protocol treats as
+     design input (research it, price it, ask once more). */
+  const [other, setOther] = useState('')
   const closed = sent || answered || !onDecide
 
   const toggle = (i: number): void =>
@@ -117,18 +123,26 @@ export function AskPanel({
 
   const confirm = (): void => {
     const lines: string[] = []
+    const instead = other.trim()
+    const declined = services.filter((_, i) => !picked.has(i))
     if (services.length) {
       const yes = services.filter((_, i) => picked.has(i))
-      const no = services.filter((_, i) => !picked.has(i))
       // NAMED BOTH WAYS, never "approved: none" alone. The agent has to act differently on a
       // decline, and an empty list reads as an unanswered question rather than as a decision.
       lines.push(
         (yes.length ? `Approved: ${yes.map((s) => s.name).join(', ')}.` : 'Approved: none.') +
-          (no.length ? ` Declined: ${no.map((s) => s.name).join(', ')}.` : ''),
+          (declined.length ? ` Declined: ${declined.map((s) => s.name).join(', ')}.` : ''),
       )
+      // A DECLINE IS ABOUT THAT SERVICE. Said in the answer itself, so no model reads "no to
+      // Seedance" as "no to anything paid": the only thing that switches a job to free is the
+      // person saying so — which is exactly what the Other box is for.
+      if (declined.length && !instead) {
+        lines.push('Declined means those services only; any other option, paid or free, is fine.')
+      }
     } else {
       lines.push('Build it as proposed.')
     }
+    if (instead) lines.push(`Instead: ${instead}`)
     if (questions.length) {
       lines.push('Answers:')
       questions.forEach((q, i) => lines.push(`- ${q.question} — ${(answers[i] ?? q.default).trim() || q.default}`))
@@ -141,7 +155,9 @@ export function AskPanel({
     ? 'Answered'
     : sent
       ? 'Sent'
-      : services.length
+      : other.trim()
+        ? 'Send my answer'
+        : services.length
         ? picked.size
           ? `Use ${picked.size} of ${services.length}${questions.length ? ' and answer' : ''}`
           : 'Use none of these'
@@ -215,6 +231,16 @@ export function AskPanel({
           </ol>
         </>
       )}
+      <label className="ask-q ask-other">
+        <span className="ask-q-label">Something else?</span>
+        <textarea
+          rows={2}
+          placeholder="Want a different model or provider, something cheaper, or free / open-source models only? Say so here."
+          value={other}
+          onChange={(e) => setOther(e.target.value)}
+          disabled={closed}
+        />
+      </label>
       <button className="approve-go" onClick={confirm} disabled={closed}>
         <Check size={14} strokeWidth={2.2} />
         {label}

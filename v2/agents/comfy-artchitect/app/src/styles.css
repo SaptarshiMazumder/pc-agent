@@ -1300,7 +1300,14 @@ h2 { font-size: var(--fs-lead); }
   border: 1px solid var(--border2); border-radius: var(--r-control);
   font: inherit; font-size: var(--fs-control);
 }
-.ask-q input:focus { outline: none; border-color: var(--accent); }
-.ask-q input:disabled { opacity: .6; }
+.ask-q input:focus, .ask-q textarea:focus { outline: none; border-color: var(--accent); }
+.ask-q input:disabled, .ask-q textarea:disabled { opacity: .6; }
+.ask-q textarea {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; resize: vertical; min-height: 44px;
+  background: var(--bg3); color: var(--text);
+  border: 1px solid var(--border2); border-radius: var(--r-control);
+  font: inherit; font-size: var(--fs-control); line-height: 1.4;
+}
+.ask-other { margin-top: 6px; }
 .ask-wf { margin: 0; padding: 0 9px 0 26px; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-row); color: var(--text); }
 .ask-wf b { font-weight: var(--fw-semi); }
