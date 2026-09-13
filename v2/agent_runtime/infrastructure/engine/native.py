@@ -39,6 +39,7 @@ from agent_runtime.domain.messages import (
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.application.run_context import current_workspace
 from agent_runtime.infrastructure.files import resolve_artifacts
+from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
 from agent_runtime.infrastructure.llm import context_limits
 from agent_runtime.infrastructure.memory.local_store import SessionStore
 from agent_runtime.infrastructure.tools import Tool, ToolArgError, ToolResult, validate_args
@@ -150,6 +151,7 @@ async def run_agent_loop(
     retry_counts = {k: 0 for k in RETRY_LIMITS}
     finalize_revisions = 0
     produced_visible_text = False
+    checkpoint_presented = False  # a checkpoint tool returned in this run
     # Why a run ended empty, and who was actually answering when it did. Carried to the end
     # so the closing message can NAME the failure instead of apologising for it.
     incomplete_kind: str | None = None
@@ -372,6 +374,17 @@ async def run_agent_loop(
                 results, tool_halts = await _execute_tool_calls(
                     tool_calls, tool_map, abort, on_event, observers
                 )
+                # A CHECKPOINT TOOL (`ask_user`) THAT RETURNED IS THE TURN'S VISIBLE OUTPUT: the
+                # window renders it, and the right next move for the model is to say nothing.
+                # Without this, the empty message that follows read as a lost answer and the
+                # retry below made the model re-ask in prose.
+                if any(
+                    getattr(_unwrap_tool(tool_map.get(c.name)), "checkpoint", False)
+                    and not getattr(r, "is_error", False)
+                    for c, r in zip(tool_calls, results)
+                ):
+                    checkpoint_presented = True
+                    produced_visible_text = True
                 for r in results:  # assistant source order
                     persist(r)
                     await on_event(AgentEvent("message_end", {"message": message_to_dict(r)}))
@@ -411,6 +424,8 @@ async def run_agent_loop(
                     execution_contract=execution_contract,
                 ),
             )
+            if kind == "empty_response" and checkpoint_presented:
+                kind = None  # the question is on screen; silence is the correct answer
             if kind is not None:
                 # remember WHY, even on the attempt that exhausts the budget — this is the
                 # only place the run knows what went wrong, and without it the ending is a

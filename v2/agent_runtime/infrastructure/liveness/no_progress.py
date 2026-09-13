@@ -1,9 +1,12 @@
 """NoProgressDetector (#4) — halt when several tool-using turns pass with NO new
-information (only errors or repeated results). Catches "busy but going nowhere".
+information (the same results, or the same errors, again). Catches "busy but going nowhere".
 
-Pure: tracks distinct non-error result digests it has seen. A turn with no tool
-calls (pure thinking / the final answer) is NOT counted as idle — only turns that
-ran tools but surfaced nothing new.
+Pure: tracks distinct result digests it has seen — ERRORS INCLUDED. A validator that
+reports a different problem each time is telling the model something new, and a repair
+loop that converges (emit, fail, fix, fail differently, fix) is progress, not grinding;
+only an identical result or an identical error is idle. A turn with no tool calls (pure
+thinking / the final answer) is NOT counted as idle — only turns that ran tools but
+surfaced nothing new.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ class NoProgressDetector:
         if ev.phase == "before":
             self._turn_had_tools = True
         elif ev.phase == "after":
-            if not ev.is_error and ev.result_digest and ev.result_digest not in self._seen:
+            if ev.result_digest and ev.result_digest not in self._seen:
                 self._seen.add(ev.result_digest)
                 self._turn_progress = True
         return None
@@ -45,7 +48,7 @@ class NoProgressDetector:
                     self._idle = 0  # nudge once, then reset
                     fired = (
                         f"The last {self.max_idle_turns} tool-using turns produced no new "
-                        f"information (only errors or repeated results). STOP: change approach, "
+                        f"information (the same results or the same errors again). STOP: change approach, "
                         f"or give the user your best answer from what you DID find plus a clear "
                         f"statement of what you couldn't get. Do not keep grinding."
                     )

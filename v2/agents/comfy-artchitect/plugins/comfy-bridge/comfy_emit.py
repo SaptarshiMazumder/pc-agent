@@ -21,6 +21,7 @@ caller supplied it. If the two disagree, the API file is the one that ran.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -115,6 +116,17 @@ class ComfyEmitTool(Tool):
             # catching here, because the server's version of it arrives after a round trip.
             for nid, entry in api.items():
                 for field, value in entry["inputs"].items():
+                    # A LIST OF LINKS IS NOT AN INPUT. `images: [[a, 0], [b, 0]]` is the one
+                    # shape every model reaches for on a multi-image socket, and the server
+                    # rejects it a round trip later; say the fix here instead.
+                    if isinstance(value, list) and value and all(isinstance(v, list) for v in value):
+                        return ToolResult.text(
+                            f"node {nid}.{field} is a list of links. An input takes ONE link "
+                            "[upstream_id, slot]. To feed several images, batch them first with a "
+                            "node that takes one input per image (ImageBatch: image1, image2) and "
+                            "link its output here.",
+                            is_error=True,
+                        )
                     if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
                         if value[0] not in api:
                             return ToolResult.text(
@@ -166,8 +178,14 @@ class ComfyEmitTool(Tool):
                 pass
 
             note = str(params.get("note") or "").strip()
+            # THE GRAPH'S FINGERPRINT IS PART OF THE ANSWER. A re-emit that changed the graph
+            # must read as a new result, or the liveness detector counts "wrote 9 nodes" three
+            # times over as a model going nowhere while it was actually converging.
+            digest = hashlib.sha1(
+                json.dumps(api, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:8]
             return ToolResult.text(
-                f"wrote {len(api)} nodes"
+                f"wrote {len(api)} nodes (graph {digest})"
                 + (f" — {note}" if note else "")
                 + f"\n  run this:    {api_rel}"
                 + f"\n  import this: {ui_rel}"

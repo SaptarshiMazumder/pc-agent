@@ -32,7 +32,9 @@ export function referenceInstruction(paths: string[]): string {
   return (
     `I've added reference media for this chat: ${paths.join(', ')}. ` +
     `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
-    `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again.`
+    `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again. ` +
+    `Then keep going in this same turn: wire ${them} into the workflow, validate it and run it. ` +
+    `Do not stop to tell me the upload worked.`
   )
 }
 

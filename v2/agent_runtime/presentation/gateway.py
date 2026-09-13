@@ -44,6 +44,7 @@ from agent_runtime.application.services.image_thumbnail_service import (
 )
 from agent_runtime.config import Config, client_accounts_url
 from agent_runtime.infrastructure import checkpoint_marker
+from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     RunMode,
@@ -2671,7 +2672,11 @@ class Gateway:
         tools that spend money read it. Best-effort, like the file it writes."""
         if event.type != "tool_execution_end" or (event.payload or {}).get("isError"):
             return
-        tool = self.service.find_tool(str((event.payload or {}).get("toolName") or ""), agent_id)
+        # UNWRAPPED: every registered tool is a GuardedTool holding the real one in `_inner`,
+        # and the flag is on the real one. Read off the wrapper it was never there.
+        tool = _unwrap_tool(
+            self.service.find_tool(str((event.payload or {}).get("toolName") or ""), agent_id)
+        )
         if not getattr(tool, "checkpoint", False):
             return
         try:
