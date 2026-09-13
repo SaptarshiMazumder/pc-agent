@@ -17,6 +17,9 @@ export interface ChatRow {
   messages?: number
   /** Unix SECONDS, not milliseconds — see `when`. */
   modified?: number
+  /** A run is going on this session right now, per the daemon. What lets a reloaded window —
+   *  which remembers nothing — find the chats it should re-attach to and keep streaming. */
+  running?: boolean
 }
 
 /** Recent-first relative time. "3h ago" answers "is this the one I was just in?"; a timestamp
@@ -57,6 +60,7 @@ export async function listSessions(client: AgentdClient): Promise<ChatRow[]> {
     snippet: r.snippet ? String(r.snippet) : undefined,
     messages: Number(r.messages || 0),
     modified: Number(r.modified || r.updatedAt || 0),
+    running: !!r.running,
   }))
 }
 

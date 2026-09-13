@@ -70,6 +70,16 @@ export interface ChatSession {
    *  sees the machine come ready, this is what tells it to send the continue the user would
    *  otherwise type. Cleared by any send. */
   awaitingGpu: boolean
+  /** Reference media that is ALREADY UPLOADED and still has to be mentioned to the agent, as
+   *  full workspace paths.
+   *
+   *  Adding reference media is two steps — put the file in the workspace, then tell the agent
+   *  where it is — and only the second one has to wait for a turn to end. They used to be one
+   *  action gated on `running`, so the upload waited too: the moment you most want to hand over
+   *  a photo is while the agent is mid-install and about to need it, and that was exactly when
+   *  the button was dead. The file goes up immediately now and this holds the sentence until
+   *  saying it is legal. Cleared by the send that carries it. */
+  pendingReferences: string[]
 }
 
 const EMPTY: ChatSession = {
@@ -80,6 +90,7 @@ const EMPTY: ChatSession = {
   pendingArtifacts: [],
   loadingHistory: false,
   awaitingGpu: false,
+  pendingReferences: [],
 }
 
 export interface AppState {
@@ -134,6 +145,10 @@ export interface AppState {
   failChatsLoad: (message: string) => void
 
   openSession: (key: string, items?: ThreadItem[]) => void
+  /** Make sure a session exists in the store WITHOUT selecting it or changing the view — for a
+   *  chat found running on reconnect, whose live events must land somewhere while the user is
+   *  looking at another one. A no-op for a session that already exists. */
+  ensureSession: (key: string) => void
   /** `show` decides whether the view switches to the chat. TRUE for a person clicking "New
    *  chat"; FALSE for boot, which needs a session to type into but must not decide what is on
    *  screen — a dashboard template opens on its dashboard, and the boot call was stomping that. */
@@ -228,6 +243,9 @@ export const useApp = create<AppState>((set) => ({
           ? s.sessions
           : { ...s.sessions, [key]: { ...(s.sessions[key] || EMPTY), items } },
     })),
+
+  ensureSession: (key) =>
+    set((s) => (s.sessions[key] ? {} : { sessions: { ...s.sessions, [key]: { ...EMPTY } } })),
 
   newSession: (show = true) => {
     const key = newSessionKey()

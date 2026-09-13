@@ -53,6 +53,7 @@ import { Thread } from './components/Thread'
    nobody finished the window. */
 import WorkflowShelf, { collectWorkflows } from './components/workflows/WorkflowShelf'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
+import { useHumanActivity } from './components/studio/useHumanActivity'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 
@@ -123,7 +124,14 @@ export default function App() {
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
   // the same question.
-  const gpu = useGpuWarmup(client)
+  //
+  // "ACTIVE" IS WHAT KEEPS THE MACHINE ALIVE: a human in this window (visible tab, recent
+  // input) or a run going on any of this window's chats. Either one, and the hook touches the
+  // platform once a minute. Neither, and ten minutes later the machine is reaped — the rule as
+  // set, measured by people and runs rather than by which tool the agent happens to be using.
+  const humanHere = useHumanActivity()
+  const anyRunning = useApp((s) => Object.values(s.sessions).some((x) => x.running))
+  const gpu = useGpuWarmup(client, true, humanHere || anyRunning)
 
   /* THE "CONTINUE" BUTTON, PRESSED BY CODE. A turn that ends while the machine is still
      coming up leaves the agent asleep until something wakes it, and that something used to be
@@ -238,7 +246,48 @@ export default function App() {
          the end of it, instead of an error flashing up and correcting itself. */
       if (!connected || !client) return
       void listSessions(client)
-        .then(setChats)
+        .then((rows) => {
+          setChats(rows)
+          /* RUNNING CHATS ARE RE-ATTACHED HERE — the case a browser reload used to lose. A
+             reloaded window remembers nothing, so it could not ask `chat.status` for the run it
+             was watching; the daemon kept that run going for three minutes and then reaped it,
+             and the stream never came back. The rail's `running` flag is the memory: for each
+             such chat, ask `chat.status` (which is also the re-attach that cancels the reaper),
+             give the session a place in the store so live events land, load what was saved
+             while we were away, and mark it running so the rest of the window behaves. */
+          for (const row of rows) {
+            if (!row.running) continue
+            const key = row.sessionId
+            void (async () => {
+              let running = false
+              try {
+                const st = (await client.request('chat.status', { sessionKey: key })) as {
+                  running?: boolean
+                }
+                running = !!st?.running
+              } catch {
+                return
+              }
+              if (!running) return
+              const st = useApp.getState()
+              st.ensureSession(key)
+              st.patch(key, { running: true, loadingHistory: true })
+              try {
+                const items = await loadHistory(client, key)
+                const now = useApp.getState().sessions[key]
+                if (!now) return
+                useApp.getState().patch(key, {
+                  loadingHistory: false,
+                  // Only fill if still empty: live events may have landed while we fetched, and
+                  // those win — the saved prefix shows on the next open instead.
+                  ...(items.length && now.items.length === 0 ? { items } : {}),
+                })
+              } catch {
+                useApp.getState().patch(key, { loadingHistory: false })
+              }
+            })()
+          }
+        })
         .catch((e) =>
           failChatsLoad(String((e as Error)?.message || e) || 'could not read your conversations'),
         )

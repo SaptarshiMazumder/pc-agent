@@ -235,6 +235,40 @@ class GpuEnsureTool(Tool):
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)
 
 
+class GpuTouchTool(Tool):
+    """The window's heartbeat: "a human is in this chat" — sent once a minute while the tab is
+    visible and the person has typed or clicked recently. It ONLY TOUCHES; it never rents. That
+    is the whole difference from gpu_ensure, and why a second tool exists: a keepalive that
+    could start a machine would rent one for somebody who merely left a chat open."""
+
+    name = "gpu_touch"
+    label = "Keep this user's GPU marked in use"
+    default_retryable = True
+    description = (
+        "Tells the platform this user's GPU is still in use. The studio window calls this once a "
+        "minute while the person is in the chat; you do not need to — your own tool calls "
+        "already count as activity, and a render or install takes a lease of its own. It never "
+        "starts a machine."
+    )
+    parameters = {"type": "object", "properties": {}}
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        account_id = current_account_id()
+        if not account_id:
+            return ToolResult.text("gpu_touch: no account on this run", details={"alive": False})
+        try:
+            state = _call("/vast/heartbeat", {"account_id": account_id, "lease_seconds": 0})
+        except _PlatformRefused as e:
+            return ToolResult.text(f"gpu_touch: {e}", is_error=True)
+        alive = bool(state.get("alive")) if "alive" in state else (
+            str(state.get("state") or "") in ("starting", "running")
+        )
+        return ToolResult.text(
+            "GPU marked in use." if alive else "no GPU is running for this user.",
+            details={"alive": alive, **{k: v for k, v in state.items() if k != "alive"}},
+        )
+
+
 def register(api, ctx):
     """The loader's contract — `(api, ctx)`, and tools handed to `api.register_tool`.
 
@@ -253,3 +287,4 @@ def register(api, ctx):
     # cost a whole boot. The platform's /vast/release still exists for operators; the agent
     # does not get to make that call.
     api.register_tool(GpuEnsureTool())
+    api.register_tool(GpuTouchTool())

@@ -47,7 +47,22 @@ const POLL_MS = 20_000
  *  enough to turn a thin market at 15:14 into a GPU at 15:17 with nobody doing anything. */
 const WAIT_POLL_MS = 60_000
 
-export function useGpuWarmup(client: AgentdClient | undefined, enabled = true): GpuWarmup {
+/** How often to tell the platform the machine is in use while it is ready and the chat is
+ *  active. The idle timer is ten minutes; once a minute is plenty and costs one small call. */
+const TOUCH_MS = 60_000
+
+/**
+ * `active` is the window's word on whether anyone is using the machine: a human in the chat
+ * (see useHumanActivity) or a run in progress. While the machine is ready and the chat is
+ * active, this hook touches the platform once a minute so the idle reaper leaves it alone. It
+ * uses gpu_touch, which only ever TOUCHES — a keepalive that could rent would rent a machine for
+ * somebody who merely left a chat open.
+ */
+export function useGpuWarmup(
+  client: AgentdClient | undefined,
+  enabled = true,
+  active = false,
+): GpuWarmup {
   const [state, setState] = useState<GpuState>('idle')
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
@@ -114,6 +129,36 @@ export function useGpuWarmup(client: AgentdClient | undefined, enabled = true): 
     const t = setInterval(ask, state === 'waiting' ? WAIT_POLL_MS : POLL_MS)
     return () => clearInterval(t)
   }, [state, ask])
+
+  useEffect(() => {
+    // THE HEARTBEAT. Ready machine, active chat: once a minute, say so. The moment the chat goes
+    // quiet — no human, no run — this stops, and ten minutes later the platform reaps the
+    // machine. That is the rule, measured by what matters rather than by tool names.
+    if (state !== 'ready' || !active || !client) return
+    let stopped = false
+    const touch = async () => {
+      try {
+        const res = (await client.request('tools.invoke', { name: 'gpu_touch', params: {} })) as {
+          details?: { alive?: boolean }
+        }
+        if (!stopped && res?.details?.alive === false) {
+          // The machine is gone (reaped, or failed). Say "no instance"; the next run's
+          // gpu_ensure starts a fresh one. Not 'starting' — nothing is starting.
+          setUrl('')
+          setState('idle')
+        }
+      } catch {
+        // A deployment without the tool or the service: nothing to keep alive. Stop asking.
+        stopped = true
+      }
+    }
+    void touch()
+    const t = setInterval(() => void touch(), TOUCH_MS)
+    return () => {
+      stopped = true
+      clearInterval(t)
+    }
+  }, [state, active, client])
 
   return { state, url, error, hourlyUsd, refresh: ask }
 }

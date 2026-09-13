@@ -504,10 +504,21 @@ resource "aws_cloudwatch_metric_alarm" "no_successful_logins" {
 # has no metrics, and an alarm on a function that does not exist sits INSUFFICIENT_DATA forever
 # and teaches everyone to ignore it.
 locals {
+  # The three request-driven ones. Gated on being brought up: a Lambda that does not exist has
+  # no metrics, and an alarm stuck at INSUFFICIENT_DATA forever is one people learn to ignore.
   lambda_alarm_targets = merge(
     local.builder_enabled ? { builder = local.builder_name } : {},
     local.publish_enabled ? { publish = local.publish_name } : {},
     local.executor_enabled ? { executor = local.executor_name } : {},
+  )
+
+  # THROTTLES ADDS scheduled-jobs, ERRORS DOES NOT, and the asymmetry is deliberate.
+  # scheduler.tf already carries `scheduled_jobs_failing` on exactly this metric — AWS/Lambda
+  # Errors, Sum, threshold 0, same dimension — with a description that names what each job
+  # costs when it fails and points at a runbook. A second alarm on one metric pages twice for
+  # one event and teaches everyone to dismiss both. Throttles is genuinely uncovered there.
+  lambda_throttle_targets = merge(
+    local.lambda_alarm_targets,
     { scheduled-jobs = aws_lambda_function.scheduled_jobs.function_name },
   )
 }
@@ -552,7 +563,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 # failure from Errors and invisible in it -- the invocation produces no error because there was
 # no execution, so a throttled service looks merely slow.
 resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
-  for_each = local.lambda_alarm_targets
+  for_each = local.lambda_throttle_targets
 
   alarm_name          = "${local.name_prefix}-${each.key}-throttles"
   namespace           = "AWS/Lambda"

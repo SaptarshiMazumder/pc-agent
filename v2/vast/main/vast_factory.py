@@ -104,4 +104,6 @@ def build_reaper(
         ),
         settings=cfg,
         now=now,
+        # The same probe the service uses to say "ready" answers the reaper's "busy?".
+        probe=HttpInstanceProbe(),
     )

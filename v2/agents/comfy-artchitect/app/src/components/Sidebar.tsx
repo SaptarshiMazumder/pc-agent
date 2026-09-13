@@ -211,7 +211,10 @@ export function Sidebar({
                     title={c.title || 'Untitled'}
                   >
                     <span className="row-main">
-                      <span className="row-title">{c.title || 'Untitled'}</span>
+                      <span className="row-title">
+                        {c.running && <span className="row-live" title="running" />}
+                        {c.title || 'Untitled'}
+                      </span>
                       <span className="row-sub">{c.snippet || when(c.modified)}</span>
                     </span>
                   </button>

@@ -31,6 +31,7 @@ from typing import Any
 
 from vast.application.instance_settings import InstanceSettings
 from vast.application.interfaces.gpu_marketplace import GpuMarketplace
+from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
 from vast.domain.errors import MarketplaceError
 from vast.domain.instance import row_id_from_label
@@ -47,12 +48,14 @@ class InstanceReaper:
         marketplace: Callable[[], GpuMarketplace],
         settings: InstanceSettings,
         now: Callable[[], float],
+        probe: InstanceProbe,
     ) -> None:
         self._db = db
         self._store = store
         self._marketplace = marketplace
         self._settings = settings
         self._now = now
+        self._probe = probe
 
     def sweep(self) -> dict:
         """Both sweeps, in order. Returns a summary a dashboard and an alarm can both read.
@@ -63,7 +66,9 @@ class InstanceReaper:
         visible rather than silently partial.
         """
         now = self._now()
-        result: dict = {"idle": 0, "orphans": 0, "vanished": 0, "foreign": 0, "errors": []}
+        result: dict = {
+            "idle": 0, "orphans": 0, "vanished": 0, "foreign": 0, "busy": 0, "errors": [],
+        }
 
         self._sweep_idle(now, result)
         self._sweep_orphans(now, result)
@@ -88,6 +93,14 @@ class InstanceReaper:
                     continue
                 reason = "rental never returned an instance id"
             elif row.idle_since(now) < cfg.idle_seconds:
+                continue
+            elif row.ready and self._probe.busy(row.url, row.auth_token):
+                # THE CLOCK SAYS IDLE; THE BOX SAYS OTHERWISE. The platform's idle clock only
+                # moves when something talks to the PLATFORM, and a render or a model download
+                # talks to nobody — a machine was destroyed with four downloads in flight for
+                # exactly that reason. The box is the authority on whether it is working.
+                result["busy"] += 1
+                log.info("vast reap: %s is idle by the clock but busy on the box — kept", row.id)
                 continue
             else:
                 reason = f"idle for {int(row.idle_since(now))}s"

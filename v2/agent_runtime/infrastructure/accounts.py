@@ -398,6 +398,45 @@ async def report_usage(
     return None
 
 
+_gpu_heartbeat_unavailable = False
+
+
+async def gpu_heartbeat(acct_id: str) -> bool:
+    """Tell the platform this account's rented GPU is in use. Best-effort, never raises.
+
+    THE ONE PLACE OUTSIDE THE `vast` MODULE THAT KNOWS ITS ROUTE, and it knows exactly one: the
+    daemon is where "a run is producing events for this account" is a fact, and that fact is
+    what keeps a machine alive while an agent works on it — whatever tools it uses, and whether
+    or not any window is watching. The idle reaper destroyed a machine with four model downloads
+    in flight because nothing told the platform the account was busy; the agent's tools talk to
+    the instance, not to the platform.
+
+    Requires the internal key, like the usage ledger: a desktop daemon has none and no-ops. A
+    deployment without the GPU service answers 501/404 once and is not asked again."""
+    global _gpu_heartbeat_unavailable
+    if _gpu_heartbeat_unavailable or not _enabled or not acct_id or _client is None:
+        return False
+    internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
+    if not internal:
+        return False
+    try:
+        r = await _client.post(
+            "/vast/heartbeat",
+            headers={"X-Internal-Key": internal},
+            json={"account_id": acct_id, "lease_seconds": 0},
+        )
+        if r.status_code == 200:
+            return bool((r.json() or {}).get("alive"))
+        if r.status_code in (404, 501):
+            _gpu_heartbeat_unavailable = True
+            log.info("accounts: no GPU service on this deployment (http %s) — heartbeats off", r.status_code)
+        else:
+            log.debug("accounts gpu heartbeat http %s", r.status_code)
+    except httpx.HTTPError as e:
+        log.debug("accounts gpu heartbeat failed: %s", e)
+    return False
+
+
 def admin_identities() -> frozenset[str]:
     """Who may administer THIS DEPLOYMENT — `AGENTD_ADMIN_IDENTITIES`, the same comma list the
     accounts service and the publish service read. One list, no way for the three to disagree.

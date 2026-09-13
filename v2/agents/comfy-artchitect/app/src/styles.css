@@ -1251,3 +1251,20 @@ h2 { font-size: var(--fs-lead); }
 .sb-link:hover {
   filter: brightness(1.15);
 }
+
+
+/* A run is going on this conversation. */
+.row-live {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent, #c9f24b);
+  vertical-align: middle;
+  animation: row-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes row-live-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}

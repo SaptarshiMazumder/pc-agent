@@ -34,7 +34,11 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_run_context, current_workspace
+from agent_runtime.application.run_context import (
+    current_account_id,
+    current_run_context,
+    current_workspace,
+)
 from agent_runtime.infrastructure.net.outbound import fetch
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
@@ -209,6 +213,35 @@ class _NoInstance:
 
     def json(self):
         return {}
+
+
+#: The platform, by NAME — the host substitutes it, as vast-bridge does. Only leases go here.
+_ACCOUNTS = "${AGENTD_ACCOUNTS_URL}"
+_INTERNAL = {"X-Internal-Key": "${AGENTD_ACCOUNTS_INTERNAL_KEY}"}
+
+
+def _lease(seconds: int) -> None:
+    """Hold the machine against the idle timer for `seconds`: a render or a download is work in
+    progress even while nothing calls anyone. The reaper destroyed a machine with four model
+    downloads in flight because nothing said so. Best-effort by design — the lease protects the
+    run, so a platform blip must not fail it; the daemon's own heartbeat and the reaper's busy
+    check are the other two layers."""
+    account_id = current_account_id()
+    if not account_id:
+        return
+    fetch(
+        f"{_ACCOUNTS}/vast/heartbeat",
+        method="POST",
+        json={"account_id": account_id, "lease_seconds": int(seconds)},
+        headers=_INTERNAL,
+        timeout_s=15.0,
+    )
+
+
+#: How long a render or a download may hold the machine without anyone talking to it. The
+#: platform caps it (max_lease_seconds); each poll renews it, so a long job is covered for as
+#: long as something is still watching it.
+_WORK_LEASE_S = 30 * 60
 
 
 def _no_instance() -> "ToolResult":
@@ -709,6 +742,7 @@ async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None
     comfy_run_status instead of dying mid-wait."""
     import studio_state
 
+    _lease(_WORK_LEASE_S)  # a render in flight is work, however quiet the platform side is
     waited, step = 0.0, 1.0
     while waited < deadline:
         if abort.is_set():
@@ -973,6 +1007,7 @@ class ComfyRunTool(Tool):
                 # a silent one.
                 body["extra_data"] = {"api_key_comfy_org": _COMFY_KEY_REF}
 
+            _lease(_WORK_LEASE_S)
             res = _post("/api/prompt", body)
             if res.status == 400:
                 try:
@@ -1307,6 +1342,7 @@ class ComfyInstallTool(Tool):
                     "type": mtype,
                     "base": "",
                 }
+            _lease(_WORK_LEASE_S)  # a multi-GB download is work the platform cannot see
             res = _post("/manager/queue/install_model", body, timeout_s=30.0)
             if not res.ok:
                 if res.status == 400 and entry is None:
@@ -1328,6 +1364,7 @@ class ComfyInstallTool(Tool):
                     )
                 return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
             # Manager queues the job; the worker has to be told to run.
+            _lease(_WORK_LEASE_S)
             _post("/manager/queue/start", None, timeout_s=15.0)
 
             # Poll only BRIEFLY. The sandbox stops any tool at 120s, so waiting out a multi-GB
@@ -1531,6 +1568,7 @@ class ComfyNodeInstallTool(Tool):
                         is_error=True,
                     )
                 return ToolResult.text(_failed(res, f"install {pack_id}"), is_error=True)
+            _lease(_WORK_LEASE_S)
             _post("/manager/queue/start", None, timeout_s=15.0)
 
             # Same wait discipline as comfy_install: stay under the sandbox's stop, then hand off.

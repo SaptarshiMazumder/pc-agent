@@ -21,7 +21,9 @@ description = "Probe a ComfyUI instance, read what it has installed, research wh
 [sandbox]
 # The instance address is no longer a setting — it arrives in .studio/connection.json from
 # vast-bridge (or comfy_connect), so there is no ${…} host to declare here any more.
-net     = []
+# The platform's address, as a NAME the host folds in — for the lease a render or a model
+# download takes against the GPU's idle timer (see comfy_bridge._lease).
+net     = ["${AGENTD_ACCOUNTS_URL}"]
 # COMFY_API_KEY rides in the /prompt BODY (extra_data.api_key_comfy_org) rather than a
 # header — the host substitutes it there now, so this plugin names it and never holds it.
 # AGENTD_ACCOUNTS_INTERNAL_KEY authorises the credit gate and the debit in comfy_run. It has

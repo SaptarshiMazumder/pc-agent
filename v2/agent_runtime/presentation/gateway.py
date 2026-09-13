@@ -1136,6 +1136,8 @@ class Gateway:
     # socket. Fed by _broadcast; unbounded queues, because silently dropping events would corrupt
     # the very trace they exist to capture. See add_session_tap.
     _session_taps: dict = field(default_factory=dict)
+    # account_id -> monotonic time of the last GPU keepalive sent for it. See _gpu_keepalive.
+    _gpu_keepalive_at: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ serve
 
@@ -3237,14 +3239,14 @@ class Gateway:
                         continue  # internal (sub-agent/cron/agent-msg): hide
                     if project_id and (s.get("projectId") or "") != project_id:
                         continue
-                    rows.append({**s, "agentId": aid})
+                    rows.append({**s, "agentId": aid, "running": self._session_running(s)})
             rows.sort(key=lambda r: r.get("modified") or 0, reverse=True)
             return {"sessions": rows, "agentId": "", "all": want_all, "projectId": project_id}
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         # Internal agent-to-agent / cron threads (on-disk `agent_…` stems) are never human
         # chats — hide them here too, so a per-agent session picker matches the cross-agent lists.
         rows = [
-            {**s, "agentId": agent_id}
+            {**s, "agentId": agent_id, "running": self._session_running(s)}
             for s in list_sessions(state_dir)
             if not str(s.get("sessionId", "")).startswith("agent_")
         ]
@@ -6797,6 +6799,24 @@ class Gateway:
                 int(grace),
             )
 
+    def _gpu_keepalive(self, account_id: str | None, every_s: float = 60.0) -> None:
+        """Heartbeat the platform for an account whose run is producing events — at most once
+        per `every_s`, fire-and-forget, so a run is never slowed by it and a platform blip is
+        never a run failure. No-op with no account (desktop) or no GPU service (see accounts)."""
+        if not account_id:
+            return
+        now = time.monotonic()
+        if now - self._gpu_keepalive_at.get(account_id, 0.0) < every_s:
+            return
+        self._gpu_keepalive_at[account_id] = now
+        asyncio.create_task(accounts.gpu_heartbeat(account_id))
+
+    def _session_running(self, row: dict) -> bool:
+        """Is there a live run on this session right now? For the rail: a reloaded window has
+        no memory of what was running, and this is how it finds out without asking N times."""
+        handle = self.runs.get(str(row.get("sessionId") or ""))
+        return handle is not None and handle.task is not None and not handle.task.done()
+
     def _reattach(self, session_key: str) -> None:
         """A window is watching this session again: clear detachment, cancel the reaper."""
         handle = self.runs.get(session_key)
@@ -6942,6 +6962,10 @@ class Gateway:
             # list of "events that count" is a list that eventually omits the one a slow tool
             # emits.
             handle.last_event_at = time.monotonic()
+            # A RUN PRODUCING EVENTS IS AN ACCOUNT IN USE — whatever the tool. The rented GPU's
+            # idle clock only moves when something tells the platform; the agent's tools talk
+            # to the instance. Once a minute per account, off the same stamp as the watchdog.
+            self._gpu_keepalive(accounts.account_id())
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
             self._enrich_artifacts(event)

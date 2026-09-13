@@ -21,3 +21,11 @@ class InstanceProbe(Protocol):
         timed out, a non-200, a body that is not JSON. NEVER RAISES: the caller is a poll, and
         the next poll is the retry."""
         ...
+
+    def busy(self, url: str, auth: str = "") -> bool:
+        """True when ComfyUI at `url` reports work in flight — a running or pending prompt, or a
+        Manager download in progress. The reaper's last question before destroying an "idle"
+        machine: the platform's idle clock only knows who TALKED to the platform, and a render or
+        a model download talks to nobody. False when idle, and false when unreachable — an
+        unreachable box is not busy, and the reachability question belongs to `answers`."""
+        ...
