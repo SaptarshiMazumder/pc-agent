@@ -86,13 +86,22 @@ def classify(path: str | Path) -> tuple[str, str] | None:
     return None
 
 
-def describe_artifact(path: str | Path) -> dict | None:
+def describe_artifact(path: str | Path, base: str | Path | None = None) -> dict | None:
     """Resolve a tool-declared output PATH into a typed artifact dict
     ``{path, name, mime, kind, size}`` — or None if it isn't a real file. kind comes from
     the extension (image/video/audio) and falls back to 'file' for anything else, so ANY
     deliverable a producing tool declares can be presented (rendered inline, or as an
-    openable chip)."""
+    openable chip).
+
+    A RELATIVE PATH IS RELATIVE TO `base` — the run's workspace — never to the daemon's own
+    working directory. Sandboxed tools declare their files workspace-relative on purpose (the
+    only form that means the same file on both sides of the guest/host split), and checked
+    against the process cwd every one of those "did not exist": every emitted workflow and every
+    downloaded render was silently dropped from the panel, and only `show_files` (absolute
+    paths) ever showed anything."""
     p = Path(path)
+    if base and not p.is_absolute():
+        p = Path(base) / p
     try:
         if not p.is_file():
             return None
@@ -104,14 +113,15 @@ def describe_artifact(path: str | Path) -> dict | None:
     return {"path": str(p), "name": p.name, "mime": mime, "kind": kind, "size": size}
 
 
-def resolve_artifacts(paths) -> list[dict]:
+def resolve_artifacts(paths, base: str | Path | None = None) -> list[dict]:
     """Resolve a tool's DECLARED output paths into ordered, de-duplicated artifact dicts,
     dropping any that don't exist on disk. This is the one place declared paths become
-    presentable deliverables — used by the loop when building a tool result."""
+    presentable deliverables — used by the loop when building a tool result. `base` is the
+    run's workspace, which relative declarations are resolved against (see describe_artifact)."""
     out: list[dict] = []
     seen: set[str] = set()
     for p in paths or []:
-        info = describe_artifact(p)
+        info = describe_artifact(p, base)
         if info is None:
             continue
         key = info["path"].lower()

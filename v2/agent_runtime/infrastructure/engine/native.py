@@ -37,6 +37,7 @@ from agent_runtime.domain.messages import (
     message_to_dict,
 )
 from agent_runtime.infrastructure import telemetry
+from agent_runtime.application.run_context import current_workspace
 from agent_runtime.infrastructure.files import resolve_artifacts
 from agent_runtime.infrastructure.llm import context_limits
 from agent_runtime.infrastructure.memory.local_store import SessionStore
@@ -598,8 +599,13 @@ async def _execute_tool_calls(
         telemetry.count("tool_call_total", outcome=_tool_outcome, _props={"tool": call.name})
         # DELIVERABLES: a producing tool declares the file(s) it made via result.artifacts;
         # resolve each to a typed artifact (skips non-existent/dupes). Nothing is inferred from text.
+        # Resolved against the RUN'S WORKSPACE: sandboxed tools declare workspace-relative
+        # paths, and resolving those against the daemon's cwd dropped every one of them.
         declared = [
-            Artifact(**info) for info in resolve_artifacts(getattr(result, "artifacts", None))
+            Artifact(**info)
+            for info in resolve_artifacts(
+                getattr(result, "artifacts", None), base=current_workspace() or None
+            )
         ]
         msg = ToolResultMessage(
             tool_call_id=call.id,
