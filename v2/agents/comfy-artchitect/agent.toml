@@ -1,4 +1,4 @@
-﻿# Comfy Artchitect 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
+# Comfy Artchitect 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
 #
 # WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
 # RunPod, a Modal endpoint 窶・the agent is told a URL and a credential and works against whatever
