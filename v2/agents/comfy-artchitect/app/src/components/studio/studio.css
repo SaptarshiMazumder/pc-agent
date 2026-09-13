@@ -332,9 +332,21 @@
 @keyframes st-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
 /* References — the slots the agent asked for, in the rail (ReferenceSlots.tsx). */
-.refs { display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px; border-bottom: 1px solid var(--border2); }
-.refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0 4px; font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); }
-.refs-count { margin-left: 8px; font-weight: 400; color: var(--faint); }
+/* ONE RAIL, ONE VOICE. This section used to head itself "References" in sentence case,
+   semibold, at --text, while the section directly beneath it said "FILES" in uppercase
+   micro-caps at --faint — two headings six pixels apart, styled as though they came from
+   different applications. The quieter one wins: it is what FILES already uses and what RECENT
+   uses in the sidebar, so the rail reads as one panel with sections rather than as two panels
+   stacked. Gutters match .fx-head's too (12px), for the same reason. */
+.refs { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 14px; border-bottom: 1px solid var(--border2); }
+.refs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 11px 0 4px; }
+.refs-heading { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* Deliberately identical to .fx-title — see the note on .refs above. */
+.refs-title {
+  text-transform: uppercase; font-weight: var(--fw-semi); font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label); color: var(--faint);
+}
+.refs-count { font: var(--fs-tiny) var(--mono); color: var(--faint); }
 .refs-count.is-short { color: var(--warn); }
 .refs-add, .refs-slot-btn {
   display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px;
@@ -343,14 +355,25 @@
 }
 .refs-add:hover:not(:disabled), .refs-slot-btn:hover:not(:disabled) { border-color: var(--accent); }
 .refs-add:disabled, .refs-slot-btn:disabled { opacity: .5; cursor: default; }
-/* THE BIG ONE — the empty state's only control: full width, primary, tall, large type. */
+/* A TARGET, NOT A BILLBOARD. This was a full-width slab in --prim-bg at 16px — the loudest
+   element in the window, for a control that is only ever used once at the start of a chat, sat
+   above two lines of body-size prose. It read as an advert for itself.
+   Dashed and transparent says "drop here" without shouting; the accent is spent on the states
+   that mean something — pointing at it, and dragging onto it. */
 .refs-add-big {
-  width: 100%; justify-content: center; gap: 10px; padding: 16px 18px; margin: 2px 0 4px;
-  background: var(--prim-bg); color: var(--prim-ink); border: 0; border-radius: var(--r-panel);
-  font-size: 16px; font-weight: var(--fw-on-accent); white-space: normal; line-height: 1.3;
+  width: 100%; justify-content: center; gap: 10px; padding: 18px; margin: 0;
+  background: transparent; color: var(--dim);
+  border: 1px dashed var(--border2); border-radius: var(--r-panel);
+  font-size: var(--fs-control); font-weight: var(--fw-semi);
+  white-space: normal; line-height: 1.3;
+  transition: color .12s, border-color .12s, background .12s;
 }
-.refs-add-big:hover:not(:disabled) { background: var(--prim-bg-h); border-color: transparent; }
-.refs-empty { margin: 0; font-size: var(--fs-body); color: var(--dim); line-height: 1.5; text-wrap: pretty; }
+.refs-add-big:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--bg3); }
+/* MID-DRAG: solid and filled, so the target confirms it has the file before you let go. */
+.refs-add-big.is-over { color: var(--text); border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+/* Was --fs-body/--dim: larger and louder than the file rows under it, which is what made an
+   empty panel read as a pitch. */
+.refs-empty { margin: 0; font-size: var(--fs-small); color: var(--faint); line-height: 1.5; text-wrap: pretty; }
 .refs-slot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
 .refs-slot.is-filled { border-style: solid; }
 .refs-slot.is-empty { border-color: var(--warn); }

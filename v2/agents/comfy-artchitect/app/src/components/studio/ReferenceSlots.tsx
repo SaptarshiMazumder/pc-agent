@@ -38,6 +38,11 @@ export function ReferenceSlots({
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
+  /* THE ONBOARDING ZONE'S OWN DRAG STATE. `over` holds the ROLE being dragged onto, and this
+     zone has no role — `dragOver(null)` therefore cleared the highlight instead of setting one,
+     so the single biggest drop target in the window was the only one that never acknowledged a
+     drag. A separate flag rather than a sentinel role, because null already means "none". */
+  const [overZone, setOverZone] = useState(false)
   const pickRef = useRef<HTMLInputElement>(null)
   const pickRole = useRef<string | null>(null)
 
@@ -82,13 +87,24 @@ export function ReferenceSlots({
     // heading was missed by the very person who asked for it. Full width, primary, one line
     // saying what it takes — nothing else in the rail competes with it while there is nothing.
     return (
-      <section className="refs refs-onboard" onDrop={drop(null)} onDragOver={dragOver(null)}>
+      <section
+        className="refs refs-onboard"
+        onDrop={(e) => {
+          setOverZone(false)
+          drop(null)(e)
+        }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!overZone) setOverZone(true)
+        }}
+        onDragLeave={() => setOverZone(false)}
+      >
         <header className="refs-head">
-          <span>References</span>
+          <span className="refs-title">References</span>
         </header>
         <button
           type="button"
-          className="refs-add refs-add-big"
+          className={`refs-add refs-add-big${overZone ? ' is-over' : ''}`}
           disabled={disabled || !!busy}
           onClick={() => pick(null)}
         >
@@ -107,8 +123,8 @@ export function ReferenceSlots({
   return (
     <section className="refs">
       <header className="refs-head">
-        <span>
-          References
+        <span className="refs-heading">
+          <span className="refs-title">References</span>
           {slots.length > 0 && (
             <span className={`refs-count${filled < slots.length ? ' is-short' : ''}`}>
               {filled} of {slots.length}
