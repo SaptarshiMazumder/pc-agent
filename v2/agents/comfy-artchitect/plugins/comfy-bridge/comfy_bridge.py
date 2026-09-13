@@ -535,11 +535,43 @@ class ComfyNodeSpecTool(Tool):
                     "\"Wan3\"). A missing custom pack is the other cause.",
                     is_error=True,
                 )
+            # WHAT IS INSTALLED IS NOT A DESIGN INPUT — the same rule as comfy_inventory, and
+            # this was its side door: a loader's file enum lists whatever the rented image ships
+            # (an SD 1.5 checkpoint), and a model that saw it built around it. Hidden until a
+            # workflow exists; after that the enum is exactly what validate needs.
+            import studio_state
+
+            if not studio_state.has_emitted():
+                _hide_installed_files(spec)
             return ToolResult.text(json.dumps(spec, indent=2)[:4000], details=spec)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(
                 f"comfy_node_spec failed: {type(e).__name__}: {e}", is_error=True
             )
+
+
+#: Loader inputs whose enum is the instance's file list rather than a set of options.
+_FILE_FIELDS = frozenset({
+    "ckpt_name", "unet_name", "lora_name", "vae_name", "clip_name", "clip_name1", "clip_name2",
+    "clip_name3", "control_net_name", "style_model_name", "upscale_model_name", "gligen_name",
+    "image", "video", "audio",
+})
+
+
+def _hide_installed_files(spec: dict) -> int:
+    """Replace every installed-file enum in a node spec with a one-line note. Returns how many."""
+    hidden = 0
+    for section in ("required", "optional"):
+        for field, s in ((spec.get("input") or {}).get(section) or {}).items():
+            if not (isinstance(s, list) and s and isinstance(s[0], list)):
+                continue
+            if field in _FILE_FIELDS or _looks_like_model_list(s[0]):
+                s[0] = [
+                    f"({len(s[0])} installed file(s) hidden: not a design input — research picks "
+                    "the model, comfy_install fetches it, comfy_validate lists what is missing)"
+                ]
+                hidden += 1
+    return hidden
 
 
 class ComfyNodeSearchTool(Tool):
@@ -790,6 +822,9 @@ class ComfyUploadTool(Tool):
                     failures.append(f"{path}: {err}")
                     continue
                 uploaded[path] = server
+                import studio_state
+
+                studio_state.mark_uploaded(server)  # a name a loader may now legitimately carry
 
             lines = [f"{local}  ->  {server}" for local, server in uploaded.items()]
             if lines:
@@ -2246,6 +2281,7 @@ def register(api, ctx):
     # top-level modules here rather than a package.
     from comfy_emit import ComfyEmitTool
     from comfy_research import ComfyResearchTool
+    from comfy_delete import ComfyDeleteTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2264,3 +2300,4 @@ def register(api, ctx):
     api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())
     api.register_tool(ComfyInterruptTool())
+    api.register_tool(ComfyDeleteTool())

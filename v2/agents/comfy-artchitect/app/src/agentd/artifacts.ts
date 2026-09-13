@@ -18,6 +18,9 @@ export interface Artifact {
   mime: string
   kind: ArtifactKind
   size?: number
+  /** Last-modified time in seconds, when the daemon listed it (workspace.list); absent on
+   *  artifacts that arrived by declaration. */
+  modified?: number
 }
 
 /** The MACHINE token this window was opened with, when there is one. Present on a desktop

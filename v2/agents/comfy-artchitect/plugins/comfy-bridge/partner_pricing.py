@@ -165,11 +165,37 @@ def _model_for(provider: dict, inputs: dict, class_type: str = "") -> str:
             for needle in (rates.get("classes") or []) if isinstance(rates, dict) else []:
                 if str(needle).lower() in cls:
                     return model
-    haystack = " ".join(_strings_in(inputs))
+    # THE INPUTS, NORMALISED ON BOTH SIDES. The node says "seedream 5.0 pro"; the table says
+    # "seedream-5-0-pro". Dots, spaces and case are not a different model — and when this
+    # comparison was raw, twelve Seedream image nodes priced as twelve Seedance videos.
+    haystack = " " + " ".join(_norm(s) for s in _strings_in(inputs)) + " "
     for model in sorted(models, key=len, reverse=True):
-        if model.lower() in haystack:
+        if _norm(model) and _norm(model) in haystack:
             return model
+    # THE CLASS'S FAMILY, WORST CASE. A Seedream node whose variant the table cannot place is
+    # still a Seedream node: the dearest Seedream rate, never the provider's default, which for
+    # ByteDance is a video model at fifty times the price.
+    family_rates = {}
+    for model, rates in models.items():
+        family = _norm(model).split("-")[0]
+        if family and family in cls:
+            family_rates[model] = _peak(rates)
+    if family_rates:
+        return max(family_rates, key=family_rates.get)
     return str(provider.get("default_model") or "")
+
+
+def _norm(value) -> str:
+    """One spelling for a model name: lowercase, every run of non-alphanumerics a single dash."""
+    return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
+
+
+def _peak(rates) -> float:
+    """The highest rate a model entry carries — the honest guess when its variant is unknown."""
+    if not isinstance(rates, dict):
+        return 0.0
+    tiers = [float(v) for k, v in rates.items() if not str(k).startswith("_") and k != "classes" and isinstance(v, (int, float))]
+    return max(tiers) if tiers else float(rates.get("_default") or 0.0)
 
 
 def _tier_for(rates: dict, inputs: dict) -> tuple[str, float]:

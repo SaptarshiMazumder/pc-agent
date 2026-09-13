@@ -28,6 +28,20 @@
   position: relative; isolation: isolate; z-index: 1;
 }
 .st-cols.is-chat-right .st-convo { order: 2; border-right: 0; border-left: 1px solid var(--border); }
+
+/* AN EMPTY CHAT IS THE WHOLE SCREEN. Nothing has been said, so there are no files to list, no
+   run to watch and no reason to spend half the window on a panel whose every section would read
+   "nothing here yet". The dashboard and the drag handle are not rendered at all in this state
+   (App.tsx, `solo`) — this is what lets the column take the room they left.
+
+   THE DRAGGED WIDTH IS NOT LOST, it is simply not applied: `style={{width}}` is omitted while
+   solo rather than overwritten, so the first send restores whatever the user had set. `width:
+   auto` is what lets `flex: 1` win over the 430px base, and the borders go because there is no
+   longer a second column for them to divide from. */
+.st-cols.is-solo .st-convo {
+  flex: 1; width: auto; min-width: 0;
+  border-right: 0; border-left: 0;
+}
 /* 0, NOT 1 — it used to tie with the resizer, and a tie is broken by DOM order, which put the
    handle on the far left instead of on the seam. */
 .st-cols.is-chat-right .st-dash { order: 0; }
@@ -343,3 +357,29 @@
 .refs-size { color: var(--faint); }
 .refs-free { display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 0; }
 .refs-sub { font-size: var(--fs-tiny); color: var(--faint); }
+
+/* ── select-for-deletion ───────────────────────────────────────────────────────────────── */
+/* A tick beside each file row, and a bar that appears only while something is ticked. The bar
+   ASKS — it sends the agent a message — so the rail carries no destructive control at rest. */
+.fx-line { display: flex; align-items: center; gap: 4px; }
+.fx-line > .fx-row { flex: 1; min-width: 0; }
+.fx-line.is-picked > .fx-row { background: var(--accent-soft); }
+.fx-pick { flex: none; width: 13px; height: 13px; margin: 0 0 0 8px; accent-color: var(--accent); cursor: pointer; }
+.fx-delete {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 12px 8px; padding: 8px 10px;
+  border: 1px solid var(--border2); border-radius: var(--r-sm, 6px); background: var(--bg2);
+}
+.fx-delete-count { font-size: var(--fs-small); color: var(--dim); margin-right: auto; }
+.fx-delete-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--danger); border-radius: var(--r-pill); background: transparent;
+  color: var(--danger); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.fx-delete-btn:hover:not(:disabled) { background: var(--danger-soft, var(--bg3)); }
+.fx-delete-btn:disabled { opacity: .45; cursor: default; }
+.fx-delete-clear {
+  border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-small);
+  cursor: pointer; padding: 4px 6px;
+}
+.fx-delete-clear:hover { color: var(--text); }

@@ -253,6 +253,11 @@ function fold(
       // finishes would keep the one thing worth seeing invisible for the whole run. Deduped
       // against everything already shown, so a re-emit of the same name (or the agent_end backstop)
       // never doubles it.
+      // A DELETE LANDED: the folder changed and nothing declared a file, so nothing below would
+      // re-read it — the rows would sit there until the turn ended. The tool's result carries
+      // what went, but ToolItem keeps only its text, so the folder is asked instead; it is the
+      // truth for existence anyway (agentd/workspace-files.ts, mergeFiles).
+      if (String(ev.toolName || '') === 'comfy_delete') get().bumpWorkspace()
       const made = readArtifacts(ev.artifacts)
       if (made.length) {
         // A tool landed a file: the panel re-reads the chat's folders (agentd/workspace-files.ts)

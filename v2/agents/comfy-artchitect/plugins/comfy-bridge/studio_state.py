@@ -309,6 +309,34 @@ def _validations() -> dict:
     return (_read_json(_VALIDATED_FILE).get("sessions") or {}).get(session) or {}
 
 
+def validated_names() -> set[str]:
+    """The workflows comfy_validate has passed in THIS conversation, by role name — the set whose
+    install gate is armed. Read by comfy_delete to know that deleting one is not just losing a
+    file but orphaning an authorisation."""
+    return set(_validations().keys())
+
+
+def forget_validated(name: str) -> None:
+    """Drop one workflow's validation record — called when its file is deleted, so the install
+    gate and the disk agree. Left in place, the record would keep authorising installs for a
+    workflow that no longer exists, and the next comfy_run would fail on a missing file with a
+    gate that still says 'validated'."""
+    try:
+        session = _session()
+        if not session or not name:
+            return
+        data = _read_json(_VALIDATED_FILE)
+        sessions = data.get("sessions") or {}
+        mine = sessions.get(session) or {}
+        if name not in mine:
+            return
+        del mine[name]
+        sessions[session] = mine
+        _write_json(_VALIDATED_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def install_allowed(filename: str) -> tuple[bool, str]:
     """May `filename` be installed? Only if a validation in this conversation listed it."""
     if not _session():
@@ -405,8 +433,53 @@ def mark_downloaded(rel: str) -> None:
         pass
 
 
+_UPLOADS_FILE = ".studio/uploads.json"
+
+
+def mark_uploaded(server_name: str) -> None:
+    """A server-side name comfy_upload returned for THIS conversation — the only literal names a
+    loader in an emitted graph may carry besides a slot token (comfy_emit checks)."""
+    try:
+        session = _session()
+        if not session or not server_name:
+            return
+        data = _read_json(_UPLOADS_FILE)
+        sessions = data.get("sessions") or {}
+        mine = list(sessions.get(session) or [])
+        if server_name not in mine:
+            mine.append(server_name)
+        sessions[session] = mine[-500:]
+        _write_json(_UPLOADS_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def uploaded_in_session() -> set[str]:
+    session = _session()
+    if not session:
+        return set()
+    return set((_read_json(_UPLOADS_FILE).get("sessions") or {}).get(session) or [])
+
+
 def downloaded_in_session() -> set[str]:
     session = _session()
     if not session:
         return set()
     return set((_read_json(_DOWNLOADS_FILE).get("sessions") or {}).get(session) or [])
+
+
+def forget_downloaded(rel: str) -> None:
+    """Drop one render from this conversation's download record when its file is deleted. The
+    record is what lets comfy_upload send an output back up as a later workflow's input; a
+    record naming a file that is gone is a promise the run tool cannot keep."""
+    try:
+        session = _session()
+        if not session or not rel:
+            return
+        data = _read_json(_DOWNLOADS_FILE)
+        sessions = data.get("sessions") or {}
+        mine = [x for x in (sessions.get(session) or []) if x != rel]
+        sessions[session] = mine
+        _write_json(_DOWNLOADS_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001
+        pass

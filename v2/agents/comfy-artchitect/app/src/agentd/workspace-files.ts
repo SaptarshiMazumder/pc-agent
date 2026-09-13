@@ -63,6 +63,7 @@ async function listFolder(client: AgentdClient, path: string): Promise<Artifact[
       mime: '',
       kind: (MEDIA.includes(e.kind as ArtifactKind) ? e.kind : 'file') as ArtifactKind,
       size: Number(e.size || 0),
+      modified: Number(e.modified || 0) || undefined,
     }))
 }
 
@@ -102,8 +103,22 @@ export function useChatWorkspaceFiles(
  *  tool names them — then whatever the folders hold that the thread did not mention. The same
  *  file from both sources is one entry, keyed case-insensitively with one separator: a desktop
  *  daemon hands back Windows paths, and the two sources need not spell them identically. */
-export function mergeFiles(declared: Artifact[], listed: Artifact[]): Artifact[] {
+export function mergeFiles(declared: Artifact[], listed: Artifact[], sessionKey: string): Artifact[] {
   const key = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-  const seen = new Set(declared.map((a) => key(a.path)))
-  return [...declared, ...listed.filter((a) => !seen.has(key(a.path)))]
+  const present = new Set(listed.map((a) => key(a.path)))
+  /* THE FOLDER IS THE TRUTH FOR EXISTENCE. A declaration lives in the transcript for the life
+     of the conversation and comes back on every reload; the file it names does not have to.
+     Delete a render — through the agent, another window, anything — and the declared row used
+     to stay: clickable, draggable, downloadable, every one of them a 404, and the stale-selection
+     guard never fired because the path never left this list. So a declared entry that lives in
+     one of THIS chat's three folders is shown only while the folder lists it. Declared paths
+     elsewhere are left alone — this window has no listing to check them against. */
+  const ours = CHAT_DIRS.map((kind) => `/${key(chatDirFor(kind, sessionKey))}/`)
+  const inChatFolder = (p: string) => {
+    const k = `/${key(p)}`
+    return ours.some((dir) => k.includes(dir))
+  }
+  const kept = declared.filter((a) => !inChatFolder(a.path) || present.has(key(a.path)))
+  const seen = new Set(kept.map((a) => key(a.path)))
+  return [...kept, ...listed.filter((a) => !seen.has(key(a.path)))]
 }

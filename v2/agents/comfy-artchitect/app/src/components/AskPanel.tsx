@@ -74,7 +74,8 @@ function rows<T>(v: unknown, pick: (r: Record<string, unknown>) => T | null): T[
    person reading it — they hold a credit balance, they spend credits, and two numbers for one
    price invited the question "so which am I being charged?". One unit, the one they actually
    have. */
-const price = (s: Service): string => `${s.credits.toLocaleString()} credits`
+const price = (s: Service): string =>
+  s.credits > 0 ? `${s.credits.toLocaleString()} credits` : 'free — runs on the rented GPU'
 
 export function AskPanel({
   item,

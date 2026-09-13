@@ -1151,29 +1151,6 @@ h2 { font-size: var(--fs-lead); }
   margin: var(--sp-control) 0 0; max-width: 58ch;
   font-size: var(--fs-control); line-height: 1.62; color: var(--dim);
 }
-.opening-grid {
-  margin-top: 30px; width: 100%; max-width: 660px;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-gap);
-}
-@media (max-width: 720px) { .opening-grid { grid-template-columns: minmax(0, 1fr); } }
-.opening-card {
-  display: flex; align-items: center; gap: var(--sp-icon); text-align: left;
-  padding: var(--sp-control); cursor: pointer; color: var(--text);
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
-  transition: background var(--dur-base) ease, border-color var(--dur-base) ease,
-              transform var(--dur-fast) var(--ease-smooth);
-}
-.opening-card:hover { background: var(--bg3); border-color: var(--accent-edge); }
-.opening-card:active { transform: scale(.99); }
-.opening-card-ico {
-  width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-control); background: var(--bg3); color: var(--accent-text);
-}
-.opening-card-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
-.opening-card-title { font-size: var(--fs-control); font-weight: var(--fw-semi); }
-.opening-card-sub { font-size: var(--fs-meta); color: var(--faint); }
-.opening-card-go { color: var(--faint); flex: none; }
-.opening-card:hover .opening-card-go { color: var(--accent-text); }
 
 /* ── the stat cards ────────────────────────────────────────────────────────────────────────── */
 .stat-card {
@@ -1311,3 +1288,17 @@ h2 { font-size: var(--fs-lead); }
 .ask-other { margin-top: 6px; }
 .ask-wf { margin: 0; padding: 0 9px 0 26px; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-row); color: var(--text); }
 .ask-wf b { font-weight: var(--fw-semi); }
+
+/* ── the starter prompts ───────────────────────────────────────────────────────────────────── */
+/* Chips under the composer, on an empty chat only. They sit in the foot rather than out in the
+   opening because the thing they fill IS the composer — a suggestion two hundred pixels away
+   from the box it types into reads as decoration. Wrapping, because the column is resizable and
+   four chips do not fit every width. */
+.starters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.starter {
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: transparent; color: var(--dim);
+  font: inherit; font-size: var(--fs-small); padding: 5px 12px;
+  cursor: pointer; transition: color .12s, border-color .12s, background .12s;
+}
+.starter:hover { color: var(--text); border-color: var(--accent); background: var(--bg3); }

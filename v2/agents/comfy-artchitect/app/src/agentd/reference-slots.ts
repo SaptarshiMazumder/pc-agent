@@ -51,6 +51,15 @@ export function chatReferences(listed: Artifact[], sessionKey: string): Artifact
   return listed.filter((a) => norm(a.path).includes(dir))
 }
 
+/** When the latest ask was made (ms), or 0 with no ask. */
+export function latestAskTs(items: ThreadItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind === 'tool' && it.name === 'ask_user' && it.done && !it.isError) return it.ts || 0
+  }
+  return 0
+}
+
 /** Roles the latest ask declared, in its order. A later ask replaces an earlier one: a redesign
  *  that needs different inputs must not leave the old slots on screen. */
 export function slotsFromThread(items: ThreadItem[]): Array<{ role: string; what: string }> {
@@ -159,7 +168,14 @@ export function useReferenceSlots(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by what would change the record
   }, [recordKey, sessionKey])
 
-  const slots = mergeSlots(record, slotsFromThread(items), refs)
+  /* THE EMITTED GRAPHS ARE THE TRUTH ONCE THEY EXIST. An ask declares slots early so the user
+     can start filling them; but a design that moved on after the ask (a `dataset` slot the
+     agent then abandoned for a one-photo route) must not keep asking for a file nothing will
+     read. So: ask-only slots show until an emit NEWER than the latest ask has written the
+     record; from then on only the record's roles are slots, and the ask's extras are gone. */
+  const recordTs = refs.find((a) => a.name === SLOTS_RECORD)?.modified || 0
+  const recordNewer = recordTs * 1000 > latestAskTs(items)
+  const slots = mergeSlots(record, recordNewer ? [] : slotsFromThread(items), refs)
   return { slots, free: freeReferences(refs, slots) }
 }
 

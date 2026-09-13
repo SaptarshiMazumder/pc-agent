@@ -178,14 +178,35 @@ you have not seen in a search or a spec.
 
 ## Identity-locked stills — one reference, many shots (storyboards, angles, outfits)
 
+OPEN FIRST. The box is a rented RTX-class card with ~30 GB free; a current open model that meets
+the brief there IS the pick, and it costs the user nothing. A paid service has to buy something
+specific — more references than the open pick takes, a capability it lacks, quality the user
+asked for by name — and the ask says what it buys, beside a free row for the open route.
+
+Ranked by the open-weights IMAGE-EDITING arena (Artificial Analysis, read 2026-09-13), because
+"the same person in a new scene" is an edit conditioned on a reference, not a text-to-image draw:
+
 | pick | why | how it is reached |
 |---|---|---|
-| **Nano Banana Pro** (Gemini 3 Pro Image) | the identity pick: up to 14 references, the same face across poses and scenes | `GeminiImage2Node`, model `gemini-3-pro-image-preview`; references via a Batch Images node |
-| **Seedream 5.0 Pro** | precise edits, layout, text; 10–14 references; layer separation | `ByteDanceSeedreamNodeV3` (`ByteDanceSeedreamNode` is deprecated) |
-| **Flux.2 [max] / [pro]** · **Flux VTO** | up to 8–9 references, best aesthetics per credit; **`FluxVTONode` puts a garment on a person** (the try-on pick) | `Flux2ImageNode` — pro or max by input (`Flux2ProImageNode` and `Flux2MaxImageNode` are deprecated) |
-| open: **FLUX.2 [dev]** | multi-reference editing on the box; the open identity pick | native FLUX.2 nodes; weights on Hugging Face |
-| open: **Qwen-Image 2.0** | 2K native, best text rendering, unified edit | native Qwen-Image nodes |
-| open: **Z-Image** (6B) | fast drafts on any card | native |
+| open: **FLUX.2 [klein] 9B** (Black Forest Labs, Jan 2026) | #2 open editing (Elo 1004); Apache-2.0; references in, strong identity and layout preservation; light and fast on the card. The 4B is a 4-step distil for previews | native FLUX.2 klein nodes; weights on Hugging Face (black-forest-labs) |
+| open: **Qwen-Image-Edit-2511** (Alibaba, Dec 2025) | #4 open editing (Elo 1000); Apache-2.0; up to 3 references, multi-angle views from ONE reference, face identity kept across pose and style; 20B, FP8 ≈ 16 GB | native Qwen-Image-Edit nodes (docs.comfy.org: qwen-image-edit-2511) |
+| open: **HiDream-O1-Image** (HiDream, May 2026) | #9 open editing (Elo 951); MIT; unified generation + editing with a reference, pixel-native; FP8 ≈ 10 GB | native (docs.comfy.org: hidream-o1) |
+| open: **FLUX.2 [dev]** (Nov 2025) | #3 open editing and #3 open text-to-image (Elo 1000); multi-reference editing at full size; heavier than klein — take it when klein drifts | native FLUX.2 nodes; weights on Hugging Face |
+| open: **Z-Image Turbo** (Tongyi, 6B, Nov 2025) | #17 open text-to-image (Elo 932) but the community's photoreal-skin favourite: 8 steps, ≈ 2 s an image at 1024 — the DRAFT and text-to-image engine. It takes NO reference: Z-Image-Omni-Base and Z-Image-Edit are "to be released" (Tongyi-MAI/Z-Image README). For identity on Z-Image only IPAdapter-FaceID-style adapters exist, an SD-era method — prefer the rows above when the face must hold, and switch to Omni the day its weights land | native Z-Image nodes |
+| open, not a default: **HunyuanImage 3.0 Instruct** (Tencent) | #1 open editing (Elo 1027) but an 80B MoE: NF4 wants a 48 GB card, and the ~20 GB INT8 distil is a community quant behind a custom node pack. Only when the box is big enough and the user wants the top of the chart | custom nodes (Comfy_HunyuanImage3) |
+| open, not for adverts: **Ideogram 4.0** (Jun 2026) | #1 open text-to-image (Elo 1017), design and typography; NON-COMMERCIAL licence — an advert is commercial work | native |
+| **Nano Banana Pro** (Gemini 3 Pro Image) | paid: up to 14 references, the strongest identity lock across many scenes (editing arena 1094) — buy it when the open picks drift, or the job needs more than 3 references | `GeminiImage2Node`, model `gemini-3-pro-image-preview`; references via a Batch Images node |
+| **Seedream 5.0 Pro** | paid: editing arena 1100; precise edits, layout, text; 10–14 references; layer separation | `ByteDanceSeedreamNodeV3` (`ByteDanceSeedreamNode` is deprecated) |
+| **Flux.2 [max] / [pro]** · **Flux VTO** | paid: up to 8–9 references; **`FluxVTONode` puts a garment on a person** (the try-on pick) | `Flux2ImageNode` — pro or max by input (`Flux2ProImageNode` and `Flux2MaxImageNode` are deprecated) |
+
+**Name the row you are picking and why the next one down is not better for THIS job.** A model
+the user asks for by name ("use Z-Image", "no Flux") is design input, not taste to argue with:
+take the best route that honours it and say what it costs in fidelity, if anything.
+
+**One photo is not a dataset.** Never train a LoRA from a single reference, and never generate
+a "dataset" to train one from — that is a week of drift compressed into an afternoon. A LoRA is
+for when the user HAS twenty to thirty photos and says so; otherwise the reference goes in a
+slot and a reference-conditioned model above reads it at generation time.
 
 Below the floor: SDXL + IP-Adapter / InstantID / FaceID, SD1.5 anything. They were the answer in
 2024; today they are the reason a storyboard drifts between frames.

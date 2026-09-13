@@ -1,4 +1,6 @@
 {
+  "_comment_execution_contract": "strict-agentic: a turn that only describes a plan is re-prompted to act, on every model — not only the Gemini family the default gate covers. Every agent here is a task runner.",
+  "execution_contract": "strict-agentic",
   "_comment": "KNOBS live here. KEYS/SECRETS live in v2/.env. NOTE: any AGENTD_* env var STILL OVERRIDES a value here, so keep knobs OUT of .env or they win. Keys are Config field names (config.py), not AGENTD_* names.",
   "_comment_google": "Google moved to plugins/google/ (an MCP plugin) \u2014 no longer a hardcoded mcp_servers entry.",
   "_section_models": "The agent BRAIN (reasoning). Every model-bearing TOOL/SUBSYSTEM model lives in `plugins` below, NOT here.",

@@ -14,6 +14,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import {
   ChevronDown,
   ChevronRight,
@@ -102,11 +103,15 @@ function DirRows({
   depth,
   onOpen,
   selectedPath,
+  picked,
+  onPick,
 }: {
   dir: Dir
   depth: number
   onOpen: (a: Artifact) => void
   selectedPath?: string
+  picked: Set<string>
+  onPick: (path: string) => void
 }) {
   return (
     <>
@@ -119,13 +124,27 @@ function DirRows({
             depth={depth}
             onOpen={onOpen}
             selectedPath={selectedPath}
+            picked={picked}
+            onPick={onPick}
           />
         ))}
       {[...dir.files]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((f) => (
+          <div key={f.path} className={`fx-line${picked.has(f.path) ? ' is-picked' : ''}`}>
+          {/* THE TICK SELECTS FOR DELETION and nothing else; opening is still the row. Separate
+              controls because they are separate intents, and a row that both opened and armed a
+              delete would make the more common click the more dangerous one. An <input> cannot
+              live inside a <button>, hence the wrapper. */}
+          <input
+            type="checkbox"
+            className="fx-pick"
+            checked={picked.has(f.path)}
+            onChange={() => onPick(f.path)}
+            aria-label={`Select ${f.name} for deletion`}
+            title="Select for deletion"
+          />
           <button
-            key={f.path}
             className={`fx-row fx-file${f.path === selectedPath ? ' is-on' : ''}`}
             style={{ paddingLeft: 8 + depth * 14 }}
             onClick={() => onOpen(f)}
@@ -143,6 +162,7 @@ function DirRows({
             <span className="fx-name st-mono">{f.name}</span>
             {f.size ? <span className="fx-size">{humanSize(f.size)}</span> : null}
           </button>
+          </div>
         ))}
     </>
   )
@@ -153,11 +173,15 @@ function DirRow({
   depth,
   onOpen,
   selectedPath,
+  picked,
+  onPick,
 }: {
   dir: Dir
   depth: number
   onOpen: (a: Artifact) => void
   selectedPath?: string
+  picked: Set<string>
+  onPick: (path: string) => void
 }) {
   // Folders start OPEN: this panel exists to show what was made, and a tree that hides it behind
   // a disclosure is the flat list's problem in a new shape.
@@ -179,7 +203,7 @@ function DirRow({
         <span className="fx-size">{count(dir)}</span>
       </button>
       {open && (
-        <DirRows dir={dir} depth={depth + 1} onOpen={onOpen} selectedPath={selectedPath} />
+        <DirRows dir={dir} depth={depth + 1} onOpen={onOpen} selectedPath={selectedPath} picked={picked} onPick={onPick} />
       )}
     </>
   )
@@ -193,13 +217,38 @@ export function FileExplorer({
   artifacts,
   selected,
   onSelect,
+  onRequestDeletion,
+  deletionDisabled = '',
 }: {
   artifacts: Artifact[]
   selected?: Artifact | null
   onSelect: (a: Artifact) => void
+  /** Ask the AGENT to delete these paths. The rail never deletes anything itself — see
+   *  agentd/run.ts deletionRequest for why the request goes through the conversation. */
+  onRequestDeletion?: (paths: string[]) => void
+  /** Why the request cannot be sent right now (a run in flight) — shown on the button. */
+  deletionDisabled?: string
 }) {
   const tree = useMemo(() => buildTree(artifacts), [artifacts])
   const total = useMemo(() => count(tree), [tree])
+
+  /* WHAT IS TICKED, by path. Kept here, not in the store: it is a half-formed intent that means
+     nothing until the button is pressed, and a switch of chat should drop it. Pruned against the
+     live list so a file that vanished (deleted, or the chat changed) cannot stay ticked. */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const alive = useMemo(() => new Set(artifacts.map((a) => a.path)), [artifacts])
+  const chosen = useMemo(() => [...picked].filter((p) => alive.has(p)), [picked, alive])
+  const onPick = (path: string): void =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(path)) next.add(path)
+      return next
+    })
+  const request = (): void => {
+    if (!chosen.length || !onRequestDeletion) return
+    onRequestDeletion(chosen)
+    setPicked(new Set())
+  }
 
   return (
     <div className="fx">
@@ -207,6 +256,27 @@ export function FileExplorer({
         <span className="fx-title">Files</span>
         <span className="fx-count">{total}</span>
       </div>
+      {/* THE ASK. Appears only once something is ticked, so the rail carries no destructive
+          control at rest. It sends a message, not a delete: the agent decides, and refuses what
+          is load-bearing (comfy_delete). Disabled mid-run with the reason on it. */}
+      {chosen.length > 0 && onRequestDeletion && (
+        <div className="fx-delete">
+          <span className="fx-delete-count">{chosen.length} selected</span>
+          <button
+            type="button"
+            className="fx-delete-btn"
+            disabled={!!deletionDisabled}
+            title={deletionDisabled || 'Ask the agent to delete the selected files'}
+            onClick={request}
+          >
+            <Trash2 size={13} strokeWidth={1.8} />
+            Request deletion
+          </button>
+          <button type="button" className="fx-delete-clear" onClick={() => setPicked(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
       {total === 0 ? (
         <p className="fx-empty">
           Nothing here yet — the references you add, and the workflows, renders and downloads the
@@ -214,7 +284,14 @@ export function FileExplorer({
         </p>
       ) : (
         <div className="fx-tree">
-          <DirRows dir={tree} depth={0} onOpen={onSelect} selectedPath={selected?.path} />
+          <DirRows
+            dir={tree}
+            depth={0}
+            onOpen={onSelect}
+            selectedPath={selected?.path}
+            picked={picked}
+            onPick={onPick}
+          />
         </div>
       )}
     </div>

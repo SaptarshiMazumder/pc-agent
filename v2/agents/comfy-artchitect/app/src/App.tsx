@@ -23,14 +23,9 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { onIdentityChanged } from '@agentd/client'
 import {
   ArrowRight,
-  ArrowUpRight,
-  Boxes,
-  Gauge,
   Loader2,
   PanelLeft,
   PanelRight,
-  Plug,
-  Sparkles,
   Workflow as WorkflowIcon,
 } from 'lucide-react'
 
@@ -45,6 +40,7 @@ import { useApp, useSession } from './state/store'
 import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
+import { StarterPrompts } from './components/StarterPrompts'
 import { Thread } from './components/Thread'
 
 /* THIS AGENT'S OWN SCREEN, in place of the scaffold's sample widgets. It reads the artifacts the
@@ -76,36 +72,6 @@ const OPENING_BLURB =
   'and repair what the server rejects. I never name a model or a node I have not seen on your ' +
   'box — which is what makes the workflows I hand back ones that run.'
 
-/* The four ways in. Each seeds the composer rather than sending, so the user can edit the
-   suggestion before committing to it — the same reason the edit action exists on a sent turn. */
-const OPENINGS: { icon: JSX.Element; title: string; sub: string; prompt: string }[] = [
-  {
-    icon: <Plug size={15} strokeWidth={1.7} />,
-    title: 'Check the connection',
-    sub: 'Reach it, and read the hardware',
-    prompt: 'Connect to my ComfyUI and tell me what you can reach.',
-  },
-  {
-    icon: <Boxes size={15} strokeWidth={1.7} />,
-    title: 'See what is installed',
-    sub: 'Models, LoRAs, custom nodes',
-    prompt: 'List what is installed on my instance — checkpoints, LoRAs and custom nodes.',
-  },
-  {
-    icon: <Sparkles size={15} strokeWidth={1.7} />,
-    title: 'Build a workflow',
-    sub: 'Designed around your models',
-    prompt:
-      'Build a text-to-image workflow using what my instance already has. Ask me whatever you need to know first.',
-  },
-  {
-    icon: <Gauge size={15} strokeWidth={1.7} />,
-    title: 'Make one faster',
-    sub: 'Without changing the look',
-    prompt:
-      'Take my last workflow and make it faster without changing the look. Tell me the tradeoff before you change anything.',
-  },
-]
 
 export default function App() {
   const { client, status } = useClient()
@@ -120,7 +86,8 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile, addReference, flushReferences } = useRun(client)
+  const { send, abort, addFiles, removeFile, addReference, flushReferences, requestDeletion } =
+    useRun(client)
 
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
@@ -185,7 +152,7 @@ export default function App() {
      made once here, feeds the file rail, the workflow shelf and the header alike. */
   const workspaceVersion = useApp((s) => s.workspaceVersion)
   const listed = useChatWorkspaceFiles(client ?? undefined, currentKey, workspaceVersion)
-  const files = useMemo(() => mergeFiles(artifacts, listed), [artifacts, listed])
+  const files = useMemo(() => mergeFiles(artifacts, listed, currentKey), [artifacts, listed, currentKey])
 
   /* REFERENCE SLOTS — the roles the agent asked for, matched to the files in this chat's folder
      (agentd/reference-slots.ts). The rail shows them; the run tool on the daemon reads the same
@@ -416,6 +383,13 @@ export default function App() {
      why `empty` alone could never tell them apart — and getting it wrong puts the opening screen
      over the chat the user just clicked. */
   const loadingHistory = session.loadingHistory
+  /* NOTHING SAID YET — so the conversation is the whole screen and the workspace is not drawn
+     at all. NOT hidden: `StudioDashboard` polls `.studio/state.json` on a timer and the file
+     explorer lists the chat's files, and doing either for a chat that has produced nothing is
+     work with no reader. The first send makes `items` non-empty, this flips, the dashboard
+     mounts and the column goes back to `chatWidth` — which is still whatever the user last
+     dragged it to, because nothing here ever wrote to it. */
+  const solo = empty && !loadingHistory
   /* `pct` ARRIVES AS A FRACTION (0-1), not a percentage — the daemon sends `used / limit`
      rounded to 4 places. Rounding it straight to an integer floored every real conversation to
      "0% ctx" (anything under half a window), which read as a broken meter rather than a wrong
@@ -476,10 +450,12 @@ export default function App() {
           /* THE STUDIO: conversation beside a live dashboard of what the run produced
              (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
              KPI row carries the same numbers from the same sources. */
-          <div className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}`}>
+          <div
+            className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}${solo ? ' is-solo' : ''}`}
+          >
             {/* Width is INLINE because it is user state, not design state — the stylesheet owns
                 the minimum, this owns what the person dragged it to. */}
-            <div className="st-convo" style={{ width: chatWidth }}>
+            <div className="st-convo" style={solo ? undefined : { width: chatWidth }}>
               <div className="st-convo-head">
                 <span className="st-live-dot" />
                 <div className="st-convo-titles">
@@ -531,22 +507,9 @@ export default function App() {
                     </span>
                     <h2 className="opening-headline">{OPENING_HEADLINE}</h2>
                     <p className="opening-blurb">{OPENING_BLURB}</p>
-                    <div className="opening-grid">
-                      {OPENINGS.map((o) => (
-                        <button
-                          key={o.title}
-                          className="opening-card"
-                          onClick={() => seedComposer(o.prompt)}
-                        >
-                          <span className="opening-card-ico">{o.icon}</span>
-                          <span className="opening-card-text">
-                            <span className="opening-card-title">{o.title}</span>
-                            <span className="opening-card-sub">{o.sub}</span>
-                          </span>
-                          <ArrowUpRight className="opening-card-go" size={15} strokeWidth={1.7} />
-                        </button>
-                      ))}
-                    </div>
+                    {/* The four ways in used to be a grid of cards HERE. They moved under the
+                        composer (StarterPrompts) — beside the box you would type in anyway,
+                        rather than floating in the middle of the screen away from it. */}
                   </div>
                 ) : (
                   <Thread
@@ -584,25 +547,43 @@ export default function App() {
                     )
                   }
                 />
+                {/* UNDER THE BOX, and only while there is nothing to read. Once a conversation
+                    exists these are noise competing with the agent's own `suggest` chips. */}
+                {empty && !loadingHistory && <StarterPrompts onPick={seedComposer} />}
               </div>
             </div>
 
-            {/* Between the two columns in DOM order, so `is-chat-right` ordering carries it to
-                the correct edge without a second element. */}
-            <ChatResizer side={chatSide} />
+            {/* THE WORKSPACE, and the handle that sizes it — both absent on an empty chat.
+                Between the two columns in DOM order, so `is-chat-right` ordering carries the
+                handle to the correct edge without a second element. */}
+            {!solo && (
+              <>
+                <ChatResizer side={chatSide} />
 
-            <StudioDashboard
-              client={client ?? undefined}
-              gpu={gpu}
-              running={session.running}
-              artifacts={files}
-              slots={slots}
-              freeReferences={free}
-              onAddReference={onAddReference}
-              referencesDisabled={!connected}
-              credits={credits}
-              onCredits={() => setView('credits')}
-            />
+                <StudioDashboard
+                  client={client ?? undefined}
+                  gpu={gpu}
+                  running={session.running}
+                  artifacts={files}
+                  slots={slots}
+                  freeReferences={free}
+                  onAddReference={onAddReference}
+                  referencesDisabled={!connected}
+                  onRequestDeletion={(paths) => void requestDeletion(paths)}
+                  /* Not mid-run: a delete request landing between an emit and its run is the
+                     one case worth refusing outright, so it waits rather than queues. */
+                  deletionDisabled={
+                    !connected
+                      ? 'Not connected to the daemon'
+                      : session.running
+                        ? 'Wait for the current turn to finish'
+                        : ''
+                  }
+                  credits={credits}
+                  onCredits={() => setView('credits')}
+                />
+              </>
+            )}
           </div>
         )}
       </main>

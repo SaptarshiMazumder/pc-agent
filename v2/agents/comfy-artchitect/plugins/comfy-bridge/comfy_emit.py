@@ -153,6 +153,29 @@ class ComfyEmitTool(Tool):
                                 is_error=True,
                             )
 
+            # A LOADER READS A SLOT OR AN UPLOAD, NEVER A NAME THE MODEL TYPED. `@role` is the
+            # slot; a literal is allowed only if comfy_upload returned it this conversation or
+            # comfy_download brought it back. Anything else — the instance's example.png, a
+            # remembered filename, a guess — is the graph quietly reading a file the user never
+            # gave it, which is the failure rule 14 exists to stop. Checked here, one round trip.
+            import studio_state
+
+            known = set(studio_state.uploaded_in_session()) | {
+                Path(rel).name for rel in studio_state.downloaded_in_session()
+            }
+            for nid, entry in api.items():
+                for field, value in entry["inputs"].items():
+                    if field not in reference_slots._SLOT_FIELDS or not isinstance(value, str):
+                        continue
+                    if reference_slots.role_of(value) is not None or value in known or Path(value).name in known:
+                        continue
+                    return ToolResult.text(
+                        f"node {nid}.{field} = {value!r}: a loader reads a SLOT (`@role`, which the "
+                        "user fills in the References panel and comfy_run wires in) or a name "
+                        "comfy_upload returned in this conversation — not a filename you typed.",
+                        is_error=True,
+                    )
+
             # REFERENCE SLOTS: every `@role` on a loader input is a slot the user fills by file
             # (reference_slots). Validated here so a typo is one round trip, not a refused run.
             slot_problems = reference_slots.bad_roles(api)

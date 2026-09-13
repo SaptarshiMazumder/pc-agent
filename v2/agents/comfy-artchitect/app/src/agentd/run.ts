@@ -38,6 +38,25 @@ export function referenceInstruction(paths: string[]): string {
   )
 }
 
+/** The message that asks the agent to delete files — the ONLY thing that starts a delete.
+ *
+ *  THE WINDOW NEVER DELETES. It could (workspace.delete is app-callable, and the Replace flow
+ *  uses it for one narrow case) — it does not, because most files here are load-bearing for the
+ *  job in progress in ways a button cannot know: a reference filling a slot, a validated
+ *  workflow, a render that is the next input. The agent has `comfy_delete`, which checks exactly
+ *  those things and refuses with a reason; putting the request through the conversation is what
+ *  gets the intent, the refusal and the decision recorded where the rest of the job reads them.
+ *
+ *  First person, workspace-relative paths as the rail shows them, so the agent passes them to
+ *  the tool as given. */
+export function deletionRequest(paths: string[]): string {
+  const them = paths.length > 1 ? 'these files' : 'this file'
+  return (
+    `Please delete ${them} from this chat's workspace: ${paths.join(', ')}. ` +
+    `Use comfy_delete with those paths. If it refuses one, tell me why in a line and ask.`
+  )
+}
+
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
   const send = useCallback(
@@ -218,5 +237,16 @@ export function useRun(client: AgentdClient | null) {
     await send(referenceInstruction(queued), { origin: 'reference' })
   }, [send])
 
-  return { send, abort, addFiles, removeFile, addReference, flushReferences }
+  /** Ask the agent to delete files the user ticked in the rail. Sends at once — the button
+   *  is disabled while a run is going (App.tsx), so there is nothing to queue: a delete request
+   *  landing mid-turn, between an emit and its run, is exactly the case worth refusing. */
+  const requestDeletion = useCallback(
+    async (paths: string[]): Promise<void> => {
+      if (!paths.length) return
+      await send(deletionRequest(paths))
+    },
+    [send],
+  )
+
+  return { send, abort, addFiles, removeFile, addReference, flushReferences, requestDeletion }
 }

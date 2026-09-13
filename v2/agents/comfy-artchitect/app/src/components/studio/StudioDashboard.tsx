@@ -45,6 +45,8 @@ export function StudioDashboard({
   referencesDisabled,
   credits,
   onCredits,
+  onRequestDeletion,
+  deletionDisabled,
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
@@ -59,6 +61,9 @@ export function StudioDashboard({
   referencesDisabled: boolean
   credits: number | null
   onCredits: () => void
+  /** The rail's "Request deletion" — forwarded to the conversation, see FileExplorer. */
+  onRequestDeletion?: (paths: string[]) => void
+  deletionDisabled?: string
 }) {
   const state = useStudioState(client, running)
   // Selection is STORE state, not local: the rail is not the only thing that picks. A thumbnail in
@@ -121,6 +126,8 @@ export function StudioDashboard({
             artifacts={artifacts.filter((a) => !/[\\/]references[\\/]/.test(a.path))}
             selected={selected}
             onSelect={(a) => setSelectedPath(a.path)}
+            onRequestDeletion={onRequestDeletion}
+            deletionDisabled={deletionDisabled}
           />
         </aside>
 
