@@ -29,6 +29,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 import chat_paths
+import reference_slots
 
 
 def _slug(name: str) -> str:
@@ -74,6 +75,23 @@ class ComfyEmitTool(Tool):
                         "class_type": {"type": "string"},
                         "inputs": {"type": "object"},
                         "title": {"type": "string"},
+                    },
+                },
+            },
+            "references": {
+                "type": "array",
+                "description": (
+                    "What each reference SLOT is for. A loader whose file input is the token "
+                    "`@model` declares the slot 'model'; the user fills it in the References "
+                    "panel with a file named by that role, and comfy_run uploads and wires it. "
+                    "One entry per token in the graph: {role, what}."
+                ),
+                "items": {
+                    "type": "object",
+                    "required": ["role", "what"],
+                    "properties": {
+                        "role": {"type": "string", "description": "e.g. 'model', 'garment', 'start_frame'."},
+                        "what": {"type": "string", "description": "What the file must show, e.g. 'the influencer, face visible'."},
                     },
                 },
             },
@@ -135,6 +153,26 @@ class ComfyEmitTool(Tool):
                                 is_error=True,
                             )
 
+            # REFERENCE SLOTS: every `@role` on a loader input is a slot the user fills by file
+            # (reference_slots). Validated here so a typo is one round trip, not a refused run.
+            slot_problems = reference_slots.bad_roles(api)
+            if slot_problems:
+                return ToolResult.text("bad reference slot(s):\n  " + "\n  ".join(slot_problems), is_error=True)
+            roles = list(reference_slots.roles_in(api))
+            whats = {
+                str(r.get("role") or "").strip().lstrip(reference_slots.TOKEN): str(r.get("what") or "").strip()
+                for r in (params.get("references") or [])
+                if isinstance(r, dict)
+            }
+            undeclared = [r for r in whats if r not in roles]
+            if undeclared:
+                return ToolResult.text(
+                    "references describe role(s) no node uses: " + ", ".join(undeclared)
+                    + ". Put the token on the loader's file input (e.g. LoadImage.image = "
+                    f"'{reference_slots.TOKEN}{undeclared[0]}') or drop the entry.",
+                    is_error=True,
+                )
+
             ui = self._ui_graph(nodes, api)
 
             # Inside the run's workspace — never computed from __file__, which is where the
@@ -184,14 +222,25 @@ class ComfyEmitTool(Tool):
             digest = hashlib.sha1(
                 json.dumps(api, sort_keys=True).encode("utf-8")
             ).hexdigest()[:8]
+            ws = Path(current_workspace(".") or ".")
+            slots = ""
+            if roles:
+                reference_slots.record(ws, name, roles, whats)
+                slots = (
+                    "\nreference slots — the user fills them in the References panel; comfy_run "
+                    "uploads and wires them, and REFUSES while any is EMPTY (do not ask for "
+                    "uploads in prose, do not wait — validate now, run when they are filled):\n"
+                    + reference_slots.describe(ws, roles, whats)
+                )
             return ToolResult.text(
                 f"wrote {len(api)} nodes (graph {digest})"
                 + (f" — {note}" if note else "")
                 + f"\n  run this:    {api_rel}"
                 + f"\n  import this: {ui_rel}"
+                + slots
                 + "\nRun it with comfy_run before calling it finished — a workflow that was "
                 "written has not yet been shown to work.",
-                details={"api": api_rel, "ui": ui_rel, "nodes": len(api)},
+                details={"api": api_rel, "ui": ui_rel, "nodes": len(api), "slots": roles},
                 artifacts=[api_rel, ui_rel],
             )
         except Exception as e:  # noqa: BLE001

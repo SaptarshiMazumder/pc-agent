@@ -30,11 +30,11 @@ import { useApp } from '../state/store'
 export function referenceInstruction(paths: string[]): string {
   const them = paths.length > 1 ? 'them' : 'it'
   return (
-    `I've added reference media for this chat: ${paths.join(', ')}. ` +
-    `Upload ${them} to the ComfyUI instance with comfy_upload and use ${them} as the ` +
-    `workflow input (the reference image / start frame / video) — don't ask me to paste ${them} again. ` +
-    `Then keep going in this same turn: wire ${them} into the workflow, validate it and run it. ` +
-    `Do not stop to tell me the upload worked.`
+    `I've added reference media for this chat, not in a slot: ${paths.join(', ')}. ` +
+    `If you can tell which role ${paths.length > 1 ? 'they fill' : 'it fills'}, ` +
+    `move ${them} there with comfy_reference_assign; if not, ask me which in one line. ` +
+    `Then keep going in this same turn: validate and run — comfy_run uploads and wires slot files itself. ` +
+    `Don't ask me to paste ${them} again.`
   )
 }
 
@@ -122,7 +122,7 @@ export function useRun(client: AgentdClient | null) {
           text:
             tooBig.map((f) => `${f.name} (${mb(f.size)})`).join(', ') +
             ` ${tooBig.length > 1 ? 'are' : 'is'} over the ${mb(MAX_CHAT_IMAGE_BYTES)} chat limit. ` +
-            'Chat images are only looked at by the agent — for a generation input use Add reference media.',
+            'Chat images are only looked at by the agent — a generation input goes in the References panel on the left.',
           ts: Date.now(),
         },
       ])
@@ -144,91 +144,67 @@ export function useRun(client: AgentdClient | null) {
     patch(key, { pending: session.pending.filter((_, i) => i !== index) })
   }, [])
 
-  /** Reference media — the SEPARATE path from chat attachments.
+  /** Put ONE reference file in the workspace — into a SLOT (named by its role) or under its own
+   *  name. The SEPARATE path from chat attachments: those ride the message to the LLM as vision;
+   *  a reference is workflow INPUT, written straight to `references/<chat>/` via
+   *  `workspace.upload`, and the model only ever hears about it by role or name. The pixels go
+   *  browser -> workspace -> ComfyUI (the run tool uploads them); a 10 MB reference never bloats
+   *  a model call.
    *
-   *  Chat attachments (`addFiles`/`send`) ride the message to the LLM as vision input. Reference
-   *  media does NOT: each file is written straight to the agent's workspace `references/` via
-   *  `workspace.upload` (no message, no model proxy), then ONE text turn tells the agent to push
-   *  them onto the instance with `comfy_upload` and wire them into the workflow. The pixels go
-   *  browser -> workspace -> ComfyUI; the model only ever sees the filenames as text. This is why
-   *  a 10 MB reference image no longer bloats — or breaks — every model call. */
-  const sendReferences = useCallback(
-    async (list: FileList | File[]): Promise<void> => {
-      const files = Array.from(list || [])
-      if (!client || !files.length) return
+   *  A SLOT HOLDS ONE FILE. The daemon dedupes names on collision ("garment (2).jpg") rather than
+   *  overwriting, so the previous holder of the role — whatever its extension — is deleted first,
+   *  by the names the caller read off the listing. */
+  const addReference = useCallback(
+    async (file: File, role: string | null, replacing: string[] = []): Promise<string> => {
+      if (!client) throw new Error('not connected')
       const { currentSessionKey: existing, newSession, append } = useApp.getState()
       const key = existing || newSession(true)
-      // THE CHAT'S OWN references/ FOLDER (workspace-files.ts): keyed by the session key the
-      // daemon already carries into every tool call, so comfy_upload finds it with nothing new
-      // crossing the wire. NOT `uploads/` (chat attachments, which the model sees as vision):
-      // reference media is INPUT for the workflow, and the model only ever hears its filename.
       const dir = chatDirFor('references', key)
-
-      // Reference files are uploaded immediately and never rendered in this window, so avoid
-      // decoding a throwaway local thumbnail for what may be a very large source image.
-      const read = await Promise.all(files.map((file) => readFile(file, false)))
-      const saved: string[] = []
-      const failed: string[] = []
-      for (const f of read) {
-        try {
-          const res: any = await client.request('workspace.upload', {
-            agentId: AGENT_ID,
-            path: dir,
-            name: f.name,
-            dataBase64: f.dataBase64,
-          })
-          if (res?.ok) saved.push(String(res.name || f.name))
-          else failed.push(`${f.name} (${res?.error || 'failed'})`)
-        } catch (e) {
-          failed.push(`${f.name} (${String((e as Error)?.message || e)})`)
+      const ext = (file.name.match(/\.[A-Za-z0-9]+$/) || [''])[0].toLowerCase()
+      const name = role ? `${role}${ext}` : file.name
+      const read = await readFile(file, false)
+      try {
+        for (const old of replacing) {
+          await client.request('workspace.delete', { agentId: AGENT_ID, path: `${dir}/${old}` })
         }
-      }
-
-      if (failed.length) {
+        const res: any = await client.request('workspace.upload', {
+          agentId: AGENT_ID,
+          path: dir,
+          name,
+          dataBase64: read.dataBase64,
+        })
+        if (!res?.ok) throw new Error(String(res?.error || 'upload failed'))
+        // The folder changed; the rail re-reads it (agentd/workspace-files.ts).
+        useApp.getState().bumpWorkspace()
+        const saved = String(res.name || name)
+        if (!role) {
+          // A file with no slot: the agent has to be told it exists, since nothing else names it.
+          // Queued if a run is in flight; sent at once otherwise (see flushReferences).
+          const path = `${dir}/${saved}`
+          const now = useApp.getState().sessions[key]
+          if (now?.running) {
+            useApp.getState().patch(key, { pendingReferences: [...(now.pendingReferences || []), path] })
+          } else {
+            await send(referenceInstruction([path]), { origin: 'reference' })
+          }
+        }
+        return saved
+      } catch (e) {
         append(key, [
           {
             kind: 'system',
             tone: 'error',
-            text: `Could not add reference media: ${failed.join('; ')}`,
+            text: `Could not add ${file.name}: ${String((e as Error)?.message || e)}`,
             ts: Date.now(),
           },
         ])
+        throw e
       }
-      if (!saved.length) return
-      // The folder changed; the file panel reads it (agentd/workspace-files.ts).
-      useApp.getState().bumpWorkspace()
-      const paths = saved.map((name) => `${dir}/${name}`)
-
-      /* THE UPLOAD IS DONE; SAYING SO MAY HAVE TO WAIT. A turn cannot be sent while one is
-         already running, and that is the only half of this that ever needed to wait — so the
-         paths go in the queue and `flushReferences` announces them the moment the run ends.
-         Re-read rather than closed over: the upload above was awaited, and a run can have
-         started (or finished) while it was in flight. */
-      const now = useApp.getState().sessions[key]
-      if (now?.running) {
-        useApp.getState().patch(key, {
-          pendingReferences: [...(now.pendingReferences || []), ...paths],
-        })
-        // SAID IN THE THREAD, because otherwise this is a click with no visible consequence for
-        // however long the turn lasts — indistinguishable from the button having done nothing.
-        append(key, [
-          {
-            kind: 'system',
-            tone: 'info',
-            text: `Added ${paths.join(', ')} — the agent is mid-turn, so I'll hand ${
-              paths.length > 1 ? 'them' : 'it'
-            } over as soon as this one finishes.`,
-            ts: Date.now(),
-          },
-        ])
-        return
-      }
-      await send(referenceInstruction(paths), { origin: 'reference' })
     },
     [client, send],
   )
 
-  /** Hand over whatever `sendReferences` had to hold. Called by the window when a run ends —
+  /** Hand over the unslotted files `addReference` had to hold. Called by the window when a run ends —
    *  App owns WHEN (it is watching the run), this owns WHAT IS SAID.
    *
    *  The queue is cleared BEFORE the send, not after: `send` sets `running` true again, and a
@@ -242,5 +218,5 @@ export function useRun(client: AgentdClient | null) {
     await send(referenceInstruction(queued), { origin: 'reference' })
   }, [send])
 
-  return { send, abort, addFiles, removeFile, sendReferences, flushReferences }
+  return { send, abort, addFiles, removeFile, addReference, flushReferences }
 }

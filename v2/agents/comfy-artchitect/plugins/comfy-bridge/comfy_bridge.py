@@ -42,6 +42,7 @@ from agent_runtime.application.run_context import (
 from agent_runtime.infrastructure.net.outbound import fetch
 
 import chat_paths
+import reference_slots
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
 #: previous version of this tool was a hardcoded list of seven loaders, which made every model
@@ -628,6 +629,78 @@ class ComfyNodeSearchTool(Tool):
             return ToolResult.text(f"comfy_node_search failed: {type(e).__name__}: {e}", is_error=True)
 
 
+def _push_reference(located: str, subfolder: str = "") -> tuple[str, str | None]:
+    """Send one of this chat's files to the instance's input folder. `located` is
+    WORKSPACE-RELATIVE (see _locate_reference): the host's fetch resolves it against the real
+    workspace, which is the only form that survives the sandbox's guest/host split — an
+    absolute guest path was refused as "outside this run's files" and read as a network error.
+    Returns (the name LoadImage lists — "subfolder/name" when there is one, None), or ("", error).
+
+    `overwrite` on purpose: iterating means re-sending a file under the same name, and
+    "input/foo (1).png" quietly diverging from what the workflow names is exactly the kind of
+    drift nobody can debug from here."""
+    form = {"overwrite": "true"}
+    if subfolder:
+        form["subfolder"] = subfolder
+    res = fetch(
+        _url("/api/upload/image"),
+        method="POST",
+        headers=_headers(),
+        file_path=located,
+        file_field="image",
+        form_fields=form,
+        timeout_s=120.0,
+    )
+    if not res.ok:
+        return "", _failed(res, located)
+    try:
+        body = res.json()
+    except ValueError:
+        return "", "the instance did not return JSON"
+    name = str(body.get("name") or "")
+    folder = str(body.get("subfolder") or "")
+    return (f"{folder}/{name}" if folder else name), None
+
+
+class ComfyReferenceAssignTool(Tool):
+    name = "comfy_reference_assign"
+    label = "Assign a reference to a role"
+    default_retryable = False
+    description = (
+        "Give one of this chat's reference files a ROLE — the slot a workflow names with `@role` "
+        "— by renaming it `<role>.<ext>` in the chat's references folder. Use it when the user "
+        "says which image is which ('the second one is the shirt', 'use handbag-5 as the "
+        "garment'): the References panel shows the file under that role at once and comfy_run "
+        "picks it up. Only this chat's files; one file per role — assigning a role another file "
+        "holds replaces it."
+    )
+    parameters = {
+        "type": "object",
+        "required": ["file", "role"],
+        "properties": {
+            "file": {
+                "type": "string",
+                "description": "The file's name as the References panel or the announce shows it, e.g. 'handbag-5-.jpg'.",
+            },
+            "role": {
+                "type": "string",
+                "description": "The role, e.g. 'garment' — lowercase letters, digits, '-' or '_'.",
+            },
+        },
+    }
+
+    async def execute(self, tool_call_id, params, abort, on_update=None):
+        role = str(params.get("role") or "").strip().lstrip(reference_slots.TOKEN)
+        try:
+            ws = Path(current_workspace(".") or ".")
+            rel = reference_slots.assign(ws, str(params.get("file") or ""), role)
+        except (ValueError, FileNotFoundError) as e:
+            return ToolResult.text(str(e), is_error=True)
+        return ToolResult.text(
+            f"{rel} now fills {reference_slots.TOKEN}{role}. comfy_run uploads it and wires it in."
+        )
+
+
 class ComfyUploadTool(Tool):
     name = "comfy_upload"
     label = "Upload images to ComfyUI"
@@ -635,13 +708,13 @@ class ComfyUploadTool(Tool):
     description = (
         "Push this chat's reference media to the ComfyUI instance's input folder, so a "
         "LoadImage node can use it. THE ONLY FILES THIS WILL SEND ARE THE ONES THE USER ADDED "
-        "TO THIS CONVERSATION with the Add reference media button — the message that announced "
+        "TO THIS CONVERSATION in the References panel — the message that announced "
         "them names their exact paths (references/<chat>/name.png) — plus renders THIS "
         "conversation brought back with comfy_download (outputs/…), so a storyboard frame or a "
         "still can be the next workflow's input. Nothing else exists as far as this tool is "
         "concerned: not files another conversation added, not images pasted into the chat "
         "(uploads/). If nothing was added to this "
-        "chat, this tool says so — tell the user to add it with Add reference media; never "
+        "chat, this tool says so — the user adds it in the References panel; never "
         "substitute a file from anywhere else. Upload BEFORE emitting any workflow that loads "
         "an image, and wire the SERVER-SIDE names this returns — never the local paths — into "
         "each LoadImage node's `image` input. SEVERAL IMAGES MEANS SEVERAL ROLES (start frame, "
@@ -689,10 +762,10 @@ class ComfyUploadTool(Tool):
             )
             if not available:
                 return ToolResult.text(
-                    "nothing has been added to THIS chat with Add reference media, so there is "
+                    "nothing has been added to THIS chat in the References panel, so there is "
                     "nothing to upload. Only media added to this conversation can go to the "
                     "instance — never a file from another chat, and never an image pasted into "
-                    "the chat. Ask the user to add it with the Add reference media button, then "
+                    "the chat. The user adds it in the References panel (a slot, or Add), then "
                     "upload it.",
                     is_error=True,
                 )
@@ -712,37 +785,11 @@ class ComfyUploadTool(Tool):
                         "conversation, can go to the instance."
                     )
                     continue
-                # `overwrite` on purpose: iterating means re-sending a file under the same
-                # name, and "input/foo (1).png" quietly diverging from what the workflow names
-                # is exactly the kind of drift nobody can debug from here.
-                form = {"overwrite": "true"}
-                if subfolder:
-                    form["subfolder"] = subfolder
-                res = fetch(
-                    _url("/api/upload/image"),
-                    method="POST",
-                    headers=_headers(),
-                    # WORKSPACE-RELATIVE — see _locate_reference. `root / p` here was the
-                    # bug: inside the sandbox that is /tmp/exec-<id>/ws/…, a guest path the
-                    # host refuses as "outside this run's files", and the tool then reported
-                    # "could not reach the instance" about a file it never sent.
-                    file_path=located,
-                    file_field="image",
-                    form_fields=form,
-                    timeout_s=120.0,
-                )
-                if not res.ok:
-                    failures.append(_failed(res, path))
+                server, err = _push_reference(located, subfolder)
+                if err:
+                    failures.append(f"{path}: {err}")
                     continue
-                try:
-                    body = res.json()
-                except ValueError:
-                    failures.append(f"{path}: the instance did not return JSON")
-                    continue
-                name = str(body.get("name") or "")
-                sub = str(body.get("subfolder") or "")
-                # What LoadImage's enum actually lists: "subfolder/name" when there is one.
-                uploaded[path] = f"{sub}/{name}" if sub else name
+                uploaded[path] = server
 
             lines = [f"{local}  ->  {server}" for local, server in uploaded.items()]
             if lines:
@@ -1133,6 +1180,39 @@ class ComfyRunTool(Tool):
             answered, why = studio_state.checkpoint_answered(_workflow_name(path))
             if not answered:
                 return ToolResult.text(why, is_error=True)
+
+            # REFERENCE SLOTS ARE FILLED HERE, MECHANICALLY — see reference_slots. Every @role
+            # token resolves to the file the user put in that slot, the files go up, the server
+            # names go in. An empty slot is a refusal that names it: nothing runs on a guess, and
+            # nothing here is a matter of the model remembering to upload.
+            ws = Path(current_workspace(".") or ".")
+            roles = reference_slots.roles_in(prompt)
+            if roles:
+                problems = reference_slots.bad_roles(prompt)
+                if problems:
+                    return ToolResult.text(
+                        "bad reference slot(s):\n  " + "\n  ".join(problems), is_error=True
+                    )
+                filled, missing = reference_slots.status(ws, roles)
+                if missing:
+                    return ToolResult.text(
+                        "waiting for reference(s). The user adds them in the References panel, "
+                        "and this refuses until every slot is filled:\n"
+                        + reference_slots.describe(ws, list(roles))
+                        + "\nNothing for you to do about it: say which slots are empty, end the "
+                        "turn, and run again when they are filled.",
+                        is_error=True,
+                    )
+                names: dict[str, str] = {}
+                for role, rel in filled.items():
+                    server, err = _push_reference(rel)
+                    if err:
+                        return ToolResult.text(
+                            f"could not upload {rel} for {reference_slots.TOKEN}{role}: {err}",
+                            is_error=True,
+                        )
+                    names[role] = server
+                prompt = reference_slots.bind(prompt, names)
 
             # Secrets go in HERE, not when the workflow was written — see _fill_secrets.
             prompt, missing_keys = _fill_secrets(prompt)
@@ -1943,6 +2023,8 @@ class ComfyValidateTool(Tool):
                                 f"node {nid}.{field} links to node {value[0]}, not in this graph"
                             )
                         continue
+                    if reference_slots.role_of(value) is not None:
+                        continue  # a reference slot — filled and checked at run time, listed below
                     s = specs.get(field)
                     choices = s[0] if isinstance(s, list) and s else None
                     if not isinstance(choices, list) or not isinstance(value, str):
@@ -1961,6 +2043,17 @@ class ComfyValidateTool(Tool):
                         )
 
             downloading = _downloads_in_flight()
+            # REFERENCE SLOTS, with their state. Not a compile error either way: an empty slot is
+            # the user's move, in the References panel, and comfy_run refuses until it is made.
+            bad_enums += reference_slots.bad_roles(graph)
+            slot_roles = list(reference_slots.roles_in(graph))
+            slots_note = ""
+            if slot_roles:
+                ws = Path(current_workspace(".") or ".")
+                slots_note = (
+                    "\nreference slots (the user fills them in the References panel; comfy_run "
+                    "refuses while any is EMPTY):\n" + reference_slots.describe(ws, slot_roles)
+                )
             # THE RECORD THE INSTALL GATES READ. Written whether or not the graph compiles: a
             # clean validation is also a fact ("nothing to install"), and comfy_install answers
             # from this and nothing else.
@@ -1975,6 +2068,7 @@ class ComfyValidateTool(Tool):
                     f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
                     "and every model file it names is loadable. Safe to comfy_run."
                     + (f"\n{downloading}" if downloading else "")
+                    + slots_note
                 )
             lines = ["the workflow does NOT compile against this instance:"]
             if unknown_nodes:
@@ -1996,6 +2090,8 @@ class ComfyValidateTool(Tool):
                 lines += [f"  {x}" for x in missing_files]
             if downloading:
                 lines.append(downloading)
+            if slots_note:
+                lines.append(slots_note.strip())
             return ToolResult.text("\n".join(lines), is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_validate failed: {type(e).__name__}: {e}", is_error=True)
@@ -2111,7 +2207,10 @@ class ComfyPriceTool(Tool):
                 lines.append(f"   {model}: {money(cheapest)}{suffix}{extra}")
         lines.append(
             f"\nA 5-second Kling clip at 720p is about {money(17.72 * 5)}; one Flux Ultra image "
-            f"about {money(12.66)}. Quote these credits in the ask, beside the dollars."
+            f"about {money(12.66)}. QUOTE THE CREDITS ONLY — never the dollars, in the ask or in "
+            f"your prose. The user holds a credit balance and is billed in credits; the dollar "
+            f"figure above is the PLATFORM's provider cost, and showing both only raises the "
+            f"question of which one they are paying."
         )
         return "\n".join(lines)
 
@@ -2158,6 +2257,7 @@ def register(api, ctx):
     api.register_tool(ComfyNodeSearchTool())
     api.register_tool(ComfyResearchTool())
     api.register_tool(ComfyUploadTool())
+    api.register_tool(ComfyReferenceAssignTool())
     api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyPriceTool())
     api.register_tool(ComfyRunTool())

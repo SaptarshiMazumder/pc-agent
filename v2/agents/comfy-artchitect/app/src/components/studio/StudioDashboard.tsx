@@ -23,9 +23,11 @@ import type { AgentdClient } from '@agentd/client'
 import type { GpuWarmup } from './useGpuWarmup'
 
 import type { Artifact } from '../../agentd/artifacts'
+import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
+import { ReferenceSlots } from './ReferenceSlots'
 import { FileViewer } from './FileViewer'
 import { StudioTopBar } from './StudioTopBar'
 import { useStudioState } from './useStudioState'
@@ -37,6 +39,10 @@ export function StudioDashboard({
   gpu,
   running,
   artifacts,
+  slots,
+  freeReferences,
+  onAddReference,
+  referencesDisabled,
   credits,
   onCredits,
 }: {
@@ -45,6 +51,12 @@ export function StudioDashboard({
   running: boolean
   /** Everything the agent wrote this session — the rail's whole content. */
   artifacts: Artifact[]
+  /** The reference slots the agent asked for, with the file filling each (agentd/reference-slots). */
+  slots: Slot[]
+  /** Reference files in this chat's folder that fill no slot. */
+  freeReferences: Artifact[]
+  onAddReference: (file: File, role: string | null) => Promise<void>
+  referencesDisabled: boolean
   credits: number | null
   onCredits: () => void
 }) {
@@ -96,8 +108,17 @@ export function StudioDashboard({
 
       <div className="st-body">
         <aside className="st-rail">
+          <ReferenceSlots
+            slots={slots}
+            free={freeReferences}
+            disabled={referencesDisabled}
+            onAdd={onAddReference}
+            onOpen={(a) => setSelectedPath(a.path)}
+          />
+          {/* The references are shown above as slots, so the tree lists what the agent MADE:
+              workflows and outputs. The record file beside the references is bookkeeping. */}
           <FileExplorer
-            artifacts={artifacts}
+            artifacts={artifacts.filter((a) => !/[\\/]references[\\/]/.test(a.path))}
             selected={selected}
             onSelect={(a) => setSelectedPath(a.path)}
           />

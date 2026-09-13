@@ -35,7 +35,6 @@ type ToolItem = Extract<ThreadItem, { kind: 'tool' }>
 interface Service {
   name: string
   purpose: string
-  usd: number
   credits: number
 }
 interface Question {
@@ -45,6 +44,10 @@ interface Question {
 interface Workflow {
   name: string
   does: string
+}
+interface Reference {
+  role: string
+  what: string
 }
 
 const text = (v: unknown): string => (typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '')
@@ -67,7 +70,11 @@ function rows<T>(v: unknown, pick: (r: Record<string, unknown>) => T | null): T[
   return out
 }
 
-const price = (s: Service): string => `≈$${s.usd.toFixed(2)} · ${s.credits.toLocaleString()} credits`
+/* CREDITS ONLY. The dollar figure is the platform's own provider cost and meant nothing to the
+   person reading it — they hold a credit balance, they spend credits, and two numbers for one
+   price invited the question "so which am I being charged?". One unit, the one they actually
+   have. */
+const price = (s: Service): string => `${s.credits.toLocaleString()} credits`
 
 export function AskPanel({
   item,
@@ -82,13 +89,16 @@ export function AskPanel({
   const args = item.args as Record<string, unknown>
   const title = text(args.title)
   const services = rows<Service>(args.services, (r) =>
-    text(r.name) ? { name: text(r.name), purpose: text(r.purpose), usd: num(r.usd), credits: num(r.credits) } : null,
+    text(r.name) ? { name: text(r.name), purpose: text(r.purpose), credits: num(r.credits) } : null,
   )
   const questions = rows<Question>(args.questions, (r) =>
     text(r.question) ? { question: text(r.question), default: text(r.default) } : null,
   )
   const workflows = rows<Workflow>(args.workflows, (r) =>
     text(r.name) ? { name: text(r.name), does: text(r.does) } : null,
+  )
+  const references = rows<Reference>(args.references, (r) =>
+    text(r.role) ? { role: text(r.role).replace(/^@/, ''), what: text(r.what) } : null,
   )
 
   const [picked, setPicked] = useState<Set<number>>(() => new Set())
@@ -145,8 +155,8 @@ export function AskPanel({
       {services.length > 0 && (
         <>
           <p className="approve-head">
-            These cost money to run. Tick the ones you are happy to pay for — the agent builds around
-            your answer.
+            These models use more credits. Tick the ones you want — the agent builds around your
+            answer.
           </p>
           {services.map((s, i) => (
             <label key={i} className={`approve-row${picked.has(i) ? ' is-on' : ''}`}>
@@ -187,6 +197,19 @@ export function AskPanel({
               <li key={i}>
                 <b>{w.name}</b>
                 {w.does ? ` — ${w.does}` : ''}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {references.length > 0 && (
+        <>
+          <p className="ask-section">Files it needs — add them in the References panel on the left</p>
+          <ol className="ask-wf">
+            {references.map((r, i) => (
+              <li key={i}>
+                <b>@{r.role}</b>
+                {r.what ? ` — ${r.what}` : ''}
               </li>
             ))}
           </ol>

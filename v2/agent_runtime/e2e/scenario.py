@@ -36,12 +36,15 @@ class Turn:
     Two channels, matching the product's two:
       * `attachments` ride chat.send to the model as vision input — a "look at this" image.
       * `reference_media` are workflow INPUT: the runner writes them to the agent's workspace
-        `references/` via workspace.upload (no model call), exactly as the app's "Add reference
-        media" button does — the model only hears their filenames."""
+        `references/<chat>/` via workspace.upload (no model call), exactly as the app's
+        References panel does. An entry is a path (the file keeps its name — a file NOT in a
+        slot, which the agent must assign) or `{"role": "model", "path": ...}`, stored as
+        `<role>.<ext>` — a filled SLOT, which comfy_run picks up by itself."""
 
     text: str
     attachments: list[str] = field(default_factory=list)
-    reference_media: list[str] = field(default_factory=list)
+    #: (role, path) pairs; role "" for a file that fills no slot.
+    reference_media: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -72,7 +75,12 @@ class Scenario:
                 turns.append(Turn(
                     text=str(t.get("text") or ""),
                     attachments=[str(a) for a in (t.get("attachments") or [])],
-                    reference_media=[str(a) for a in (t.get("reference_media") or [])],
+                    reference_media=[
+                        (str(a.get("role") or ""), str(a.get("path") or ""))
+                        if isinstance(a, dict)
+                        else ("", str(a))
+                        for a in (t.get("reference_media") or [])
+                    ],
                 ))
             else:
                 turns.append(Turn(text=str(t)))

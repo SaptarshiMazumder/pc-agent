@@ -316,3 +316,30 @@
 /* ── motion ───────────────────────────────────────────────────────────────────────────────── */
 @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes st-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+
+/* References — the slots the agent asked for, in the rail (ReferenceSlots.tsx). */
+.refs { display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 10px; border-bottom: 1px solid var(--border2); }
+.refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0 4px; font-size: var(--fs-meta); font-weight: var(--fw-semi); color: var(--dim); }
+.refs-count { margin-left: 8px; font-weight: 400; color: var(--faint); }
+.refs-count.is-short { color: var(--warn); }
+.refs-add, .refs-slot-btn {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border2); border-radius: var(--r-control);
+  font: inherit; font-size: var(--fs-tiny); cursor: pointer; white-space: nowrap;
+}
+.refs-add:hover:not(:disabled), .refs-slot-btn:hover:not(:disabled) { border-color: var(--accent); }
+.refs-add:disabled, .refs-slot-btn:disabled { opacity: .5; cursor: default; }
+.refs-empty { margin: 0; font-size: var(--fs-tiny); color: var(--faint); line-height: 1.45; text-wrap: pretty; }
+.refs-slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
+.refs-slot.is-filled { border-style: solid; }
+.refs-slot.is-empty { border-color: var(--warn); }
+.refs-slot.is-over { background: var(--accent-soft); border-color: var(--accent); }
+.refs-slot-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.refs-role { font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); }
+.refs-what { font-size: var(--fs-tiny); color: var(--dim); line-height: 1.4; text-wrap: pretty; }
+.refs-missing { font-size: var(--fs-tiny); color: var(--warn); }
+.refs-file { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; font-size: var(--fs-tiny); color: var(--accent-text, var(--accent)); cursor: pointer; text-align: left; word-break: break-all; }
+.refs-file:hover { text-decoration: underline; }
+.refs-size { color: var(--faint); }
+.refs-free { display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 0; }
+.refs-sub { font-size: var(--fs-tiny); color: var(--faint); }

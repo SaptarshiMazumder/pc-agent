@@ -43,7 +43,6 @@ import { listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { Composer } from './components/Composer'
-import { ReferenceMedia } from './components/ReferenceMedia'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
@@ -56,6 +55,7 @@ import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
+import { referencesReadyInstruction, useReferenceSlots } from './agentd/reference-slots'
 import { mergeFiles, useChatWorkspaceFiles } from './agentd/workspace-files'
 
 import Credits from './common/credits/Credits'
@@ -120,7 +120,7 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile, sendReferences, flushReferences } = useRun(client)
+  const { send, abort, addFiles, removeFile, addReference, flushReferences } = useRun(client)
 
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
@@ -186,6 +186,31 @@ export default function App() {
   const workspaceVersion = useApp((s) => s.workspaceVersion)
   const listed = useChatWorkspaceFiles(client ?? undefined, currentKey, workspaceVersion)
   const files = useMemo(() => mergeFiles(artifacts, listed), [artifacts, listed])
+
+  /* REFERENCE SLOTS — the roles the agent asked for, matched to the files in this chat's folder
+     (agentd/reference-slots.ts). The rail shows them; the run tool on the daemon reads the same
+     folder, so what the rail says is filled IS what will run. */
+  const { slots, free } = useReferenceSlots(session.items, files, currentKey)
+  /* THE ONE MESSAGE WHEN THE LAST SLOT FILLS — never one per file, and never on a reload of a
+     chat whose slots were already full: `armed` is set by a fill made in THIS window, and the
+     send waits for the run (if any) to end, then disarms. */
+  const armedRef = useRef(false)
+  useEffect(() => {
+    if (!armedRef.current || !currentKey || !slots.length || slots.some((s) => !s.file)) return
+    const cur = sessions[currentKey]
+    if (!cur || cur.running || cur.loadingHistory) return
+    armedRef.current = false
+    void send(referencesReadyInstruction(slots), { origin: 'reference' })
+  }, [slots, currentKey, sessions, send])
+  const onAddReference = useCallback(
+    async (file: File, role: string | null): Promise<void> => {
+      // The previous holder of the role, whatever its extension, goes: one file per slot.
+      const replacing = role ? slots.filter((s) => s.role === role && s.file).map((s) => s.file!.name) : []
+      await addReference(file, role, replacing)
+      if (role) armedRef.current = true
+    },
+    [addReference, slots],
+  )
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */
   const latestWorkflow = useMemo(() => {
@@ -536,14 +561,6 @@ export default function App() {
               </div>
 
               <div className="st-convo-foot">
-                <ReferenceMedia
-                  onReferences={(files) => sendReferences(files)}
-                  /* NOT `|| session.running` any more — see the component. The upload works
-                     mid-turn; only the sentence naming it waits, and that is queued. */
-                  disabled={!connected}
-                  disabledReason="Not connected to the daemon — reconnecting"
-                  queued={session.pendingReferences.length > 0}
-                />
                 <Composer
                   running={session.running}
                   pending={session.pending}
@@ -579,6 +596,10 @@ export default function App() {
               gpu={gpu}
               running={session.running}
               artifacts={files}
+              slots={slots}
+              freeReferences={free}
+              onAddReference={onAddReference}
+              referencesDisabled={!connected}
               credits={credits}
               onCredits={() => setView('credits')}
             />

@@ -49,7 +49,7 @@ async def drive(
     """Run the scenario over `transport`, stream the trace to `out`, return it loaded.
 
     The sequence per turn — reference media first (workspace.upload, no model call, exactly what
-    the app's "Add reference media" button does), then chat.send with any model-visible
+    the app's References panel does), then chat.send with any model-visible
     attachments, then collect events until that run's `agent_end`. Turn N+1 is not sent until
     turn N ended, so trace turn boundaries line up with the scenario's."""
     # ISOLATION: a throwaway session key per run. Nothing here ever touches an existing chat, and
@@ -98,7 +98,7 @@ async def drive(
             if progress:
                 progress(f"turn {i + 1}/{len(scenario.turns)}: {turn.text[:60]}")
 
-            for rel in turn.reference_media:
+            for role, rel in turn.reference_media:
                 fp = _resolve(scenario, rel)
                 # THE SAME FOLDER THE WINDOW WOULD USE: references/<chat-key>/. The agent's
                 # comfy_upload reads only its own chat's folder (chat_paths.chat_folder —
@@ -107,7 +107,9 @@ async def drive(
                 res = await transport.call("workspace.upload", {
                     "agentId": scenario.agent_id,
                     "path": f"references/{re.sub(r'[^A-Za-z0-9._-]', '_', session_key)}",
-                    "name": fp.name,
+                    # A ROLE NAMES THE FILE: `model.png` fills the slot `@model` (see
+                    # plugins/comfy-bridge/reference_slots.py); no role keeps the file's name.
+                    "name": f"{role}{fp.suffix.lower()}" if role else fp.name,
                     "dataBase64": base64.b64encode(fp.read_bytes()).decode("ascii"),
                 })
                 if not (res or {}).get("ok", True):

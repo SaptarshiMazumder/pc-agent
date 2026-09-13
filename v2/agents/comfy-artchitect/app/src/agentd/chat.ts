@@ -144,7 +144,7 @@ export const MAX_FILES = 10
 /** The most one image pasted or dropped INTO THE CHAT may weigh. Chat images ride every model
  *  call as vision (the agent looks at them; it never generates from them), so a large one costs
  *  on every turn that follows. Workflow inputs — the person, the garment, a start frame — go
- *  through "Add reference media", which uploads to the workspace and never touches a model call. */
+ *  through the References panel, which uploads to the workspace and never touches a model call. */
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 
 /** A clipboard image usually has no usable filename ('' or no extension). The daemon then stores

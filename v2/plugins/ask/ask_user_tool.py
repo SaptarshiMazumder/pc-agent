@@ -20,10 +20,14 @@ It imports only the framework surface (``Tool`` / ``ToolResult``), like every pl
 
 from __future__ import annotations
 
+import re
+
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 #: More than this is not a question, it is a menu — and a wall of checkboxes gets ticked blindly.
 _MAX_ROWS = 8
+#: The same rule as the comfy plugin's reference_slots.ROLE_RE — a role is a filename stem.
+_ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 def _text(value) -> str:
@@ -89,12 +93,31 @@ def normalise(params: dict) -> tuple[dict | None, str]:
             return None, f"workflows[{i}] needs both a role name and what it does."
         workflows.append({"name": name, "does": does})
 
+    references: list[dict] = []
+    for i, raw in enumerate(_rows(params, "references"), 1):
+        role, what = _text(raw.get("role")).lstrip("@"), _text(raw.get("what"))
+        if not _ROLE_RE.match(role):
+            return None, (
+                f"references[{i}]: '{role}' is not a valid role — lowercase letters, digits, "
+                "'-' or '_', starting with a letter (e.g. model, garment, start_frame)."
+            )
+        if not what:
+            return None, f"reference '{role}' says nothing about what the file must show."
+        if any(r["role"] == role for r in references):
+            return None, f"reference '{role}' is listed twice."
+        references.append({"role": role, "what": what})
+
     if not services and not questions:
         return None, (
             "nothing to ask: give the paid services (with prices) and/or the brief-check "
             "questions (with defaults). A free job still has questions."
         )
-    for label, rows in (("services", services), ("questions", questions), ("workflows", workflows)):
+    for label, rows in (
+        ("services", services),
+        ("questions", questions),
+        ("workflows", workflows),
+        ("references", references),
+    ):
         if len(rows) > _MAX_ROWS:
             return None, f"{label}: at most {_MAX_ROWS}. Ask about what the design depends on, not everything."
 
@@ -103,6 +126,7 @@ def normalise(params: dict) -> tuple[dict | None, str]:
         "services": services,
         "questions": questions,
         "workflows": workflows,
+        "references": references,
     }, ""
 
 
@@ -125,6 +149,10 @@ def render(ask: dict) -> str:
             lines.append(f"  {i}. {q['question']} [{q['default']}]")
     if ask["workflows"]:
         lines.append("Workflows, in order: " + "; ".join(f"{w['name']} — {w['does']}" for w in ask["workflows"]))
+    if ask["references"]:
+        lines.append("Reference slots the user fills in the References panel (one file each, named by role):")
+        for r in ask["references"]:
+            lines.append(f"  @{r['role']} — {r['what']}")
     return "\n".join(lines)
 
 
@@ -185,6 +213,25 @@ class AskUserTool(Tool):
                     "properties": {
                         "question": {"type": "string"},
                         "default": {"type": "string", "description": "The answer you will use if the user says nothing."},
+                    },
+                },
+            },
+            "references": {
+                "type": "array",
+                "maxItems": _MAX_ROWS,
+                "description": (
+                    "Every reference file the design needs, by ROLE, with what it must show. The "
+                    "window shows one slot per role in the References panel and the user drops a "
+                    "file into each; the workflow names the same roles as `@role` tokens on its "
+                    "loader inputs, and comfy_run fills them. Empty when the job needs no input "
+                    "media."
+                ),
+                "items": {
+                    "type": "object",
+                    "required": ["role", "what"],
+                    "properties": {
+                        "role": {"type": "string", "description": "Lowercase, e.g. 'model', 'garment', 'start_frame'."},
+                        "what": {"type": "string", "description": "What the file must show, e.g. 'the influencer, face visible'."},
                     },
                 },
             },
