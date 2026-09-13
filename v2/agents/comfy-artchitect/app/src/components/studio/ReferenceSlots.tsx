@@ -78,15 +78,27 @@ export function ReferenceSlots({
     // Nothing declared yet and nothing added: one line and the button, so the door exists before
     // the agent has asked for anything — a person who already knows what they will need can
     // start here.
+    // BIG, BY DESIGN. This is the one door for the workflow's inputs, and a small "Add" beside a
+    // heading was missed by the very person who asked for it. Full width, primary, one line
+    // saying what it takes — nothing else in the rail competes with it while there is nothing.
     return (
-      <section className="refs" onDrop={drop(null)} onDragOver={dragOver(null)}>
+      <section className="refs refs-onboard" onDrop={drop(null)} onDragOver={dragOver(null)}>
         <header className="refs-head">
           <span>References</span>
-          <button type="button" className="refs-add" disabled={disabled || !!busy} onClick={() => pick(null)}>
-            <ImagePlus size={13} strokeWidth={1.9} /> Add
-          </button>
         </header>
-        <p className="refs-empty">Images or video the workflow should use. The agent asks for what it needs; drop files here any time.</p>
+        <button
+          type="button"
+          className="refs-add refs-add-big"
+          disabled={disabled || !!busy}
+          onClick={() => pick(null)}
+        >
+          <ImagePlus size={22} strokeWidth={2} />
+          {busy ? 'Adding…' : 'Add reference image or video'}
+        </button>
+        <p className="refs-empty">
+          Drop files here any time. The agent asks for what it needs, and everything you add lands in
+          this chat's references.
+        </p>
         <FilePicker pickRef={pickRef} onPick={(files) => void add(files, pickRole.current)} />
       </section>
     )
@@ -104,7 +116,7 @@ export function ReferenceSlots({
           )}
         </span>
         <button type="button" className="refs-add" disabled={disabled || !!busy} onClick={() => pick(null)}>
-          <ImagePlus size={13} strokeWidth={1.9} /> Add
+          <ImagePlus size={16} strokeWidth={2} /> Add reference
         </button>
       </header>
 
@@ -139,11 +151,11 @@ export function ReferenceSlots({
               'Adding…'
             ) : s.file ? (
               <>
-                <RefreshCw size={12} strokeWidth={2} /> Replace
+                <RefreshCw size={15} strokeWidth={2} /> Replace
               </>
             ) : (
               <>
-                <Upload size={12} strokeWidth={2} /> Add
+                <Upload size={15} strokeWidth={2} /> Add file
               </>
             )}
           </button>

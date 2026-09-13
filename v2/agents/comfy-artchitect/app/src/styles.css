@@ -816,7 +816,9 @@ h2 { font-size: var(--fs-lead); }
 }
 .composer textarea::placeholder { color: var(--faint); }
 /* THE ACTION ROW: what you can do with this conversation. */
-.composer-foot { display: flex; align-items: center; gap: 10px; }
+/* A little air over the controls. They sit directly under the last line of what you typed, and
+   flush against it the row read as part of the text rather than as the toolbar below it. */
+.composer-foot { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 
 /* THE STATUS ROW, copied from agentd: what it is running on, and what it costs. It used to be a
    keyboard hint sharing the action row — so the model actually answering you, and the balance

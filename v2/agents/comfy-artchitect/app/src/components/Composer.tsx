@@ -6,7 +6,7 @@
 
 import { ArrowUp, Loader2, Paperclip, Plus, Square, Upload } from 'lucide-react'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { PendingAttachment } from '../agentd/chat'
 import { useApp } from '../state/store'
@@ -95,6 +95,29 @@ export function Composer({
     el.focus()
     requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length))
   }, [seed])
+  /* GROW TO FIT — KEYED ON THE VALUE, not on typing.
+   *
+   * This used to live inside the textarea's `onChange`, which fires only when a HUMAN types. Every
+   * other way the box gets text set it without resizing: a starter prompt, the Edit action loading
+   * a sent message back in, any future seed. The box stayed one row tall and clipped the rest mid
+   * sentence, with the controls crammed under a half-shown line — and the one case that looked
+   * fine (typing) hid it, because each keystroke happened to fix the height.
+   *
+   * A layout effect on `text` covers every origin by construction, including the reset to '' after
+   * a send, which previously left the box expanded around nothing. `useLayoutEffect` rather than
+   * `useEffect` so the measure-and-set happens before paint; with useEffect the wrong height is
+   * briefly visible as a flicker on every seed.
+   *
+   * 'auto' first is load-bearing: `scrollHeight` reports the CONTENT height only when the element
+   * is not already holding a taller explicit height, so without the reset the box could grow and
+   * never shrink. */
+  useLayoutEffect(() => {
+    const el = areaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
+  }, [text])
+
   const pickRef = useRef<HTMLInputElement>(null)
   const take = useRef(onFiles)
   take.current = onFiles
@@ -193,12 +216,7 @@ export function Composer({
              was lifted from the window that builds agents — so every agent made from it invited
              its user to describe an agent. Say what THIS one is for. */
           placeholder={connected ? placeholder : 'connecting…'}
-          onChange={(e) => {
-            setText(e.target.value)
-            const el = e.target
-            el.style.height = 'auto'
-            el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
-          }}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()

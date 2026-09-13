@@ -332,26 +332,33 @@
 @keyframes st-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
 /* References — the slots the agent asked for, in the rail (ReferenceSlots.tsx). */
-.refs { display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 10px; border-bottom: 1px solid var(--border2); }
-.refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0 4px; font-size: var(--fs-meta); font-weight: var(--fw-semi); color: var(--dim); }
+.refs { display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px; border-bottom: 1px solid var(--border2); }
+.refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0 4px; font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); }
 .refs-count { margin-left: 8px; font-weight: 400; color: var(--faint); }
 .refs-count.is-short { color: var(--warn); }
 .refs-add, .refs-slot-btn {
-  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px;
   background: var(--bg2); color: var(--text); border: 1px solid var(--border2); border-radius: var(--r-control);
-  font: inherit; font-size: var(--fs-tiny); cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: var(--fs-control); font-weight: var(--fw-semi); cursor: pointer; white-space: nowrap;
 }
 .refs-add:hover:not(:disabled), .refs-slot-btn:hover:not(:disabled) { border-color: var(--accent); }
 .refs-add:disabled, .refs-slot-btn:disabled { opacity: .5; cursor: default; }
-.refs-empty { margin: 0; font-size: var(--fs-tiny); color: var(--faint); line-height: 1.45; text-wrap: pretty; }
-.refs-slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
+/* THE BIG ONE — the empty state's only control: full width, primary, tall, large type. */
+.refs-add-big {
+  width: 100%; justify-content: center; gap: 10px; padding: 16px 18px; margin: 2px 0 4px;
+  background: var(--prim-bg); color: var(--prim-ink); border: 0; border-radius: var(--r-panel);
+  font-size: 16px; font-weight: var(--fw-on-accent); white-space: normal; line-height: 1.3;
+}
+.refs-add-big:hover:not(:disabled) { background: var(--prim-bg-h); border-color: transparent; }
+.refs-empty { margin: 0; font-size: var(--fs-body); color: var(--dim); line-height: 1.5; text-wrap: pretty; }
+.refs-slot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
 .refs-slot.is-filled { border-style: solid; }
 .refs-slot.is-empty { border-color: var(--warn); }
 .refs-slot.is-over { background: var(--accent-soft); border-color: var(--accent); }
-.refs-slot-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.refs-role { font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); }
-.refs-what { font-size: var(--fs-tiny); color: var(--dim); line-height: 1.4; text-wrap: pretty; }
-.refs-missing { font-size: var(--fs-tiny); color: var(--warn); }
+.refs-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.refs-role { font-size: var(--fs-body); font-weight: var(--fw-semi); color: var(--text); }
+.refs-what { font-size: var(--fs-meta); color: var(--dim); line-height: 1.45; text-wrap: pretty; }
+.refs-missing { font-size: var(--fs-meta); color: var(--warn); }
 .refs-file { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; font-size: var(--fs-tiny); color: var(--accent-text, var(--accent)); cursor: pointer; text-align: left; word-break: break-all; }
 .refs-file:hover { text-decoration: underline; }
 .refs-size { color: var(--faint); }
