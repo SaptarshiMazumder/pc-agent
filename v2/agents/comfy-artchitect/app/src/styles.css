@@ -807,7 +807,12 @@ h2 { font-size: var(--fs-lead); }
 .composer textarea {
   display: block; width: 100%; max-height: 40vh;
   background: none; border: none; outline: none; resize: none;
-  padding: 4px 4px 8px; color: var(--text);
+  /* NO SIDE PADDING, so the three stacked rows share ONE left axis: what you type, the button
+     row under it, and the status strip under that all begin at the composer's own content edge.
+     The 4px put the placeholder out of line with the `+` sitting directly beneath it, which is
+     small enough to look like a mistake rather than a choice. The breathing room on the right is
+     the composer's own `--sp-card`, so nothing touches the edge. */
+  padding: 4px 0 8px; color: var(--text);
 }
 .composer textarea::placeholder { color: var(--faint); }
 /* THE ACTION ROW: what you can do with this conversation. */
@@ -818,8 +823,13 @@ h2 { font-size: var(--fs-lead); }
    paying for it, were nowhere on this screen. */
 /* ONE ROW THAT WRAPS, with the separators generated rather than written. Each piece is
    conditional, so a hardcoded ` · ` between them shows up orphaned the moment one is absent. */
+/* LEFT, NOT CENTRED — the single change that makes this composer look aligned.
+   Everything else in the box runs on one left-to-right axis: the text, the attach button, the
+   action row. Centring this strip gave a wrapped block of small print an axis of its own, and
+   because it wraps to two lines on a narrow column it was the biggest thing on the screen doing
+   so. Flush left, it reads as a caption under the row it describes. */
 .composer-hint {
-  margin: 8px 0 0; display: flex; flex-wrap: wrap; justify-content: center;
+  margin: 8px 0 0; display: flex; flex-wrap: wrap; justify-content: flex-start;
   align-items: baseline; column-gap: 0; row-gap: 2px;
   font: var(--fs-small) var(--mono); color: var(--faint);
 }
