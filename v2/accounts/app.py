@@ -46,6 +46,7 @@ import hashlib
 import json
 import logging
 import os
+import math
 import secrets
 import sqlite3
 import time
@@ -1069,6 +1070,15 @@ def _account_id_for_bearer(token: str) -> str | None:
         return None
 
 
+@app.get("/pricing")
+def pricing() -> dict:
+    """How this platform denominates a credit: credits per DOLLAR OF PROVIDER COST. Public — it
+    is the number a client needs to show a real price next to a balance, and it reveals nothing
+    a purchase page does not. A ComfyUI partner node costs dollars; the agent quotes them as
+    credits with this, and the balance gate compares like with like."""
+    return {"credits_per_usd": ledger.credits_per_usd()}
+
+
 @app.get("/budget/{account_id}")
 def budget(
     account_id: str,
@@ -1332,6 +1342,13 @@ def debit(
         payload = {**payload, "account_id": own}
     account_id = (payload.get("account_id") or "").strip()
     credits = max(0, int(payload.get("credits") or 0))
+    # A PROVIDER-COST DEBIT. ComfyUI partner nodes are priced in dollars; a caller sends `usd`
+    # and THIS service converts at its own rate, so no plugin has to know how a credit is
+    # denominated — the number that was wrong by 1,600x when the plugin did the arithmetic in
+    # Comfy's credits. `credits` still works for callers that pre-converted (the model proxy).
+    usd = max(0.0, float(payload.get("usd") or 0.0))
+    if usd > 0 and not credits:
+        credits = int(math.ceil(usd * ledger.credits_per_usd()))
     agent_id = (payload.get("agent_id") or "").strip()
     org_id = (payload.get("org_id") or "").strip()
     if not account_id:

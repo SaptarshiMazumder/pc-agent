@@ -380,3 +380,34 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
             "this turn — the answer arrives as their next message."
         )
     return True, ""
+
+
+# ─────────────────────────────── what this conversation brought back ───────────────────────────
+
+_DOWNLOADS_FILE = ".studio/downloads.json"
+
+
+def mark_downloaded(rel: str) -> None:
+    """A render comfy_download saved for THIS conversation — the only outputs comfy_upload will
+    send back to the instance. Per conversation, like everything else here: another chat's
+    renders are as foreign as its references."""
+    try:
+        session = _session()
+        if not session or not rel:
+            return
+        data = _read_json(_DOWNLOADS_FILE)
+        sessions = data.get("sessions") or {}
+        mine = list(sessions.get(session) or [])
+        if rel not in mine:
+            mine.append(rel)
+        sessions[session] = mine[-500:]
+        _write_json(_DOWNLOADS_FILE, {"sessions": _prune(sessions)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def downloaded_in_session() -> set[str]:
+    session = _session()
+    if not session:
+        return set()
+    return set((_read_json(_DOWNLOADS_FILE).get("sessions") or {}).get(session) or [])

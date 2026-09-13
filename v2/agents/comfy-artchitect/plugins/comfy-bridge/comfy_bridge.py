@@ -144,7 +144,25 @@ def _locate_reference(root: Path, chat_dir: Path, path: str) -> str | None:
         except ValueError:
             pass
     by_name = chat / p.name
-    return by_name.relative_to(base).as_posix() if by_name.is_file() else None
+    if by_name.is_file():
+        return by_name.relative_to(base).as_posix()
+    # A RENDER THIS CHAT DOWNLOADED is an input too — that is how a storyboard frame becomes
+    # the video's start frame, or a still goes through a try-on. Recorded per conversation by
+    # comfy_download; another chat's renders are as foreign as its references.
+    try:
+        import studio_state
+
+        mine = studio_state.downloaded_in_session()
+    except Exception:  # noqa: BLE001
+        mine = set()
+    if mine and cand.is_file():
+        try:
+            rel = cand.relative_to(base).as_posix()
+        except ValueError:
+            return None
+        if rel in mine:
+            return rel
+    return None
 
 
 def _override() -> dict | None:
@@ -222,6 +240,38 @@ class _NoInstance:
 #: "charged" without charging anyone, on every paid run, on the web.
 _ACCOUNTS = "${AGENTD_ACCOUNTS_URL}"
 _AUTH = {"Authorization": "Bearer ${AGENTD_PLATFORM_TOKEN}"}
+
+#: The platform's credits per DOLLAR OF PROVIDER COST — its ledger's default, used only when
+#: /pricing cannot be read. The number the plugin used to assume was 100 (Comfy's own credits),
+#: which billed a $1.40 clip as 182 credits on a platform where it is ~233,000.
+_DEFAULT_CREDITS_PER_USD = 166_667.0
+_platform_rate_cache: list = []
+
+
+def _platform_rate() -> float:
+    """Credits per provider dollar, from the platform (GET /pricing). Read once per process — a
+    sandboxed tool is one process per call — and never a reason to fail a call: a missing
+    platform answers with the ledger's default, and the DEBIT is sent in dollars anyway, so the
+    server converts with the real rate regardless of what was quoted."""
+    if _platform_rate_cache:
+        return _platform_rate_cache[0]
+    rate = _DEFAULT_CREDITS_PER_USD
+    try:
+        res = fetch(f"{_ACCOUNTS}/pricing", timeout_s=10.0)
+        if res.ok:
+            value = float((res.json() or {}).get("credits_per_usd") or 0.0)
+            if value > 0:
+                rate = value
+    except Exception:  # noqa: BLE001 — a quote must not fail on a pricing blip
+        pass
+    _platform_rate_cache.append(rate)
+    return rate
+
+
+def _platform_credits(usd: float) -> int:
+    import math
+
+    return int(math.ceil(max(0.0, float(usd)) * _platform_rate()))
 
 
 def _lease(seconds: int) -> None:
@@ -596,9 +646,11 @@ class ComfyUploadTool(Tool):
         "Push this chat's reference media to the ComfyUI instance's input folder, so a "
         "LoadImage node can use it. THE ONLY FILES THIS WILL SEND ARE THE ONES THE USER ADDED "
         "TO THIS CONVERSATION with the Add reference media button — the message that announced "
-        "them names their exact paths (references/<chat>/name.png). Nothing else exists as far "
-        "as this tool is concerned: not files another conversation added, not images pasted "
-        "into the chat (uploads/), not anything you find with ls. If nothing was added to this "
+        "them names their exact paths (references/<chat>/name.png) — plus renders THIS "
+        "conversation brought back with comfy_download (outputs/…), so a storyboard frame or a "
+        "still can be the next workflow's input. Nothing else exists as far as this tool is "
+        "concerned: not files another conversation added, not images pasted into the chat "
+        "(uploads/). If nothing was added to this "
         "chat, this tool says so — tell the user to add it with Add reference media; never "
         "substitute a file from anywhere else. Upload BEFORE emitting any workflow that loads "
         "an image, and wire the SERVER-SIDE names this returns — never the local paths — into "
@@ -663,9 +715,11 @@ class ComfyUploadTool(Tool):
                 located = _locate_reference(root, chat_dir, path)
                 if located is None:
                     failures.append(
-                        f"{path}: not a file added to THIS chat. This chat's reference media: "
+                        f"{path}: not a file added to THIS chat, nor a render this chat "
+                        "downloaded. This chat's reference media: "
                         + ", ".join(available)
-                        + ". Only those can go to the instance."
+                        + ". Only those, and outputs/ files comfy_download brought back in this "
+                        "conversation, can go to the instance."
                     )
                     continue
                 # `overwrite` on purpose: iterating means re-sending a file under the same
@@ -819,6 +873,7 @@ class ComfyDownloadTool(Tool):
                 import studio_state
 
                 studio_state.render_saved(rel)
+                studio_state.mark_downloaded(rel)  # so comfy_upload may send it back up
 
             lines = [f"downloaded: {p}" for p in saved] + failures
             return ToolResult.text(
@@ -976,7 +1031,7 @@ def _unpriced_partner_nodes(prompt: dict, quote) -> list[str]:
     return leak
 
 
-def _charge(credits: int, note: str) -> tuple[bool, str]:
+def _charge(credits: int, note: str, usd: float = 0.0) -> tuple[bool, str]:
     """Debit the caller's credits for a paid run. (ok, message).
 
     CHARGED AFTER A SUCCESSFUL SUBMIT, gated BEFORE it. `/debit` drains a partial balance rather
@@ -991,7 +1046,13 @@ def _charge(credits: int, note: str) -> tuple[bool, str]:
     res = fetch(
         f"{_ACCOUNTS}/debit",
         method="POST",
-        json={"account_id": account_id, "credits": int(credits), "agent_id": "comfy-artchitect"},
+        # DOLLARS, NOT CREDITS, when we have them: the platform converts at its own rate, so the
+        # charge is right even if the rate quoted a moment ago was the default.
+        json={
+            "account_id": account_id,
+            "agent_id": "comfy-artchitect",
+            **({"usd": round(float(usd), 6)} if usd > 0 else {"credits": int(credits)}),
+        },
         headers=_AUTH,
         timeout_s=30.0,
     )
@@ -1097,6 +1158,7 @@ class ComfyRunTool(Tool):
             quote = _quote_for(prompt)
             body: dict = {"prompt": prompt}
             charge_credits = 0
+            charge_usd = 0.0
             if quote is None:
                 # Pricing is unavailable. Only a problem if the graph actually uses paid nodes —
                 # and we cannot tell which it is, so refuse only if the table is what failed.
@@ -1131,7 +1193,10 @@ class ComfyRunTool(Tool):
                         "to partner-nodes.json.",
                         is_error=True,
                     )
-                charge_credits = quote.credits
+                # PLATFORM CREDITS, converted from the quote's dollars — the balance gate below
+                # compares them with a balance in the same unit.
+                charge_usd = quote.usd
+                charge_credits = _platform_credits(charge_usd)
                 affordable, why = _affordable(charge_credits)
                 if not affordable:
                     return ToolResult.text(why, is_error=True)
@@ -1188,7 +1253,7 @@ class ComfyRunTool(Tool):
                 # SETTLE ONLY ONCE THE INSTANCE HAS ACCEPTED IT. A graph rejected at submit never
                 # reached a provider and never cost anything, so charging before this line would
                 # bill for work that provably did not happen.
-                charged, problem = _charge(charge_credits, "this run")
+                charged, problem = _charge(charge_credits, "this run", usd=charge_usd)
                 if not charged:
                     # The job IS running and could not be billed. Surfaced rather than swallowed:
                     # silently unbilled paid runs are exactly how a prepaid balance drains with
@@ -1974,9 +2039,12 @@ class ComfyPriceTool(Tool):
             import partner_pricing
 
             table = partner_pricing.load_table()
+            rate = _platform_rate()
             name = str(params.get("workflow") or "").strip()
             if not name:
-                return ToolResult.text(self._catalogue(table), details={"table": table})
+                return ToolResult.text(
+                    self._catalogue(table, rate), details={"table": table, "credits_per_usd": rate}
+                )
 
             path = _workflow_path(name)
             if path is None or not path.exists():
@@ -1991,51 +2059,67 @@ class ComfyPriceTool(Tool):
                     "that is the UI-format file; price the .api.json one.", is_error=True
                 )
             quote = partner_pricing.price_workflow(graph, table)
+            platform = quote.platform_credits(rate)
             head = (
-                f"{path.name}: {quote.credits} credits"
+                f"{path.name}: ≈${quote.usd:.2f} → {platform:,} credits"
                 if quote.paid and quote.ok
                 else f"{path.name}:"
             )
             return ToolResult.text(
-                head + "\n" + quote.as_text(),
-                details={"credits": quote.credits, "ok": quote.ok, "paid": quote.paid},
+                head + "\n" + quote.as_text(platform_rate=rate),
+                details={
+                    "usd": round(quote.usd, 4),
+                    "credits": platform,
+                    "credits_per_usd": rate,
+                    "ok": quote.ok,
+                    "paid": quote.paid,
+                },
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_price failed: {type(e).__name__}: {e}", is_error=True)
 
     @staticmethod
-    def _catalogue(table: dict) -> str:
-        """Every paid model, cheapest first WITHIN each provider.
+    def _catalogue(table: dict, rate: float) -> str:
+        """Every paid model, cheapest first WITHIN each provider, as DOLLARS and platform
+        credits.
 
         Sorted by price rather than listed in file order, because this is read while choosing —
-        and an unsorted list quietly nudges toward whichever entry happens to be first.
+        and an unsorted list quietly nudges toward whichever entry happens to be first. Dollars
+        because that is what the table and the provider mean; credits because that is what the
+        person's balance is in, and a quote in a unit the balance is not in reads as free.
         """
+        import math
+
         markup = float(table.get("markup") or 1.0)
+        per = float(table.get("credits_per_usd") or 100.0)
         lines = [
-            "Paid providers available through ComfyUI's partner nodes. Prices are CREDITS "
-            "charged to the user; no API key is needed from them.",
+            "Paid providers available through ComfyUI's partner nodes, as dollars of provider "
+            f"cost (incl. {markup:g}x) and the credits charged to the user at "
+            f"{rate:,.0f} credits per dollar. No API key is needed from them.",
         ]
+
+        def money(comfy_credits: float) -> str:
+            usd = comfy_credits * markup / per
+            return f"${usd:.3f} → {int(math.ceil(usd * rate)):,} credits"
+
         for provider in table.get("providers") or []:
             unit = str(provider.get("unit") or "per_run")
             rows = []
             for model, rates in (provider.get("models") or {}).items():
-                # RATE TIERS ONLY. `_default` is a rate; `_unit` and `classes` are metadata a
-                # model entry may carry (partner_pricing reads them) and are not numbers.
                 numeric = {k: v for k, v in rates.items() if not str(k).startswith("_") and k != "classes"}
                 numeric["_default"] = rates.get("_default", max(numeric.values()) if numeric else 0.0)
                 cheapest = min(float(v) for v in numeric.values())
-                rows.append((cheapest * markup, model, numeric, str(rates.get("_unit") or unit)))
+                rows.append((cheapest, model, numeric, str(rates.get("_unit") or unit)))
             rows.sort()
             lines.append(f"\n{provider.get('label')} ({unit.replace('per_', 'per ')}):")
-            for price, model, numeric, model_unit in rows:
+            for cheapest, model, numeric, model_unit in rows:
                 suffix = "/second of video" if model_unit == "per_second" else "/run"
                 tiers = [k for k in numeric if k != "_default"]
                 extra = f"  [{', '.join(tiers)}]" if tiers else ""
-                lines.append(f"   {model}: {price:.0f} credits{suffix}{extra}")
+                lines.append(f"   {model}: {money(cheapest)}{suffix}{extra}")
         lines.append(
-            "\nA 5-second Kling clip at 720p is about "
-            f"{17.72 * 5 * markup:.0f} credits; one Flux Ultra image about "
-            f"{12.66 * markup:.0f}."
+            f"\nA 5-second Kling clip at 720p is about {money(17.72 * 5)}; one Flux Ultra image "
+            f"about {money(12.66)}. Quote these credits in the ask, beside the dollars."
         )
         return "\n".join(lines)
 

@@ -1,13 +1,13 @@
-# Comfy Artchitect — builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
+﻿# Comfy Artchitect 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
 #
 # WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
-# RunPod, a Modal endpoint — the agent is told a URL and a credential and works against whatever
+# RunPod, a Modal endpoint 窶・the agent is told a URL and a credential and works against whatever
 # is there. That is why every ComfyUI fact this agent has is READ FROM THE INSTANCE rather than
 # remembered: the model list, the node list, the sampler names. An agent that recites the
 # checkpoints it saw during training writes workflows that fail on the box in front of it.
 #
 # NO SHELL, ON PURPOSE. Everything happens over ComfyUI's HTTP API, so this agent is
-# web-deliverable — `exec` would refuse itself on a hosted daemon and would force
+# web-deliverable 窶・`exec` would refuse itself on a hosted daemon and would force
 # `requires_local`. The cost is that installing a missing custom node depends on ComfyUI-Manager
 # being present and permitting it; the agent reports precisely when it is not, rather than
 # pretending it can fix it.
@@ -15,7 +15,7 @@
 name = "Comfy Artchitect"
 version = "1.59.0"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
-tagline = "design · run · repair · iterate"
+tagline = "design ﾂｷ run ﾂｷ repair ﾂｷ iterate"
 color = "#7C5CFF"
 suggestions = [
   "Build a text-to-image workflow using what my instance already has",
@@ -30,19 +30,19 @@ entry = "ui/index.html"
 public = false
 
 # WEB IS NOT AN AFTERTHOUGHT HERE. An agent that can only run on the machine beside the GPU is
-# useless to the person whose GPU is rented, which is most of them — so this agent was built to
+# useless to the person whose GPU is rented, which is most of them 窶・so this agent was built to
 # earn the flag rather than to ask for it: no `exec`, no local paths, every ComfyUI call over
 # HTTP through the host's broker. The instance is reached by URL, so "where the browser is" and
 # "where ComfyUI is" are allowed to be different places.
 [delivery]
 web = true
 
-# The shared tools it may reach. Deliberately short — and NO FILE TOOLS. Every file this agent
+# The shared tools it may reach. Deliberately short 窶・and NO FILE TOOLS. Every file this agent
 # has business with goes through a comfy_* tool: comfy_emit writes workflows, comfy_upload sends
 # references, comfy_download brings renders back. With read/ls/find it opened other jobs' stale
 # drafts and anchored on them; with write it hand-wrote a "plan.md" in place of a workflow. Its
 # skill is always loaded, so there is nothing left it needs to read.
-#   web_search/web_fetch      research a model or node it has not met — Civitai, HF, docs
+#   web_search/web_fetch      research a model or node it has not met 窶・Civitai, HF, docs
 #   update_plan               the build is multi-step and the user watches it
 #   verify_answer             catches "I made a workflow" when it only described one
 #   show_files                its output is files; it should be able to show them
@@ -54,13 +54,12 @@ allow = [
   "update_plan", "verify_answer", "show_files",
 ]
 
-# NO [tools.fs] write_roots, and that is deliberate — it is the one declaration that would break
+# NO [tools.fs] write_roots, and that is deliberate 窶・it is the one declaration that would break
 # this agent on the web.
 #
 # `<agent_dir>` is the agent's DEFINITION folder. On a desktop the workspace sits inside it
 # (`agents/<id>/workspace/`), so fencing writes to `<agent_dir>` reads as "its own folder" and
-# works. On a hosted daemon the definition is the SHARED catalogue — one copy for every account —
-# while the workspace is per account, under `accounts/<acct>/agents/<id>/workspace/`. The
+# works. On a hosted daemon the definition is the SHARED catalogue 窶・one copy for every account 窶・# while the workspace is per account, under `accounts/<acct>/agents/<id>/workspace/`. The
 # workspace is then NOT inside `<agent_dir>`, so that fence refuses the agent's own files and
 # `write`/`edit` fail for everyone on the web while working perfectly for the author on desktop.
 #
@@ -69,21 +68,21 @@ allow = [
 # for. Only the two builders declare roots, because they legitimately write into OTHER agents.
 
 # NO URL, NO CREDENTIAL, NOTHING TO FILL IN. The instance is PROVISIONED for this user by the
-# platform (plugins/vast-bridge → the accounts service), and its address is handed to the comfy
+# platform (plugins/vast-bridge 竊・the accounts service), and its address is handed to the comfy
 # tools through .studio/connection.json. Asking someone to rent a GPU, find its URL and paste it
 # was the friction this agent exists to remove, and a setting nobody should ever need to touch is
 # worse than no setting: it invites a stale value that silently shadows the real instance.
 #
-# THERE IS NO ESCAPE HATCH EITHER. `comfy_connect` — a URL pasted in chat, written to the same
-# file — was removed: the sandbox does not fence hosts, so it was the one way this agent could be
+# THERE IS NO ESCAPE HATCH EITHER. `comfy_connect` 窶・a URL pasted in chat, written to the same
+# file 窶・was removed: the sandbox does not fence hosts, so it was the one way this agent could be
 # pointed at a machine the platform neither rented nor controls. ComfyUI runs on the provisioned
 # instance or it does not run.
 
 # RESEARCH CREDENTIALS, both optional. `comfy_research` reads model cards and reference
 # workflows from Hugging Face and Civitai; public models need no token. A gated model
 # (FLUX.1-dev, SD3.5) hides its files until the account that accepted its license presents a
-# token — so without this field those models simply report "gated", which is true but unhelpful.
-# NOTHING FOR THE USER TO FILL IN — this agent has no settings at all, and that is the point.
+# token 窶・so without this field those models simply report "gated", which is true but unhelpful.
+# NOTHING FOR THE USER TO FILL IN 窶・this agent has no settings at all, and that is the point.
 #
 # It used to ask for a ComfyUI URL, auth headers, provider API keys, a Hugging Face token and a
 # Civitai token. Every one of those was the user doing a job the platform can do:

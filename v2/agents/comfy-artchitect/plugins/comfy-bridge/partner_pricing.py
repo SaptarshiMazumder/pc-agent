@@ -64,6 +64,8 @@ class Quote:
     items: list[LineItem] = field(default_factory=list)
     unpriced: list[str] = field(default_factory=list)
     markup: float = 1.0
+    #: How the TABLE denominates a credit (Comfy's: 100 per dollar). Not the platform's.
+    credits_per_usd: float = 100.0
 
     @property
     def ok(self) -> bool:
@@ -86,16 +88,33 @@ class Quote:
     def paid(self) -> bool:
         return bool(self.items)
 
-    def as_text(self) -> str:
+    @property
+    def usd(self) -> float:
+        """DOLLARS OF PROVIDER COST, drift insurance included — the one number that means the
+        same thing to Comfy, to the platform's ledger and to a person. The table's credits are
+        Comfy's; the platform's credits are its own; dollars are the bridge between them."""
+        return self.raw_credits * self.markup / self.credits_per_usd if self.credits_per_usd else 0.0
+
+    def platform_credits(self, rate: float) -> int:
+        """What the platform charges: dollars x its own credits-per-dollar, rounded UP."""
+        import math
+
+        return int(math.ceil(self.usd * float(rate))) if rate else 0
+
+    def as_text(self, platform_rate: float | None = None) -> str:
         if not self.items and not self.unpriced:
             return "no paid services — this workflow runs entirely on the instance's own GPU."
         lines = []
+        per = self.credits_per_usd or 100.0
         for i in self.items:
             qty = f"{i.quantity:g}×" if i.unit != "per_second" else f"{i.quantity:g}s"
-            lines.append(f"  {i.model} ({i.provider}) — {qty} @ {i.rate:g}/unit = "
-                         f"{i.credits:.0f} credits")
+            lines.append(f"  {i.model} ({i.provider}) — {qty} @ ${i.rate / per:.3f}/unit = "
+                         f"${i.credits / per:.2f}")
         if self.items:
-            lines.append(f"  TOTAL {self.credits} credits (incl. {self.markup:g}x)")
+            total = f"  TOTAL ≈ ${self.usd:.2f} (incl. {self.markup:g}x)"
+            if platform_rate:
+                total += f" → {self.platform_credits(platform_rate):,} credits"
+            lines.append(total)
         for cls in self.unpriced:
             lines.append(f"  !! {cls} is a paid node with NO PRICE in partner-nodes.json — "
                          "it cannot run until someone adds it")
@@ -191,7 +210,10 @@ def _seconds_for(provider: dict, inputs: dict) -> float:
 def price_workflow(api_graph: dict, table: dict | None = None) -> Quote:
     """Price an emitted `.api.json` graph — the same shape comfy_run submits."""
     data = table or load_table()
-    quote = Quote(markup=float(data.get("markup") or 1.0))
+    quote = Quote(
+        markup=float(data.get("markup") or 1.0),
+        credits_per_usd=float(data.get("credits_per_usd") or 100.0),
+    )
 
     for node_id, node in (api_graph or {}).items():
         if not isinstance(node, dict):
