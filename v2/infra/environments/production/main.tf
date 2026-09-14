@@ -71,13 +71,30 @@ terraform {
   # backend "s3" {
   #   bucket  = "agentd-tfstate-<account-id>"
   #   key     = "production/terraform.tfstate"
-  #   region  = "ap-northeast-1"
+  #   region  = "ap-northeast-1" # the STATE bucket, unchanged; the workload below is ap-south-1
   #   encrypt = true
   # }
 }
 
+# MUMBAI, NOT TOKYO — the one place production genuinely diverges from staging by design.
+#
+# The product launches in India, so the fleet sits next to the people using it: every request
+# crosses accounts (session resolution runs before every model call), so region is the latency
+# floor for the whole platform, not a preference.
+#
+# NOTHING IN THE MODULE PINS A REGION. The ECS AMI comes from an SSM parameter, the CI role is
+# written with arn:aws:ecr:*:... wildcards, and no ARN is spelled out — so this is genuinely two
+# values and not a migration. What IS regional is every resource it builds: ECR repositories,
+# the Secrets Manager secret, EFS, the ALB. None of staging's images or secrets exist here, and
+# all eight have to be pushed again.
+#
+# THE us_east_1 ALIAS BELOW STAYS. CloudFront reads certificates from that region and nowhere
+# else, whatever region the rest of the deployment runs in.
+#
+# DECIDE THIS BEFORE THE FIRST APPLY. Changing it afterwards is not an edit, it is rebuilding
+# every resource in a new region and re-pushing every image.
 provider "aws" {
-  region = "ap-northeast-1"
+  region = "ap-south-1"
 }
 
 # CloudFront-region provider — dns.tf mints the marketplace certificate in us-east-1 because
@@ -97,8 +114,14 @@ module "stack" {
   }
 
   environment = "production"
-  paused      = var.paused
-  hibernate   = var.hibernate
+
+  # The module's own default is ap-northeast-1, and it is not decorative: task definitions pass
+  # it as awslogs-region, the scheduled-jobs Lambda reads it, and `terraform output region` is
+  # what push-images.ps1 and the deploy workflows use to find this environment. Leave it unset
+  # and the provider builds in Mumbai while everything that asks "which region?" answers Tokyo.
+  region    = "ap-south-1"
+  paused    = var.paused
+  hibernate = var.hibernate
 
   # ── the domain. root_domain is SET, so the module owns the whole DNS story for this
   # environment (dns.tf): its own Route 53 zone, its own pair of DNS-validated wildcard

@@ -91,6 +91,20 @@ resource "aws_secretsmanager_secret_version" "app" {
     # public weights still download and only GATED ones report themselves as gated.
     HF_TOKEN      = "REPLACE_ME"
     CIVITAI_TOKEN = "REPLACE_ME"
+    # SIGN IN WITH GOOGLE — the accounts service's own OAuth client, and NOT the same thing as
+    # GOOGLE_OAUTH_CLIENT_ID above. That pair is the workspace-mcp plugin acting on a USER's
+    # Google data; this pair is how a person proves who they are to US. Different consent screen,
+    # different redirect URIs, different blast radius if leaked — so a separate registration.
+    #
+    # Absent (or REPLACE_ME) is a working state: identity/main/identity_factory.py lists no
+    # external providers, the discovery document advertises none, and every sign-in card renders
+    # the password form exactly as it did before. Turning Google on is filling these in and
+    # setting AGENTD_OIDC_PROVIDERS — no image rebuild.
+    #
+    # REMEMBER the ignore_changes note above: adding them here does NOT put them in an
+    # already-deployed environment's secret. Merge them in via the CLI or the admin console.
+    AGENTD_OIDC_GOOGLE_CLIENT_ID     = "REPLACE_ME"
+    AGENTD_OIDC_GOOGLE_CLIENT_SECRET = "REPLACE_ME"
   })
 
   # After first creation you edit the real values via the CLI; this stops Terraform from

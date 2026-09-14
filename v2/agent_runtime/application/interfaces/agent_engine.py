@@ -31,4 +31,7 @@ class AgentEngine(Protocol):
         get_interjections=None,  # () -> list[Message]: what the user sent while this run was
         # live, drained by the loop after each tool batch and before it ends — so a message
         # typed mid-run joins the run instead of being refused or queued as a new one.
+        background_jobs=None,  # BackgroundJobs: where a long tool call goes when it is still
+        # running after the engine's grace period — the turn continues with a provisional
+        # answer and the result comes back as a message (interfaces/background_jobs.py).
     ) -> list[Message]: ...

@@ -37,10 +37,12 @@ class ToolCall:
     name: str
     args: dict[str, Any]
     result_text: str = ""
-    ok: bool = True
+    ok: bool = False
     #: The turn this call happened in — carried so a signal can talk about "turn 4" without
     #: threading the index through every query.
     turn: int = 0
+    completed: bool = False
+    job_id: str = ""
 
     @property
     def args_key(self) -> str:
@@ -71,6 +73,7 @@ class Turn:
     #: The run's own words when it ended badly ("rate limit", "connection reset", a provider's
     #: 500). This is what origin triage reads to say "environment, don't edit the agent".
     end_error: str = ""
+    ended: bool = False
     #: Artifacts the runtime attributed to this turn (rendered files). What a "produced a video"
     #: check reads — kind comes from server-side detection, not a guess here.
     artifacts: list[dict] = field(default_factory=list)
@@ -194,10 +197,13 @@ def _fold_event(turn: Turn, ev: dict, pending: dict[str, ToolCall]) -> None:
         turn.tools.append(call)
     elif et == "tool_execution_end":
         cid = str(ev.get("toolCallId") or ev.get("id") or "")
-        call = pending.pop(cid, None) or (turn.tools[-1] if turn.tools else None)
+        call = pending.get(cid)
         if call is not None:
-            call.result_text = _result_text(ev)
-            call.ok = not bool(ev.get("isError") or ev.get("error"))
+            if not call.job_id:
+                call.result_text = _result_text(ev)
+                call.completed = True
+                call.ok = not bool(ev.get("isError") or ev.get("error"))
+            # Keep identity for job_start arriving just after the provisional tool end.
         for a in ev.get("artifacts") or []:
             if isinstance(a, dict):
                 turn.artifacts.append(a)
@@ -223,10 +229,33 @@ def _fold_event(turn: Turn, ev: dict, pending: dict[str, ToolCall]) -> None:
             if isinstance(a, dict):
                 turn.artifacts.append(a)
     elif et == "agent_end":
+        turn.ended = True
         turn.end_reason = str(ev.get("stopReason") or ev.get("stop_reason") or "")
         err = str(ev.get("error") or "").strip()
         if err:
             turn.end_error = err
+    elif et == "agent_start":
+        turn.ended = False
+    elif et == "job_start":
+        cid = str(ev.get("toolCallId") or "")
+        call = pending.get(cid)
+        if call is not None:
+            call.job_id = str(ev.get("jobId") or "")
+            call.ok = False
+            call.completed = False
+            call.result_text = str(ev.get("text") or "Background job running")
+    elif et == "job_end":
+        call = pending.get(str(ev.get("toolCallId") or ""))
+        if call is not None:
+            call.completed = True
+            call.ok = ev.get("state") == "done" and not bool(ev.get("isError"))
+            call.result_text = str(ev.get("text") or ev.get("state") or "")
+        if ev.get("state") in ("cancelled", "lost"):
+            turn.end_error = "background job " + str(ev["state"])
+        elif ev.get("state") == "done":
+            # Completion must include the agent consuming the job's result, not just the
+            # previous waiting turn ending. A trace cut right here remains incomplete.
+            turn.ended = False
     elif et in ("plan", "update_plan", "plan_update"):
         turn.plans.append(ev.get("plan") or ev.get("steps") or ev.get("payload") or ev)
     elif et == "context_usage":

@@ -1689,3 +1689,23 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* an org row nested under the Organizations menu entry */
 .app-menu-item--sub { padding-left: 38px; }
 .org-switch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── external sign-in providers ─────────────────────────────────────────────────────────
+   One button per provider the deployment advertises, above the email form. SECONDARY styling on
+   purpose: the card must not imply Google is the only way in on a deployment that still takes
+   passwords. */
+.signin-providers { display: flex; flex-direction: column; gap: 8px; }
+.signin-provider {
+  font: inherit; font-size: 14px; font-weight: 600;
+  color: var(--text); background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.signin-provider:hover:not(:disabled) { border-color: var(--accent); }
+.signin-provider:disabled { opacity: .6; cursor: default; }
+/* The rule is drawn by the flanking borders so the word sits IN the line rather than on it. */
+.signin-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 2px; color: var(--faint); font-size: 12px;
+}
+.signin-or::before, .signin-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }

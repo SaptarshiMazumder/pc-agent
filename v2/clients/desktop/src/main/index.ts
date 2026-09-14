@@ -14,6 +14,7 @@ import path from 'node:path'
 
 import { Flavor, loadFlavor } from './flavor'
 import { gatewayRequest } from './gatewayRpc'
+import { desktopOAuthSignIn } from './oauthLoopback'
 import { connectUrl } from './rendezvous'
 import { Supervisor } from './supervisor'
 
@@ -195,6 +196,41 @@ function registerIpc(): void {
       }
     }
   )
+
+  // --- "Continue with Google" on the desktop. THE HOST DOES THIS, not the renderer: it needs
+  //     the system browser and a loopback listener, neither of which a file:// page has. The
+  //     refresh token that comes back is handed straight to the daemon's /auth/adopt, so the
+  //     machine ends up with ONE holder — the same one a password sign-in produces. It is never
+  //     returned to the renderer: a 30-day credential for the whole account has no business in a
+  //     window that also runs agent code.
+  ipcMain.handle('auth:oauth', async (_e, provider: string, accountsUrl: string) => {
+    const name = String(provider || '').trim()
+    if (!/^[a-z0-9-]{1,32}$/.test(name)) {
+      return { status: 400, body: { state: 'signed_out', error: 'bad provider name' } }
+    }
+    try {
+      const pair = await desktopOAuthSignIn({
+        accountsUrl: String(accountsUrl || ''),
+        provider: name
+      })
+      // ADOPT, rather than telling the renderer. /auth/adopt validates the token by USING it —
+      // one refresh proves it, rotates it into the runtime's own file and fills in whose it is —
+      // and the daemon then broadcasts auth.changed to every open window.
+      const info = await supervisor.ensure()
+      const u = new URL(`http://${info.host}:${info.port}/auth/adopt`)
+      if (info.token) u.searchParams.set('token', info.token)
+      const r = await fetch(u, {
+        headers: { 'X-Auth-Refresh': pair.refreshToken },
+        cache: 'no-store'
+      })
+      const body = (await r.json().catch(() => ({}))) as Record<string, unknown>
+      return { status: r.status, body }
+    } catch (e) {
+      // The user cancelling in the browser lands here too, and reads as its own sentence rather
+      // than as a failure of the app.
+      return { status: 401, body: { state: 'signed_out', error: String((e as Error)?.message || e) } }
+    }
+  })
 
   ipcMain.handle('app:broadcastToken', (_e, token: string) => {
     broadcastAccessToken(String(token || ''))

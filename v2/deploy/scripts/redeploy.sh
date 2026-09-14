@@ -34,7 +34,12 @@
 # =============================================================================
 set -uo pipefail
 
-REGION="${AWS_REGION:-ap-northeast-1}"
+# Region is resolved AFTER the environment is known -- see below. This line used to be
+# `REGION="${AWS_REGION:-ap-northeast-1}"`, which ran before argument parsing and so could not
+# have consulted the environment even in principle: every deploy defaulted to Tokyo, and
+# production now lives in Mumbai.
+# shellcheck source=region_for_environment.sh
+. "$(dirname "${BASH_SOURCE[0]}")/region_for_environment.sh"
 V2="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # deploy/scripts -> deploy -> v2
 
 # --- args -------------------------------------------------------------------------------
@@ -60,6 +65,18 @@ while [ $# -gt 0 ]; do
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
+
+# --- which region --------------------------------------------------------------------
+# AWS_REGION still wins when it is set, because CI sets it explicitly and a one-off override is
+# occasionally the right tool. Unset, the environment decides -- and an environment nobody has
+# mapped is an ERROR rather than a silent fall back to whichever region happened to be first.
+if [ -n "${AWS_REGION:-}" ]; then
+  REGION="$AWS_REGION"
+else
+  REGION="$(region_for_environment "$ENVIRONMENT")" || exit 1
+fi
+export AWS_REGION="$REGION"
+echo "environment: $ENVIRONMENT   region: $REGION"
 
 ENV_DIR="$V2/infra/environments/$ENVIRONMENT"
 CLUSTER="agentd-$ENVIRONMENT"

@@ -20,6 +20,9 @@ export interface ChatRow {
   /** A run is going on this session right now, per the daemon. What lets a reloaded window —
    *  which remembers nothing — find the chats it should re-attach to and keep streaming. */
   running?: boolean
+  /** How many tool calls are waiting in the background on this chat. A reloaded window
+   *  re-attaches to these too: the strip must show them, and their results land here. */
+  jobs?: number
 }
 
 /** Recent-first relative time. "3h ago" answers "is this the one I was just in?"; a timestamp

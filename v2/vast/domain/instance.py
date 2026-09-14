@@ -84,6 +84,7 @@ class MachineInstance:
     #: The marketplace's own words about this machine, e.g. "Preparing GPUs..." or
     #: "Error: GPU error, unable to start instance." The only place a dead host announces itself.
     status_msg: str = ""
+    portal_url: str | None = None
 
     @property
     def dead(self) -> bool:

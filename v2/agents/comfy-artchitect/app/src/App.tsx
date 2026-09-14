@@ -31,12 +31,13 @@ import {
 
 import { AGENT_ID, useClient } from './agentd/client'
 import { useCredits } from './agentd/credits'
-import { handleRunEvent } from './agentd/run-events'
+import { handleRunEvent, jobsFromStatus } from './agentd/run-events'
 import { MAX_FILES } from './agentd/chat'
 import { useRun } from './agentd/run'
 import { deleteSession, listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
+import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
 import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
@@ -221,14 +222,18 @@ export default function App() {
     if (!connected || !client) return
     const { sessions } = useApp.getState()
     for (const key of Object.keys(sessions)) {
-      if (!sessions[key].running) continue
+      if (!sessions[key].running && !sessions[key].jobs.length) continue
       void (async () => {
         let running = false
         try {
           const st = (await client.request('chat.status', { sessionKey: key })) as {
             running?: boolean
+            jobs?: unknown[]
           }
           running = !!st?.running
+          // The jobs as the daemon has them now: ours may be stale (one ended while the socket
+          // was down) — and a job's result, if it landed meanwhile, is in the transcript.
+          useApp.getState().patch(key, { jobs: jobsFromStatus(st?.jobs) })
         } catch {
           /* older daemon — no way to ask; assume the run is gone, as before */
         }
@@ -297,22 +302,27 @@ export default function App() {
              give the session a place in the store so live events land, load what was saved
              while we were away, and mark it running so the rest of the window behaves. */
           for (const row of rows) {
-            if (!row.running) continue
+            // A chat with jobs waiting is re-attached like a running one: the strip has to show
+            // them, and the turn a finished job starts has to land in a session that exists.
+            if (!row.running && !row.jobs) continue
             const key = row.sessionId
             void (async () => {
               let running = false
+              let jobs: ReturnType<typeof jobsFromStatus> = []
               try {
                 const st = (await client.request('chat.status', { sessionKey: key })) as {
                   running?: boolean
+                  jobs?: unknown[]
                 }
                 running = !!st?.running
+                jobs = jobsFromStatus(st?.jobs)
               } catch {
                 return
               }
-              if (!running) return
+              if (!running && !jobs.length) return
               const st = useApp.getState()
               st.ensureSession(key)
-              st.patch(key, { running: true, loadingHistory: true })
+              st.patch(key, { running, jobs, loadingHistory: true })
               try {
                 const items = await loadHistory(client, key)
                 const now = useApp.getState().sessions[key]
@@ -592,6 +602,7 @@ export default function App() {
               </div>
 
               <div className="st-convo-foot">
+                <BackgroundJobsStrip jobs={session.jobs} sessionKey={currentKey} client={client} />
                 <Composer
                   running={session.running}
                   pending={session.pending}

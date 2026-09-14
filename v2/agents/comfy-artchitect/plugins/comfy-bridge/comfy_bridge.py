@@ -44,6 +44,10 @@ from agent_runtime.infrastructure.net.outbound import fetch
 
 import chat_paths
 import reference_slots
+import studio_state
+from gpu_model_download_client import GpuModelDownloadClient
+from model_installation_service import ModelInstallationService
+from workflow_reference_repository import WorkflowReferenceRepository
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
 #: previous version of this tool was a hardcoded list of seven loaders, which made every model
@@ -1768,16 +1772,17 @@ class ComfyInstallTool(Tool):
     default_max_retries = _WAIT_ATTEMPTS
     description = (
         "Download model files onto the user's ComfyUI instance — WITHOUT asking them to touch a "
-        "terminal — through ComfyUI-Manager, which most rented-GPU templates (vast, RunPod) ship. "
+        "terminal — through Manager or the platform GPU downloader, chosen automatically. "
         "Give EVERY file comfy_validate listed, in ONE call: filename, its download URL "
         "(comfy_research finds these on Hugging Face/Civitai) and its kind (checkpoint, unet, "
         "vae, text_encoder, lora, controlnet, upscale…). The call returns when the files are "
-        "LOADABLE: it holds the line while Manager downloads (minutes for a multi-GB weight, "
+        "LOADABLE: it holds the line while the GPU downloads (minutes for a multi-GB weight, "
         "progress shown as it goes) and comes back with 'installed' — naming the exact loader "
         "name to put in the workflow — or with the reason it could not. Nothing to poll, nothing "
         "to re-check afterwards. This is how you FIX a missing-model workflow yourself instead "
-        "of handing the user a list. If the instance has no Manager, it says so and names the "
-        "fallback."
+        "of handing the user a list. Catalogued files use Manager; uncatalogued public Hugging "
+        "Face safetensors automatically download on the GPU. Never lower Manager security. "
+        "Failures are reported immediately; success means the file is actually loadable."
     )
     parameters = {
         "type": "object",
@@ -1798,7 +1803,8 @@ class ComfyInstallTool(Tool):
                         "url": {
                             "type": "string",
                             "description": "Direct download URL (a Hugging Face /resolve/ link, a "
-                            "Civitai download URL). comfy_research surfaces these.",
+                            "Civitai download URL for catalogued models). Uncatalogued files "
+                            "require a public HF /resolve/ URL whose basename matches filename.",
                         },
                         "kind": {
                             "type": "string",
@@ -1815,158 +1821,62 @@ class ComfyInstallTool(Tool):
         try:
             files = _install_requests(params)
             if not files:
-                return ToolResult.text(
-                    "files is required: a list of {filename, url, kind}, one per file "
-                    "comfy_validate listed.",
-                    is_error=True,
-                )
-            # THE SHOPPING LIST IS VALIDATE'S, MECHANICALLY — see studio_state.install_allowed.
-            import studio_state
-
-            for f in files:
-                allowed, why = studio_state.install_allowed(f["filename"])
+                return ToolResult.text("files must contain {filename, url, kind} entries", is_error=True)
+            for file in files:
+                allowed, why = studio_state.install_allowed(file["filename"])
                 if not allowed:
                     return ToolResult.text(why, is_error=True)
-            if not _manager_present():
-                return ToolResult.text(
-                    "this instance has no ComfyUI-Manager, so I cannot install models over its "
-                    "API. Two ways forward: (1) install ComfyUI-Manager on the instance (most "
-                    "rented-GPU templates already have it — check yours), or (2) set this agent's "
-                    "COMFYUI_MCP_URL to an instance MCP that exposes model installing. Failing "
-                    "both, the file has to be downloaded on the instance itself.",
-                    is_error=True,
-                )
 
-            # Manager whitelists installs against its own catalog (save_path+base+filename must
-            # match an entry). So: cataloged file -> submit the entry VERBATIM, never our guess.
-            catalog = _manager_catalog()
-            listed = _loadable_names()
-            present: dict[str, str] = {}
-            queued: list[str] = []
-            waiting: list[str] = []
-            refused: list[tuple[str, list[str]]] = []
-            targets: dict[str, str] = {}
-            for f in files:
-                filename, url, kind = f["filename"], f["url"], f["kind"]
-                save_path, mtype = _MANAGER_DIRS.get(kind, (kind, kind))
-                entry = next(
-                    (m for m in catalog if str(m.get("filename", "")).lower() == filename.lower()),
-                    None,
-                )
-                if filename.lower() in listed:
-                    present[filename] = listed[filename.lower()]
-                    continue
-                if entry is not None:
-                    save_path = str(entry.get("save_path") or save_path)
-                targets[filename] = save_path
-                # RE-ENTRY. A previous attempt of this same call (the guard's timeout and retry)
-                # queued it minutes ago and Manager is still busy: wait for it, never queue it
-                # twice — a duplicate only lengthens the queue.
-                if time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S and _queue_busy(
-                    _queue_info()
-                ):
-                    waiting.append(filename)
-                    continue
-                if entry is not None:
-                    body = {
-                        "ui_id": f"agent-{filename}",
-                        "filename": entry.get("filename"),
-                        "url": entry.get("url") or url,
-                        "save_path": entry.get("save_path"),
-                        "type": entry.get("type"),
-                        "base": entry.get("base", ""),
-                        "name": entry.get("name", ""),
-                    }
-                else:
-                    body = {
-                        "ui_id": f"agent-{filename}",
-                        "filename": filename,
-                        "url": url,
-                        "save_path": save_path,
-                        "type": mtype,
-                        "base": "",
-                    }
-                _lease(_WORK_LEASE_S)  # a multi-GB download is work the platform cannot see
-                res = _post("/manager/queue/install_model", body, timeout_s=30.0)
-                if not res.ok:
-                    if res.status == 400 and entry is None:
-                        refused.append((filename, _catalog_near_matches(catalog, filename)))
-                        continue
-                    return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
-                queued.append(filename)
+            def report(message):
+                if on_update:
+                    on_update(ToolResult.text(message))
 
-            if queued:
-                studio_state.mark_queued(queued)
-                # Manager queues the job; the worker has to be told to run.
-                _lease(_WORK_LEASE_S)
-                _post("/manager/queue/start", None, timeout_s=15.0)
+            def connection():
+                response = fetch(
+                    f"{_ACCOUNTS}/vast/download-connection", method="POST", headers=_AUTH,
+                    json={"account_id": current_account_id()}, timeout_s=30,
+                )
+                if not response.ok:
+                    raise ValueError(f"GPU download connection unavailable (HTTP {response.status}); "
+                                     "accounts service must support /vast/download-connection")
+                return response.json()
 
-            pending = queued + waiting
-            landed: dict[str, str] = {}
-            waited = 0.0
-            if pending:
-                state, waited = await _hold_until_manager_idle(
-                    abort, on_update, "downloading " + ", ".join(pending)
-                )
-                if state == "aborted":
-                    return ToolResult.text(
-                        f"stopped after {_clock(waited)}; the download of {', '.join(pending)} "
-                        "continues on the instance. Call comfy_install again with the same files "
-                        "to keep waiting — nothing is re-queued."
-                    )
-                if state == "unreachable":
-                    return ToolResult.text(
-                        f"lost ComfyUI-Manager after {_clock(waited)} of waiting on "
-                        f"{', '.join(pending)}. If the GPU was reclaimed, gpu_ensure; then call "
-                        "comfy_install again with the same files.",
-                        is_error=True,
-                    )
-                # Manager's queue is empty; the loader list lags a rescan behind it.
-                landed = await _await_loadable(pending, abort)
+            def submit(file, entry):
+                body = {"ui_id": f"agent-{file['filename']}",
+                        "filename": entry["filename"], "url": entry.get("url") or file["url"],
+                        "save_path": entry.get("save_path"), "type": entry.get("type"),
+                        "base": entry.get("base", ""), "name": entry.get("name", "")}
+                result = _post("/manager/queue/install_model", body, timeout_s=30)
+                if not result.ok:
+                    raise ValueError(_failed(result, f"install {file['filename']}"))
 
-            missing = [f for f in pending if f not in landed]
-            lines: list[str] = []
-            if landed:
-                lines.append(
-                    f"installed {', '.join(landed)} — loadable now, after {_clock(waited)}. "
-                    "Loader names to use in the workflow: "
-                    + "; ".join(f"{f} -> '{name}'" for f, name in landed.items())
-                    + "."
+            def start_manager():
+                result = _post("/manager/queue/start", None, timeout_s=15)
+                if not result.ok:
+                    raise ValueError(_failed(result, "start Manager downloads"))
+
+            async def wait_manager(abort, report):
+                state, _ = await _hold_until_manager_idle(
+                    abort, lambda value: report(value.content[0].text), "downloading models"
                 )
-            if present:
-                lines.append(
-                    "already installed: "
-                    + "; ".join(f"{f} (loadable as '{name}')" for f, name in present.items())
-                    + "."
-                )
-            if missing:
-                lines.append(
-                    f"the download for {', '.join(missing)} finished, but no loader lists it. "
-                    "ComfyUI only rescans its model folders on restart or a Manager refresh — try "
-                    "comfy_inventory again in a moment. If it still does not appear, the kind may "
-                    "be wrong: I put it in "
-                    + ", ".join(f"models/{targets.get(f, '?')}/" for f in missing)
-                    + "."
-                )
-            for filename, alts in refused:
-                hint = (
-                    f"Closest cataloged models: {'; '.join(alts)}. Consider redesigning the "
-                    "workflow around a cataloged stack and calling comfy_install with that exact "
-                    "filename. "
-                    if alts
-                    else "No close cataloged alternative exists. "
-                )
-                lines.append(
-                    f"NOT installed — {filename}: this instance's ComfyUI-Manager only installs "
-                    f"models from its own catalog at its current security level, and "
-                    f"'{filename}' is not in that catalog. {hint}Otherwise the file must be "
-                    "added on the instance itself, or Manager's security_level set to 'weak' in "
-                    "its config."
-                )
-            ok = not missing and not refused
-            if ok:
-                lines.append("Re-validate with those names, then run.")
-            return ToolResult.text("\n".join(lines), is_error=not ok)
+                return state
+
+            direct = GpuModelDownloadClient(
+                fetch=fetch, connection=connection, current_connection=_override, get=_get,
+                lease=lambda: _lease(_WORK_LEASE_S),
+            )
+            installer = ModelInstallationService(
+                catalog=_manager_catalog, loadable=_loadable_names, submit=submit,
+                start_manager=start_manager, manager_busy=lambda: _queue_busy(_queue_info()),
+                queued_recently=lambda filename: time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S,
+                mark_queued=studio_state.mark_queued, wait_manager=wait_manager,
+                await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
+            )
+            installed = await installer.install(files, abort, report)
+            return ToolResult.text(
+                "Installed and loadable: " + "; ".join(f"{f} -> '{name}'" for f, name in installed.items())
+                + ". Re-validate with those names, then run."
+            )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
@@ -2243,7 +2153,13 @@ class ComfyValidateTool(Tool):
             "workflow_path": {
                 "type": "string",
                 "description": "Path to the .api.json file comfy_emit wrote.",
-            }
+            },
+            "reference_workflow_url": {
+                "type": "string",
+                "description": "Raw publisher/ComfyUI reference workflow JSON URL (GitHub or HF). "
+                "Required for a new model stack with separate VAE/text encoders; reused for unchanged stacks. "
+                "The tool fetches it and rejects incompatible companion filenames before authorising installs.",
+            },
         },
     }
 
@@ -2264,6 +2180,15 @@ class ComfyValidateTool(Tool):
                     "beside it (the API file is the one that runs).",
                     is_error=True,
                 )
+
+            # Invalidate the old shopping list FIRST. A failed reference fetch/check must not
+            # leave a previous validation authorising the wrong companion file.
+            studio_state.forget_validated(_workflow_name(path))
+            reference_problems = WorkflowReferenceRepository(
+                Path(current_workspace(".") or "."), fetch=fetch,
+            ).check(graph, str(params.get("reference_workflow_url") or "").strip())
+            if reference_problems:
+                return ToolResult.text("Model stack is not verified:\n" + "\n".join(reference_problems), is_error=True)
 
             settled = await _settle_downloads(abort, on_update, "validate")
             res = _get("/api/object_info", timeout_s=60.0)
@@ -2350,8 +2275,6 @@ class ComfyValidateTool(Tool):
             # clean validation is also a fact ("nothing to install"), and comfy_install answers
             # from this and nothing else.
             try:
-                import studio_state
-
                 studio_state.mark_validated(_workflow_name(path), raw_missing, raw_unknown)
             except Exception:  # noqa: BLE001 — the report still goes out
                 pass

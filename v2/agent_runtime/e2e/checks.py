@@ -86,9 +86,9 @@ def _tool_succeeded(trace: Trace, args: dict) -> CheckResult:
     """A given tool ran AND at least one call came back ok — attempted is not the same as worked."""
     name = str(args.get("tool") or args.get("name") or "")
     calls = trace.tool_calls(name)
-    ok = any(c.ok for c in calls)
+    ok = any(c.completed and c.ok for c in calls)
     return CheckResult("tool_succeeded", ok,
-                       f"{name}: {sum(c.ok for c in calls)}/{len(calls)} ok")
+                       f"{name}: {sum(c.completed and c.ok for c in calls)}/{len(calls)} completed successfully")
 
 
 @_check("produced_artifact")
@@ -189,8 +189,14 @@ def _no_unrecovered_error(trace: Trace, args: dict) -> CheckResult:
 @_check("completed")
 def _completed(trace: Trace, args: dict) -> CheckResult:
     """The run ended on its own rather than wedging."""
-    return CheckResult("completed", not trace.truncated,
-                       "ran to completion" if not trace.truncated else "run was truncated/wedged")
+    completed = bool(trace.turns) and not trace.truncated and all(
+        turn.ended and not turn.end_error
+        and turn.end_reason not in ("aborted", "cancelled", "error", "lost")
+        and all(call.completed for call in turn.tools)
+        for turn in trace.turns
+    )
+    return CheckResult("completed", completed,
+                       "ran to completion" if completed else "run aborted, failed, or has unfinished work")
 
 
 # --------------------------------------------------------------------------- the vocabulary, described

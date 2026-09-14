@@ -51,9 +51,23 @@ export interface ContextUsage {
   cached: number
 }
 
+/** A tool call that left its turn and is still working on the daemon (see
+ *  components/BackgroundJobsStrip.tsx). `text` is the tool's latest progress line, relayed live;
+ *  `startedAt` is the daemon's stamp (epoch ms) so the clock is right after a reload. */
+export interface BackgroundJob {
+  id: string
+  tool: string
+  toolCallId: string
+  startedAt: number
+  text: string
+}
+
 export interface ChatSession {
   items: ThreadItem[]
   running: boolean
+  /** The tool calls waiting in the background for this conversation. Not `running`: the composer
+   *  is open, the person can talk, and each result arrives as a message when it lands. */
+  jobs: BackgroundJob[]
   /** Files chosen but not yet sent. Cleared by the send that carries them. */
   pending: PendingAttachment[]
   usage: ContextUsage | null
@@ -85,6 +99,7 @@ export interface ChatSession {
 const EMPTY: ChatSession = {
   items: [],
   running: false,
+  jobs: [],
   pending: [],
   usage: null,
   pendingArtifacts: [],

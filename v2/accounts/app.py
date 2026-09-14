@@ -709,6 +709,12 @@ _APP_SECRET_FIELDS = (
     "DODO_WEBHOOK_SECRET",
     "DODO_PRODUCT_ID",
     "DODO_API_BASE_URL",
+    # SIGN IN WITH GOOGLE. Declared here so the loader puts them in the environment where
+    # identity/infrastructure/oidc_provider.py reads them (AGENTD_OIDC_<NAME>_*). Absent or
+    # REPLACE_ME is a working state: no provider is built, the discovery document advertises
+    # none, and every sign-in card falls back to the password form it already had.
+    "AGENTD_OIDC_GOOGLE_CLIENT_ID",
+    "AGENTD_OIDC_GOOGLE_CLIENT_SECRET",
 ) + vast.SECRET_FIELDS
 
 

@@ -1359,3 +1359,27 @@ h2 { font-size: var(--fs-lead); }
 .row-act.is-danger { color: var(--danger); }
 .row-act.is-danger:hover { color: var(--danger); background: var(--danger-soft, var(--bg)); }
 .row-act.is-busy { cursor: default; color: var(--dim); }
+
+/* ── background jobs — tool calls that left the turn and are still working ───────────────── */
+/* Above the composer, only while there are any. Each row is the tool's own latest progress
+   line and a clock; Cancel stops that one job. Stop (on the composer) stops the turn and all. */
+.bj { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.bj-row {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg2);
+  font-size: var(--fs-tiny);
+}
+.bj-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: bj-pulse 1.2s ease-in-out infinite;
+}
+@keyframes bj-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
+.bj-tool { flex: none; color: var(--text); font-family: var(--mono); }
+.bj-text { flex: 1; min-width: 0; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bj-meta { flex: none; color: var(--faint); font-family: var(--mono); white-space: nowrap; }
+.bj-cancel {
+  flex: none; border: 1px solid var(--border2); border-radius: 999px; background: transparent;
+  padding: 2px 10px; font: inherit; font-size: 11px; color: var(--dim); cursor: pointer;
+}
+.bj-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.bj-cancel:disabled { opacity: .5; cursor: default; }

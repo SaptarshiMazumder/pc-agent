@@ -41,6 +41,7 @@ from vast.domain.errors import (
     NoOfferAvailable,
     OfferGone,
     SlotLost,
+    VastError,
 )
 from vast.domain.instance import InstanceRow, label_for
 
@@ -326,6 +327,21 @@ class InstanceService:
         with self._db() as c:
             row = self._store.live_for(c, account_id)
         return self._refresh(row) if row else None
+
+    def download_connection(self, account_id: str) -> dict:
+        """Resolve the authenticated portal of an existing, caller-owned rental. Never rent."""
+        with self._db() as c:
+            row = self._store.live_for(c, account_id)
+        if row is None or not row.ready or not row.auth_token or row.instance_id is None:
+            raise VastError("No authenticated GPU is ready; call gpu_ensure first")
+        live = self._marketplace().get_instance(row.instance_id)
+        if (
+            live is None or live.dead or live.instance_id != row.instance_id
+            or live.label != label_for(row.id) or not live.portal_url
+        ):
+            raise VastError("The owned GPU's provisioning portal is not available")
+        return {"portal_url": live.portal_url, "url": row.url,
+                "auth": f"Bearer {row.auth_token}"}
 
     # ------------------------------------------------------------------ release
 

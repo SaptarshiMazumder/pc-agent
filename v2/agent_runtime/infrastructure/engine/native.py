@@ -9,6 +9,9 @@ protocol. Beyond the basic ReAct cycle (LLM -> tools -> repeat), it adds:
   - follow-up message injection after a turn would end (get_follow_up_messages)
   - the USER's own messages sent while the run is live (get_interjections): drained after
     each tool batch and before a turn ends, persisted as what they are — the user speaking
+  - a long tool call LEAVES THE TURN (background_jobs): a tool that declared it may wait long
+    and is still running after DETACH_AFTER_S continues as a background job; the model gets a
+    provisional answer and the turn goes on — the result comes back as a message when it lands
   - a before-finalize revision hook (verify_answer) — up to 3 revisions
   - OpenClaw's iteration cap (min(160, max(32, 24 + 8*profiles)))
 
@@ -26,6 +29,7 @@ import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
+from agent_runtime.application.interfaces.background_jobs import BackgroundJobs
 from agent_runtime.application.interfaces.run_observer import RunObserver, ToolEvent
 from agent_runtime.domain.events import AgentEvent, EventCallback
 from agent_runtime.domain.messages import (
@@ -88,6 +92,15 @@ async def _maybe_await(value):
 # After this many liveness halts in a run without recovery, stop (safety backstop).
 STUCK_CAP = 3
 
+#: A tool call still running after this many seconds — from a tool that DECLARED a long wait —
+#: leaves the turn and continues as a background job (application/interfaces/background_jobs).
+#: Short enough that a person is never left looking at a spinner for long; long enough that a
+#: call which merely takes a while (an upload, a compile-check on a busy box) answers inline.
+DETACH_AFTER_S = 20.0
+#: What "declared a long wait" means: a `default_timeout_sec` at or above this. A tool that
+#: says nothing, or says two minutes, always answers inline — the ordinary case, unchanged.
+BACKGROUND_MIN_TIMEOUT_S = 300.0
+
 #: "the caller said nothing" — as opposed to `None`, which is a caller SAYING "no router".
 #:
 #: They are different answers and the engine must not confuse them: an agent with cost-efficiency
@@ -137,6 +150,7 @@ async def run_agent_loop(
     get_steering_messages: FollowUpFn | None = None,
     get_follow_up_messages: FollowUpFn | None = None,
     get_interjections: FollowUpFn | None = None,
+    background_jobs: BackgroundJobs | None = None,
     verify_answer: VerifyFn | None = None,
     observers: list[RunObserver] | None = None,
     context_policy=None,
@@ -385,7 +399,7 @@ async def run_agent_loop(
             tool_calls = assistant.tool_calls
             if tool_calls and assistant.stop_reason not in ("error", "aborted"):
                 results, tool_halts = await _execute_tool_calls(
-                    tool_calls, tool_map, abort, on_event, observers
+                    tool_calls, tool_map, abort, on_event, observers, background_jobs
                 )
                 # A CHECKPOINT TOOL (`ask_user`) THAT RETURNED IS THE TURN'S VISIBLE OUTPUT: the
                 # window renders it, and the right next move for the model is to say nothing.
@@ -557,12 +571,78 @@ async def run_agent_loop(
     return new_messages
 
 
+def _declares_long_wait(tool) -> bool:
+    """Did this tool say it may wait a long time? Read off the DECLARATION, the same number the
+    guard and the sandbox read — never off how long a call has actually taken, so a slow
+    network cannot turn an ordinary tool into a background job."""
+    try:
+        declared = float(getattr(_unwrap_tool(tool), "default_timeout_sec", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return declared >= BACKGROUND_MIN_TIMEOUT_S
+
+
+async def _run_or_detach(
+    tool: Tool,
+    call: ToolCallContent,
+    args: dict,
+    abort: asyncio.Event,
+    on_update,
+    background_jobs: BackgroundJobs | None,
+    cell: dict,
+) -> ToolResult:
+    """Run the tool — and if it declared a long wait and is still going at DETACH_AFTER_S,
+    hand it to the session's background jobs and answer provisionally.
+
+    THE TURN IS NOT A WAITING ROOM. `comfy_validate` holding until a 19 GB download lands is
+    correct behaviour for the tool and wrong behaviour for the conversation: ten minutes in
+    which the person could not be heard and saw nothing but a spinner. The wait continues; the
+    turn does not wait with it.
+
+    THE BRAKES COME FIRST, and they are the model-agnostic answer to the polling loop: the same
+    call already waiting is answered from the registry (no second tool run, no second microVM),
+    and past the cap a new long call is refused with the waiting ones named.
+
+    ONLY long-declared tools, only with a registry to adopt them, only after the grace period:
+    every other call is `await tool.execute(...)` exactly as before."""
+    if background_jobs is None or not _declares_long_wait(tool):
+        return await tool.execute(call.id, args, abort, on_update)
+    pending = background_jobs.pending_for(call.name, args)
+    if pending is not None:
+        return ToolResult.text(background_jobs.already_running_text(pending))
+    if not background_jobs.room():
+        return ToolResult.text(background_jobs.no_room_text(call.name))
+    started = time.monotonic()
+    task = asyncio.ensure_future(tool.execute(call.id, args, abort, on_update))
+    try:
+        done, _ = await asyncio.wait({task}, timeout=DETACH_AFTER_S)
+    except asyncio.CancelledError:
+        # The run was stopped while the call was still on the turn's clock: it dies with the
+        # turn, as any inline call does. (A call that has already LEFT is the registry's, and
+        # the transport decides what Stop means for those.)
+        task.cancel()
+        raise
+    if done:
+        return task.result()  # raises what the tool raised — the caller's except clauses apply
+    job = background_jobs.adopt(
+        tool=call.name,
+        args=args,
+        tool_call_id=call.id,
+        task=task,
+        started_mono=started,
+        last_progress=str(cell.get("last") or ""),
+    )
+    cell["job"] = job
+    return ToolResult.text(background_jobs.detached_text(job))
+
+
 async def _execute_tool_calls(
     tool_calls: list[ToolCallContent],
     tool_map: dict[str, Tool],
     abort: asyncio.Event,
     on_event: EventCallback,
     observers: list[RunObserver] | None = None,
+    background_jobs: BackgroundJobs | None = None,
 ) -> tuple[list[ToolResultMessage], list[str]]:
     """Execute one assistant turn's tool calls.
 
@@ -585,6 +665,11 @@ async def _execute_tool_calls(
             )
         )
 
+        # THE JOB CELL. `last` is the newest progress line (quoted by the provisional answer
+        # if the call leaves the turn); `job` is set once it has left — from then on progress
+        # belongs to the job, not to a tool row the window has already closed.
+        cell: dict = {"job": None, "last": ""}
+
         # Forward a tool's incremental progress (GuardedTool retries/timeouts, the
         # computer tool's per-step updates) as tool_progress events. Sync callback
         # (the contract type); the async emit is scheduled fire-and-forget.
@@ -593,6 +678,10 @@ async def _execute_tool_calls(
                 text = update
             else:  # a ToolResult — join its text blocks
                 text = "".join(getattr(b, "text", "") for b in getattr(update, "content", []))
+            cell["last"] = text
+            if cell["job"] is not None and background_jobs is not None:
+                background_jobs.progress(cell["job"], text)
+                return
             asyncio.create_task(
                 on_event(
                     AgentEvent(
@@ -616,7 +705,9 @@ async def _execute_tool_calls(
         else:
             try:
                 args = validate_args(tool, call.arguments)
-                result = await tool.execute(call.id, args, abort, _on_update)
+                result = await _run_or_detach(
+                    tool, call, args, abort, _on_update, background_jobs, cell
+                )
                 if getattr(result, "is_error", False):
                     _tool_outcome = "error"
             except ToolArgError as e:
@@ -741,6 +832,7 @@ class NativeEngine:
         model=None,
         model_router=_UNSET,
         get_interjections=None,
+        background_jobs=None,
     ):
         """``model_router`` is the per-agent counterpart of ``model``, and it exists because
         without it ``model`` did not actually work.
@@ -776,4 +868,5 @@ class NativeEngine:
             model_router=self._model_router if model_router is _UNSET else model_router,
             model_trace=self._model_trace,
             get_interjections=get_interjections,
+            background_jobs=background_jobs,
         )

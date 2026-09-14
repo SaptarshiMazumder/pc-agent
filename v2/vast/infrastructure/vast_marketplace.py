@@ -302,9 +302,10 @@ class VastMarketplace:
             hourly_usd=float(row.get("dph_total") or 0.0),
             url=self._url_for(row),
             status_msg=str(row.get("status_msg") or ""),
+            portal_url=self._url_for(row, port=1111),
         )
 
-    def _url_for(self, row: dict) -> str | None:
+    def _url_for(self, row: dict, *, port: int | None = None) -> str | None:
         """The address ComfyUI answers on, or None while it has none.
 
         Vast gives each instance a slice of a shared public IP: an internal port is published on
@@ -317,7 +318,7 @@ class VastMarketplace:
         if not ip or not isinstance(ports, dict):
             return None
         for internal, bindings in ports.items():
-            if str(internal).split("/")[0] != str(self._comfy_port):
+            if str(internal).split("/")[0] != str(port or self._comfy_port):
                 continue
             for binding in bindings or []:
                 host_port = str((binding or {}).get("HostPort") or "").strip()

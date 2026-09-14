@@ -16,12 +16,13 @@
 
 import { useSyncExternalStore } from 'react'
 
+import { accessTokenExpiry } from '@agentd/auth'
 import { BillingClient } from '@agentd/billing'
 import type { Catalog, CreditPack, Credits, Purchase } from '@agentd/billing'
 
 import { gateway } from '../gateway/client'
 import { platformDoc } from './discovery'
-import { hostAuthRequest, hostSecrets, isDesktop, randomUuid } from './host'
+import { hostAuthRequest, hostOAuthSignIn, hostSecrets, isDesktop, randomUuid } from './host'
 import {
   clearTokens,
   configureTokens,
@@ -185,6 +186,198 @@ export function authProviders(): Array<{ id: string; label: string; kind: string
   return doc.providers
 }
 
+/* ── external sign-in ("Continue with Google") ──────────────────────────────────────────
+ *
+ * THE SERVER OWNS THE FLOW. `/auth/authorize` hands back a URL to visit and the `state` that
+ * identifies the attempt; `/auth/callback` redeems the code it comes back with. Nothing here
+ * knows which provider is which — the buttons come from `authProviders()` above, which comes
+ * from the deployment's discovery document.
+ *
+ * TWO SHAPES, BECAUSE A PACKAGED APP CANNOT BE A REDIRECT TARGET. Google will not send a browser
+ * to a file:// page, so the desktop cannot do what the web does here.
+ *
+ *   web      this page navigates away, the provider returns to it with `?code=&state=`, and the
+ *            flow is finished by `finishExternalSignIn` on the next load. The refresh half goes
+ *            into an HttpOnly cookie, so no script on the page can read it.
+ *   desktop  the HOST runs it (desktop/src/main/oauthLoopback.ts): the system browser, where the
+ *            user's saved passwords already are, and a listener on 127.0.0.1 to catch the code
+ *            (RFC 8252). The session is adopted by the daemon and never reaches this renderer.
+ *
+ * WHAT IS COMMON is everything that matters: the same `/auth/authorize` and `/auth/callback` on
+ * the same accounts service, the same PKCE and `state` checks, the same provider list out of the
+ * discovery document. The two differ only in who holds the browser and who ends up holding the
+ * session — which is exactly how the password path already differs between them. */
+
+const OAUTH_FLOW_KEY = 'agentd.oauth.flow'
+
+interface PendingOAuth {
+  provider: string
+  state: string
+  verifier: string
+}
+
+/** Where the provider sends the browser back: this page, with no query and no hash.
+ *
+ *  EVERY DISTINCT VALUE HERE MUST BE REGISTERED with the provider, so it is computed from the
+ *  address the app is actually served at rather than configured in a second place that can drift
+ *  from the first. */
+export function oauthRedirectUri(): string {
+  const u = new URL(location.href)
+  u.search = ''
+  u.hash = ''
+  return u.toString()
+}
+
+/** Begin an external sign-in. Resolves only if the navigation did not happen. */
+export async function startExternalSignIn(provider: string): Promise<void> {
+  // THE DESKTOP CANNOT BE A REDIRECT TARGET. Google will not send a browser to a packaged app, so
+  // the host opens the system browser and catches the code on a loopback listener (RFC 8252) —
+  // and the daemon, not this renderer, ends up holding the session, exactly as it does for a
+  // password sign-in. This resolves when that is done rather than navigating anywhere.
+  if (isDesktop) {
+    const answer = await hostOAuthSignIn(provider, accountsUrl())
+    if (!answer) {
+      throw new Error('this version of the desktop app cannot sign in with a provider - use email')
+    }
+    const b = answer.body as { state?: string; error?: string }
+    if (b?.state !== 'ok') {
+      throw new Error(String(b?.error || `sign-in failed (HTTP ${answer.status || 'daemon away'})`))
+    }
+    // Same tail as the password path: the runtime is the holder, this reads it back and rebuilds
+    // the socket, because the credential only reaches the daemon when the socket is remade.
+    await refreshMachine()
+    if (!getSession()) throw new Error('signed in, but the runtime returned no session - try again')
+    gateway.reconnect()
+    hardRefresh()
+    return
+  }
+  const base = accountsUrl()
+  if (!base) throw new Error('this deployment has no accounts service to sign in to')
+  const r = await fetch(`${base}/auth/authorize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, redirect_uri: oauthRedirectUri() })
+  })
+  const d = (await r.json().catch(() => ({}))) as {
+    authorization_url?: string
+    state?: string
+    code_verifier?: string
+    detail?: string
+  }
+  if (!r.ok || !d.authorization_url || !d.state) {
+    throw new Error(String(d.detail || `could not start sign-in (HTTP ${r.status})`))
+  }
+  // sessionStorage because the browser LEAVES this page and comes back to a fresh load; a value
+  // held in a variable would not survive the trip. One use, then gone.
+  const pending: PendingOAuth = {
+    provider,
+    state: d.state,
+    verifier: String(d.code_verifier || '')
+  }
+  try {
+    sessionStorage.setItem(OAUTH_FLOW_KEY, JSON.stringify(pending))
+  } catch {
+    /* storage blocked: the callback will refuse on the state check, which is the honest failure */
+  }
+  location.assign(d.authorization_url)
+}
+
+/** Is this load the provider returning? `{code, state}` or null. */
+export function oauthReturn(): { code: string; state: string } | null {
+  try {
+    const u = new URL(location.href)
+    const code = u.searchParams.get('code') || ''
+    const state = u.searchParams.get('state') || ''
+    return code && state ? { code, state } : null
+  } catch {
+    return null
+  }
+}
+
+/** Take `?code=&state=` out of the address bar. A spent code in history is replayable-looking
+ *  noise, and leaving it means a refresh re-runs a dead exchange. */
+export function clearOauthReturn(): void {
+  try {
+    const u = new URL(location.href)
+    for (const k of ['code', 'state', 'scope', 'authuser', 'prompt', 'session_state', 'hd']) {
+      u.searchParams.delete(k)
+    }
+    history.replaceState(null, '', u.toString())
+  } catch {
+    /* no history API here */
+  }
+}
+
+/**
+ * Finish an external sign-in and become that account.
+ *
+ * The tail is deliberately identical to `enter()`'s web branch — store the pair, rebuild the
+ * socket, hard refresh — because the credential means the same thing however it was obtained,
+ * and a second way of "becoming signed in" is how two paths drift.
+ */
+export async function finishExternalSignIn(args: {
+  code: string
+  state: string
+}): Promise<Session> {
+  let pending: PendingOAuth | null = null
+  try {
+    const raw = sessionStorage.getItem(OAUTH_FLOW_KEY)
+    sessionStorage.removeItem(OAUTH_FLOW_KEY)
+    pending = raw ? (JSON.parse(raw) as PendingOAuth) : null
+  } catch {
+    pending = null
+  }
+  // Checked HERE as well as on the server: the server refuses a state it never issued, and this
+  // refuses one THIS TAB did not start — a callback URL pasted into an open session.
+  if (!pending || pending.state !== args.state) {
+    throw new Error('this sign-in did not start in this tab — press the button again')
+  }
+  const base = accountsUrl()
+  if (!base) throw new Error('this deployment has no accounts service to sign in to')
+  const r = await fetch(`${base}/auth/callback`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code: args.code,
+      state: args.state,
+      code_verifier: pending.verifier || undefined,
+      cookie: true,
+      client_id: 'agentd-web'
+    })
+  })
+  const d = (await r.json().catch(() => ({}))) as {
+    access_token?: string
+    account_id?: string
+    email?: string
+    detail?: string
+    error?: string
+  }
+  if (!r.ok || !d.access_token) {
+    throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`))
+  }
+  // THROUGH THE TOKEN MANAGER, exactly as the password path does. It owns storage, the renewal
+  // timer and the subscribers; writing the session anywhere else would leave a signed-in window
+  // that never renews and never notifies anything.
+  //
+  // `refreshToken` is empty ON PURPOSE: cookie mode put that half in an HttpOnly cookie on the
+  // accounts host, which is the whole point of asking for it. The manager already treats an empty
+  // refresh token as a legitimate state (see TokenPair), and `restoreSession` reads the cookie
+  // back through the same door the password path uses.
+  const pair = {
+    accessToken: String(d.access_token),
+    refreshToken: '',
+    expiresAt: accessTokenExpiry(String(d.access_token)),
+    accountId: String(d.account_id || ''),
+    email: String(d.email || '')
+  }
+  tokens().replace(pair)
+  const s: Session = { token: pair.accessToken, accountId: pair.accountId, email: pair.email }
+  gateway.reconnect()
+  hardRefresh()
+  return s
+}
+
 export function isAccountsMode(): boolean {
   return !!accountsUrl()
 }
@@ -304,7 +497,7 @@ async function enter(args: {
     const s = getSession()
     if (!s) throw new Error('signed in, but the runtime returned no session — try again')
     gateway.reconnect()
-  hardRefresh()
+    hardRefresh()
     return s
   }
   const p = await tokens().login(args)

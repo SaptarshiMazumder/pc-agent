@@ -856,6 +856,18 @@ variable "services" {
         # CORS: the web client's origin. "*" until the web origin is stable (browser
         # clients only; the desktop app and the Model Proxy are not subject to CORS).
         ACCOUNTS_CORS_ORIGINS = "*"
+        # SIGN IN WITH GOOGLE. Naming a provider here is the ONLY switch: the adapter is generic
+        # (identity/infrastructure/oidc_provider.py reads AGENTD_OIDC_<NAME>_* for each name in
+        # this list), so adding Microsoft later is this string plus two secret fields.
+        #
+        # EMPTY BY DEFAULT, and that is a real state rather than a placeholder: with no names the
+        # factory builds no external providers, the discovery document advertises none, and every
+        # sign-in card in the product renders the password form it always did. Nothing breaks
+        # while the Google client is still un-registered.
+        #
+        # AGENTD_IDENTITY_PROVIDER stays `local` (its default): the primary provider owns the
+        # password form, and this list owns the buttons ABOVE it. Setting it to `oidc` would mean
+        # a deployment with NO password login at all, which is a different product decision.
       }
       single_writer = true
       # Accounts owns identity, so accounts owns "is this account an admin" — and therefore serves
@@ -866,6 +878,12 @@ variable "services" {
         # Wraps the token signing key at rest (identity/infrastructure/sqlite_key_store.py).
         # Absent, keys are stored in clear and the service logs a warning on first use.
         AGENTD_IDENTITY_KEK = "AGENTD_IDENTITY_KEK"
+        # The Google sign-in client. Injected whether or not it is switched on, for the same
+        # reason the payment rails are: a REPLACE_ME placeholder is inert until
+        # AGENTD_OIDC_PROVIDERS names google, so turning it on is a variable change and a service
+        # roll rather than a plumbing change.
+        AGENTD_OIDC_GOOGLE_CLIENT_ID     = "AGENTD_OIDC_GOOGLE_CLIENT_ID"
+        AGENTD_OIDC_GOOGLE_CLIENT_SECRET = "AGENTD_OIDC_GOOGLE_CLIENT_SECRET"
         # Payment rail credentials (payments/main/payment_gateway_factory.py). ALL rails'
         # keys are injected; the factory reads only the one var.payment_provider names, so a
         # REPLACE_ME placeholder is inert until that rail is switched on — and flipping
@@ -1360,6 +1378,45 @@ variable "agent_hostnames" {
 # lives today and what every environment without a domain keeps using.
 variable "admin_hostname" {
   description = "Hostname for the standalone admin console (e.g. \"admin.example.com\"). Served by the web image via nginx server_name; needs a certificate that covers it. Empty = reachable at /admin only."
+  type        = string
+  default     = ""
+}
+
+variable "oidc_providers" {
+  description = <<-EOT
+    Which external sign-in providers this deployment offers, comma-separated — "google", or ""
+    for none.
+
+    THE NAME IS THE SWITCH. `identity/infrastructure/oidc_provider.py` builds one adapter per name
+    here and reads `AGENTD_OIDC_<NAME>_DISCOVERY / _CLIENT_ID / _CLIENT_SECRET / _REDIRECT_URI`
+    for each, so nothing in the codebase names Google and adding Microsoft is this string plus a
+    discovery URL and two secret fields.
+
+    EMPTY IS THE SAFE DEFAULT AND A REAL STATE: no adapters are built, the accounts discovery
+    document advertises no providers, and every sign-in card renders the password form unchanged.
+    Set it only once the provider's client really exists and its redirect URI is registered — a
+    named provider whose credentials are still REPLACE_ME would render a button that dead-ends.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "oidc_google_redirect_uri" {
+  description = <<-EOT
+    Where Google sends the browser back after sign-in.
+
+    MUST MATCH, EXACTLY AND CHARACTER FOR CHARACTER, an Authorized redirect URI on the OAuth
+    client in the Google console — and it is sent again at the token exchange, where a mismatch
+    is refused. This is the single most common reason an OAuth flow works on a laptop and fails
+    in staging.
+
+    It is the address the WEB CLIENT is served at, because the clients compute their own redirect
+    from the page they are on: the sign-in card is also the page Google returns to, which is what
+    lets one value serve the whole app instead of a route per surface.
+
+    Desktop is NOT this value. An installed app cannot be a redirect target, so it needs a
+    loopback listener and its own registered `http://127.0.0.1:<port>/` entry.
+  EOT
   type        = string
   default     = ""
 }

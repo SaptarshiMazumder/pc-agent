@@ -102,10 +102,12 @@ jobs:
           # WHICH REGION each environment lives in — the ONE place this workflow says so,
           # mirroring the provider block in infra/environments/<env>/main.tf. It cannot be read
           # from terraform here (that needs AWS credentials, which need a region first), so the
-          # mapping is spelled out; the EU production move edits the production line and the
-          # matching provider block together.
+          # mapping is spelled out. It must agree with v2/deploy/scripts/region_for_environment.sh
+          # and with each environment's `provider "aws"` block -- three statements of one
+          # fact, and the only one that cannot read the others is this job, which runs
+          # before the repository is checked out.
           case "$ENV" in
-            production) REGION=ap-northeast-1 ;;
+            production) REGION=ap-south-1 ;;      # launched in India
             staging)    REGION=ap-northeast-1 ;;
             *)          REGION=ap-northeast-1 ;;
           esac

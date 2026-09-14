@@ -50,6 +50,20 @@ export function hostAuthRequest(
   return typeof b?.authRequest === 'function' ? b.authRequest(path, headers) : null
 }
 
+/** "Continue with Google" on the desktop: the HOST runs the flow (system browser + a loopback
+ *  listener) and hands the session to the daemon, so this resolves to the daemon's own answer and
+ *  never to a credential. Null when the shell is older than this feature, which is what lets the
+ *  caller fall back to saying so rather than throwing. */
+export function hostOAuthSignIn(
+  provider: string,
+  accountsUrl: string
+): Promise<HostAuthAnswer> | null {
+  const b = bridge as
+    | { authOAuth?: (p: string, a: string) => Promise<HostAuthAnswer> }
+    | undefined
+  return typeof b?.authOAuth === 'function' ? b.authOAuth(provider, accountsUrl) : null
+}
+
 /** OS-encrypted storage for the refresh token, when the desktop shell provides it.
  *
  * Reached from HERE rather than through lib/platform.ts on purpose. lib/tokens.ts needs it, and

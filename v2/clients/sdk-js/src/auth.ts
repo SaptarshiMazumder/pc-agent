@@ -40,6 +40,176 @@ export interface AuthOptions extends DaemonOptions {
   storageKey?: string
 }
 
+/** One way to sign in, as the accounts service advertises it. `kind: "password"` is the email
+ *  form; every other entry is an external provider with a button. */
+export interface AuthProvider {
+  id: string
+  label: string
+  kind: 'password' | 'oidc' | string
+}
+
+/** WHERE THE STASHED FLOW LIVES between the redirect out and the redirect back.
+ *
+ *  `sessionStorage`, not memory: the browser LEAVES this page to visit the provider and comes
+ *  back to a fresh load, so anything held in a variable is gone by the time the code arrives.
+ *  Per-tab and cleared by the browser, which is right for a value that is useless after one use.
+ *
+ *  What is stashed is the `state` we were issued and — for a public client — the PKCE verifier.
+ *  Neither is a credential on its own: the verifier proves the code belongs to the flow THIS tab
+ *  started, and that is exactly what stops an intercepted code being redeemed by anyone else. */
+const FLOW_KEY = 'agentd.oauth.flow'
+
+interface StashedFlow {
+  provider: string
+  state: string
+  verifier: string
+  redirectUri: string
+}
+
+function stashFlow(flow: StashedFlow): void {
+  try {
+    sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow))
+  } catch {
+    /* private window with storage blocked — the callback will report the mismatch honestly */
+  }
+}
+
+function takeFlow(): StashedFlow | null {
+  try {
+    const raw = sessionStorage.getItem(FLOW_KEY)
+    sessionStorage.removeItem(FLOW_KEY) // one use, whatever happens next
+    return raw ? (JSON.parse(raw) as StashedFlow) : null
+  } catch {
+    return null
+  }
+}
+
+/** The accounts service's own discovery document — public, no credential. */
+async function accountsBase(opts: AuthOptions): Promise<string> {
+  const base = String((await platformStatus(opts)).accountsUrl || '').replace(/\/$/, '')
+  if (!base) throw new Error('this deployment has no accounts service to sign in to')
+  return base
+}
+
+/**
+ * Every way to sign in to THIS deployment, from the accounts service's discovery document.
+ *
+ * DATA, NOT A HARDCODED BUTTON. The server decides which providers exist (four environment
+ * variables per provider); this returns what it said, and the sign-in card renders one button per
+ * entry. Adding Microsoft is therefore a server change and zero client releases — the same rule
+ * the codebase already follows for models and tools.
+ *
+ * An empty list is the honest answer for a BYOK build with no accounts service, and callers
+ * render nothing rather than a dead button.
+ */
+export async function authProviders(opts: AuthOptions = {}): Promise<AuthProvider[]> {
+  let base: string
+  try {
+    base = await accountsBase(opts)
+  } catch {
+    return []
+  }
+  try {
+    const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: 'no-store' })
+    if (!r.ok) return []
+    const d = (await r.json()) as { providers?: AuthProvider[] }
+    return Array.isArray(d.providers) ? d.providers : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Start an external sign-in: ask the accounts service for the provider's authorization URL, stash
+ * what proves the round trip is ours, and hand back the URL for the caller to visit.
+ *
+ * IT DOES NOT NAVIGATE. The caller decides how the browser gets there — a web page assigns
+ * `location`, and a desktop shell opens the system browser, because an installed app must never
+ * put the provider's password form inside its own window. One function, both shells.
+ *
+ * `redirectUri` MUST be one the provider has been told about, and it is echoed back to the token
+ * endpoint at exchange time — a mismatch there is the single most common cause of a flow that
+ * works locally and fails in production.
+ */
+export async function authAuthorize(
+  args: { provider: string; redirectUri: string },
+  opts: AuthOptions = {},
+): Promise<string> {
+  const base = await accountsBase(opts)
+  const r = await fetch(`${base}/auth/authorize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: args.provider, redirect_uri: args.redirectUri }),
+  })
+  const d = (await r.json().catch(() => ({}))) as {
+    authorization_url?: string
+    state?: string
+    code_verifier?: string
+    detail?: string
+  }
+  if (!r.ok || !d.authorization_url || !d.state) {
+    throw new Error(String(d.detail || `could not start sign-in (HTTP ${r.status})`))
+  }
+  stashFlow({
+    provider: args.provider,
+    state: d.state,
+    verifier: String(d.code_verifier || ''),
+    redirectUri: args.redirectUri,
+  })
+  return d.authorization_url
+}
+
+/** Is this page load the provider sending the browser back? `{code, state}` or null. */
+export function oauthCallbackParams(href?: string): { code: string; state: string } | null {
+  try {
+    const u = new URL(href || location.href)
+    const code = u.searchParams.get('code') || ''
+    const state = u.searchParams.get('state') || ''
+    return code && state ? { code, state } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Finish an external sign-in: redeem the code for a session.
+ *
+ * COOKIE MODE, like the password path. The refresh half becomes an HttpOnly Set-Cookie on the
+ * accounts host rather than a value this page holds — which is what `fetchCookieToken` already
+ * reads to renew, so nothing downstream needs to know which door was used.
+ *
+ * THE STATE IS CHECKED HERE TOO, not only on the server. The server refuses a `state` it never
+ * issued; this refuses one THIS TAB did not start, which is the case the server cannot see — a
+ * callback URL pasted or linked into a logged-in session.
+ */
+export async function authCallback(
+  args: { code: string; state: string },
+  opts: AuthOptions = {},
+): Promise<AuthState> {
+  const flow = takeFlow()
+  if (!flow || flow.state !== args.state) {
+    throw new Error('this sign-in did not start in this tab — press the button again')
+  }
+  const base = await accountsBase(opts)
+  const r = await fetch(`${base}/auth/callback`, {
+    method: 'POST',
+    credentials: 'include', // the Set-Cookie is the session
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code: args.code,
+      state: args.state,
+      code_verifier: flow.verifier || undefined,
+      cookie: true,
+      client_id: 'agentd-web',
+    }),
+  })
+  const d = (await r.json().catch(() => ({}))) as { detail?: string; error?: string }
+  if (!r.ok) throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`))
+  // A different person may have just signed in — drop any token cached for the previous one.
+  forgetIdentityCache()
+  return authStatus(opts)
+}
+
 export async function authStatus(opts: AuthOptions = {}): Promise<AuthState> {
   const status = await platformStatus(opts)
   const canUseCloud = !!status.canUseCloud

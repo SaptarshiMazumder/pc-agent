@@ -261,29 +261,55 @@ to transient instance state.
      user plainly that it could not be run here. A workflow file is still the deliverable.
 
 5. **`comfy_validate` the emitted `.api.json`.** Every node class, every link, every model
-   filename checked against the live instance. Its missing-file list IS the shopping list for
+   filename checked against the live instance (while Manager is still downloading, it waits
+   for the download — and may leave the turn as a background job; see Phase 3). Its
+   missing-file list IS the shopping list for
    Phase 3 — **and the ONLY thing that authorizes an install.** You may not `comfy_install` a
    file `comfy_validate` has not named. An unknown node CLASS is a different failure: it is
    USUALLY A WRONG NAME — look it up (`comfy_node_spec`/`comfy_inventory`) and re-emit. Only when
    the class genuinely belongs to a pack this instance lacks is it a provisioning job, and that
    is yours too: `comfy_node_install` in Phase 3.
 
+   **Pass `reference_workflow_url` for any new stack with separate VAE/text encoders.**
+   Use the raw publisher/ComfyUI reference JSON researched in Phase 1, for the selected model
+   family and version. The tool fetches it and checks companion filenames; search snippets
+   and recalled names do not count. Evidence is reused for an unchanged stack. For Qwen Image
+   Edit 2511, the official workflow uses `qwen_image_vae.safetensors`, not Flux's `ae.safetensors`.
+   A quantized diffusion model still needs that family's documented companions.
+
 ### Phase 3 — PROVISION. Bring the instance up to the design.
 
 6. **`comfy_install` exactly the files `comfy_validate` listed — all of them, in ONE call** —
    nothing else, nothing improvised, and nothing you have not validated you need. The call holds
-   the line while Manager downloads (minutes for a multi-GB weight; the window shows progress)
+   the line while the GPU downloads (minutes for a multi-GB weight; the window shows progress)
    and returns when every file is LOADABLE, naming the exact loader name to put in the workflow.
    There is nothing to poll and nothing to re-check: "installed" means installed.
+   - **A long wait leaves the turn.** If `comfy_install`, `comfy_validate`, `comfy_inventory`
+     or `comfy_node_install` is still working after about twenty seconds, the runtime takes it
+     off the turn and answers "continues in the background as job jN". That is not a failure
+     and not a reason to call again — the same call is refused as already running. Its result
+     arrives in this conversation as a message beginning `[background job]`; until then do
+     anything useful that does not need it, and if nothing does, END YOUR TURN with one line
+     naming what is being waited on. The user can talk to you meanwhile — answer them. A job
+     the user stopped, or one lost in a restart, says so in the same way; call again only if
+     the result is still needed.
    - **A missing custom NODE PACK is yours to install too** — `comfy_node_install` (registry id,
      title or GitHub URL) installs it through ComfyUI-Manager, restarts ComfyUI and returns once
      the instance answers again; then `comfy_node_spec` the class to confirm it loaded.
      Node packs are code, so name the pack and why in one line before installing it. Never hand a
      pack install back to the user: "install these custom nodes and tell me done" is a punt.
    - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**
-   - The workflow file does not change in this phase. If Manager's catalog refuses an uncataloged
-     file and names alternatives, that is Phase 1 information — go back, re-research, and emit a
-     design the docs endorse; never graft a substitute into the existing graph.
+   - **Backend choice is automatic inside `comfy_install`, not another tool to choose.**
+     Catalogued models use Manager. An uncatalogued public Hugging Face `.safetensors` file
+     downloads directly on the owned GPU using its authenticated provisioning portal. Supply
+     the exact `/resolve/` URL and matching filename. Model bytes never pass through the
+     runtime or browser. Do not downgrade the design just because Manager's catalogue is old,
+     and never weaken Manager security. Gated/private files need a supported authenticated
+     source; this direct path does not bypass source permissions.
+   - Progress names the file and backend. A refusal/failure is an ERROR, not "still installing".
+     Only the final loadability check confirms installation; queued, background and cancelled
+     are not success. If it fails, use that error to fix the source/permissions/disk or report
+     the exact blocker. Previously accepted GPU downloads may continue after a partial failure.
 
 ### Phase 4 — TEST. Runnable is not tested; only judged output is tested.
 

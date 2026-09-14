@@ -75,8 +75,10 @@ permissions:
   id-token: write # OIDC to AWS — no long-lived keys stored in GitHub
   contents: read
 
-env:
-  AWS_REGION: ap-northeast-1
+# AWS_REGION is NOT a workflow-level literal any more: this workflow takes `environment` as an
+# input, and production lives in ap-south-1 while dev and staging are in ap-northeast-1. A fixed
+# value here published to whichever registry happened to share the name in the wrong region --
+# or, more likely, failed to find one at all. Resolved per run in the step below.
 
 jobs:
   publish:
@@ -87,6 +89,12 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
+
+      # One source for which region an environment lives in, shared with the deploy scripts.
+      # It refuses an environment it does not know rather than defaulting to one.
+      - name: Resolve region for this environment
+        run: |
+          echo "AWS_REGION=$(bash v2/deploy/scripts/region_for_environment.sh '${{ inputs.environment }}')" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:

@@ -212,7 +212,24 @@ class MicrovmPluginSandbox:
         fetcher = SandboxFetchBroker(self._config, plugin_id=plugin_id, tool_name=tool_name,
                                      grant=grant,
                                      declared_secrets=self._secrets.get((plugin_id, tool_name), ()))
-        serve_task = asyncio.create_task(self._serve_slots(slots, broker, fetcher))
+        # LIVE PROGRESS. The executor forwards every `update` line the tool writes through the
+        # broker channel the moment it appears, and `_serve_slots` hands it to on_update right
+        # then — the window sees "waiting for Manager, 0/1 done, 4m" WHILE the tool waits. The
+        # lines used to travel back with the final answer: twenty of them at once, the moment
+        # the call ended, and nothing at all for the ten minutes before. Counted, so the
+        # end-of-call replay below runs only for an executor that streamed nothing.
+        streamed = 0
+
+        def _relay(update) -> None:
+            nonlocal streamed
+            streamed += 1
+            if on_update is not None:
+                try:
+                    on_update(update)
+                except Exception:  # noqa: BLE001 — a UI callback must not kill the run
+                    pass
+
+        serve_task = asyncio.create_task(self._serve_slots(slots, broker, fetcher, _relay))
         try:
             run_params = {
                 "op": "run",
@@ -233,12 +250,11 @@ class MicrovmPluginSandbox:
             except (asyncio.CancelledError, Exception):  # noqa: BLE001 — teardown must not mask the answer
                 pass
 
-        for upd in answer.get("updates") or []:
-            if on_update is not None:
-                try:
-                    on_update(protocol.payload_result(upd))
-                except Exception:  # noqa: BLE001 — a UI callback must not kill the run
-                    pass
+        if not streamed:
+            # An executor without the live relay (an older Lambda) hands the lines back with
+            # the answer: delivered late rather than not at all.
+            for upd in answer.get("updates") or []:
+                _relay(protocol.payload_result(upd))
         if answer.get("stderr_tail", "").strip():
             self._log_child_output(plugin_id, tool_name, answer["stderr_tail"])
 
@@ -374,9 +390,10 @@ class MicrovmPluginSandbox:
                 )
                 r.raise_for_status()
 
-    async def _serve_slots(self, slots: dict, broker, fetcher) -> None:
+    async def _serve_slots(self, slots: dict, broker, fetcher, relay=None) -> None:
         """The daemon's half of the broker channel: poll req-N, serve, PUT res-N. Sequential —
-        one outstanding brokered call at a time, matching the executor's own pump."""
+        one outstanding brokered call at a time, matching the executor's own pump. `relay`
+        receives the tool's progress lines (`update` frames) as they arrive."""
         import httpx
 
         req_urls = list(slots.get("broker_req_urls") or [])
@@ -396,7 +413,7 @@ class MicrovmPluginSandbox:
                     frame = json.loads(r.text)
                 except ValueError:
                     frame = {}
-                answer = await self._serve_frame(frame, broker, fetcher)
+                answer = await self._serve_frame(frame, broker, fetcher, relay)
                 try:
                     put = await client.put(res_urls[n], content=json.dumps(answer).encode("utf-8"))
                     put.raise_for_status()
@@ -404,8 +421,14 @@ class MicrovmPluginSandbox:
                     log.warning("microvm: could not deliver broker answer %d", n)
                 n += 1
 
-    async def _serve_frame(self, frame: dict, broker, fetcher) -> dict:
+    async def _serve_frame(self, frame: dict, broker, fetcher, relay=None) -> dict:
         kind = frame.get("t")
+        if kind == "update":
+            # A progress line, live (see run_tool's _relay). Acknowledged so the executor's
+            # pump moves on; there is nothing to serve.
+            if relay is not None:
+                relay(protocol.payload_result(frame))
+            return {"t": "update_ack", "id": str(frame.get("id") or "")}
         try:
             if kind == "model_request":
                 return await broker.serve(frame)

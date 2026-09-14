@@ -26,6 +26,7 @@ import base64
 import json
 import mimetypes
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -154,10 +155,9 @@ async def _collect_turn(stream, session_key: str, turn: int, writer: TraceWriter
     (e2e_run), the CALLER's run has its own silence watchdog, and a child quietly rendering for
     twenty minutes must not read as the parent having wedged. Tool starts always report; between
     them, any child activity reports at most once per interval."""
-    import time
-
     last_beat = time.monotonic()
     tool_calls = 0
+    pending_jobs = set()
     while True:
         ev = await stream.next(idle_timeout)
         if ev is None:
@@ -172,7 +172,19 @@ async def _collect_turn(stream, session_key: str, turn: int, writer: TraceWriter
             elif time.monotonic() - last_beat >= 60:
                 progress(f"turn {turn + 1}: still running ({tool_calls} tool call(s) so far)")
                 last_beat = time.monotonic()
+        if et == "job_start":
+            pending_jobs.add(str(ev.get("jobId") or ""))
+        elif et == "job_end":
+            pending_jobs.discard(str(ev.get("jobId") or ""))
+            if ev.get("state") in ("cancelled", "lost"):
+                return False
+            # Do not finish here: job delivery wakes the agent, which must consume the
+            # result and complete the user's task (or explain the failure) before we stop.
         if et == "agent_end":
+            if (ev.get("stopReason") or ev.get("stop_reason")) in ("aborted", "cancelled", "error"):
+                return False
+            if pending_jobs:
+                continue
             return True
 
 

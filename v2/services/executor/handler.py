@@ -52,9 +52,17 @@ from pathlib import Path
 SCRATCH_BUCKET = os.environ.get("EXECUTOR_SCRATCH_BUCKET", "")
 INTERNAL_KEY = os.environ.get("EXECUTOR_INTERNAL_KEY", "")
 
-#: Broker slots minted per job. Sequential, one per brokered call; a tool that legitimately makes
-#: more calls than this in ONE invocation is doing something the grant should have refused.
-SLOT_COUNT = 128
+#: Broker slots minted per job. Sequential, one per brokered call — and one per progress line
+#: the tool reports (see _pump_worker): a fourteen-minute hold polling every 5-15 s with a
+#: notice every 30 s needs ~120; a tool that legitimately makes more calls than this in ONE
+#: invocation is doing something the grant should have refused.
+SLOT_COUNT = 256
+#: Slots kept back for the tool's own requests: a progress line is not forwarded once fewer than
+#: this remain, so reporting can never starve the call that matters.
+UPDATE_SLOT_RESERVE = 16
+#: How long a forwarded progress line waits for the daemon's acknowledgement. Best-effort: a
+#: daemon that does not answer (older, or busy) costs the line, never the call.
+UPDATE_ACK_S = 20.0
 
 #: How long a presigned URL lives. Generous: the whole job must fit inside it.
 URL_TTL_S = 1800
@@ -409,6 +417,19 @@ def _pump_worker(job: dict, params: dict, timeout: float, cwd: str) -> tuple[lis
                     proc.stdin.flush()
                 except (BrokenPipeError, OSError):
                     break
+            elif kind == "update":
+                # LIVE PROGRESS. A line the tool reports goes to the daemon NOW, through the
+                # same channel its requests use, instead of waiting in `frames` for the answer
+                # — which is the difference between a window that says "waiting for Manager,
+                # 0/1 done, 4m" and one that says nothing for ten minutes. Kept in `frames`
+                # too: an older daemon ignores the live frame and replays these at the end.
+                # The clock pauses for the round trip, as it does for any brokered call.
+                frames.append(frame)
+                if slot < SLOT_COUNT - UPDATE_SLOT_RESERVE:
+                    pause_at = time.monotonic()
+                    _broker_roundtrip(params, slot, frame, deadline_s=UPDATE_ACK_S)
+                    paused_total += time.monotonic() - pause_at
+                    slot += 1
             else:
                 frames.append(frame)
                 if kind == "result":

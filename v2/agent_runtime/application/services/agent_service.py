@@ -539,6 +539,7 @@ class AgentService:
         agent_id: str | None = None,
         attachments: list[Artifact] | None = None,
         interjections: list | None = None,
+        background_jobs=None,
     ) -> None:
         """Run one turn end to end for the resolved agent.
 
@@ -546,6 +547,10 @@ class AgentService:
         this turn is live (chat.send during a run). The engine drains it after each tool batch
         and before the turn ends; it is the caller's list, so what the transport appends after
         a drain is picked up by the next one.
+
+        ``background_jobs`` is the session's BackgroundJobs registry: a long tool call still
+        running after the engine's grace period is adopted there instead of holding this turn.
+        The transport owns it (it outlives the turn) and delivers each result back.
 
         ``mode`` is the run mode (interactive | heartbeat | cron). ``agent_id`` is an
         EXPLICIT agent selection from a client (it wins); when absent, the agent is
@@ -702,6 +707,7 @@ class AgentService:
             model=run_model,  # per-agent override (None = the engine default)
             model_router=run_router,  # ...and the router that would otherwise overwrite it
             get_interjections=take_interjections,
+            background_jobs=background_jobs,
         )
         # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
         # calling report_outcome (common: it did the work but skipped the bookkeeping), force

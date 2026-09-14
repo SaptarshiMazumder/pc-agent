@@ -123,6 +123,18 @@ def build_vast_router(
         alive, row = service.heartbeat(account, float(payload.get("lease_seconds") or 0.0))
         return {"alive": alive, **_view(row)}
 
+    @router.post("/vast/download-connection")
+    def download_connection(
+        payload: dict = Body(default={}),
+        x_internal_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict:
+        account = _caller(x_internal_key, authorization, _claimed(payload))
+        try:
+            return service.download_connection(account)
+        except VastError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+
     @router.post("/vast/idle")
     def idle(
         payload: dict = Body(default={}),

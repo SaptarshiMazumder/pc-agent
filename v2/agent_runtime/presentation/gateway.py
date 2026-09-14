@@ -34,10 +34,12 @@ from agent_runtime.application.interfaces.image_thumbnail_generator import (
 )
 from agent_runtime.application.run_context import (
     current_run_context,
+    current_workspace,
     set_trace_ids,
     take_run_outcome,
 )
 from agent_runtime.application.services.agent_service import AgentService
+from agent_runtime.application.services.background_job_registry import BackgroundJobRegistry
 from agent_runtime.application.services.image_thumbnail_service import (
     ImageThumbnailNotFoundError,
     ImageThumbnailService,
@@ -55,13 +57,23 @@ from agent_runtime.domain.agent import (
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.reserved_hosts import is_reserved_host_label
 from agent_runtime.domain.events import AgentEvent
-from agent_runtime.domain.messages import Artifact, artifact_to_dict
+from agent_runtime.domain.messages import Artifact, UserMessage, artifact_to_dict
 from agent_runtime.domain.notify import Notification
 from agent_runtime.infrastructure import account_config, accounts, telemetry, user_state
 from agent_runtime.infrastructure.env_file import EnvFile
-from agent_runtime.infrastructure.files import guess_mime, is_under_roots, save_upload
+from agent_runtime.infrastructure.files import (
+    guess_mime,
+    is_under_roots,
+    resolve_artifacts,
+    save_upload,
+)
 from agent_runtime.infrastructure.llm import model_proxy
-from agent_runtime.infrastructure.memory.local_store import list_sessions
+from agent_runtime.infrastructure.memory.local_store import (
+    SessionStore,
+    list_sessions,
+    read_session_meta,
+    write_session_meta,
+)
 from agent_runtime.presentation.protocol import (
     Event,
     ProtocolError,
@@ -97,6 +109,7 @@ APP_SCOPED_METHODS = frozenset(
         "chat.send",
         "chat.abort",
         "chat.status",
+        "jobs.cancel",
         "sessions.list",
         "sessions.history",
         "sessions.rename",
@@ -408,7 +421,7 @@ class RunHandle:
     #                                         relayed (compactly) to the parent's view
     parent_run_id: str | None = None  # SUB-AGENT: the run that spawned this one. Without it a
     #                                   delegated run's cost looks like it came from nowhere.
-    trigger: str = "chat"  # chat | cron | heartbeat | channel | webhook | app | subagent.
+    trigger: str = "chat"  # chat | cron | heartbeat | channel | webhook | app | subagent | job.
     #                        Most runs do NOT start at a chat box, and unattended ones (cron)
     #                        carry the highest cost risk — so they need their own dimension.
     task: asyncio.Task | None = None
@@ -425,6 +438,12 @@ class RunHandle:
     #: "all reference slots are filled" announcement had to wait for the run to end and then
     #: start a new one — and a Stop ended the run, so pressing Stop sent it.
     interjections: list = field(default_factory=list)
+    #: THE SESSION'S BACKGROUND JOBS (application/interfaces/background_jobs.py) — where the
+    #: engine puts a long tool call that is still running after its grace period, so the turn
+    #: goes on instead of waiting with it. Owned by the session (see Gateway.jobs), not by this
+    #: run: a job outlives the turn that started it, and its result is delivered by
+    #: `_on_job_change` into whatever turn is live then, or as a new one.
+    background_jobs: object | None = None
     #: When this run last produced an event, on the monotonic clock. The silence watchdog reads
     #: it; `on_event` writes it. 0.0 until the run starts.
     last_event_at: float = 0.0
@@ -436,6 +455,22 @@ class RunHandle:
     cron_run_id: str | None = None  # set for cron runs -> recorded in the run history
     cron_task_id: str | None = None  # the cron job's id (for failure-alert escalation, S14)
     cron_failure_alert: int = 0  # auto-pause + alert after N consecutive failures (0=off)
+
+
+@dataclass
+class SessionJobs:
+    """One session's background-job registry and who it acts for.
+
+    The registry is the engine's port; the three names beside it are what the gateway needs to
+    put a finished job's result back into the conversation when no turn is live: which agent
+    answers, whose account the turn bills to, and where the session's sidecar lives (for the
+    record of jobs in flight that survives a restart — see _reconcile_lost_jobs)."""
+
+    registry: BackgroundJobRegistry
+    agent_id: str | None
+    account: dict | None
+    client_id: str | None
+    state_dir: Path
 
 
 def subagent_relay(child_session_key: str, event: AgentEvent) -> AgentEvent | None:
@@ -1156,6 +1191,7 @@ class Gateway:
     # global in-flight cap for public tools.invoke (created lazily on the running loop)
     _public_invoke_sem: object | None = None
     runs: dict[str, RunHandle] = field(default_factory=dict)  # session_key -> handle
+    jobs: dict[str, SessionJobs] = field(default_factory=dict)  # session_key -> its jobs
     idempotency: dict[str, str] = field(default_factory=dict)  # key -> run_id
     # IN-PROCESS event taps: session_key -> [asyncio.Queue]. How a caller INSIDE the daemon (the
     # e2e_run plugin tool, via InProcessGatewayClient) observes a run's chat.events without a
@@ -3129,6 +3165,8 @@ class Gateway:
                 payload = await self._chat_abort(req.params)
             elif req.method == "chat.status":
                 payload = await self._chat_status(req.params)
+            elif req.method == "jobs.cancel":
+                payload = self._jobs_cancel(req.params)
             elif req.method == "hello":
                 payload = self._hello(req.params)
             elif req.method == "config.get":
@@ -3331,14 +3369,14 @@ class Gateway:
                         continue  # internal (sub-agent/cron/agent-msg): hide
                     if project_id and (s.get("projectId") or "") != project_id:
                         continue
-                    rows.append({**s, "agentId": aid, "running": self._session_running(s)})
+                    rows.append({**s, "agentId": aid, "running": self._session_running(s), "jobs": self._session_jobs(s)})
             rows.sort(key=lambda r: r.get("modified") or 0, reverse=True)
             return {"sessions": rows, "agentId": "", "all": want_all, "projectId": project_id}
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         # Internal agent-to-agent / cron threads (on-disk `agent_…` stems) are never human
         # chats — hide them here too, so a per-agent session picker matches the cross-agent lists.
         rows = [
-            {**s, "agentId": agent_id, "running": self._session_running(s)}
+            {**s, "agentId": agent_id, "running": self._session_running(s), "jobs": self._session_jobs(s)}
             for s in list_sessions(state_dir)
             if not str(s.get("sessionId", "")).startswith("agent_")
         ]
@@ -3394,6 +3432,8 @@ class Gateway:
             return {"ok": False, "error": "session has an active run — /abort it first"}
         from agent_runtime.infrastructure.memory.local_store import delete_session
 
+        self._cancel_jobs(session_key)  # a deleted chat has nothing to deliver a result into
+        self.jobs.pop(session_key, None)
         deleted = delete_session(state_dir, session_key)
         self.runs.pop(session_key, None)  # forget any finished handle
         await self._send_all(
@@ -6801,13 +6841,18 @@ class Gateway:
         run_id = str(params.get("traceId") or "").strip()[:64] or uuid.uuid4().hex
         if idem:
             self.idempotency[idem] = run_id
-        handle = RunHandle(
-            run_id=run_id, session_key=session_key, abort=asyncio.Event(), client_id=client_id
+        jobs = self._jobs_for(session_key, agent_id, account, client_id)
+        await self._reconcile_lost_jobs(session_key, jobs)
+        self._start_run(
+            session_key,
+            message,
+            run_id=run_id,
+            agent_id=agent_id,
+            attachments=attachments,
+            account=account,
+            client_id=client_id,
+            jobs=jobs,
         )
-        handle.task = asyncio.create_task(
-            self._run(handle, message, agent_id=agent_id, attachments=attachments, account=account)
-        )
-        self.runs[session_key] = handle
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
 
     def _save_uploads(
@@ -6870,6 +6915,244 @@ class Gateway:
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a send
                 pass
         return self._resolve_workspace(agent_id)
+
+    # ------------------------------------------------------------ background jobs
+    #
+    # A long tool call that is still running after the engine's grace period leaves the turn
+    # (engine/native.py `_run_or_detach`) and lives here, per session, until it ends. This half
+    # is the TRANSPORT's: it tells the session's windows what the jobs are doing, puts a finished
+    # job's result back into the conversation, and decides what Stop, delete and a daemon restart
+    # mean for a job. The engine never learns any of that.
+
+    def _jobs_for(
+        self, session_key: str, agent_id: str | None, account: dict | None, client_id: str | None
+    ) -> SessionJobs:
+        """The session's registry, created on first use. Every send refreshes who it acts for,
+        so a result that lands an hour later is delivered as the person who last spoke."""
+        ctx = self.jobs.get(session_key)
+        if ctx is None:
+            _, state_dir = self._resolve_state_dir(
+                (agent_id or "").strip() or self._agent_for_key(session_key, None)
+            )
+            ctx = SessionJobs(
+                registry=BackgroundJobRegistry(
+                    session_key, lambda job, kind: self._on_job_change(session_key, job, kind)
+                ),
+                agent_id=agent_id,
+                account=account,
+                client_id=client_id,
+                state_dir=Path(state_dir),
+            )
+            self.jobs[session_key] = ctx
+        else:
+            ctx.agent_id = agent_id or ctx.agent_id
+            ctx.account = account or ctx.account
+            ctx.client_id = client_id or ctx.client_id
+        return ctx
+
+    def _cancel_jobs(self, session_key: str) -> int:
+        ctx = self.jobs.get(session_key)
+        return ctx.registry.cancel_all() if ctx is not None else 0
+
+    def _job_snapshot(self, session_key: str) -> list[dict]:
+        ctx = self.jobs.get(session_key)
+        return ctx.registry.snapshot() if ctx is not None else []
+
+    def _session_jobs(self, row: dict) -> int:
+        """How many jobs are waiting on this session — the rail's counterpart of `running`."""
+        ctx = self.jobs.get(str(row.get("sessionId") or ""))
+        return len(ctx.registry.jobs()) if ctx is not None else 0
+
+    def _jobs_cancel(self, params: dict) -> dict:
+        """Stop ONE background job (the strip's Cancel). The turn, if any, is untouched."""
+        session_key = str(params.get("sessionKey") or "default")
+        job_id = str(params.get("jobId") or "")
+        ctx = self.jobs.get(session_key)
+        cancelled = ctx is not None and bool(job_id) and ctx.registry.cancel(job_id)
+        return {"cancelled": cancelled, "jobId": job_id}
+
+    def _start_run(
+        self,
+        session_key: str,
+        message: str,
+        *,
+        run_id: str | None = None,
+        agent_id: str | None,
+        attachments: list[Artifact],
+        account: dict | None,
+        client_id: str | None,
+        jobs: SessionJobs,
+        trigger: str = "chat",
+    ) -> RunHandle:
+        """Start a turn on a session — the one place a RunHandle is made for a chat, whether the
+        person sent the message (chat.send) or a background job's result is being delivered."""
+        run_id = run_id or uuid.uuid4().hex
+        handle = RunHandle(
+            run_id=run_id,
+            session_key=session_key,
+            abort=asyncio.Event(),
+            client_id=client_id,
+            trigger=trigger,
+            background_jobs=jobs.registry,
+        )
+        handle.task = asyncio.create_task(
+            self._run(handle, message, agent_id=agent_id, attachments=attachments, account=account)
+        )
+        self.runs[session_key] = handle
+        return handle
+
+    async def _on_job_change(self, session_key: str, job, kind: str) -> None:
+        """The registry's one listener: start / progress / done / cancelled.
+
+        Runs in the job's own task context — the run that started it — so the run id, the
+        account and the workspace are that run's. Every change reaches the session's windows
+        as a chat.event (`job_start`, `job_progress`, `job_end`); `done` is also delivered into
+        the conversation (see _deliver_job_result)."""
+        ctx = self.jobs.get(session_key)
+        agent_id = ctx.agent_id if ctx is not None else None
+        run_id = str(telemetry.get().get("run_id") or "")
+        base = {"jobId": job.id, "toolName": job.tool, "toolCallId": job.tool_call_id}
+        if kind == "start":
+            if ctx is not None:
+                self._write_jobs_sidecar(session_key, ctx)
+            await self._broadcast(
+                session_key,
+                run_id,
+                AgentEvent("job_start", {**base, "startedAt": job.started_at, "text": job.last_progress}),
+                agent_id,
+            )
+            return
+        if kind == "progress":
+            await self._broadcast(
+                session_key,
+                run_id,
+                AgentEvent("job_progress", {**base, "text": job.last_progress, "elapsed": round(job.elapsed_s())}),
+                agent_id,
+            )
+            return
+        if ctx is not None:
+            self._write_jobs_sidecar(session_key, ctx)
+        result = job.result
+        first_line = ""
+        if result is not None:
+            text = "".join(getattr(b, "text", "") for b in (result.content or []))
+            first_line = (text.strip().splitlines() or [""])[0][:200]
+        await self._broadcast(
+            session_key,
+            run_id,
+            AgentEvent(
+                "job_end",
+                {
+                    **base,
+                    "state": kind,  # done | cancelled
+                    "isError": bool(result is not None and result.is_error),
+                    "text": first_line,
+                    "elapsed": round(job.elapsed_s()),
+                },
+            ),
+            agent_id,
+        )
+        telemetry.count("background_job_total", outcome=kind, _props={"tool": job.tool})
+        if ctx is None:
+            return
+        if kind == "done":
+            await self._deliver_job_result(session_key, ctx, job)
+        else:
+            # The person stopped it. No turn is started for that (they just said stop), but the
+            # transcript says so, or the next turn would wait for a result that never comes.
+            self._note_in_transcript(session_key, ctx, ctx.registry.cancelled_text(job))
+
+    async def _deliver_job_result(self, session_key: str, ctx: SessionJobs, job) -> None:
+        """A finished job's result goes back into the conversation as a runtime-written message.
+
+        A LIVE TURN TAKES IT THROUGH THE INBOX (RunHandle.interjections) — the engine persists it
+        after its current tool batch or before it ends, the first moment it can be acted on. An
+        idle chat gets a new turn that starts with it. Either way the model reads the same words
+        (BackgroundJobs.delivery_text) and picks up where the wait left off; the person can have
+        been talking the whole time."""
+        text = ctx.registry.delivery_text(job)
+        declared = [
+            Artifact(**info)
+            for info in resolve_artifacts(
+                getattr(job.result, "artifacts", None), base=current_workspace() or None
+            )
+        ]
+        existing = self.runs.get(session_key)
+        live = (
+            existing is not None
+            and existing.task is not None
+            and not existing.task.done()
+            and not existing.ended
+        )
+        if live:
+            existing.interjections.append(UserMessage(content=text, attachments=declared))
+            telemetry.count("background_job_delivered_total", how="inbox")
+            return
+        telemetry.count("background_job_delivered_total", how="turn")
+        self._start_run(
+            session_key,
+            text,
+            agent_id=ctx.agent_id,
+            attachments=declared,
+            account=ctx.account,
+            client_id=None,  # the daemon's own turn: no window started it, none is reaped for it
+            jobs=ctx,
+            trigger="job",
+        )
+
+    def _note_in_transcript(self, session_key: str, ctx: SessionJobs, note: str) -> None:
+        """A runtime-written line in the session's transcript, with NO turn started for it: what
+        the next turn's model reads about a job that ended without a result (cancelled, lost).
+        It begins with BACKGROUND_JOB_PREFIX, so the engine knows it is not the person."""
+        try:
+            store = SessionStore(ctx.state_dir, session_key)
+            store.load()  # take the chain's tail, so the note links after the last message
+            store.append(UserMessage(content=note))
+        except (OSError, ValueError):
+            log.exception("background jobs: could not note %r on %s", note[:60], session_key)
+
+    def _write_jobs_sidecar(self, session_key: str, ctx: SessionJobs) -> None:
+        """The jobs in flight, on the session's sidecar — so a daemon that restarts can say which
+        ones it lost (see _reconcile_lost_jobs). Best-effort: a sidecar that cannot be written
+        costs the loss note, never the job."""
+        try:
+            write_session_meta(
+                ctx.state_dir,
+                session_key,
+                backgroundJobs=[
+                    {"id": j.id, "tool": j.tool, "startedAt": j.started_at}
+                    for j in ctx.registry.jobs()
+                ],
+            )
+        except OSError:
+            log.warning("background jobs: could not record %s's jobs on its sidecar", session_key)
+
+    async def _reconcile_lost_jobs(self, session_key: str, ctx: SessionJobs) -> None:
+        """Jobs the sidecar lists that no registry holds died with a daemon (a redeploy mid-wait).
+        Said ONCE, at the next send: a runtime message in the transcript so the model knows the
+        result is never coming, and a `job_end(lost)` so the window says so too."""
+        recorded = read_session_meta(ctx.state_dir, session_key).get("backgroundJobs") or []
+        live = {j.id for j in ctx.registry.jobs()}
+        lost = [r for r in recorded if isinstance(r, dict) and r.get("id") not in live]
+        if not lost:
+            return
+        for r in lost:
+            tool = str(r.get("tool") or "a tool")
+            job_id = str(r.get("id") or "?")
+            note = ctx.registry.lost_text(tool, job_id)
+            self._note_in_transcript(session_key, ctx, note)
+            await self._broadcast(
+                session_key,
+                "",
+                AgentEvent(
+                    "job_end",
+                    {"jobId": job_id, "toolName": tool, "toolCallId": "", "state": "lost",
+                     "isError": True, "text": note, "elapsed": 0},
+                ),
+                ctx.agent_id,
+            )
+            log.warning("background job %s/%s (%s) was lost in a restart", session_key, job_id, tool)
+        self._write_jobs_sidecar(session_key, ctx)  # the live set — the lost ones drop out
 
     def _abort_handle(self, handle: RunHandle) -> bool:
         """Signal a run to stop: set its abort flag (cooperative — the loop/tools
@@ -6992,6 +7275,9 @@ class Gateway:
         return {
             "running": running,
             "runId": handle.run_id if handle is not None and running else "",
+            # THE JOBS STILL WAITING, for a window that just (re)connected and has no memory of
+            # them — the same reason `running` is here.
+            "jobs": self._job_snapshot(session_key),
         }
 
     async def _run_watched(self, handle: RunHandle, coro) -> None:
@@ -7055,8 +7341,16 @@ class Gateway:
         """
         session_key = params.get("sessionKey") or "default"
         handle = self.runs.get(session_key)
+        # STOP KILLS EVERYTHING IN THIS CHAT: the turn, and every background job waiting on its
+        # behalf. The person's decision, taken deliberately — with jobs there is no longer any
+        # reason to press Stop just to be heard, so Stop is the one control that means "stop".
+        # (The detach reaper and the silence watchdog cancel the TURN only; a job keeps waiting
+        # for a window to come back to.)
+        stopped_jobs = self._cancel_jobs(session_key)
         if handle is not None and self._abort_handle(handle):
-            return {"aborted": True, "runId": handle.run_id}
+            return {"aborted": True, "runId": handle.run_id, "jobs": stopped_jobs}
+        if stopped_jobs:
+            return {"aborted": True, "runId": "", "jobs": stopped_jobs}
 
         # Nothing live to cancel. Tell whoever is watching that this session is not running, so a
         # window still showing "running" stops.
@@ -7168,6 +7462,7 @@ class Gateway:
                     agent_id=agent_id,
                     attachments=attachments,
                     interjections=handle.interjections,
+                    background_jobs=handle.background_jobs,
                 ),
             )
         except TimeoutError:

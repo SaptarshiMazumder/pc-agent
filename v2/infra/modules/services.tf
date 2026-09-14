@@ -147,6 +147,29 @@ locals {
       # https may not open a ws:// socket.
       AGENTD_PUBLIC_WS_URL          = local.public_host == "" ? "" : "${local.tls_enabled ? "wss" : "ws"}://${local.public_host}:${local.services["daemon"].port}"
       AGENTD_PUBLIC_MODEL_PROXY_URL = local.public_host == "" ? "" : "${local.url_scheme}://${local.public_host}:${local.services["model-proxy"].port}"
+      # ── SIGN IN WITH GOOGLE (identity/infrastructure/oidc_provider.py) ──
+      #
+      # HERE RATHER THAN IN THE SERVICES DEFAULT, because these read variables and Terraform
+      # forbids `var.` inside a variable's default. This map is merged over each service's own
+      # env at task-definition time, which is the same seam the public URLs above use.
+      #
+      # NAMING A PROVIDER IS THE ONLY SWITCH. Empty (the default) builds no adapter, advertises
+      # nothing in the discovery document, and every sign-in card in the product renders the
+      # password form exactly as before — so this is inert until the Google client actually
+      # exists. The client id/secret arrive separately, as secrets.
+      AGENTD_OIDC_PROVIDERS = var.oidc_providers
+      # Discovery, not endpoints: Google publishes its authorization/token/JWKS addresses behind
+      # this one URL and rotates them there, so nothing here ages.
+      AGENTD_OIDC_GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
+      # WHERE GOOGLE SENDS THE BROWSER BACK, and it is checked AGAIN at the token exchange. It has
+      # to match an Authorized redirect URI on the Google client character for character — a
+      # mismatch here is `redirect_uri_mismatch`, which is the usual reason a flow works on a
+      # laptop and fails in staging. Defaults to the web client's own origin, because the clients
+      # compute their redirect from the page they are served at and the sign-in card is also the
+      # page Google returns to.
+      AGENTD_OIDC_GOOGLE_REDIRECT_URI = (
+        var.oidc_google_redirect_uri != "" ? var.oidc_google_redirect_uri : local.app_origin
+      )
 
       # ── the admin control plane (accounts/admin_api.py) ──
       #

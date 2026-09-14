@@ -598,6 +598,96 @@ function fromPage(options = {}) {
 }
 
 // src/auth.ts
+var FLOW_KEY = "agentd.oauth.flow";
+function stashFlow(flow) {
+  try {
+    sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+  } catch {
+  }
+}
+function takeFlow() {
+  try {
+    const raw = sessionStorage.getItem(FLOW_KEY);
+    sessionStorage.removeItem(FLOW_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+async function accountsBase(opts) {
+  const base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
+  if (!base) throw new Error("this deployment has no accounts service to sign in to");
+  return base;
+}
+async function authProviders(opts = {}) {
+  let base;
+  try {
+    base = await accountsBase(opts);
+  } catch {
+    return [];
+  }
+  try {
+    const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: "no-store" });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return Array.isArray(d.providers) ? d.providers : [];
+  } catch {
+    return [];
+  }
+}
+async function authAuthorize(args, opts = {}) {
+  const base = await accountsBase(opts);
+  const r = await fetch(`${base}/auth/authorize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: args.provider, redirect_uri: args.redirectUri })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.authorization_url || !d.state) {
+    throw new Error(String(d.detail || `could not start sign-in (HTTP ${r.status})`));
+  }
+  stashFlow({
+    provider: args.provider,
+    state: d.state,
+    verifier: String(d.code_verifier || ""),
+    redirectUri: args.redirectUri
+  });
+  return d.authorization_url;
+}
+function oauthCallbackParams(href) {
+  try {
+    const u = new URL(href || location.href);
+    const code = u.searchParams.get("code") || "";
+    const state = u.searchParams.get("state") || "";
+    return code && state ? { code, state } : null;
+  } catch {
+    return null;
+  }
+}
+async function authCallback(args, opts = {}) {
+  const flow = takeFlow();
+  if (!flow || flow.state !== args.state) {
+    throw new Error("this sign-in did not start in this tab \u2014 press the button again");
+  }
+  const base = await accountsBase(opts);
+  const r = await fetch(`${base}/auth/callback`, {
+    method: "POST",
+    credentials: "include",
+    // the Set-Cookie is the session
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code: args.code,
+      state: args.state,
+      code_verifier: flow.verifier || void 0,
+      cookie: true,
+      client_id: "agentd-web"
+    })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
+  forgetIdentityCache();
+  return authStatus(opts);
+}
 async function authStatus(opts = {}) {
   const status = await platformStatus(opts);
   const canUseCloud = !!status.canUseCloud;
@@ -1009,8 +1099,11 @@ export {
   accessTokenAccount,
   accessTokenExpiry,
   accountsUrl,
+  authAuthorize,
+  authCallback,
   authLogin,
   authLogout,
+  authProviders,
   authStatus,
   authUrl,
   billing,
@@ -1031,6 +1124,7 @@ export {
   loadSession,
   mintInvite,
   notifyCreditsChanged,
+  oauthCallbackParams,
   onCreditsChanged,
   onIdentityChanged,
   platformStatus,

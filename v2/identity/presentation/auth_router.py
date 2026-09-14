@@ -314,7 +314,7 @@ def build_auth_router(
         return out
 
     @router.post("/callback")
-    def callback(request: Request, payload: dict = Body(...)) -> dict:
+    def callback(request: Request, response: Response, payload: dict = Body(...)) -> dict:
         _guard(request)
         try:
             flow = flows.consume(str(payload.get("state") or ""))
@@ -346,6 +346,12 @@ def build_auth_router(
                 )
         except AccountDisabled as e:
             raise HTTPException(status_code=403, detail=str(e)) from e
+        # COOKIE MODE REACHES HERE TOO. `/login` and `/register` have always honoured it and this
+        # route did not, so a browser signing in with Google got its refresh token in the response
+        # BODY — readable by any script on the page — while the same browser signing in with a
+        # password got an HttpOnly cookie. One session mechanism, whichever door was used.
+        if payload.get("cookie"):
+            return _cookie_answer(request, response, pair)
         return pair.as_response()
 
     @router.get("/jwks.json")

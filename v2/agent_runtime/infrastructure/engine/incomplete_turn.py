@@ -12,6 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from agent_runtime.application.interfaces.background_jobs import BACKGROUND_JOB_PREFIX
 from agent_runtime.domain.messages import AssistantMessage, TextContent, ThinkingContent
 
 # --- Verbatim instruction strings (incomplete-turn.ts) -----------------------
@@ -329,6 +330,8 @@ def is_injected_prompt(text: str) -> bool:
     if not s:
         return False
     if s.startswith("[liveness]"):  # steering from a liveness observer
+        return True
+    if s.startswith(BACKGROUND_JOB_PREFIX):  # a background job's result, or its loss
         return True
     if s.startswith(BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX):
         return True

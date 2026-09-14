@@ -24,6 +24,13 @@ const api = {
     headers?: Record<string, string>
   ): Promise<{ status: number; body: Record<string, unknown> }> =>
     ipcRenderer.invoke('auth:request', path, headers),
+  /** "Continue with Google": main opens the system browser, catches the code on a loopback
+   *  listener and hands the session to the daemon. The renderer never sees a credential. */
+  authOAuth: (
+    provider: string,
+    accountsUrl: string
+  ): Promise<{ status: number; body: Record<string, unknown> }> =>
+    ipcRenderer.invoke('auth:oauth', provider, accountsUrl),
   /** stop + respawn the daemon so restart-gated config changes take effect */
   restartDaemon: () => ipcRenderer.invoke('supervisor:restart'),
   onSupervisorStatus: (callback: (status: unknown) => void) => {

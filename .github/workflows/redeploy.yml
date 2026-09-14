@@ -69,11 +69,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ONE SOURCE FOR "WHICH REGION IS THIS ENVIRONMENT IN". Hardcoding ap-northeast-1 here was
+      # harmless while everything lived in Tokyo and became a trap when production moved to
+      # Mumbai: the run would authenticate against the wrong region, find no cluster by that
+      # name, and fail in a way that reads like the environment does not exist. The helper
+      # refuses an environment it does not know rather than defaulting to one.
+      - name: Resolve region for this environment
+        run: |
+          echo "AWS_REGION=$(bash v2/deploy/scripts/region_for_environment.sh '${{ inputs.environment }}')" >> "$GITHUB_ENV"
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ap-northeast-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -84,8 +93,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Redeploy
-        env:
-          AWS_REGION: ap-northeast-1
+        # AWS_REGION comes from GITHUB_ENV, set by the resolve step above.
         run: |
           args=(--from-aws --cache --tag "${GITHUB_SHA}")
           [ "${{ inputs.service }}" != "all" ] && args+=(--only "${{ inputs.service }}")

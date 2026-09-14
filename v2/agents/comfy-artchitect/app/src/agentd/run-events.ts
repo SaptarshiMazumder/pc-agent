@@ -17,7 +17,7 @@
 
 import { closeThinking, resultText, type SubagentItem, type ThreadItem } from './chat'
 import { freshArtifacts, readArtifacts, type Artifact } from './artifacts'
-import { useApp, type AppState, type ChatSession } from '../state/store'
+import { useApp, type AppState, type BackgroundJob, type ChatSession } from '../state/store'
 
 type Setter = (fn: (s: AppState) => Partial<AppState>) => void
 
@@ -56,6 +56,24 @@ function endedWaitingForGpu(items: ThreadItem[]): boolean {
     }
   }
   return false
+}
+
+/** One job as the daemon describes it (a job_start event, or a chat.status snapshot) -> ours.
+ *  The daemon's `startedAt` is epoch SECONDS, like every timestamp it sends. */
+export function jobFromWire(j: any, fallbackMs: number): BackgroundJob {
+  const at = Number(j?.startedAt)
+  return {
+    id: String(j?.jobId || ''),
+    tool: String(j?.toolName || '?'),
+    toolCallId: String(j?.toolCallId || ''),
+    startedAt: Number.isFinite(at) && at > 0 ? at * 1000 : fallbackMs,
+    text: String(j?.text || ''),
+  }
+}
+
+/** A chat.status answer's `jobs` -> the store's list. */
+export function jobsFromStatus(raw: unknown): BackgroundJob[] {
+  return Array.isArray(raw) ? raw.map((j) => jobFromWire(j, Date.now())).filter((j) => j.id) : []
 }
 
 export function handleRunEvent(payload: any): void {
@@ -127,6 +145,52 @@ function fold(
   const on = (fn: (s: ChatSession) => Partial<ChatSession>) => patch(set, key, fn)
 
   switch (ev.type) {
+    /* A TURN THE DAEMON STARTED ITSELF — a background job's result coming back into an idle
+       chat. Nothing in this window sent it, so nothing set `running`; the run's own first event
+       does. For a turn this window sent, `running` is already true and this changes nothing. */
+    case 'agent_start': {
+      on(() => ({ running: true }))
+      return
+    }
+
+    /* A TOOL CALL LEFT THE TURN. Its row in the thread is closed ("continues as job j1"); from
+       here on the strip above the composer is where it lives. Keyed by job id, replacing a
+       stale copy of the same job rather than doubling it. */
+    case 'job_start': {
+      const job = jobFromWire(ev, ts)
+      if (!job.id) return
+      on((s) => ({ jobs: [...s.jobs.filter((j) => j.id !== job.id), job] }))
+      return
+    }
+
+    /* What the job is doing right now — the tool's own line, relayed live from the microVM. */
+    case 'job_progress': {
+      const id = String(ev.jobId || '')
+      const text = String(ev.text || '')
+      on((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, text } : j)) }))
+      return
+    }
+
+    /* THE JOB IS OVER. `done` needs no note here: its result arrives in the conversation as a
+       message the daemon writes, and the model's next words are about it. A job that was
+       stopped, or lost in a daemon restart, ended WITHOUT a result — that is said in the thread,
+       because nothing else will say it. */
+    case 'job_end': {
+      const id = String(ev.jobId || '')
+      const state = String(ev.state || 'done')
+      const tool = String(ev.toolName || 'a tool')
+      on((s) => {
+        const jobs = s.jobs.filter((j) => j.id !== id)
+        if (state === 'done') return { jobs }
+        const text =
+          state === 'lost'
+            ? `${tool} (job ${id}) was lost when the daemon restarted — call it again if you still need it.`
+            : `${tool} (job ${id}) was cancelled.`
+        return { jobs, items: [...s.items, { kind: 'system', tone: 'error', text, ts }] }
+      })
+      return
+    }
+
     /* The daemon measures the context after every assistant message and says so. It is not
        decoration: a conversation that outgrows its model fails silently — the provider returns
        nothing, the retry re-sends, and the user sees "couldn't generate a response" twice with no

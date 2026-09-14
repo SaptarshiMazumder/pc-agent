@@ -133,3 +133,26 @@
 /* The optional-invite marker and the joined notice. Tokens only, like everything here. */
 .signin-optional { font-weight: var(--fw-normal); color: var(--faint); font-size: 11px; }
 .signin-notice { margin-top: 10px; font-size: 12.5px; color: var(--accent-text); }
+
+/* ── external providers ─────────────────────────────────────────────────────────────────
+   One button per provider the server advertises, above the email form. Deliberately styled as a
+   SECONDARY action rather than the primary one: the card must not imply that Google is the only
+   way in on a deployment that still takes passwords. Colours come from the host's tokens, like
+   everything else here — an agent restyles these by editing tokens.css, not this file. */
+.signin-providers { display: flex; flex-direction: column; gap: 8px; }
+.signin-provider {
+  font: inherit; font-size: 14px; font-weight: var(--fw-semi);
+  color: var(--text); background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.signin-provider:hover:not(:disabled) { border-color: var(--accent); }
+.signin-provider:disabled { opacity: .6; cursor: default; }
+/* The rule is drawn by the flanking borders so the word sits IN the line rather than on it. */
+.signin-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 2px; color: var(--faint); font-size: 12px;
+}
+.signin-or::before, .signin-or::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}

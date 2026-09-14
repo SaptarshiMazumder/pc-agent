@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Artchitect"
-version = "1.63.1"
+version = "1.64.1"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design ﾂｷ run ﾂｷ repair ﾂｷ iterate"
 color = "#7C5CFF"
@@ -103,4 +103,3 @@ allow = [
 # which is no longer a question anyone asks here.
 #
 # The rule this enforces lives in AGENTS.md: never ask the user for an API key, for anything.
-

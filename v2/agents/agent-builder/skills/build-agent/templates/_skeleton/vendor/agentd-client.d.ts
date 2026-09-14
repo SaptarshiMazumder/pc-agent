@@ -351,6 +351,61 @@ interface AuthOptions extends DaemonOptions {
     /** Accepted for compatibility; per-window sessions are gone. */
     storageKey?: string;
 }
+/** One way to sign in, as the accounts service advertises it. `kind: "password"` is the email
+ *  form; every other entry is an external provider with a button. */
+interface AuthProvider {
+    id: string;
+    label: string;
+    kind: 'password' | 'oidc' | string;
+}
+/**
+ * Every way to sign in to THIS deployment, from the accounts service's discovery document.
+ *
+ * DATA, NOT A HARDCODED BUTTON. The server decides which providers exist (four environment
+ * variables per provider); this returns what it said, and the sign-in card renders one button per
+ * entry. Adding Microsoft is therefore a server change and zero client releases — the same rule
+ * the codebase already follows for models and tools.
+ *
+ * An empty list is the honest answer for a BYOK build with no accounts service, and callers
+ * render nothing rather than a dead button.
+ */
+declare function authProviders(opts?: AuthOptions): Promise<AuthProvider[]>;
+/**
+ * Start an external sign-in: ask the accounts service for the provider's authorization URL, stash
+ * what proves the round trip is ours, and hand back the URL for the caller to visit.
+ *
+ * IT DOES NOT NAVIGATE. The caller decides how the browser gets there — a web page assigns
+ * `location`, and a desktop shell opens the system browser, because an installed app must never
+ * put the provider's password form inside its own window. One function, both shells.
+ *
+ * `redirectUri` MUST be one the provider has been told about, and it is echoed back to the token
+ * endpoint at exchange time — a mismatch there is the single most common cause of a flow that
+ * works locally and fails in production.
+ */
+declare function authAuthorize(args: {
+    provider: string;
+    redirectUri: string;
+}, opts?: AuthOptions): Promise<string>;
+/** Is this page load the provider sending the browser back? `{code, state}` or null. */
+declare function oauthCallbackParams(href?: string): {
+    code: string;
+    state: string;
+} | null;
+/**
+ * Finish an external sign-in: redeem the code for a session.
+ *
+ * COOKIE MODE, like the password path. The refresh half becomes an HttpOnly Set-Cookie on the
+ * accounts host rather than a value this page holds — which is what `fetchCookieToken` already
+ * reads to renew, so nothing downstream needs to know which door was used.
+ *
+ * THE STATE IS CHECKED HERE TOO, not only on the server. The server refuses a `state` it never
+ * issued; this refuses one THIS TAB did not start, which is the case the server cannot see — a
+ * callback URL pasted or linked into a logged-in session.
+ */
+declare function authCallback(args: {
+    code: string;
+    state: string;
+}, opts?: AuthOptions): Promise<AuthState>;
 declare function authStatus(opts?: AuthOptions): Promise<AuthState>;
 /**
  * Sign in, or create the account first when `signup`.
@@ -737,4 +792,4 @@ declare function acceptHostTokens(): () => void;
 /** DEAD: there is nothing to renew in a window. The runtime renews, lazily, when asked. */
 declare function startAuthRenewal(): () => void;
 
-export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type StoredSession, type TokenAnswer, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authLogin, authLogout, authStatus, authUrl, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fetchToken, forgetIdentityCache, fromPage, identity, joinOrg, loadMode, loadSession, mintInvite, notifyCreditsChanged, onCreditsChanged, onIdentityChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };
+export { type AgentApp, type AgentEvent, type AgentInfo, AgentdClient, type AgentdClientOptions, type Attachment, type AuthOptions, type AuthProvider, type AuthState, BillingClient, type BillingHost, type CapabilityDescriptor, type Catalog, type ChatEventPayload, type ConnectInput, type ConnectTarget, type ConnectionStatus, type CreditPack, type Credits, type CreditsOptions, DEFAULT_TIMEOUT, type DaemonOptions, type EventFrame, type Frame, type Hello, type IdentityOptions, type InvokeResult, type JoinableOrg, type MyOrgs, type OrgDetail, type OrgInvite, type OrgMember, type OrgMembership, type OrgOptions, type OrgUsageRow, PROTOCOL_VERSION, type Purchase, type RequestFrame, type ResponseFrame, type RunMode, type SendResult, type SessionRow, type StoredSession, type TokenAnswer, acceptHostTokens, accessTokenAccount, accessTokenExpiry, accountsUrl, authAuthorize, authCallback, authLogin, authLogout, authProviders, authStatus, authUrl, billing, createOrg, creditsHost, daemonOrigin, daemonToken, effectiveMode, fetchMyOrgs, fetchOrgDetail, fetchOrgUsage, fetchToken, forgetIdentityCache, fromPage, identity, joinOrg, loadMode, loadSession, mintInvite, notifyCreditsChanged, oauthCallbackParams, onCreditsChanged, onIdentityChanged, platformStatus, resetIdentity, resultText, saveMode, saveSession, sessionKey, setRunMode, startAuthRenewal, updateDomain, updateMember, withTimeout };

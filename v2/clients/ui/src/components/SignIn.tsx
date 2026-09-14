@@ -1,6 +1,14 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 
-import { login, signup } from '../lib/auth'
+import {
+  authProviders,
+  clearOauthReturn,
+  finishExternalSignIn,
+  login,
+  oauthReturn,
+  signup,
+  startExternalSignIn
+} from '../lib/auth'
 import { useApp } from '../state/store'
 
 /**
@@ -15,6 +23,14 @@ import { useApp } from '../state/store'
  * action on that page (its "Join with an invite" box), NOT a field on this card: a code can only
  * be taken by an account that already exists, so it belongs after sign-in, not beside it. The org
  * page also surfaces the domain-matched join offers for accounts whose email domain an org claimed.
+ *
+ * EXTERNAL PROVIDERS ARE DATA. `authProviders()` reads the deployment's discovery document, so
+ * the buttons above the form are whatever the server said it accepts and this file names none of
+ * them. A deployment with none configured renders exactly what it always did.
+ *
+ * THIS CARD IS ALSO THE REDIRECT TARGET. A load carrying `?code=&state=` is the provider sending
+ * the browser back, which means finishing a sign-in rather than starting one — handled here so
+ * there is no extra route and no second screen to keep in step.
  */
 export default function SignIn(): JSX.Element {
   const [kind, setKind] = useState<'individual' | 'enterprise'>('individual')
@@ -23,6 +39,42 @@ export default function SignIn(): JSX.Element {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /** External providers, minus the password entry — that one IS this form. */
+  const external = authProviders().filter((p) => p.kind !== 'password')
+  const [going, setGoing] = useState('')
+
+  /* COMING BACK FROM THE PROVIDER. Once per load: the query is stripped either way, on success so
+     a refresh cannot replay a spent code and on failure so the error is clearable. */
+  useEffect(() => {
+    const back = oauthReturn()
+    if (!back) return
+    let alive = true
+    setBusy(true)
+    void finishExternalSignIn(back)
+      .then(() => alive && clearOauthReturn())
+      .catch((err) => {
+        if (!alive) return
+        console.error('[auth] external sign-in failed', err)
+        clearOauthReturn()
+        setError(String((err as Error)?.message || err))
+      })
+      .finally(() => alive && setBusy(false))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  async function onProvider(id: string): Promise<void> {
+    setError('')
+    setGoing(id)
+    try {
+      await startExternalSignIn(id)
+    } catch (err) {
+      console.error('[auth] could not start external sign-in', err)
+      setError(String((err as Error)?.message || err))
+      setGoing('')
+    }
+  }
 
   async function onSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -94,6 +146,29 @@ export default function SignIn(): JSX.Element {
               ? 'Sign in to continue'
               : 'Create your account'}
         </div>
+
+        {/* ABOVE THE FORM: for somebody who has one of these it is the whole interaction, and
+            putting it below asks them to read past the part they will not use. */}
+        {external.length > 0 && (
+          <>
+            <div className="signin-providers">
+              {external.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="signin-provider"
+                  disabled={busy || !!going}
+                  onClick={() => void onProvider(p.id)}
+                >
+                  {going === p.id ? 'Redirecting…' : `Continue with ${p.label}`}
+                </button>
+              ))}
+            </div>
+            <div className="signin-or">
+              <span>or</span>
+            </div>
+          </>
+        )}
 
         <label className="signin-label" htmlFor="signin-email">
           Email
