@@ -47,6 +47,7 @@ import reference_slots
 import studio_state
 from gpu_model_download_client import GpuModelDownloadClient
 from model_installation_service import ModelInstallationService
+from workflow_link import WorkflowLink
 from workflow_reference_repository import WorkflowReferenceRepository
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
@@ -2226,11 +2227,12 @@ class ComfyValidateTool(Tool):
                     for name, s in (sections.get(section) or {}).items()
                 }
                 for field, value in (entry.get("inputs") or {}).items():
-                    if isinstance(value, list) and len(value) == 2:
-                        if str(value[0]) not in graph:
-                            bad_links.append(
-                                f"node {nid}.{field} links to node {value[0]}, not in this graph"
-                            )
+                    try:
+                        link = WorkflowLink.from_input(value, graph)
+                    except ValueError as exc:
+                        bad_links.append(f"node {nid}.{field} {exc}")
+                        continue
+                    if link is not None:
                         continue
                     if reference_slots.role_of(value) is not None:
                         continue  # a reference slot — filled and checked at run time, listed below

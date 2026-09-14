@@ -30,6 +30,7 @@ from agent_runtime.application.run_context import current_workspace
 
 import chat_paths
 import reference_slots
+from workflow_link import WorkflowLink
 
 
 def _slug(name: str) -> str:
@@ -65,7 +66,8 @@ class ComfyEmitTool(Tool):
                 "description": (
                     "The graph, in order. Each entry: {id, class_type, inputs}. An input value "
                     "is either a literal, or a link written as [upstream_id, output_slot] — the "
-                    "same shape ComfyUI's API format uses."
+                    "same shape ComfyUI's API format uses. Use a text upstream_id and a "
+                    'non-negative integer output_slot, e.g. ["9", 0].'
                 ),
                 "items": {
                     "type": "object",
@@ -130,28 +132,18 @@ class ComfyEmitTool(Tool):
                     entry["_meta"] = {"title": str(node["title"])}
                 api[nid] = entry
 
-            # Every link must point at a node that exists — the one structural error worth
-            # catching here, because the server's version of it arrives after a round trip.
+            # Normalize links in the graph that BOTH serializers consume, not just in the
+            # existence check: ComfyUI looks up prompt[upstream_id] without coercing it.
             for nid, entry in api.items():
                 for field, value in entry["inputs"].items():
-                    # A LIST OF LINKS IS NOT AN INPUT. `images: [[a, 0], [b, 0]]` is the one
-                    # shape every model reaches for on a multi-image socket, and the server
-                    # rejects it a round trip later; say the fix here instead.
-                    if isinstance(value, list) and value and all(isinstance(v, list) for v in value):
+                    try:
+                        link = WorkflowLink.from_input(value, api, normalize_node_id=True)
+                    except ValueError as exc:
                         return ToolResult.text(
-                            f"node {nid}.{field} is a list of links. An input takes ONE link "
-                            "[upstream_id, slot]. To feed several images, batch them first with a "
-                            "node that takes one input per image (ImageBatch: image1, image2) and "
-                            "link its output here.",
-                            is_error=True,
+                            f"node {nid}.{field} {exc}", is_error=True,
                         )
-                    if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
-                        if value[0] not in api:
-                            return ToolResult.text(
-                                f"node {nid}.{field} links to node {value[0]}, which is not in "
-                                f"this workflow",
-                                is_error=True,
-                            )
+                    if link is not None:
+                        entry["inputs"][field] = link.as_input()
 
             # A LOADER READS A SLOT OR AN UPLOAD, NEVER A NAME THE MODEL TYPED. `@role` is the
             # slot; a literal is allowed only if comfy_upload returned it this conversation or
@@ -288,9 +280,10 @@ class ComfyEmitTool(Tool):
             inputs_meta = []
             widgets: list = []
             for field, value in entry["inputs"].items():
-                if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                link = WorkflowLink.from_input(value, api)
+                if link is not None:
                     link_id += 1
-                    src, slot = str(value[0]), int(value[1])
+                    src, slot = link.node_id, link.output_slot
                     links.append([link_id, src, slot, nid, len(inputs_meta), ""])
                     inputs_meta.append({"name": field, "type": "*", "link": link_id})
                     outs.setdefault(src, {}).setdefault(slot, []).append(link_id)
