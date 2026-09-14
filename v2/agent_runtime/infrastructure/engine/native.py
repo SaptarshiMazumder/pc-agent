@@ -7,6 +7,8 @@ protocol. Beyond the basic ReAct cycle (LLM -> tools -> repeat), it adds:
   - typed incomplete-turn retries after a no-tool-call turn:
       planning-only / reasoning-only / empty-response  (incomplete_turn.py)
   - follow-up message injection after a turn would end (get_follow_up_messages)
+  - the USER's own messages sent while the run is live (get_interjections): drained after
+    each tool batch and before a turn ends, persisted as what they are — the user speaking
   - a before-finalize revision hook (verify_answer) — up to 3 revisions
   - OpenClaw's iteration cap (min(160, max(32, 24 + 8*profiles)))
 
@@ -134,6 +136,7 @@ async def run_agent_loop(
     execution_contract: str = "",
     get_steering_messages: FollowUpFn | None = None,
     get_follow_up_messages: FollowUpFn | None = None,
+    get_interjections: FollowUpFn | None = None,
     verify_answer: VerifyFn | None = None,
     observers: list[RunObserver] | None = None,
     context_policy=None,
@@ -187,6 +190,16 @@ async def run_agent_loop(
 
     def inject(text: str) -> None:
         persist(UserMessage(content=text))
+
+    async def interjections() -> list[Message]:
+        """What the user said while this run was busy — the gateway's inbox for it, drained.
+
+        NOT `inject`: those are the runtime's own nudges, marked so the incomplete-turn guard
+        can tell them from the person (is_injected_prompt). These ARE the person. They are
+        persisted as ordinary user messages at the point the loop could first act on them."""
+        if get_interjections is None:
+            return []
+        return list(await _maybe_await(get_interjections()) or [])
 
     async def handle_halts(halts: list[str]) -> bool:
         """A liveness observer flagged the run as stuck. Inject a steering message
@@ -396,6 +409,12 @@ async def run_agent_loop(
                 if await handle_halts(tool_halts + _notify_turn(observers, iterations)):
                     stop_reason = "stuck"
                     break
+                # THE USER SPOKE WHILE THE TOOL RAN. Their message goes in here — after the
+                # tool's result, before the model thinks again — which is the first moment it
+                # can be acted on. "All reference slots are filled" lands the moment the install
+                # that was holding the turn returns, instead of after the run, as a new run.
+                for m in await interjections():
+                    persist(m)
                 continue  # back to the model with tool results
 
             # --- No tool calls: the turn would normally end. Decide if it's complete. ---
@@ -437,6 +456,14 @@ async def run_agent_loop(
                     AgentEvent("continuation", {"reason": kind, "attempt": retry_counts[kind]})
                 )
                 inject(RETRY_INSTRUCTIONS[kind])
+                continue
+
+            # THE USER SPOKE WHILE THE MODEL WAS ANSWERING. The turn does not end with their
+            # message unheard: it joins the conversation and the loop goes round once more.
+            late = await interjections()
+            if late:
+                for m in late:
+                    persist(m)
                 continue
 
             # 2. Follow-up message injection (harness-driven continuation).
@@ -713,6 +740,7 @@ class NativeEngine:
         session=None,
         model=None,
         model_router=_UNSET,
+        get_interjections=None,
     ):
         """``model_router`` is the per-agent counterpart of ``model``, and it exists because
         without it ``model`` did not actually work.
@@ -747,4 +775,5 @@ class NativeEngine:
             execution_contract=self._execution_contract,
             model_router=self._model_router if model_router is _UNSET else model_router,
             model_trace=self._model_trace,
+            get_interjections=get_interjections,
         )

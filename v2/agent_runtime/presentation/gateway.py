@@ -418,6 +418,13 @@ class RunHandle:
     #: a message sent in that second (a person typing fast, or the window's own "all reference
     #: slots are filled" announcement) arrived exactly when it was told it could.
     ended: bool = False
+    #: THE RUN'S INBOX. Messages the user sends while this run is live (chat.send on an active
+    #: session) are appended here as UserMessages and drained by the engine after each tool
+    #: batch and before the turn ends — the message joins the run at the first moment it can
+    #: be acted on. Before this, a live session refused the message outright, so the window's
+    #: "all reference slots are filled" announcement had to wait for the run to end and then
+    #: start a new one — and a Stop ended the run, so pressing Stop sent it.
+    interjections: list = field(default_factory=list)
     #: When this run last produced an event, on the monotonic clock. The silence watchdog reads
     #: it; `on_event` writes it. 0.0 until the run starts.
     last_event_at: float = 0.0
@@ -6747,6 +6754,24 @@ class Gateway:
 
         existing = self.runs.get(session_key)
         if existing is not None and existing.task is not None and not existing.task.done():
+            if not existing.ended:
+                # THE RUN IS LIVE: THE MESSAGE JOINS IT (see RunHandle.interjections). The
+                # window already shows it in the thread; the engine persists it when it drains
+                # the inbox, at the point in the conversation where the model first sees it.
+                from agent_runtime.domain.messages import UserMessage
+
+                existing.interjections.append(
+                    UserMessage(content=message, attachments=list(attachments))
+                )
+                telemetry.count(
+                    "run_interjected_total",
+                    _props={"trace_id": str(params.get("traceId") or "")[:64]},
+                )
+                return {
+                    "runId": existing.run_id,
+                    "queued": True,
+                    "attachments": [artifact_to_dict(a) for a in attachments],
+                }
             if existing.ended:
                 # THE RUN IS OVER FOR EVERYONE WATCHING — agent_end went out — and only its
                 # teardown is still on the task. Wait for that rather than refuse: a window's
@@ -6851,6 +6876,8 @@ class Gateway:
         check it) and cancel its task. Returns False if it wasn't running."""
         if handle.task is None or handle.task.done():
             return False
+        # A message queued for a run the person just stopped is not sent on their behalf later.
+        handle.interjections.clear()
         handle.abort.set()
         handle.task.cancel()
         return True
@@ -7140,6 +7167,7 @@ class Gateway:
                     mode=mode,
                     agent_id=agent_id,
                     attachments=attachments,
+                    interjections=handle.interjections,
                 ),
             )
         except TimeoutError:

@@ -159,13 +159,16 @@ export default function App() {
      folder, so what the rail says is filled IS what will run. */
   const { slots, free } = useReferenceSlots(session.items, files, currentKey)
   /* THE ONE MESSAGE WHEN THE LAST SLOT FILLS — never one per file, and never on a reload of a
-     chat whose slots were already full: `armed` is set by a fill made in THIS window, and the
-     send waits for the run (if any) to end, then disarms. */
+     chat whose slots were already full: `armed` is set by a fill made in THIS window. Sent AT
+     ONCE, run or no run: a live turn takes it as an interjection (the daemon queues it for the
+     model's next step, right after the tool it is in), an idle chat starts a turn with it. It
+     used to wait for the run to end and then send — and a Stop ended the run, so pressing Stop
+     started a new run in the user's name. */
   const armedRef = useRef(false)
   useEffect(() => {
     if (!armedRef.current || !currentKey || !slots.length || slots.some((s) => !s.file)) return
     const cur = sessions[currentKey]
-    if (!cur || cur.running || cur.loadingHistory) return
+    if (!cur || cur.loadingHistory) return
     armedRef.current = false
     void send(referencesReadyInstruction(slots), { origin: 'reference' })
   }, [slots, currentKey, sessions, send])

@@ -53,6 +53,28 @@ import reference_slots
 #: installed five minutes ago is found the same way the stock ones are.
 _MODEL_EXTS = (".safetensors", ".sft", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx")
 
+#: HOW A WAITING TOOL WAITS. A model download is minutes of nothing to do; comfy_install and
+#: comfy_node_install hold their call open until the work is done, and these are the cadences
+#: of the hold. Module-level so a verifier can shrink them.
+_POLL_S = 5.0  # first Manager-queue poll; backs off to _POLL_MAX_S
+_POLL_MAX_S = 15.0
+_LEASE_EVERY_S = 90.0  # renew the GPU's idle lease (_WORK_LEASE_S) well inside its window
+_NOTICE_EVERY_S = 30.0  # a progress line to the window
+_LOADABLE_GRACE_S = 60.0  # Manager's rescan lag between "queue empty" and "a loader lists it"
+_REBOOT_WAIT_S = 240.0  # a restarted ComfyUI answering again
+_STATUS_FAILURES_MAX = 6  # consecutive unreadable queue statuses before "lost Manager"
+#: ONE ATTEMPT of a waiting tool. Under the hosted executor's 900 s cap (infra
+#: `executor_timeout_seconds`, a Lambda) with room for its transfers. The engine's guard times
+#: an attempt out at exactly this and — because the tool declares retry_on_timeout — starts
+#: another, which re-enters here and WAITS for the files it already queued instead of queueing
+#: them again (studio_state.queued_at). Four attempts is close to an hour of download on any
+#: backend; a desktop subprocess has no cap of its own and is sliced the same way, so the two
+#: paths behave identically.
+_WAIT_ATTEMPT_S = 840.0
+_WAIT_ATTEMPTS = 4
+#: A file queued this recently and still absent is waited on, never re-queued.
+_QUEUED_MEMORY_S = 3600.0
+
 
 def _looks_like_model_list(values) -> bool:
     """An enum whose entries are model FILENAMES, as opposed to sampler names or booleans."""
@@ -402,7 +424,12 @@ _INVENTORY_TOO_EARLY = (
 class ComfyInventoryTool(Tool):
     name = "comfy_inventory"
     label = "ComfyUI inventory"
+    # The same declared wait as comfy_install: an inventory taken while Manager is downloading
+    # holds until the download lands (see _settle_downloads).
+    default_timeout_sec = _WAIT_ATTEMPT_S
     default_retryable = True
+    default_retry_on_timeout = True
+    default_max_retries = _WAIT_ATTEMPTS
     description = (
         "Every model file this instance can load, found by reading the FULL node catalogue and "
         "collecting each input whose legal values are model filenames — so loaders from custom "
@@ -430,10 +457,14 @@ class ComfyInventoryTool(Tool):
         # the instance panel's model list would be refused forever.
         from agent_runtime.application.run_context import current_run_context
 
-        if not getattr(current_run_context(), "direct_invoke", False):
+        direct = bool(getattr(current_run_context(), "direct_invoke", False))
+        if not direct:
             if not studio_state.has_emitted():
                 return ToolResult.text(_INVENTORY_TOO_EARLY, is_error=True)
         try:
+            # THE MODEL WAITS HERE, NOT IN A LOOP OF ITS OWN. The window's dashboard read
+            # (direct_invoke) is a snapshot and must not hang on a download.
+            settled = "" if direct else await _settle_downloads(abort, on_update, "inventory")
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
                 return ToolResult.text(_failed(res, "inventory"), is_error=True)
@@ -464,7 +495,7 @@ class ComfyInventoryTool(Tool):
                     [f for f in files if needle in f.lower()] if needle else files
                 ) or files
 
-            downloading = _downloads_in_flight()
+            downloading = settled
             if not found:
                 return ToolResult.text(
                     ("nothing matching " + repr(needle) if needle else "no model files")
@@ -1550,25 +1581,32 @@ def _manager_catalog() -> list[dict]:
         return []
 
 
-def _downloads_in_flight() -> str:
-    """One line when ComfyUI-Manager is still downloading, else ''. The guard against the worst
-    misread this agent made in testing: a mid-download file looks 'missing' or 'corrupt', and
-    designing around it produces a knowingly-wrong graph. Absence of a file proves nothing
-    while this line is non-empty."""
-    st = _get("/manager/queue/status", timeout_s=10.0)
-    try:
-        info = st.json() if st.ok and st.text.strip() else {}
-    except ValueError:
-        info = {}
-    n = int(info.get("in_progress_count") or 0)
-    if not n and not info.get("is_processing"):
+async def _settle_downloads(abort, on_update, what: str) -> str:
+    """If ComfyUI-Manager is mid-download, hold until it is done; the note for the report.
+    '' when nothing was in flight.
+
+    THE ONE WAIT EVERY TOOL THAT READS THE INSTANCE'S FILES SHARES. This used to be a NOTE —
+    "Manager is STILL DOWNLOADING 1 file(s) — wait and re-check before concluding it failed" —
+    and a model has no way to wait except to call a tool again, so it called comfy_inventory
+    again, and again, with a different filter word each time (which is why the repeat-call
+    brake never tripped), at a 145k-token model call a time. A sentence asking the model to
+    wait is the same mistake comfy_install made before it held its own line; now inventory and
+    validate hold theirs, with the same declared timeouts, and answer once the queue is empty.
+    The guard's retry re-enters and waits again if an attempt runs out."""
+    info = _queue_info()
+    if not info or not _queue_busy(info):
         return ""
-    done = info.get("done_count")
-    total = info.get("total_count")
+    total, done = info.get("total_count"), info.get("done_count")
+    state, waited = await _hold_until_manager_idle(
+        abort, on_update, f"{what}: waiting for ComfyUI-Manager to finish downloading ({done}/{total} done)"
+    )
+    if state == "idle":
+        return f"(waited {_clock(waited)} for ComfyUI-Manager to finish {total} download(s))"
+    if state == "aborted":
+        return f"(stopped after {_clock(waited)}; ComfyUI-Manager is still downloading)"
     return (
-        f"NOTE: ComfyUI-Manager is STILL DOWNLOADING {n} file(s) ({done}/{total} done). A file "
-        "missing above may simply not have finished — wait and re-check before concluding it "
-        "failed, and NEVER redesign a workflow around a file that is still downloading."
+        f"(lost ComfyUI-Manager after {_clock(waited)} while it was downloading — a file missing "
+        "above may be that; gpu_ensure if the GPU was reclaimed, then check again)"
     )
 
 
@@ -1587,29 +1625,6 @@ def _catalog_near_matches(catalog: list[dict], filename: str, limit: int = 4) ->
         f"{m.get('name')} (filename={m.get('filename')}, {m.get('size')}, type={m.get('type')})"
         for _s, m in scored[:limit]
     ]
-
-
-#: HOW A WAITING TOOL WAITS. A model download is minutes of nothing to do; comfy_install and
-#: comfy_node_install hold their call open until the work is done, and these are the cadences
-#: of the hold. Module-level so a verifier can shrink them.
-_POLL_S = 5.0  # first Manager-queue poll; backs off to _POLL_MAX_S
-_POLL_MAX_S = 15.0
-_LEASE_EVERY_S = 90.0  # renew the GPU's idle lease (_WORK_LEASE_S) well inside its window
-_NOTICE_EVERY_S = 30.0  # a progress line to the window
-_LOADABLE_GRACE_S = 60.0  # Manager's rescan lag between "queue empty" and "a loader lists it"
-_REBOOT_WAIT_S = 240.0  # a restarted ComfyUI answering again
-_STATUS_FAILURES_MAX = 6  # consecutive unreadable queue statuses before "lost Manager"
-#: ONE ATTEMPT of a waiting tool. Under the hosted executor's 900 s cap (infra
-#: `executor_timeout_seconds`, a Lambda) with room for its transfers. The engine's guard times
-#: an attempt out at exactly this and — because the tool declares retry_on_timeout — starts
-#: another, which re-enters here and WAITS for the files it already queued instead of queueing
-#: them again (studio_state.queued_at). Four attempts is close to an hour of download on any
-#: backend; a desktop subprocess has no cap of its own and is sliced the same way, so the two
-#: paths behave identically.
-_WAIT_ATTEMPT_S = 840.0
-_WAIT_ATTEMPTS = 4
-#: A file queued this recently and still absent is waited on, never re-queued.
-_QUEUED_MEMORY_S = 3600.0
 
 
 def _queue_info() -> dict:
@@ -2207,7 +2222,12 @@ class ComfyInterruptTool(Tool):
 class ComfyValidateTool(Tool):
     name = "comfy_validate"
     label = "Compile-check a workflow"
+    # The same declared wait as comfy_install: validating while Manager is downloading holds
+    # until the download lands, then compiles against what actually landed (_settle_downloads).
+    default_timeout_sec = _WAIT_ATTEMPT_S
     default_retryable = True
+    default_retry_on_timeout = True
+    default_max_retries = _WAIT_ATTEMPTS
     description = (
         "Check an emitted API-format workflow against THIS instance before anything is "
         "installed or run: every node class must exist, every link must point at a node in the "
@@ -2245,6 +2265,7 @@ class ComfyValidateTool(Tool):
                     is_error=True,
                 )
 
+            settled = await _settle_downloads(abort, on_update, "validate")
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
                 return ToolResult.text(_failed(res, "validate"), is_error=True)
@@ -2313,7 +2334,7 @@ class ComfyValidateTool(Tool):
                             f"node {nid}.{field}: '{value}' is not one of [{legal}…]"
                         )
 
-            downloading = _downloads_in_flight()
+            downloading = settled
             # REFERENCE SLOTS, with their state. Not a compile error either way: an empty slot is
             # the user's move, in the References panel, and comfy_run refuses until it is made.
             bad_enums += reference_slots.bad_roles(graph)

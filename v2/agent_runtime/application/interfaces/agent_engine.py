@@ -28,4 +28,7 @@ class AgentEngine(Protocol):
         model_router=None,  # per-turn brain ROUTER (None = the engine's default). Its partner:
         # a router overwrites `model` on every turn, so passing one without the other means the
         # override above is silently discarded. Callers that need neither pass neither.
+        get_interjections=None,  # () -> list[Message]: what the user sent while this run was
+        # live, drained by the loop after each tool batch and before it ends — so a message
+        # typed mid-run joins the run instead of being refused or queued as a new one.
     ) -> list[Message]: ...

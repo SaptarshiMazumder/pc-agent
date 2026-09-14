@@ -538,8 +538,14 @@ class AgentService:
         mode: str = RunMode.INTERACTIVE,
         agent_id: str | None = None,
         attachments: list[Artifact] | None = None,
+        interjections: list | None = None,
     ) -> None:
         """Run one turn end to end for the resolved agent.
+
+        ``interjections`` is the run's INBOX — a list the transport appends UserMessages to while
+        this turn is live (chat.send during a run). The engine drains it after each tool batch
+        and before the turn ends; it is the caller's list, so what the transport appends after
+        a drain is picked up by the next one.
 
         ``mode`` is the run mode (interactive | heartbeat | cron). ``agent_id`` is an
         EXPLICIT agent selection from a client (it wins); when absent, the agent is
@@ -677,6 +683,15 @@ class AgentService:
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)
         run_model, run_router = self._models_for(agent)
+
+        def take_interjections() -> list:
+            """Everything queued since the last drain, and the inbox left empty for the next."""
+            if not interjections:
+                return []
+            batch = list(interjections)
+            del interjections[:]
+            return batch
+
         await self._engine.run(
             messages=messages,
             system_prompt=system_prompt,
@@ -686,6 +701,7 @@ class AgentService:
             session=session,
             model=run_model,  # per-agent override (None = the engine default)
             model_router=run_router,  # ...and the router that would otherwise overwrite it
+            get_interjections=take_interjections,
         )
         # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
         # calling report_outcome (common: it did the work but skipped the bookkeeping), force

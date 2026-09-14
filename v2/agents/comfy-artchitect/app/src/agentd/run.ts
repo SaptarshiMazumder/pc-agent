@@ -67,6 +67,9 @@ export function useRun(client: AgentdClient | null) {
       if (!client || !session || (!body && !session.pending.length)) return
 
       const sending = session.pending
+      // A send INTO a live run (the daemon queues it) must not release the composer if it
+      // fails: the run that was going is still going.
+      const wasRunning = session.running
       const wireAttachments = sending.map(({ name, mimeType, dataBase64 }) => ({
         name,
         mimeType,
@@ -98,7 +101,7 @@ export function useRun(client: AgentdClient | null) {
         // composer that is disabled forever, waiting for a run the daemon never started. Put the
         // original attachments back too: the display item only retains small previews, so this is
         // the last recoverable copy of the bytes the user selected.
-        patch(key, { pending: sending, running: false })
+        patch(key, { pending: sending, running: wasRunning })
         append(key, [
           {
             kind: 'system',
