@@ -93,7 +93,13 @@ def _substituted_body(body, values: dict):
 #: on the same reasoning as the model limits: a ceiling that trips on legitimate work gets
 #: switched off wholesale, and then it protects nothing.
 DEFAULT_FETCH_LIMITS = {
-    "max_calls": 32,  # requests per tool invocation
+    # PER 120 s OF GRANTED TIME, not per invocation. A tool the sandbox lets run for fifteen
+    # minutes (comfy_install waiting out a download, polling Manager every 5-15 s and renewing
+    # the GPU lease every 90 s) needs proportionally more requests than one it stops at two:
+    # the first blocking install hit this cap at 32 five minutes in, read six refused polls as
+    # "lost Manager", and gave up on a download that was going fine. Scaled from grant.timeout_s
+    # — the sandbox's own clock, never the plugin's claim — so the budget and the clock agree.
+    "max_calls": 32,
     "max_bytes": 5 * 1024 * 1024,  # per-response body clamp
     "timeout_s": 30.0,  # per-request wall clock
     # A TRANSFER IS NOT A REQUEST. The 30 s clock is right for an API call and wrong for moving
@@ -103,6 +109,9 @@ DEFAULT_FETCH_LIMITS = {
     # their own byte ceiling below.
     "transfer_timeout_s": 300.0,
 }
+
+#: The granted time one `max_calls` budget covers; a longer grant scales the budget up.
+CALL_BUDGET_WINDOW_S = 120.0
 
 #: Methods a plugin may ask for. TRACE is absent deliberately (it reflects headers, including the
 #: substituted credential, straight back into a body the plugin then reads).
@@ -129,7 +138,10 @@ class SandboxFetchBroker:
         self._declared = tuple(declared_secrets or ())
         limits = dict(DEFAULT_FETCH_LIMITS)
         limits.update(dict(getattr(config, "sandbox_fetch_limits", None) or {}))
-        self._max_calls = int(limits.get("max_calls") or 0)
+        per_window = int(limits.get("max_calls") or 0)
+        granted = float(getattr(grant, "timeout_s", 0) or 0)
+        scale = max(1.0, granted / CALL_BUDGET_WINDOW_S) if granted > 0 else 1.0
+        self._max_calls = int(per_window * scale) if per_window else 0
         self._max_bytes = int(limits.get("max_bytes") or 0)
         self._timeout_s = float(limits.get("timeout_s") or 0) or DEFAULT_FETCH_LIMITS["timeout_s"]
         self._transfer_timeout_s = (
