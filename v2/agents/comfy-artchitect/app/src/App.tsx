@@ -245,6 +245,30 @@ export default function App() {
     }
   }, [connected, client])
 
+  /* THE SOCKET DROPPED MID-RUN. Nothing on screen changes by itself — the spinners belong to a
+     daemon that can no longer send — so say so on every running chat the moment the status
+     leaves 'open': each tool still "running" is stamped interrupted, and the reconnect effect
+     above settles whether the run survived. The first time the hosted daemon was OOM-killed
+     mid-run, four spinners sat on screen for three minutes without a word. */
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (status === 'open') {
+      wasOpen.current = true
+      return
+    }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    const { sessions, interrupt } = useApp.getState()
+    for (const key of Object.keys(sessions)) {
+      if (sessions[key].running) {
+        interrupt(
+          key,
+          'Connection to the daemon dropped — the tools shown as running were interrupted. Reconnecting…',
+        )
+      }
+    }
+  }, [status])
+
   /* READING THE SAVED-CONVERSATION LIST — the one place that does it, so the rail's waiting and
      error states have a single owner. A rejection is reported rather than dropped: `listSessions`
      used to be a bare `.then`, which meant a failed read left an empty rail that looked exactly

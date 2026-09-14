@@ -45,6 +45,7 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import OnUpdate, Tool, ToolResult
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant
+from agent_runtime.domain.sandbox_workspace import expand_scopes, in_scopes
 from agent_runtime.infrastructure import telemetry
 from agent_runtime.infrastructure.tools.sandbox import protocol
 from agent_runtime.infrastructure.tools.sandbox.fetch_broker import SandboxFetchBroker
@@ -68,6 +69,14 @@ _CODE_SKIP_DIRS = frozenset({"node_modules", "ui", "app", "__pycache__", ".git",
 #: and travels faithfully).
 _WS_SKIP_DIRS = frozenset({"__pycache__", ".git"})
 
+#: Transfers (a zip going up, a change set coming down) in flight at once, per daemon. Memory per
+#: transfer is bounded now — they go through disk, see _zip_dir — so this bounds CPU and disk: it
+#: is what keeps a model that fires six tool calls at once from turning them into six
+#: simultaneous deflates on one vCPU. `sandbox_limits.max_parallel` overrides.
+DEFAULT_MAX_PARALLEL = 4
+#: The streaming chunk for zips moving to and from S3.
+_CHUNK = 1 << 20
+
 
 class MicrovmPluginSandbox:
     name = "microvm"
@@ -80,6 +89,8 @@ class MicrovmPluginSandbox:
         self._plugins: dict[tuple[str, str], tuple[str, str]] = {}
         self._secrets: dict[tuple[str, str], tuple[str, ...]] = {}
         self._agent_dirs: dict[tuple[str, str], str] = {}
+        self._workspace_scopes: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._gate: asyncio.Semaphore | None = None
 
     # ------------------------------------------------------------------ wiring
 
@@ -92,6 +103,11 @@ class MicrovmPluginSandbox:
         )
         self._agent_dirs[(plugin_id, tool_name)] = str(
             getattr(tool, "_plugin_agent_dir", "") or ""
+        )
+        # The workspace subtrees its tools read (domain/sandbox_workspace.py) — validated where
+        # the manifest was parsed; expanded per run, because `{session}` is the run's.
+        self._workspace_scopes[(plugin_id, tool_name)] = tuple(
+            str(s) for s in (getattr(tool, "_sandbox_workspace", ()) or ())
         )
 
     # ------------------------------------------------------------------ the call
@@ -155,18 +171,39 @@ class MicrovmPluginSandbox:
                 root, grant.read_paths, self._agent_dirs.get((plugin_id, tool_name), "")
             )
             job["_sync"] = sync_table
-            ws_zip = self._zip_dir(workspace, _WS_SKIP_DIRS) if workspace else b""
         except OversizeError as e:
             return self._fail(plugin_id, tool_name, "oversize", f"microvm sandbox: {e}")
+        scopes = expand_scopes(
+            self._workspace_scopes.get((plugin_id, tool_name), ()),
+            str(getattr(ctx, "session_key", "") or "") if ctx is not None else "",
+        )
 
+        # THE WORKSPACE GOES UP THROUGH DISK, INSIDE THE GATE, AND IS GONE BEFORE THE VM RUNS.
+        # It used to be built as bytes in memory and handed to httpx whole: 140 MB of somebody's
+        # reference photos per call, four calls at once, and the 3.5 GB hosted daemon was
+        # OOM-killed mid-run — twice in an afternoon, every conversation on it with it. Now the
+        # zip is written to a per-call temp dir (memory is one file's buffer), streamed to S3 from
+        # there, and the dir is removed by the same `with` — on success, on failure, on
+        # cancellation — so nothing accumulates on the task's disk either. The deflate runs off
+        # the event loop: it took the whole daemon with it for the seconds it ran, every
+        # websocket included. And only what the plugin DECLARED it reads is in it (scopes).
         try:
-            slots = await self._ask({
-                "op": "presign",
-                "code_fingerprint": fingerprint,
-                "workspace": bool(ws_zip),
-                "broker": True,
-            })
-            await self._upload(slots, code_zip, ws_zip)
+            async with self._transfer_gate():
+                with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
+                    ws_path = Path(tmp) / "workspace.zip"
+                    if workspace:
+                        await asyncio.to_thread(
+                            self._zip_dir, workspace, _WS_SKIP_DIRS, ws_path, scopes
+                        )
+                    slots = await self._ask({
+                        "op": "presign",
+                        "code_fingerprint": fingerprint,
+                        "workspace": bool(workspace),
+                        "broker": True,
+                    })
+                    await self._upload(slots, code_zip, ws_path if workspace else None)
+        except OversizeError as e:
+            return self._fail(plugin_id, tool_name, "oversize", f"microvm sandbox: {e}")
         except ExecutorError as e:
             return self._fail(plugin_id, tool_name, "transport", f"microvm sandbox: {e}")
 
@@ -312,15 +349,29 @@ class MicrovmPluginSandbox:
             raise ExecutorError(str(answer["error"]))
         return answer
 
-    async def _upload(self, slots: dict, code_zip: bytes, ws_zip: bytes) -> None:
+    def _transfer_gate(self) -> asyncio.Semaphore:
+        """The one semaphore every transfer of this backend waits on. Made on first use — a
+        Semaphore binds to the running loop, and the backend is built before there is one."""
+        if self._gate is None:
+            limits = dict(getattr(self._config, "sandbox_limits", None) or {}) if self._config else {}
+            self._gate = asyncio.Semaphore(int(limits.get("max_parallel") or DEFAULT_MAX_PARALLEL))
+        return self._gate
+
+    async def _upload(self, slots: dict, code_zip: bytes, ws_path: Path | None) -> None:
         import httpx
 
         async with httpx.AsyncClient(timeout=300.0) as client:
             if not slots.get("code_cached") and slots.get("code_put_url"):
                 r = await client.put(slots["code_put_url"], content=code_zip)
                 r.raise_for_status()
-            if ws_zip and slots.get("workspace_put_url"):
-                r = await client.put(slots["workspace_put_url"], content=ws_zip)
+            if ws_path is not None and slots.get("workspace_put_url"):
+                # STREAMED FROM DISK, WITH ITS LENGTH: a presigned S3 PUT refuses chunked transfer
+                # encoding, and httpx chunks any iterable body unless Content-Length is given.
+                r = await client.put(
+                    slots["workspace_put_url"],
+                    content=_file_chunks(ws_path),
+                    headers={"Content-Length": str(ws_path.stat().st_size)},
+                )
                 r.raise_for_status()
 
     async def _serve_slots(self, slots: dict, broker, fetcher) -> None:
@@ -370,19 +421,25 @@ class MicrovmPluginSandbox:
                 "text": "", "error": f"unknown broker frame '{kind}'"}
 
     async def _apply_changes(self, changes_url: str, workspace: Path) -> None:
-        import httpx
-
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            r = await client.get(changes_url)
-            r.raise_for_status()
-        data = r.content
+        """The change set coming back, applied — through disk and the gate like the zip that
+        went up: a rendered video is a change set too."""
         root = workspace.resolve()
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            for m in z.infolist():
-                target = (workspace / m.filename).resolve()
-                if not str(target).startswith(str(root) + os.sep) and target != root:
-                    raise ExecutorError(f"changes zip member escapes the workspace: {m.filename}")
-            z.extractall(workspace)
+
+        def extract(path: Path) -> None:
+            with zipfile.ZipFile(path) as z:
+                for m in z.infolist():
+                    target = (workspace / m.filename).resolve()
+                    if not str(target).startswith(str(root) + os.sep) and target != root:
+                        raise ExecutorError(
+                            f"changes zip member escapes the workspace: {m.filename}"
+                        )
+                z.extractall(workspace)
+
+        async with self._transfer_gate():
+            with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
+                path = Path(tmp) / "changes.zip"
+                await _download_to(changes_url, path)
+                await asyncio.to_thread(extract, path)
 
     # ------------------------------------------------------------------ zips
 
@@ -436,16 +493,21 @@ class MicrovmPluginSandbox:
         sync_table = [e for _p, _path, e in entries if e["field"] != "agent_dir"]
         return buf.getvalue(), sync_table, h.hexdigest()
 
-    def _zip_dir(self, directory: str, skip: frozenset) -> bytes:
-        buf = io.BytesIO()
+    def _zip_dir(self, directory: str, skip: frozenset, dest: Path, scopes=()) -> int:
+        """Zip `directory` to the FILE `dest` — only what `scopes` names, when there are any —
+        and return the bytes written. Streams file by file: memory is one file's buffer, whatever
+        the workspace weighs. An empty result is still a zip (a new chat has nothing in scope
+        yet, and the VM still needs a workspace root to stand in)."""
         total = 0
         base = Path(directory)
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
             for f in sorted(base.rglob("*")):
                 if not f.is_file():
                     continue
                 rel = f.relative_to(base)
                 if any(part in skip for part in rel.parts):
+                    continue
+                if scopes and not in_scopes(rel.as_posix(), scopes):
                     continue
                 total += f.stat().st_size
                 if total > self._max_zip_bytes():
@@ -456,7 +518,7 @@ class MicrovmPluginSandbox:
                         "sandbox_limits.max_sync_mb"
                     )
                 z.write(f, rel.as_posix())
-        return buf.getvalue()
+        return dest.stat().st_size
 
     def _max_zip_bytes(self) -> int:
         limits = dict(getattr(self._config, "sandbox_limits", None) or {}) if self._config else {}
@@ -600,6 +662,28 @@ def _tree_manifest(root: Path) -> dict:
     return out
 
 
+async def _download_to(url: str, path: Path) -> None:
+    """Stream a URL's body to `path`, a chunk at a time — never the whole body in memory."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream("GET", url) as r:
+            r.raise_for_status()
+            with open(path, "wb") as f:
+                async for chunk in r.aiter_bytes(_CHUNK):
+                    f.write(chunk)
+
+
+async def _file_chunks(path: Path):
+    """A file as an async byte stream, read off the loop a chunk at a time."""
+    with open(path, "rb") as f:
+        while True:
+            chunk = await asyncio.to_thread(f.read, _CHUNK)
+            if not chunk:
+                return
+            yield chunk
+
+
 async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: dict) -> list[str]:
     """Write the command's changes back onto the daemon's real files.
 
@@ -616,42 +700,39 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
 
     A refusal fails the whole call loudly. Applying half of what a command did, and reporting
     success, is the outcome worth avoiding most."""
-    import httpx
-
     from agent_runtime.application.write_scope import check_write
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        r = await client.get(changes_url)
-        r.raise_for_status()
-
     applied: list[str] = []
-    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-        members = [m for m in z.infolist() if not m.is_dir()]
-        # Validate EVERYTHING before writing ANYTHING: a half-applied change set is worse than
-        # a refused one, because the agent is told it succeeded.
-        targets: list[tuple[zipfile.ZipInfo, Path]] = []
-        for m in members:
-            target = (root / m.filename).resolve()
-            if not str(target).startswith(str(root) + os.sep):
-                raise ExecutorError(f"the command tried to write outside its tree: {m.filename}")
-            try:
-                check_write(target)
-            except Exception as e:  # noqa: BLE001 - the guard's own refusal is the message
-                raise ExecutorError(
-                    f"the command wrote {m.filename}, which this agent may not write ({e}). "
-                    "Nothing was applied."
-                ) from e
-            was = before.get(m.filename)
-            if was is not None and target.exists() and target.stat().st_mtime_ns != was:
-                raise ExecutorError(
-                    f"{m.filename} changed on the daemon while the command was running - "
-                    "refusing to overwrite it. Nothing was applied; re-run the command."
-                )
-            targets.append((m, target))
+    with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
+        path = Path(tmp) / "changes.zip"
+        await _download_to(changes_url, path)
+        with zipfile.ZipFile(path) as z:
+            members = [m for m in z.infolist() if not m.is_dir()]
+            # Validate EVERYTHING before writing ANYTHING: a half-applied change set is worse than
+            # a refused one, because the agent is told it succeeded.
+            targets: list[tuple[zipfile.ZipInfo, Path]] = []
+            for m in members:
+                target = (root / m.filename).resolve()
+                if not str(target).startswith(str(root) + os.sep):
+                    raise ExecutorError(f"the command tried to write outside its tree: {m.filename}")
+                try:
+                    check_write(target)
+                except Exception as e:  # noqa: BLE001 - the guard's own refusal is the message
+                    raise ExecutorError(
+                        f"the command wrote {m.filename}, which this agent may not write ({e}). "
+                        "Nothing was applied."
+                    ) from e
+                was = before.get(m.filename)
+                if was is not None and target.exists() and target.stat().st_mtime_ns != was:
+                    raise ExecutorError(
+                        f"{m.filename} changed on the daemon while the command was running - "
+                        "refusing to overwrite it. Nothing was applied; re-run the command."
+                    )
+                targets.append((m, target))
 
-        for m, target in targets:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(m) as src, open(target, "wb") as dst:
-                dst.write(src.read())
-            applied.append(m.filename)
+            for m, target in targets:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(m) as src, open(target, "wb") as dst:
+                    dst.write(src.read())
+                applied.append(m.filename)
     return applied

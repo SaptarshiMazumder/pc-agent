@@ -32,3 +32,10 @@ net     = ["${AGENTD_ACCOUNTS_URL}"]
 # plugin did not list, so an undeclared one fails as "undeclared secret" rather than as the
 # 401 you would expect, which reads like a credential problem and is not one.
 secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY", "AGENTD_PLATFORM_TOKEN"]
+# WHAT ITS TOOLS READ FROM THE WORKSPACE — and so what a microVM is shipped per call. The
+# workspace is the account's: every chat's reference photos and every render ever downloaded
+# live in it, and shipping all of it (140 MB, four calls at once) is what OOM-killed the hosted
+# daemon. These tools read the job's gate records and THIS chat's three folders (chat_paths),
+# nothing else — a reference upload's bytes are read on the HOST by the fetch broker, and a
+# download is written there too.
+workspace = [".studio", "workflows/{session}", "references/{session}", "outputs/{session}"]

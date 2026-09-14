@@ -207,6 +207,7 @@ def discover_agent_plugins(
                     # CEILING: the resolver narrows it by operator config and never widens it.
                     ("_sandbox_net", tuple(m.sandbox.get("net") or ())),
                     ("_sandbox_secrets", tuple(m.sandbox.get("secrets") or ())),
+                    ("_sandbox_workspace", tuple(m.sandbox.get("workspace") or ())),
                 ):
                     # A STAMP MUST NEVER SHADOW BEHAVIOUR. These names are chosen by us and
                     # set on somebody else's object, so a tool that happens to define a method

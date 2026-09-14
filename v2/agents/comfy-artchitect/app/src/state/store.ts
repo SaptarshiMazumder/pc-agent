@@ -164,6 +164,10 @@ export interface AppState {
   patch: (key: string, fields: Partial<ChatSession>) => void
   /** Append items to one conversation, closing any open thinking block first. */
   append: (key: string, items: ThreadItem[], stillThinking?: boolean) => void
+  /** The daemon's socket dropped while this chat was running: every tool still shown as running
+   *  is stamped with `note`, and one line says it. Whether the run survived is settled on
+   *  reconnect (App asks chat.status); this only stops the screen lying in the meantime. */
+  interrupt: (key: string, note: string) => void
   /** Replace the last item of one conversation — how a streaming message grows. */
   replaceLast: (key: string, item: ThreadItem) => void
 
@@ -294,6 +298,19 @@ export const useApp = create<AppState>((set) => ({
         sessions: {
           ...s.sessions,
           [key]: { ...cur, items: [...closeThinking(cur.items, stillThinking), ...items] },
+        },
+      }
+    }),
+
+  interrupt: (key, note) =>
+    set((s) => {
+      const cur = s.sessions[key]
+      if (!cur || !cur.running) return s
+      const items = cur.items.map((it) => (it.kind === 'tool' && !it.done ? { ...it, progress: note } : it))
+      return {
+        sessions: {
+          ...s.sessions,
+          [key]: { ...cur, items: [...items, { kind: 'system', tone: 'error', text: note, ts: Date.now() }] },
         },
       }
     }),

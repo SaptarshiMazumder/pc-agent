@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agent_runtime.domain.sandbox_net import PLACEHOLDER as _PLACEHOLDER
+from agent_runtime.domain.sandbox_workspace import validate_scopes
 
 log = logging.getLogger("agentd")
 
@@ -41,6 +42,8 @@ class PluginManifest:
     # questions would make "declared but missing" mean two incompatible things.
     #   net     -> hosts the DAEMON will call on the plugin's behalf (it never gets a socket)
     #   secrets -> credential NAMES it may reference as ${NAME}; it never receives the values
+    #   workspace -> the workspace SUBTREES its tools read (domain/sandbox_workspace.py); a
+    #                microVM is shipped those and nothing else. Absent => the whole workspace.
     # Empty/absent => no network and no credentials, which is the default and stays the default.
     sandbox: dict = field(default_factory=dict)
     # DISTRIBUTION metadata (tiers doc §4) — pure description, no loader behavior:
@@ -101,6 +104,9 @@ def load_manifest(path: Path) -> PluginManifest | None:
             if (s := str(x).strip())
         ],
         "secrets": [str(x).strip() for x in (raw_sbx.get("secrets") or []) if str(x).strip()],
+        # Checked HERE, so a bad path fails the plugin at load, where its author is looking —
+        # not on a tool call months later as "the file it reads is missing".
+        "workspace": list(validate_scopes(raw_sbx.get("workspace") or [])),
     }
     sandbox = {k: v for k, v in sandbox.items() if v}
     distribution = dict(data.get("distribution") or {})

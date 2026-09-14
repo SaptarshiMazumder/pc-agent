@@ -430,6 +430,8 @@ class Config:
     # Windows — a memory bomb in a plugin is survivable on the hosted task and is not on a desktop.
     # NOTE the wall clock counts the TOOL's own time: it pauses while the host is serving a model
     # call for it, so a slow provider cannot kill an otherwise healthy tool.
+    # The microvm backend also reads "max_sync_mb" (256: ceiling on one workspace/code zip) and
+    # "max_parallel" (4: zips in flight at once — they go through disk, so this bounds CPU/disk).
     sandbox_limits: dict = field(default_factory=dict)
     # A sandboxed tool has no network and no keys, so it cannot call a model itself — it asks the
     # HOST to, and the host checks, clamps and meters the call against the account running the
