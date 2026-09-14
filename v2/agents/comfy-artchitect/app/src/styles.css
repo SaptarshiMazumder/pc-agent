@@ -1304,3 +1304,58 @@ h2 { font-size: var(--fs-lead); }
   cursor: pointer; transition: color .12s, border-color .12s, background .12s;
 }
 .starter:hover { color: var(--text); border-color: var(--accent); background: var(--bg3); }
+
+/* ── the Recent list's own controls ────────────────────────────────────────────────────── */
+/* A refresh in the section heading, and a delete per row that only exists on hover. Neither is
+   present at rest: the rail is somewhere you go to open a conversation, and a destructive
+   control sitting permanently beside every row makes the common click the risky one. */
+.section-label > span:first-child { flex: 1; min-width: 0; }
+.label-btn {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: var(--r-sm, 6px); background: transparent;
+  color: var(--faint); cursor: pointer; transition: color .12s, background .12s;
+}
+.label-btn:hover:not(:disabled) { color: var(--text); background: var(--bg3); }
+.label-btn:disabled { cursor: default; }
+
+/* THE ROW IS THE BUBBLE; THE ACTIONS FLOAT OVER IT.
+   These were flex siblings, which broke it two ways at once: the button took ~24px out of every
+   title, and it sat outside the row's own background, so the hover highlight stopped short and
+   the icon hung in the gap past the end of the bubble. It also meant `.row:hover .hover-btn`
+   could never match — the button was a SIBLING of `.row`, not a descendant — so the only way to
+   reveal it was to hover the invisible button itself, at the far right edge.
+   The wrapper is now just a positioning context and the hover target; the row keeps its full
+   width and paints the highlight across all of it. */
+.row-line { position: relative; }
+.row-line + .row-line { margin-top: 3px; }
+.row-line > .row { width: 100%; }
+/* Hovering ANYWHERE on the line — including the strip the actions occupy — holds the bubble. */
+.row-line:hover > .row { background: var(--bg3); }
+
+.row-acts {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  display: flex; align-items: center; gap: 1px;
+  /* The left padding IS the scrim's runway: the gradient fades in across it so a long title
+     slides under the buttons instead of colliding with them. */
+  padding-left: 28px; padding-right: 5px;
+  border-radius: 0 var(--r-input) var(--r-input) 0;
+  background: linear-gradient(90deg, transparent, var(--bg3) 42%);
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-fast, .12s) ease;
+}
+/* ARMED STAYS PUT. A confirm was raised by a click and has to be answerable without holding the
+   pointer still; the same goes for the spinner while the delete is in flight. */
+.row-line:hover .row-acts,
+.row-line.is-armed .row-acts { opacity: 1; pointer-events: auto; }
+.row-line.is-armed > .row { background: var(--bg3); }
+
+.row-act {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--r-sm, 6px); background: transparent;
+  color: var(--faint); cursor: pointer; transition: color .12s, background .12s;
+}
+.row-act:hover { color: var(--text); background: var(--bg); }
+.row-act.is-danger { color: var(--danger); }
+.row-act.is-danger:hover { color: var(--danger); background: var(--danger-soft, var(--bg)); }
+.row-act.is-busy { cursor: default; color: var(--dim); }

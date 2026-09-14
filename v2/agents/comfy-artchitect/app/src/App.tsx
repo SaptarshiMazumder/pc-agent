@@ -34,7 +34,7 @@ import { useCredits } from './agentd/credits'
 import { handleRunEvent } from './agentd/run-events'
 import { MAX_FILES } from './agentd/chat'
 import { useRun } from './agentd/run'
-import { listSessions, loadHistory } from './agentd/sessions'
+import { deleteSession, listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { Composer } from './components/Composer'
@@ -274,7 +274,7 @@ export default function App() {
      used to be a bare `.then`, which meant a failed read left an empty rail that looked exactly
      like an account with no history. */
   const refreshChats = useCallback(
-    (forget = false) => {
+    (forget = false): Promise<void> => {
       const { beginChatsLoad, setChats, failChatsLoad } = useApp.getState()
       beginChatsLoad(forget)
       /* NOT OVER A SOCKET THAT IS MID-REDIAL. Signing in re-dials the connection, so an identity
@@ -282,8 +282,8 @@ export default function App() {
          answers for the account that has just left. Marking the list as loading and letting the
          effect below issue it when the socket is back is the same wait with the right answer at
          the end of it, instead of an error flashing up and correcting itself. */
-      if (!connected || !client) return
-      void listSessions(client)
+      if (!connected || !client) return Promise.resolve()
+      return listSessions(client)
         .then((rows) => {
           setChats(rows)
           /* RUNNING CHATS ARE RE-ATTACHED HERE — the case a browser reload used to lose. A
@@ -350,6 +350,43 @@ export default function App() {
      on a genuine change of the resolved account (not on a token refresh), and it is what actually
      exists — the vendored client emits no `auth.changed` event at all. */
   useEffect(() => onIdentityChanged(() => refreshChats(true)), [refreshChats])
+
+  /* THE LIST IS LIVE NOW, not a snapshot from boot. The daemon broadcasts `sessions.changed` on
+     every rename, delete, fork and move — two comments in agentd/sessions.ts have always claimed
+     this window subscribed to it, and it never did. So a conversation deleted in another tab, or
+     a title the daemon rewrote from the transcript, sat stale here until something else happened
+     to refetch. Quiet by design: `refreshChats()` without `forget` keeps the rows on screen while
+     it re-reads, so a broadcast never blanks a list somebody is reading. */
+  useEffect(() => {
+    if (!client) return
+    return client.on('sessions.changed', () => void refreshChats())
+  }, [client, refreshChats])
+
+  /* DELETING A SAVED CONVERSATION. The daemon refuses one with a live run and says so; that
+     message goes to the rail rather than being swallowed, because a button that silently does
+     nothing is the worst kind of destructive control.
+
+     The row is dropped LOCALLY first and the list re-read after: the broadcast above will bring
+     the same answer a moment later, but the person who pressed the button should not watch their
+     own click take a network round trip to land. `closeSession` also moves `currentSessionKey`
+     off the deleted chat, and the boot effect makes a fresh one when nothing is left. */
+  const deleteChat = useCallback(
+    async (sessionId: string): Promise<void> => {
+      if (!client) return
+      try {
+        await deleteSession(client, sessionId)
+        const st = useApp.getState()
+        st.setChats(st.chats.filter((c) => c.sessionId !== sessionId))
+        st.closeSession(sessionId)
+        void refreshChats()
+      } catch (e) {
+        useApp
+          .getState()
+          .failChatsLoad(String((e as Error)?.message || e) || 'could not delete that conversation')
+      }
+    },
+    [client, refreshChats],
+  )
 
   /* RESUME A SAVED CHAT. Clicking a Recent row switches `currentKey` to a saved session that
      `openSession` seeded EMPTY (it must not clobber a live run). Here is where its transcript
@@ -441,6 +478,10 @@ export default function App() {
         extraDestinations={[
           { id: 'workflows', label: 'Workflows', icon: <WorkflowIcon size={15} /> },
         ]}
+        /* The rail asks; App does the I/O. Both return promises so the buttons can show their
+           own progress for exactly as long as the work takes. */
+        onRefreshChats={() => refreshChats()}
+        onDeleteChat={deleteChat}
       />
 
       {/* `is-studio` must track the SAME condition as the branch below — an unknown view falls

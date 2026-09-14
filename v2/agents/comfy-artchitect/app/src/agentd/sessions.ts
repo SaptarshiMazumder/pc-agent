@@ -82,6 +82,25 @@ export async function loadHistory(
   return restore(res?.messages || [])
 }
 
+/**
+ * Delete a saved conversation — transcript and meta, gone.
+ *
+ * THE DAEMON REFUSES A LIVE ONE, and that refusal is the safety here rather than anything this
+ * file does: `_sessions_delete` returns `{ok: false, error: "session has an active run"}` while a
+ * run is in flight. Surfaced, never swallowed — a delete that quietly did nothing would leave the
+ * row on screen and the user pressing it again.
+ *
+ * It also broadcasts `sessions.changed`, which is what updates every OTHER open window. This one
+ * does not wait for that round trip; App drops the row locally at once, because the person who
+ * pressed the button should not watch their own click take a network hop to land.
+ */
+export async function deleteSession(client: AgentdClient, sessionKey: string): Promise<void> {
+  const res: any = await client.request('sessions.delete', { agentId: AGENT_ID, sessionKey })
+  if (!res?.ok) {
+    throw new Error(String(res?.error || 'the daemon would not delete this conversation'))
+  }
+}
+
 export async function renameSession(
   client: AgentdClient,
   sessionKey: string,

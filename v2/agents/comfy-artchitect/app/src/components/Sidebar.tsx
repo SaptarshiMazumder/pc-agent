@@ -18,14 +18,18 @@
 
 import {
   Building2,
+  Check,
   CreditCard,
   Loader2,
+  RefreshCw,
+  Trash2,
+  X,
   MessageSquareText,
   Plus,
   Settings2,
   Sparkles,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
@@ -57,6 +61,8 @@ export function Sidebar({
   showConversation = true,
   groupLabel = '',
   sharedGroupLabel = '',
+  onRefreshChats,
+  onDeleteChat,
 }: {
   view: View
   onView: (v: View) => void
@@ -92,6 +98,11 @@ export function Sidebar({
   /** A heading over the shared three (credits / organizations / settings). Two labelled groups is
    *  what turns a flat list of seven rows into "where I work" and "my account". */
   sharedGroupLabel?: string
+  /** Re-read the saved-conversation list. Returns a promise so the button can spin for exactly
+   *  as long as the read takes — App owns the fetch, this owns the asking. */
+  onRefreshChats?: () => Promise<void>
+  /** Delete one saved conversation. Confirmed in the row first; see the note below. */
+  onDeleteChat?: (sessionId: string) => Promise<void>
 }) {
   const chats = useApp((s) => s.chats)
   const chatsLoading = useApp((s) => s.chatsLoading)
@@ -106,6 +117,31 @@ export function Sidebar({
    *  column showed its "new conversation" screen the whole time. App owns the fetch now, in one
    *  guarded effect keyed to the open session, and the rail is presentation again. */
   const open = (sessionId: string): void => openSession(sessionId)
+
+  /* THE REFRESH BUTTON'S OWN BUSY STATE, not the store's `chatsLoading`. That flag swaps the
+     whole list for a spinner, which is right when there is nothing to show and wrong here: a
+     manual refresh should leave the rows you are reading exactly where they are and show its
+     progress on the control you pressed. */
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = (): void => {
+    if (refreshing || !onRefreshChats) return
+    setRefreshing(true)
+    void onRefreshChats().finally(() => setRefreshing(false))
+  }
+
+  /* WHICH ROW IS ASKING "ARE YOU SURE", by session id. A two-step confirm in the row rather than
+     a window.confirm(): the native dialog steals focus, cannot be styled, and reads as a browser
+     interruption rather than as part of this list. Deleting a conversation cannot be undone —
+     the daemon removes the transcript — so one deliberate second click is the whole margin.
+     Nothing is armed at rest, and opening another row's confirm disarms the previous one. */
+  const [confirming, setConfirming] = useState('')
+  const [deleting, setDeleting] = useState('')
+  const remove = (sessionId: string): void => {
+    if (!onDeleteChat) return
+    setConfirming('')
+    setDeleting(sessionId)
+    void onDeleteChat(sessionId).finally(() => setDeleting(''))
+  }
 
   return (
     <aside className="rail sidebar">
@@ -188,7 +224,27 @@ export function Sidebar({
             {/* The heading stands while the list is being read, so the spinner has something to
                 belong to. Keyed to the same condition as the body below — a label over nothing is
                 worse than no label. */}
-            {(chatsLoading || chats.length > 0) && <div className="section-label">Recent</div>}
+            {(chatsLoading || chats.length > 0) && (
+              <div className="section-label">
+                <span>Recent</span>
+                {onRefreshChats && (
+                  <button
+                    type="button"
+                    className="label-btn"
+                    onClick={refresh}
+                    disabled={refreshing}
+                    title="Reload the conversation list"
+                    aria-label="Reload the conversation list"
+                  >
+                    <RefreshCw
+                      size={12}
+                      strokeWidth={2}
+                      className={refreshing ? 'ld-spin' : undefined}
+                    />
+                  </button>
+                )}
+              </div>
+            )}
             {chatsLoading ? (
               /* NOT AN EMPTY LIST. Those look identical and mean opposite things, and the moment
                  it matters most is right after an account switch: the rows are gone because they
@@ -197,29 +253,89 @@ export function Sidebar({
                 <Loader2 className="ld-spin" size={14} strokeWidth={1.9} />
                 <span>Loading conversations…</span>
               </div>
-            ) : chatsError ? (
-              /* Said out loud rather than shown as emptiness — a rail with no rows because the
-                 read FAILED is not a rail with no rows because there is no history. */
-              <p className="rail-error">{chatsError}</p>
             ) : (
-              <div className="agents-list">
-                {chats.map((c) => (
-                  <button
-                    key={c.sessionId}
-                    className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
-                    onClick={() => open(c.sessionId)}
-                    title={c.title || 'Untitled'}
-                  >
-                    <span className="row-main">
-                      <span className="row-title">
-                        {c.running && <span className="row-live" title="running" />}
-                        {c.title || 'Untitled'}
-                      </span>
-                      <span className="row-sub">{c.snippet || when(c.modified)}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <>
+                {/* ABOVE the list, not instead of it. A failed READ leaves no rows and this is
+                    all there is to see; a refused DELETE ("session has an active run") happens
+                    with a full list on screen, and hiding it to show one line would be a second
+                    thing going wrong. */}
+                {chatsError && <p className="rail-error">{chatsError}</p>}
+                <div className="agents-list">
+                  {chats.map((c) => (
+                    <div
+                      key={c.sessionId}
+                      className={`row-line${
+                        confirming === c.sessionId || deleting === c.sessionId ? ' is-armed' : ''
+                      }`}
+                    >
+                      <button
+                        className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
+                        onClick={() => open(c.sessionId)}
+                        title={c.title || 'Untitled'}
+                      >
+                        <span className="row-main">
+                          <span className="row-title">
+                            {c.running && <span className="row-live" title="running" />}
+                            {c.title || 'Untitled'}
+                          </span>
+                          <span className="row-sub">{c.snippet || when(c.modified)}</span>
+                        </span>
+                      </button>
+                      {/* OVERLAID ON THE ROW, NOT BESIDE IT. As a flex sibling this stole ~24px
+                          from every title and, worse, sat OUTSIDE the row's own background — so
+                          the hover highlight stopped short of it and the button hung in the gap
+                          past the end of the bubble. Absolute, over the right edge, behind a
+                          scrim that masks the text underneath: the title keeps the full width and
+                          the actions reserve no space at all until they are wanted. Same idiom as
+                          `.session-row .row-actions` further up this stylesheet. */}
+                      {onDeleteChat && (
+                        <div className="row-acts">
+                          {deleting === c.sessionId ? (
+                            <span className="row-act is-busy" title="Deleting…">
+                              <Loader2 size={13} strokeWidth={2} className="ld-spin" />
+                            </span>
+                          ) : confirming === c.sessionId ? (
+                            <>
+                              <button
+                                type="button"
+                                className="row-act is-danger"
+                                onClick={() => remove(c.sessionId)}
+                                title="Delete this conversation — this cannot be undone"
+                                aria-label="Confirm delete"
+                              >
+                                <Check size={13} strokeWidth={2.4} />
+                              </button>
+                              <button
+                                type="button"
+                                className="row-act"
+                                onClick={() => setConfirming('')}
+                                title="Keep it"
+                                aria-label="Cancel delete"
+                              >
+                                <X size={13} strokeWidth={2.4} />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="row-act"
+                              onClick={() => setConfirming(c.sessionId)}
+                              title={
+                                c.running
+                                  ? 'Running — stop it before deleting'
+                                  : 'Delete this conversation'
+                              }
+                              aria-label="Delete this conversation"
+                            >
+                              <Trash2 size={13} strokeWidth={1.9} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}
