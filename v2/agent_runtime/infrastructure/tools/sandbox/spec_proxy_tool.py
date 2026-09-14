@@ -31,6 +31,12 @@ class SpecProxyTool(Tool):
         self.default_model = str(spec.get("default_model") or "")
         self.default_timeout_sec = spec.get("default_timeout_sec")
         self.default_retryable = bool(spec.get("default_retryable"))
+        # Declared only when the child said so: an absent key must leave the global default in
+        # force, which _resolve does for a missing attribute and not for an explicit None.
+        if spec.get("default_retry_on_timeout"):
+            self.default_retry_on_timeout = True
+        if spec.get("default_max_retries") is not None:
+            self.default_max_retries = int(spec["default_max_retries"])
 
     async def execute(self, tool_call_id, params, abort, on_update=None) -> ToolResult:
         # Reached only if wiring ever hands this out UNWRAPPED — which must fail closed, loudly:

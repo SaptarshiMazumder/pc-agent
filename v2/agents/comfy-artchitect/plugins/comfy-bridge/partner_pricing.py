@@ -14,6 +14,16 @@ RECOGNITION IS BY PROVIDER PREFIX, NOT EXACT CLASS NAME. Comfy adds and renames 
 any table can track, and an exact-match table fails OPEN — a renamed Kling node stops matching
 and silently becomes free. A prefix ("Kling") keeps matching across renames, and the model is
 then found by searching the node's own inputs.
+
+BUT THE PREFIX ONLY SAYS WHICH PROVIDER, NEVER WHETHER A NODE IS PAID AT ALL. That is the
+instance's call: ComfyUI marks every partner node `api_node: true` in its own schema, and the
+core nodes it ships for free do not carry the flag. A prefix cannot tell them apart —
+`FluxKontextMultiReferenceLatentMethod` is a free conditioning node that happens to start with
+"Flux", and matched here it priced a local Qwen graph as a $7.72 BFL video job, which the credit
+gate then refused, three chats in a row. So the caller asks the instance and passes
+`free_classes`; a class the instance says is free is never priced, whatever it is called. With
+no instance to ask the prefix is all there is, and it errs toward charging — the direction this
+must err.
 """
 
 from __future__ import annotations
@@ -233,9 +243,15 @@ def _seconds_for(provider: dict, inputs: dict) -> float:
     return float(provider.get("default_seconds") or 5)
 
 
-def price_workflow(api_graph: dict, table: dict | None = None) -> Quote:
-    """Price an emitted `.api.json` graph — the same shape comfy_run submits."""
+def price_workflow(
+    api_graph: dict, table: dict | None = None, free_classes: set[str] | None = None
+) -> Quote:
+    """Price an emitted `.api.json` graph — the same shape comfy_run submits.
+
+    `free_classes`: classes the INSTANCE reports as not `api_node` — never priced, whatever the
+    table's prefixes would make of their names (see the module docstring)."""
     data = table or load_table()
+    free = set(free_classes or ())
     quote = Quote(
         markup=float(data.get("markup") or 1.0),
         credits_per_usd=float(data.get("credits_per_usd") or 100.0),
@@ -245,6 +261,8 @@ def price_workflow(api_graph: dict, table: dict | None = None) -> Quote:
         if not isinstance(node, dict):
             continue
         class_type = str(node.get("class_type") or "")
+        if class_type in free:
+            continue  # the instance says so; a prefix match is a name, not a bill
         provider = _provider_for(class_type, data)
         if provider is None:
             continue  # a local node: it costs GPU time, which is the rental, not credits

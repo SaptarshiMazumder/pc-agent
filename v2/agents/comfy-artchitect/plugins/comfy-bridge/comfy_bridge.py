@@ -30,6 +30,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -550,12 +551,19 @@ class ComfyNodeSpecTool(Tool):
             )
 
 
-#: Loader inputs whose enum is the instance's file list rather than a set of options.
-_FILE_FIELDS = frozenset({
+#: Loader inputs whose enum is the instance's list of installed WEIGHTS. These are ComfyUI's own
+#: input names for its loader nodes — the schema, not a guess about what is installed — which is
+#: what lets validate tell "not downloaded yet" from "not a legal value" on an EMPTY box, where
+#: the enum holds nothing that looks like a filename (see the shopping-list split in
+#: ComfyValidateTool).
+_MODEL_FIELDS = frozenset({
     "ckpt_name", "unet_name", "lora_name", "vae_name", "clip_name", "clip_name1", "clip_name2",
     "clip_name3", "control_net_name", "style_model_name", "upscale_model_name", "gligen_name",
-    "image", "video", "audio",
 })
+#: Loader inputs whose enum is the instance's list of uploaded MEDIA — a file list too, but not
+#: one comfy_install fetches: those arrive through the reference slots.
+_MEDIA_FIELDS = frozenset({"image", "video", "audio"})
+_FILE_FIELDS = _MODEL_FIELDS | _MEDIA_FIELDS
 
 
 def _hide_installed_files(spec: dict) -> int:
@@ -1065,7 +1073,41 @@ _RUN_WAIT_CAP_S = 100.0
 _COMFY_KEY_REF = "${COMFY_API_KEY}"
 
 
-def _quote_for(prompt: dict):
+def _api_node_flags(prompt: dict) -> dict[str, bool]:
+    """class_type -> the instance's `api_node` flag, for every class in the graph whose spec
+    could be read.
+
+    THE INSTANCE DECIDES WHAT IS PAID; THE TABLE ONLY SAYS HOW MUCH. partner-nodes.json finds a
+    provider by a prefix of the class name, and a prefix cannot tell a partner node from a free
+    core node that shares its first word: `FluxKontextMultiReferenceLatentMethod` is ComfyUI's
+    own reference-conditioning node, and matched as "Flux" it priced a local Qwen graph as a
+    $7.72 BFL video job — refused by the credit gate three chats running, with the model told to
+    "offer a free alternative" to a graph that was already free. Every partner node's spec
+    carries `api_node: true`; the core nodes do not. One small GET per unique class — the same
+    calls the leak check below always made for the classes the table did not price.
+
+    A class whose spec cannot be read is absent from the result — neither free nor paid — so
+    the table's prefix still judges it, which errs toward charging."""
+    flags: dict[str, bool] = {}
+    classes = sorted({str(nd.get("class_type") or "") for nd in (prompt or {}).values()
+                      if isinstance(nd, dict)} - {""})
+    for cls in classes:
+        res = _get(f"/api/object_info/{cls}")
+        if not res.ok:
+            continue  # an unknown class fails validation on its own terms; not this gate's job
+        try:
+            spec = (res.json() or {}).get(cls) or {}
+        except ValueError:
+            continue
+        flags[cls] = bool(spec.get("api_node"))
+    return flags
+
+
+def _free_classes(flags: dict[str, bool]) -> set[str]:
+    return {cls for cls, paid in flags.items() if not paid}
+
+
+def _quote_for(prompt: dict, flags: dict[str, bool]):
     """Price a graph, or None when pricing is unavailable.
 
     A BROKEN TABLE MUST NOT BILL. If the file is missing or malformed this returns None, and the
@@ -1074,35 +1116,20 @@ def _quote_for(prompt: dict):
     try:
         import partner_pricing
 
-        return partner_pricing.price_workflow(prompt)
+        return partner_pricing.price_workflow(prompt, free_classes=_free_classes(flags))
     except Exception:  # noqa: BLE001
         return None
 
 
-def _unpriced_partner_nodes(prompt: dict, quote) -> list[str]:
+def _unpriced_partner_nodes(flags: dict[str, bool], quote) -> list[str]:
     """Partner nodes the TABLE never heard of — the leak the table cannot close by itself.
 
-    partner-nodes.json recognises a paid node by provider prefix, so a provider Comfy added last
-    week (ByteDance, Gemini image, hosted Wan, for months) matched nothing, priced as a free local
-    node, and ran on the platform's own Comfy balance while the user was charged zero. The
-    instance knows better: every partner node's spec carries `api_node: true`. Any class the
-    quote did not price is asked, and a yes is a refusal upstairs. One small GET per unknown
-    class, deduplicated — a graph names a dozen classes, most of them core."""
+    A provider Comfy added last week (ByteDance, Gemini image, hosted Wan, for months) matched
+    no prefix, priced as a free local node, and ran on the platform's own Comfy balance while
+    the user was charged zero. The instance says which classes are partner nodes; any of those
+    the quote did not price is a refusal upstairs."""
     priced = {i.class_type for i in getattr(quote, "items", [])} | set(getattr(quote, "unpriced", []))
-    unknown = sorted({str(nd.get("class_type") or "") for nd in (prompt or {}).values()
-                      if isinstance(nd, dict)} - priced - {""})
-    leak: list[str] = []
-    for cls in unknown:
-        res = _get(f"/api/object_info/{cls}")
-        if not res.ok:
-            continue  # an unknown class fails validation on its own terms; not this gate's job
-        try:
-            spec = (res.json() or {}).get(cls) or {}
-        except ValueError:
-            continue
-        if spec.get("api_node"):
-            leak.append(cls)
-    return leak
+    return sorted(cls for cls, paid in flags.items() if paid and cls not in priced)
 
 
 def _charge(credits: int, note: str, usd: float = 0.0) -> tuple[bool, str]:
@@ -1261,8 +1288,10 @@ class ComfyRunTool(Tool):
                     "If neither works, say plainly that the service is not available here.",
                     is_error=True,
                 )
-            # PAID PARTNER NODES: price, gate, then submit with the platform's key.
-            quote = _quote_for(prompt)
+            # PAID PARTNER NODES: the instance says which are paid, the table says how much;
+            # price, gate, then submit with the platform's key.
+            flags = _api_node_flags(prompt)
+            quote = _quote_for(prompt, flags)
             body: dict = {"prompt": prompt}
             charge_credits = 0
             charge_usd = 0.0
@@ -1280,7 +1309,7 @@ class ComfyRunTool(Tool):
                         "partner-nodes.json.",
                         is_error=True,
                     )
-            elif (leak := _unpriced_partner_nodes(prompt, quote)):
+            elif (leak := _unpriced_partner_nodes(flags, quote)):
                 # THE SECOND LAYER — see _unpriced_partner_nodes. The instance says these are
                 # partner nodes; the table has no provider for them; so they would have run
                 # unpriced. Refused, naming them, exactly like an unpriced model.
@@ -1560,55 +1589,229 @@ def _catalog_near_matches(catalog: list[dict], filename: str, limit: int = 4) ->
     ]
 
 
+#: HOW A WAITING TOOL WAITS. A model download is minutes of nothing to do; comfy_install and
+#: comfy_node_install hold their call open until the work is done, and these are the cadences
+#: of the hold. Module-level so a verifier can shrink them.
+_POLL_S = 5.0  # first Manager-queue poll; backs off to _POLL_MAX_S
+_POLL_MAX_S = 15.0
+_LEASE_EVERY_S = 90.0  # renew the GPU's idle lease (_WORK_LEASE_S) well inside its window
+_NOTICE_EVERY_S = 30.0  # a progress line to the window
+_LOADABLE_GRACE_S = 60.0  # Manager's rescan lag between "queue empty" and "a loader lists it"
+_REBOOT_WAIT_S = 240.0  # a restarted ComfyUI answering again
+_STATUS_FAILURES_MAX = 6  # consecutive unreadable queue statuses before "lost Manager"
+#: ONE ATTEMPT of a waiting tool. Under the hosted executor's 900 s cap (infra
+#: `executor_timeout_seconds`, a Lambda) with room for its transfers. The engine's guard times
+#: an attempt out at exactly this and — because the tool declares retry_on_timeout — starts
+#: another, which re-enters here and WAITS for the files it already queued instead of queueing
+#: them again (studio_state.queued_at). Four attempts is close to an hour of download on any
+#: backend; a desktop subprocess has no cap of its own and is sliced the same way, so the two
+#: paths behave identically.
+_WAIT_ATTEMPT_S = 840.0
+_WAIT_ATTEMPTS = 4
+#: A file queued this recently and still absent is waited on, never re-queued.
+_QUEUED_MEMORY_S = 3600.0
+
+
+def _queue_info() -> dict:
+    st = _get("/manager/queue/status", timeout_s=15.0)
+    try:
+        return st.json() if st.ok and st.text.strip() else {}
+    except ValueError:
+        return {}
+
+
+def _queue_busy(info: dict) -> bool:
+    return bool(info.get("is_processing")) or int(info.get("in_progress_count") or 0) > 0
+
+
+def _clock(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m{s:02d}s" if m else f"{s}s"
+
+
+async def _hold_until_manager_idle(abort, on_update, what: str) -> tuple[str, float]:
+    """Hold this call open until ComfyUI-Manager's queue is empty.
+    Returns ("idle" | "aborted" | "unreachable", seconds waited).
+
+    THE WAIT IS THE TOOL'S, NOT THE MODEL'S. This used to poll for 75 s and then return SUCCESS
+    saying "the download continues, do other work, confirm with comfy_inventory" — a sentence in
+    a prompt asked to do a tool's job, and the model did what any model does with a success
+    result: reported the install done and ended its turn, leaving the person to open vast.ai and
+    see whether a 4 GB file had actually landed. Now the call comes back when the queue is
+    empty. While it waits it keeps the GPU's idle lease alive (the reaper once destroyed a box
+    with four downloads in flight) and hands the window a progress line. A slice that runs out
+    is the guard's timeout, which retries into a fresh call — see _WAIT_ATTEMPT_S."""
+    started = time.monotonic()
+    last_lease = started
+    last_notice = 0.0
+    failures = 0
+    step = _POLL_S
+    # The first look comes AFTER a beat: Manager reports idle for an instant between
+    # /queue/start and its worker picking the job up, and that instant read as "done".
+    await asyncio.sleep(step)
+    while True:
+        if abort.is_set():
+            return "aborted", time.monotonic() - started
+        info = _queue_info()
+        if not info:
+            failures += 1
+            if failures >= _STATUS_FAILURES_MAX:
+                return "unreachable", time.monotonic() - started
+        else:
+            failures = 0
+            if not _queue_busy(info):
+                return "idle", time.monotonic() - started
+        now = time.monotonic()
+        if now - last_lease >= _LEASE_EVERY_S:
+            _lease(_WORK_LEASE_S)
+            last_lease = now
+        if on_update is not None and now - last_notice >= _NOTICE_EVERY_S:
+            total = info.get("total_count")
+            tally = f", Manager {info.get('done_count')}/{total} done" if total else ""
+            on_update(ToolResult.text(f"{what} — {_clock(now - started)}{tally}"))
+            last_notice = now
+        await asyncio.sleep(step)
+        step = min(step * 1.3, _POLL_MAX_S)
+
+
+def _loadable_names() -> dict[str, str]:
+    """basename -> the name a loader lists it under, for every model file on the instance.
+    Manager files a download under a subfolder (`qwen-image-edit/<file>`), and that subfoldered
+    name is what the loader's enum carries and what the workflow must say — a graph naming the
+    bare file validates as "missing" against an instance that has it."""
+    inv = _get("/api/object_info", timeout_s=60.0)
+    out: dict[str, str] = {}
+    try:
+        if inv.ok:
+            for _c, _i, files in _model_enums(inv.json()):
+                for name in files:
+                    out.setdefault(Path(str(name)).name.lower(), str(name))
+    except ValueError:
+        pass
+    return out
+
+
+async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
+    """filename -> loader name, for those of `filenames` a loader lists within the rescan grace."""
+    started = time.monotonic()
+    want = {f.lower() for f in filenames}
+    found: dict[str, str] = {}
+    while True:
+        listed = _loadable_names()
+        for f in filenames:
+            if f.lower() in listed:
+                found[f] = listed[f.lower()]
+        if len(found) == len(want) or abort.is_set():
+            return found
+        if time.monotonic() - started >= _LOADABLE_GRACE_S:
+            return found
+        await asyncio.sleep(_POLL_S)
+
+
+async def _await_instance(abort) -> float | None:
+    """Seconds until a restarting ComfyUI answers again, or None past _REBOOT_WAIT_S."""
+    started = time.monotonic()
+    await asyncio.sleep(_POLL_S * 2)  # it goes DOWN first; an immediate 200 is the old process
+    while time.monotonic() - started < _REBOOT_WAIT_S:
+        if abort.is_set():
+            return None
+        if _get("/api/system_stats", timeout_s=10.0).ok:
+            return time.monotonic() - started
+        await asyncio.sleep(_POLL_S)
+    return None
+
+
+def _install_requests(params: dict) -> list[dict]:
+    """The files to install: `files` as declared, or the one-file triple older transcripts carry."""
+    raw = params.get("files")
+    items = list(raw) if isinstance(raw, list) else []
+    if not items and params.get("filename"):
+        items = [{"filename": params.get("filename"), "url": params.get("url"), "kind": params.get("kind")}]
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        filename = str(it.get("filename") or "").strip()
+        url = str(it.get("url") or "").strip()
+        kind = str(it.get("kind") or "").strip().lower()
+        if filename and url and kind:
+            out.append({"filename": filename, "url": url, "kind": kind})
+    return out
+
+
 class ComfyInstallTool(Tool):
     name = "comfy_install"
-    label = "Install a model on the instance"
-    default_retryable = False
+    label = "Install models on the instance"
+    # THE WAIT IS DECLARED, so both clocks that could cut it know. The engine's guard times ONE
+    # attempt out at _WAIT_ATTEMPT_S and retries into a fresh one (retryable + retry_on_timeout —
+    # the guard retries only its own timeouts and transient exceptions, never an error result,
+    # so "not in Manager's catalog" is still answered once), and the sandbox's clock follows the
+    # same declaration (capabilities._timeout_for) instead of killing the child at 120 s.
+    default_timeout_sec = _WAIT_ATTEMPT_S
+    default_retryable = True
+    default_retry_on_timeout = True
+    default_max_retries = _WAIT_ATTEMPTS
     description = (
-        "Download a model onto the user's ComfyUI instance — WITHOUT asking them to touch a "
-        "terminal — using ComfyUI-Manager, which most rented-GPU templates (vast, RunPod) ship. "
-        "Give the filename, its download URL (comfy_research finds these on Hugging Face/"
-        "Civitai), and its kind (checkpoint, unet, vae, text_encoder, lora, controlnet, "
-        "upscale…). It queues the download; small files it confirms loadable on the spot, a "
-        "multi-GB weight keeps downloading on the instance AFTER this returns — do other work, "
-        "then confirm with comfy_inventory before running a workflow that needs the file. "
-        "This is how you FIX a missing-model workflow yourself instead of handing the user a "
-        "list. If the instance has no Manager, it says so and names the fallback."
+        "Download model files onto the user's ComfyUI instance — WITHOUT asking them to touch a "
+        "terminal — through ComfyUI-Manager, which most rented-GPU templates (vast, RunPod) ship. "
+        "Give EVERY file comfy_validate listed, in ONE call: filename, its download URL "
+        "(comfy_research finds these on Hugging Face/Civitai) and its kind (checkpoint, unet, "
+        "vae, text_encoder, lora, controlnet, upscale…). The call returns when the files are "
+        "LOADABLE: it holds the line while Manager downloads (minutes for a multi-GB weight, "
+        "progress shown as it goes) and comes back with 'installed' — naming the exact loader "
+        "name to put in the workflow — or with the reason it could not. Nothing to poll, nothing "
+        "to re-check afterwards. This is how you FIX a missing-model workflow yourself instead "
+        "of handing the user a list. If the instance has no Manager, it says so and names the "
+        "fallback."
     )
     parameters = {
         "type": "object",
-        "required": ["filename", "url", "kind"],
+        "required": ["files"],
         "properties": {
-            "filename": {
-                "type": "string",
-                "description": "The exact filename to save as, e.g. 'wan2.2_vae.safetensors'.",
-            },
-            "url": {
-                "type": "string",
-                "description": "Direct download URL (a Hugging Face /resolve/ link, a Civitai "
-                "download URL). comfy_research surfaces these.",
-            },
-            "kind": {
-                "type": "string",
-                "description": "Where it belongs: checkpoint | unet | diffusion_model | vae | "
-                "text_encoder | clip | lora | controlnet | upscale.",
-            },
+            "files": {
+                "type": "array",
+                "minItems": 1,
+                "description": "comfy_validate's whole missing-file list, in one call.",
+                "items": {
+                    "type": "object",
+                    "required": ["filename", "url", "kind"],
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "The exact filename to save as, e.g. 'wan2.2_vae.safetensors'.",
+                        },
+                        "url": {
+                            "type": "string",
+                            "description": "Direct download URL (a Hugging Face /resolve/ link, a "
+                            "Civitai download URL). comfy_research surfaces these.",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "description": "Where it belongs: checkpoint | unet | diffusion_model | "
+                            "vae | text_encoder | clip | lora | controlnet | upscale.",
+                        },
+                    },
+                },
+            }
         },
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
-            filename = str(params.get("filename") or "").strip()
-            url = str(params.get("url") or "").strip()
-            kind = str(params.get("kind") or "").strip().lower()
-            if not (filename and url and kind):
-                return ToolResult.text("filename, url and kind are all required", is_error=True)
+            files = _install_requests(params)
+            if not files:
+                return ToolResult.text(
+                    "files is required: a list of {filename, url, kind}, one per file "
+                    "comfy_validate listed.",
+                    is_error=True,
+                )
             # THE SHOPPING LIST IS VALIDATE'S, MECHANICALLY — see studio_state.install_allowed.
             import studio_state
 
-            allowed, why = studio_state.install_allowed(filename)
-            if not allowed:
-                return ToolResult.text(why, is_error=True)
+            for f in files:
+                allowed, why = studio_state.install_allowed(f["filename"])
+                if not allowed:
+                    return ToolResult.text(why, is_error=True)
             if not _manager_present():
                 return ToolResult.text(
                     "this instance has no ComfyUI-Manager, so I cannot install models over its "
@@ -1619,122 +1822,136 @@ class ComfyInstallTool(Tool):
                     is_error=True,
                 )
 
-            save_path, mtype = _MANAGER_DIRS.get(kind, (kind, kind))
-
             # Manager whitelists installs against its own catalog (save_path+base+filename must
             # match an entry). So: cataloged file -> submit the entry VERBATIM, never our guess.
             catalog = _manager_catalog()
-            entry = next(
-                (m for m in catalog
-                 if str(m.get("filename", "")).lower() == filename.lower()),
-                None,
-            )
-            if entry is not None:
-                if str(entry.get("installed")) == "True":
+            listed = _loadable_names()
+            present: dict[str, str] = {}
+            queued: list[str] = []
+            waiting: list[str] = []
+            refused: list[tuple[str, list[str]]] = []
+            targets: dict[str, str] = {}
+            for f in files:
+                filename, url, kind = f["filename"], f["url"], f["kind"]
+                save_path, mtype = _MANAGER_DIRS.get(kind, (kind, kind))
+                entry = next(
+                    (m for m in catalog if str(m.get("filename", "")).lower() == filename.lower()),
+                    None,
+                )
+                if filename.lower() in listed:
+                    present[filename] = listed[filename.lower()]
+                    continue
+                if entry is not None:
+                    save_path = str(entry.get("save_path") or save_path)
+                targets[filename] = save_path
+                # RE-ENTRY. A previous attempt of this same call (the guard's timeout and retry)
+                # queued it minutes ago and Manager is still busy: wait for it, never queue it
+                # twice — a duplicate only lengthens the queue.
+                if time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S and _queue_busy(
+                    _queue_info()
+                ):
+                    waiting.append(filename)
+                    continue
+                if entry is not None:
+                    body = {
+                        "ui_id": f"agent-{filename}",
+                        "filename": entry.get("filename"),
+                        "url": entry.get("url") or url,
+                        "save_path": entry.get("save_path"),
+                        "type": entry.get("type"),
+                        "base": entry.get("base", ""),
+                        "name": entry.get("name", ""),
+                    }
+                else:
+                    body = {
+                        "ui_id": f"agent-{filename}",
+                        "filename": filename,
+                        "url": url,
+                        "save_path": save_path,
+                        "type": mtype,
+                        "base": "",
+                    }
+                _lease(_WORK_LEASE_S)  # a multi-GB download is work the platform cannot see
+                res = _post("/manager/queue/install_model", body, timeout_s=30.0)
+                if not res.ok:
+                    if res.status == 400 and entry is None:
+                        refused.append((filename, _catalog_near_matches(catalog, filename)))
+                        continue
+                    return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
+                queued.append(filename)
+
+            if queued:
+                studio_state.mark_queued(queued)
+                # Manager queues the job; the worker has to be told to run.
+                _lease(_WORK_LEASE_S)
+                _post("/manager/queue/start", None, timeout_s=15.0)
+
+            pending = queued + waiting
+            landed: dict[str, str] = {}
+            waited = 0.0
+            if pending:
+                state, waited = await _hold_until_manager_idle(
+                    abort, on_update, "downloading " + ", ".join(pending)
+                )
+                if state == "aborted":
                     return ToolResult.text(
-                        f"{filename} is already installed (models/{entry.get('save_path')}/). "
-                        "Design with it."
+                        f"stopped after {_clock(waited)}; the download of {', '.join(pending)} "
+                        "continues on the instance. Call comfy_install again with the same files "
+                        "to keep waiting — nothing is re-queued."
                     )
-                save_path = str(entry.get("save_path") or save_path)
-                body = {
-                    "ui_id": f"agent-{filename}",
-                    "filename": entry.get("filename"),
-                    "url": entry.get("url") or url,
-                    "save_path": entry.get("save_path"),
-                    "type": entry.get("type"),
-                    "base": entry.get("base", ""),
-                    "name": entry.get("name", ""),
-                }
-            else:
-                body = {
-                    "ui_id": f"agent-{filename}",
-                    "filename": filename,
-                    "url": url,
-                    "save_path": save_path,
-                    "type": mtype,
-                    "base": "",
-                }
-            _lease(_WORK_LEASE_S)  # a multi-GB download is work the platform cannot see
-            res = _post("/manager/queue/install_model", body, timeout_s=30.0)
-            if not res.ok:
-                if res.status == 400 and entry is None:
-                    alts = _catalog_near_matches(catalog, filename)
-                    hint = (
-                        f"Closest cataloged models: {'; '.join(alts)}. Consider redesigning the "
-                        "workflow around a cataloged stack and calling comfy_install with that "
-                        "exact filename. "
-                        if alts
-                        else "No close cataloged alternative exists. "
-                    )
+                if state == "unreachable":
                     return ToolResult.text(
-                        f"install {filename}: this instance's ComfyUI-Manager only installs "
-                        f"models from its own catalog at its current security level, and "
-                        f"'{filename}' is not in that catalog. {hint}Otherwise the file must be "
-                        "added on the instance itself, or Manager's security_level set to "
-                        "'weak' in its config.",
+                        f"lost ComfyUI-Manager after {_clock(waited)} of waiting on "
+                        f"{', '.join(pending)}. If the GPU was reclaimed, gpu_ensure; then call "
+                        "comfy_install again with the same files.",
                         is_error=True,
                     )
-                return ToolResult.text(_failed(res, f"install {filename}"), is_error=True)
-            # Manager queues the job; the worker has to be told to run.
-            _lease(_WORK_LEASE_S)
-            _post("/manager/queue/start", None, timeout_s=15.0)
+                # Manager's queue is empty; the loader list lags a rescan behind it.
+                landed = await _await_loadable(pending, abort)
 
-            # Poll only BRIEFLY. The sandbox stops any tool at 120s, so waiting out a multi-GB
-            # download here turns a healthy install into a phantom failure (and feeds the loop
-            # guard). Small files finish inside the window; a big one gets a SUCCESS result
-            # saying the download continues server-side — Manager keeps going without us.
-            waited, step, deadline = 0.0, 3.0, 75.0
-            still_downloading = False
-            while waited < deadline:
-                if abort.is_set():
-                    still_downloading = True
-                    break
-                st = _get("/manager/queue/status", timeout_s=15.0)
-                try:
-                    info = st.json() if st.ok and st.text.strip() else {}
-                except ValueError:
-                    info = {}
-                if info and not info.get("is_processing") and int(info.get("in_progress_count") or 0) == 0:
-                    break
-                await asyncio.sleep(step)
-                waited += step
-            else:
-                still_downloading = True
-            if still_downloading:
-                size = str((entry or {}).get("size") or "").strip()
-                return ToolResult.text(
-                    f"queued {filename}{f' ({size})' if size else ''} — the download is running "
-                    f"on the instance and continues after this returns. Do other work (design "
-                    "the graph, install the next file), then confirm it landed with "
-                    f"comfy_inventory before running a workflow that needs it. Target: "
-                    f"models/{save_path}/."
+            missing = [f for f in pending if f not in landed]
+            lines: list[str] = []
+            if landed:
+                lines.append(
+                    f"installed {', '.join(landed)} — loadable now, after {_clock(waited)}. "
+                    "Loader names to use in the workflow: "
+                    + "; ".join(f"{f} -> '{name}'" for f, name in landed.items())
+                    + "."
                 )
-                step = min(step * 1.3, 15.0)
-
-            # Confirm it is actually loadable now — a finished queue with the file still invisible
-            # means it landed somewhere a loader does not look (wrong kind), which is worth saying.
-            inv = _get("/api/object_info", timeout_s=60.0)
-            visible = False
-            try:
-                if inv.ok:
-                    visible = any(
-                        filename in files
-                        for _c, _i, files in _model_enums(inv.json())
-                    )
-            except ValueError:
-                pass
-            if visible:
-                return ToolResult.text(
-                    f"installed {filename} into models/{save_path}/ — it is now loadable. "
-                    "Design with it."
+            if present:
+                lines.append(
+                    "already installed: "
+                    + "; ".join(f"{f} (loadable as '{name}')" for f, name in present.items())
+                    + "."
                 )
-            return ToolResult.text(
-                f"the download for {filename} finished, but no loader lists it yet. ComfyUI only "
-                "rescans its model folders on restart or a Manager refresh — try comfy_inventory "
-                f"again in a moment. If it still does not appear, the kind may be wrong: I put it "
-                f"in models/{save_path}/.",
-                is_error=True,
-            )
+            if missing:
+                lines.append(
+                    f"the download for {', '.join(missing)} finished, but no loader lists it. "
+                    "ComfyUI only rescans its model folders on restart or a Manager refresh — try "
+                    "comfy_inventory again in a moment. If it still does not appear, the kind may "
+                    "be wrong: I put it in "
+                    + ", ".join(f"models/{targets.get(f, '?')}/" for f in missing)
+                    + "."
+                )
+            for filename, alts in refused:
+                hint = (
+                    f"Closest cataloged models: {'; '.join(alts)}. Consider redesigning the "
+                    "workflow around a cataloged stack and calling comfy_install with that exact "
+                    "filename. "
+                    if alts
+                    else "No close cataloged alternative exists. "
+                )
+                lines.append(
+                    f"NOT installed — {filename}: this instance's ComfyUI-Manager only installs "
+                    f"models from its own catalog at its current security level, and "
+                    f"'{filename}' is not in that catalog. {hint}Otherwise the file must be "
+                    "added on the instance itself, or Manager's security_level set to 'weak' in "
+                    "its config."
+                )
+            ok = not missing and not refused
+            if ok:
+                lines.append("Re-validate with those names, then run.")
+            return ToolResult.text("\n".join(lines), is_error=not ok)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
@@ -1792,15 +2009,20 @@ def _pack_candidates(catalog: dict, query: str, limit: int = 6) -> list[str]:
 class ComfyNodeInstallTool(Tool):
     name = "comfy_node_install"
     label = "Install a custom node pack"
-    default_retryable = False
+    # The same declared wait as comfy_install — see there.
+    default_timeout_sec = _WAIT_ATTEMPT_S
+    default_retryable = True
+    default_retry_on_timeout = True
+    default_max_retries = _WAIT_ATTEMPTS
     description = (
         "Install a ComfyUI CUSTOM NODE PACK on the user's instance — IPAdapter, PuLID, a LoRA "
         "trainer, video helpers, anything in ComfyUI-Manager's registry — WITHOUT asking the user "
         "to touch Manager themselves. Give the pack's registry id, its title, or its GitHub URL "
-        "(research and `comfy_validate`'s missing-node report both give you these). It queues the "
-        "install through ComfyUI-Manager and restarts ComfyUI so the new nodes load. This is how "
-        "you fix a `missing_node_type` / unknown-node-class yourself. Node packs are code: say "
-        "which one you are installing and why before you call this."
+        "(research and `comfy_validate`'s missing-node report both give you these). It installs "
+        "through ComfyUI-Manager, restarts ComfyUI so the new nodes load, and returns once the "
+        "instance answers again — then comfy_node_spec the class to confirm. This is how you fix "
+        "a `missing_node_type` / unknown-node-class yourself. Node packs are code: say which one "
+        "you are installing and why before you call this."
     )
     parameters = {
         "type": "object",
@@ -1891,37 +2113,43 @@ class ComfyNodeInstallTool(Tool):
             _lease(_WORK_LEASE_S)
             _post("/manager/queue/start", None, timeout_s=15.0)
 
-            # Same wait discipline as comfy_install: stay under the sandbox's stop, then hand off.
-            waited, step, deadline = 0.0, 3.0, 60.0
-            done = False
-            while waited < deadline:
-                if abort.is_set():
-                    break
-                st = _get("/manager/queue/status", timeout_s=15.0)
-                try:
-                    info = st.json() if st.ok and st.text.strip() else {}
-                except ValueError:
-                    info = {}
-                if info and not info.get("is_processing") and int(info.get("in_progress_count") or 0) == 0:
-                    done = True
-                    break
-                await asyncio.sleep(step)
-                waited += step
+            # The same hold as comfy_install: this returns when Manager is done, not before.
+            state, waited = await _hold_until_manager_idle(abort, on_update, f"installing {title}")
+            if state == "aborted":
+                return ToolResult.text(
+                    f"stopped after {_clock(waited)}; Manager continues installing {title}. Call "
+                    "comfy_node_install again to finish (restart included)."
+                )
+            if state == "unreachable":
+                return ToolResult.text(
+                    f"lost ComfyUI-Manager after {_clock(waited)} while installing {title}. If "
+                    "the GPU was reclaimed, gpu_ensure; then call comfy_node_install again.",
+                    is_error=True,
+                )
 
             if not (params.get("restart", True)):
                 return ToolResult.text(
-                    f"queued {title} ({pack_id}). ComfyUI must RESTART before its nodes load — "
+                    f"installed {title} ({pack_id}). ComfyUI must RESTART before its nodes load — "
                     "call comfy_node_install again with restart, or ask the user to restart."
                 )
             # A pack that is installed but not loaded is still a missing node. Rebooting is the
-            # step that makes it real, and Manager owns it.
+            # step that makes it real, and Manager owns it — and so is waiting for the instance
+            # to answer again, which used to be "call comfy_probe until it answers".
             _post("/manager/reboot", None, timeout_s=20.0)
+            if on_update is not None:
+                on_update(ToolResult.text(f"installed {title}; restarting ComfyUI"))
+            back = await _await_instance(abort)
+            if back is None:
+                return ToolResult.text(
+                    f"installed {title} ({pack_id}) and restarted ComfyUI, but the instance has "
+                    f"not answered in {_clock(_REBOOT_WAIT_S)}. comfy_probe to see whether it is "
+                    "back; if not, the restart may have failed on the instance.",
+                    is_error=True,
+                )
             return ToolResult.text(
-                f"installed {title} ({pack_id})"
-                + ("" if done else " (still finishing)")
-                + " and restarted ComfyUI so its nodes load. The instance takes ~30-60s to come "
-                "back: call comfy_probe until it answers, then comfy_node_spec on the node class "
-                "you need to confirm it is there before emitting a workflow that uses it."
+                f"installed {title} ({pack_id}) and restarted ComfyUI — it answers again "
+                f"({_clock(back)} to come back). comfy_node_spec the node class you need to "
+                "confirm it loaded before emitting a workflow that uses it."
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(
@@ -2066,7 +2294,15 @@ class ComfyValidateTool(Tool):
                         continue
                     if value in choices:
                         continue
-                    if _looks_like_model_list(choices) or (
+                    # A MISSING WEIGHT IS A SHOPPING-LIST ITEM, NOT AN INVALID VALUE. The field's
+                    # NAME says it is a weights slot; what is installed in it says nothing. On a
+                    # fresh box the VAE enum is one sentinel, `pixel_space`, so judged by its
+                    # contents `qwen_image_vae.safetensors` read as "not one of [pixel_space]",
+                    # comfy_install refused it (not on the list), and the only legal value left
+                    # was `pixel_space` — which validates, then renders a raw latent or runs out
+                    # of memory. The model diagnosed that, re-emitted the right file, and was
+                    # refused again. Same rule _hide_installed_files already applies.
+                    if field in _MODEL_FIELDS or _looks_like_model_list(choices) or (
                         not choices and value.lower().endswith(_MODEL_EXTS)
                     ):
                         missing_files.append(f"{value}  (for {cls}.{field}, node {nid})")
@@ -2181,7 +2417,11 @@ class ComfyPriceTool(Tool):
                 return ToolResult.text(
                     "that is the UI-format file; price the .api.json one.", is_error=True
                 )
-            quote = partner_pricing.price_workflow(graph, table)
+            # THE SAME ANSWER comfy_run will give: the instance says which nodes are paid. With
+            # no instance up, the table's prefixes judge alone — which can only over-quote.
+            quote = partner_pricing.price_workflow(
+                graph, table, free_classes=_free_classes(_api_node_flags(graph))
+            )
             platform = quote.platform_credits(rate)
             head = (
                 f"{path.name}: ≈${quote.usd:.2f} → {platform:,} credits"

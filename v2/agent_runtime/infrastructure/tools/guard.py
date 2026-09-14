@@ -89,6 +89,16 @@ def _resolve(overrides: dict, tool, field: str, global_default):
     return global_default
 
 
+def declared_timeout_sec(config, tool) -> float | None:
+    """A timeout the tool itself declares (`default_timeout_sec`) or an operator sets for it in
+    `tool_overrides`; None when neither says anything and the global default applies. The one
+    number the sandbox reads too, so a tool that says it takes an hour is not killed at two
+    minutes by a clock that never heard the declaration."""
+    overrides = (getattr(config, "tool_overrides", None) or {}).get(tool.name, {}) or {}
+    value = _resolve(overrides, tool, "timeout_sec", None)
+    return float(value) if value else None
+
+
 def resolve_policy(config, tool) -> ToolPolicy:
     overrides = (getattr(config, "tool_overrides", None) or {}).get(tool.name, {}) or {}
     return ToolPolicy(

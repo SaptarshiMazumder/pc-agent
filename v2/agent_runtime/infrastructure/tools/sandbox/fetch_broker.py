@@ -96,6 +96,12 @@ DEFAULT_FETCH_LIMITS = {
     "max_calls": 32,  # requests per tool invocation
     "max_bytes": 5 * 1024 * 1024,  # per-response body clamp
     "timeout_s": 30.0,  # per-request wall clock
+    # A TRANSFER IS NOT A REQUEST. The 30 s clock is right for an API call and wrong for moving
+    # a file: an 8 MB reference photo going up to a rented GPU died at exactly 31 s, twice, and
+    # was reported as "could not reach the instance" — the instance was fine. Uploads
+    # (file_path) and downloads (save_path) get this clock instead, the way they already get
+    # their own byte ceiling below.
+    "transfer_timeout_s": 300.0,
 }
 
 #: Methods a plugin may ask for. TRACE is absent deliberately (it reflects headers, including the
@@ -126,7 +132,15 @@ class SandboxFetchBroker:
         self._max_calls = int(limits.get("max_calls") or 0)
         self._max_bytes = int(limits.get("max_bytes") or 0)
         self._timeout_s = float(limits.get("timeout_s") or 0) or DEFAULT_FETCH_LIMITS["timeout_s"]
+        self._transfer_timeout_s = (
+            float(limits.get("transfer_timeout_s") or 0)
+            or DEFAULT_FETCH_LIMITS["transfer_timeout_s"]
+        )
         self._calls = 0
+
+    def _clock(self, *, transfer: bool) -> float:
+        """The wall clock for one request: a file moving either way gets the transfer clock."""
+        return self._transfer_timeout_s if transfer else self._timeout_s
 
     @property
     def calls_made(self) -> int:
@@ -190,7 +204,7 @@ class SandboxFetchBroker:
             file_field=str(request.get("file_field") or "file"),
             form_fields=request.get("form_fields") or None,
             save_path=save_path,
-            timeout_s=self._timeout_s,
+            timeout_s=self._clock(transfer=bool(file_path or save_path)),
             # A media download legitimately dwarfs a text response; the text clamp would refuse
             # every video. 200MB is a generous ceiling for a rendered output, not a policy knob.
             max_bytes=max(self._max_bytes, 200 * 1024 * 1024) if save_path else self._max_bytes,

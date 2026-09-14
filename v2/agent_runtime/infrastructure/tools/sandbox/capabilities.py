@@ -27,10 +27,15 @@ from pathlib import Path
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.domain.sandbox import CapabilityGrant, PluginOrigin
 from agent_runtime.domain.sandbox_net import resolve_allowlist
+from agent_runtime.infrastructure.tools.guard import declared_timeout_sec
 
 log = logging.getLogger("agentd")
 
 DEFAULT_TIMEOUT_S = 120.0
+#: How far past the guard's own timeout the sandbox's clock sits for a tool that declared one:
+#: the guard is what times a tool out (and retries, when the tool says it may); this clock is
+#: the backstop for a child the guard's cancel could not reach.
+GUARD_MARGIN_S = 60.0
 
 
 class DefaultCapabilityResolver:
@@ -59,12 +64,26 @@ class DefaultCapabilityResolver:
         return CapabilityGrant(
             fs_paths=fs_paths,
             read_paths=self._read_for(tool),
-            timeout_s=self._timeout_s,
+            timeout_s=self._timeout_for(tool),
             cpu_ms=self._cpu_ms,
             mem_mb=self._mem_mb,
             models=self._models_for(plugin_id, tool),
             net_allowlist=self._net_for(tool),
         )
+
+    def _timeout_for(self, tool) -> float:
+        """The sandbox's clock for this tool: the global ceiling, unless the tool declares a
+        longer one — the same declaration the engine's guard times it by (guard.declared_timeout_sec).
+
+        THE TWO CLOCKS USED TO DISAGREE. A tool that said "I take an hour" was still killed here
+        at 120 s, so comfy_install was written to give up waiting at 75 s and hand a multi-GB
+        download back to the model as prose — which the model then reported as done. Now the
+        declaration is one number both clocks read, this one a margin behind so the guard's
+        timeout (and its retry) is what fires."""
+        declared = declared_timeout_sec(self._config, tool) if tool is not None else None
+        if declared and declared > self._timeout_s:
+            return declared + GUARD_MARGIN_S
+        return self._timeout_s
 
     # ------------------------------------------------------------------ own shipped files
 

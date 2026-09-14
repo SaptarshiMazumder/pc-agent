@@ -97,6 +97,10 @@ def _tool_spec(tool) -> dict:
         "default_model": str(getattr(tool, "default_model", "") or ""),
         "default_timeout_sec": getattr(tool, "default_timeout_sec", None),
         "default_retryable": bool(getattr(tool, "default_retryable", False)),
+        # The rest of the policy a tool may declare (guard.resolve_policy reads all four). Without
+        # these a sandboxed tool's "retry me when my attempt times out" never left the child.
+        "default_retry_on_timeout": bool(getattr(tool, "default_retry_on_timeout", False)),
+        "default_max_retries": getattr(tool, "default_max_retries", None),
     }
 
 

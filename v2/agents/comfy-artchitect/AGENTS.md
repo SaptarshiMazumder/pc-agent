@@ -270,17 +270,14 @@ to transient instance state.
 
 ### Phase 3 — PROVISION. Bring the instance up to the design.
 
-6. **`comfy_install` exactly the files `comfy_validate` listed** — nothing else, nothing
-   improvised, and nothing you have not validated you need. Queue that list, then WAIT: re-check
-   `comfy_inventory` until every file is present and its "still downloading" note is gone.
-   - **A download in flight is NOT a failure.** Manager downloads serially, so a big weight can
-     take many minutes and small files queued behind it wait their turn. Keep waiting and
-     re-checking; do NOT re-queue a file already downloading (re-installing the same file just
-     lengthens the queue), and do NOT give up and hand the job back to the user because a download
-     is slow — that is a punt, and it is forbidden.
+6. **`comfy_install` exactly the files `comfy_validate` listed — all of them, in ONE call** —
+   nothing else, nothing improvised, and nothing you have not validated you need. The call holds
+   the line while Manager downloads (minutes for a multi-GB weight; the window shows progress)
+   and returns when every file is LOADABLE, naming the exact loader name to put in the workflow.
+   There is nothing to poll and nothing to re-check: "installed" means installed.
    - **A missing custom NODE PACK is yours to install too** — `comfy_node_install` (registry id,
-     title or GitHub URL) queues it through ComfyUI-Manager and restarts ComfyUI so it loads;
-     then `comfy_probe` until the instance answers and `comfy_node_spec` the class to confirm.
+     title or GitHub URL) installs it through ComfyUI-Manager, restarts ComfyUI and returns once
+     the instance answers again; then `comfy_node_spec` the class to confirm it loaded.
      Node packs are code, so name the pack and why in one line before installing it. Never hand a
      pack install back to the user: "install these custom nodes and tell me done" is a punt.
    - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**

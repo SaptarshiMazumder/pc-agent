@@ -411,6 +411,44 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
 
 # ─────────────────────────────── what this conversation brought back ───────────────────────────
 
+_QUEUED_FILE = ".studio/queued.json"
+
+
+def mark_queued(filenames: list) -> None:
+    """Files this session handed to ComfyUI-Manager's download queue, and when. Read by
+    comfy_install on RE-ENTRY: an attempt the guard timed out and retried finds its files here
+    and waits for them instead of queueing them again — a duplicate only lengthens the queue."""
+    try:
+        session = _session()
+        if not session or not filenames:
+            return
+        data = _read_json(_QUEUED_FILE)
+        sessions = data.get("sessions") or {}
+        mine = sessions.get(session) or {}
+        now = time.time()
+        for f in filenames:
+            mine[str(f).strip().lower()] = now
+        sessions[session] = mine
+        if len(sessions) > _MAX_SESSIONS:
+            newest = sorted(sessions, key=lambda s: max(sessions[s].values(), default=0.0))
+            sessions = {s: sessions[s] for s in newest[-_MAX_SESSIONS:]}
+        _write_json(_QUEUED_FILE, {"sessions": sessions})
+    except Exception:  # noqa: BLE001 — telemetry never fails a run
+        pass
+
+
+def queued_at(filename: str) -> float:
+    """When this session queued `filename`, or 0.0 if it never did."""
+    try:
+        session = _session()
+        if not session:
+            return 0.0
+        mine = (_read_json(_QUEUED_FILE).get("sessions") or {}).get(session) or {}
+        return float(mine.get((filename or "").strip().lower()) or 0.0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 _DOWNLOADS_FILE = ".studio/downloads.json"
 
 

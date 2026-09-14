@@ -451,7 +451,7 @@ class Config:
     sandbox_net_allow: tuple = ()
     sandbox_net_deny: tuple = ()
     # Ceilings for ONE tool run's host-brokered fetches; same shape and spirit as
-    # sandbox_model_limits. Keys: max_calls, max_bytes, timeout_s. Defaults in
+    # sandbox_model_limits. Keys: max_calls, max_bytes, timeout_s, transfer_timeout_s. Defaults in
     # infrastructure/tools/sandbox/fetch_broker.DEFAULT_FETCH_LIMITS.
     sandbox_fetch_limits: dict = field(default_factory=dict)
     # ── MULTI-TENANCY (hosted only) ──────────────────────────────────────────────────────────
