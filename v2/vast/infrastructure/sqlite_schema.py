@@ -12,9 +12,13 @@ from __future__ import annotations
 import sqlite3
 
 #: Bump when adding a step to _STEPS.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _STEPS: dict[int, str] = {
+    4: """
+    ALTER TABLE vast_instances ADD COLUMN reap_token TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vast_instances ADD COLUMN reap_until REAL NOT NULL DEFAULT 0;
+    """,
     3: """
     -- DECLARED IDLE: when the account's last window left, or its unwatched run ended. Zero
     -- until then; cleared by the next heartbeat. The reaper reads it to stop asking the box

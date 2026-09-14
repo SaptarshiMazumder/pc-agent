@@ -37,6 +37,7 @@ export function Settings({
   icons,
   extras,
   hideSecrets,
+  tabs,
 }: {
   client: AgentdClient
   /** Whose layer this page edits. Each agent knows its own id — see useSettings. */
@@ -60,6 +61,12 @@ export function Settings({
    *  into, so the group is a page of fields that can never take effect — and a settings page
    *  offering a control that does nothing teaches people to distrust the rest of it. */
   hideSecrets?: boolean
+  /** Which tabs to show, in TABS order. Absent means all six. THIS AGENT'S DEPARTURE FROM THE
+   *  SKELETON'S COPY: a studio window whose daemon is the platform's has no use for API keys,
+   *  tool toggles, delegation or the server's host and port — four pages of controls that do
+   *  nothing here, and a settings page offering controls that do nothing teaches people to
+   *  distrust the rest of it. */
+  tabs?: TabId[]
   /** Rendered at the top of the tab it names, above that tab's groups. For the things a window
    *  has that the shared schema cannot know about — a run-mode switch, its MCP servers, a restart
    *  control, a "Test connection" button beside a URL the agent declared in `[[settings]]`.
@@ -132,7 +139,7 @@ export function Settings({
 
       <div className="settings-layout">
         <nav className="settings-nav">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !tabs || tabs.includes(t.id)).map((t) => (
             <button
               key={t.id}
               className={`settings-nav-item ${t.id === tab ? 'active' : ''}`}

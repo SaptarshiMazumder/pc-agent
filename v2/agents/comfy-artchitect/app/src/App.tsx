@@ -208,7 +208,7 @@ export default function App() {
      answer arrived with every character doubled. */
   useEffect(() => {
     if (!client) return
-    const off = client.on('chat.event', (payload: any) => handleRunEvent(payload))
+    const off = client.on('chat.event', (payload: any) => handleRunEvent(payload, client))
     return () => off()
   }, [client])
 
@@ -522,7 +522,7 @@ export default function App() {
                look doubtful too. (This agent declares no settings at all — the instance is
                provisioned and the model keys are the platform's — so the page is intentionally
                near-empty.) */
-            <Settings client={client} agentId={AGENT_ID} hideSecrets />
+            <Settings client={client} agentId={AGENT_ID} hideSecrets tabs={['general', 'models']} />
           )
         ) : (
           /* THE STUDIO: conversation beside a live dashboard of what the run produced

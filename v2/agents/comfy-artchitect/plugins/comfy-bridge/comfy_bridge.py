@@ -294,21 +294,21 @@ def _platform_credits(usd: float) -> int:
 
 
 def _lease(seconds: int) -> None:
-    """Hold the machine against the idle timer for `seconds`: a render or a download is work in
-    progress even while nothing calls anyone. The reaper destroyed a machine with four model
-    downloads in flight because nothing said so. Best-effort by design — the lease protects the
-    run, so a platform blip must not fail it; the daemon's own heartbeat and the reaper's busy
-    check are the other two layers."""
+    """Confirm ownership before GPU work. A cleanup claim makes this fail, not falsely
+    acknowledge a lease on a machine already being destroyed. Existing GPU jobs remain
+    protected by the reaper's activity probes if the platform is temporarily unreachable."""
     account_id = current_account_id()
     if not account_id:
         return
-    fetch(
+    response = fetch(
         f"{_ACCOUNTS}/vast/heartbeat",
         method="POST",
         json={"account_id": account_id, "lease_seconds": int(seconds)},
         headers=_AUTH,
         timeout_s=15.0,
     )
+    if not response.ok or response.json().get("alive") is not True:
+        raise RuntimeError("GPU keepalive was not confirmed; call gpu_ensure before submitting more work")
 
 
 #: How long a render or a download may hold the machine without anyone talking to it. SHORT,

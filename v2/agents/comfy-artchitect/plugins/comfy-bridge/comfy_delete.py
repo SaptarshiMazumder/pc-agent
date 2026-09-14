@@ -1,5 +1,20 @@
-"""comfy_delete — remove files from THIS chat's folders, at the user's request, with the agent in
-the loop.
+"""comfy_delete — APPROVE the removal of files from THIS chat's folders, at the user's request,
+with the agent in the loop. The window performs the removal.
+
+WHY THIS TOOL DOES NOT UNLINK ANYTHING. This plugin runs sandboxed (comfy-artchitect arrives as
+a .agentpkg, so classify_origin calls it untrusted), and a sandbox is handed a COPY of the
+workspace: creations and edits sync back as a change set, and — deliberately, see the header of
+infrastructure/tools/sandbox/microvm_backend.py — "deletions never propagate, an untrusted tool
+must not be able to erase a workspace through the sync channel". So an unlink here removed the
+file from a copy that is thrown away, reported honest success, and left the real file untouched;
+the next call shipped a fresh zip and the file was back. That is exactly what it did: three
+files "deleted" twice over, still listed in the panel, and nothing anywhere saying why.
+
+So the split follows the trust boundary instead of fighting it. THIS TOOL DECIDES — it owns the
+checks, which are the part that needs the workspace and the job's records — and hands back the
+approved paths in `details`. THE WINDOW DELETES, through the daemon's `workspace.delete`, which
+is app-callable and is already how the reference Replace flow removes the file it replaces. The
+host performs the destructive act; the sandbox only ever says what should happen.
 
 WHY THE AGENT AND NOT A BUTTON. The window could call the daemon's `workspace.delete` directly —
 it is app-callable and the reference "Replace" flow already does. It deliberately does not for
@@ -17,13 +32,14 @@ no trash and no undo behind this — the refusal is the whole margin.
 
 FENCED BY CONSTRUCTION. Only `references/<chat>`, `workflows/<chat>` and `outputs/<chat>` under the
 run's workspace — the same three folders the window lists — resolved and checked for containment
-before anything is touched. Never `.studio/` (the job's gate records), never another chat's folder,
-never outside the workspace. A sandboxed copy of this plugin could not reach further anyway; the
-check is here so the trusted copy cannot either.
+before a path is ever approved. Never `.studio/` (the job's gate records), never another chat's
+folder, never outside the workspace. The window deletes the approved list and nothing else, so
+this check is still the whole fence — it just guards an instruction now instead of an unlink.
 
-GATE RECORDS FOLLOW THE FILE. Deleting a validated workflow also drops its validation; deleting a
-downloaded render drops it from the download record. Left behind, those records would keep
-authorising an install for a file that is gone, and keep offering a render that cannot be sent.
+GATE RECORDS FOLLOW THE FILE. Approving a validated workflow's removal also drops its validation;
+approving a downloaded render drops it from the download record. Left behind, those records would
+keep authorising an install for a file that is going, and keep offering a render that cannot be
+sent. These are WRITES, so unlike the unlink they do reach the daemon's copy.
 """
 
 from __future__ import annotations
@@ -116,14 +132,15 @@ class ComfyDeleteTool(Tool):
     label = "Delete files from this chat's workspace"
     default_retryable = False
     description = (
-        "Delete files from THIS chat's references/, workflows/ or outputs/ folders — ONLY when the "
-        "user has asked for it (the window sends 'Please delete …' naming the paths). Pass the "
-        "paths as given. If a file is load-bearing for the job — a reference bound to a slot, a "
-        "workflow whose validation is armed, a render this conversation produced — the tool "
-        "REFUSES it and says why; relay that reason in one line and ask once. Only an explicit "
-        "yes from the user is `force=true`. Never delete anything the user did not name, never "
-        "call this to tidy up on your own, and never reach outside those three folders (it will "
-        "not let you). There is no undo."
+        "Approve deletion of files from THIS chat's references/, workflows/ or outputs/ folders "
+        "— ONLY when the user has asked for it (the window sends 'Please delete …' naming the "
+        "paths). Pass the paths as given. The window removes what this approves, within a "
+        "second, so tell the user the files are gone — never that they are queued or pending. "
+        "If a file is load-bearing for the job — a reference bound to a slot, a workflow whose "
+        "validation is armed, a render this conversation produced — the tool REFUSES it and says "
+        "why; relay that reason in one line and ask once. Only an explicit yes from the user is "
+        "`force=true`. Never name a file the user did not, never call this to tidy up on your "
+        "own, and never reach outside those three folders (it will not let you). No undo."
     )
     parameters = {
         "type": "object",
@@ -148,7 +165,7 @@ class ComfyDeleteTool(Tool):
             return ToolResult.text("comfy_delete: no paths given", is_error=True)
         try:
             ws = Path(current_workspace(".") or ".")
-            deleted: list[str] = []
+            approved: list[str] = []
             refused: list[dict] = []
             missing: list[str] = []
             for raw in raw_paths:
@@ -163,14 +180,16 @@ class ComfyDeleteTool(Tool):
                 if reason:
                     refused.append({"path": str(raw), "reason": reason})
                     continue
-                target.unlink()
+                # NO unlink — see the header. This side's copy is discarded, so removing the
+                # file here would hide it from the rest of THIS run while the real one stayed.
+                # The records do move now, because writes, unlike deletions, sync back.
                 _forget(ws, target)
-                deleted.append(target.relative_to(ws.resolve()).as_posix())
+                approved.append(target.relative_to(ws.resolve()).as_posix())
 
             lines: list[str] = []
-            if deleted:
-                lines.append(f"deleted {len(deleted)} file(s):")
-                lines += [f"  {p}" for p in deleted]
+            if approved:
+                lines.append(f"deleted {len(approved)} file(s):")
+                lines += [f"  {p}" for p in approved]
             if missing:
                 lines.append(f"already gone ({len(missing)}): " + ", ".join(missing))
             if refused:
@@ -181,10 +200,13 @@ class ComfyDeleteTool(Tool):
                 lines += [f"  {r['path']}: {r['reason']}" for r in refused]
             if not lines:
                 lines.append("nothing to do")
+            # `approved` IS THE INSTRUCTION, and the window reads it from HERE rather than from
+            # the prose above (app/src/agentd/run-events.ts). Workspace-relative posix — the one
+            # form that means the same file on both sides of the sandbox.
             return ToolResult.text(
                 "\n".join(lines),
-                details={"deleted": deleted, "refused": refused, "missing": missing},
-                is_error=not deleted and not missing and bool(refused),
+                details={"approved": approved, "refused": refused, "missing": missing},
+                is_error=not approved and not missing and bool(refused),
             )
         except Exception as e:  # noqa: BLE001 — never let a tool crash the loop
             return ToolResult.text(f"comfy_delete failed: {type(e).__name__}: {e}", is_error=True)

@@ -12,9 +12,13 @@ from typing import Any
 
 #: Bump when adding a step to _STEPS. Kept in lockstep with the SQLite ledger: one module, one
 #: shape, two engines.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _STEPS: dict[int, str] = {
+    4: """
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS reap_token TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS reap_until DOUBLE PRECISION NOT NULL DEFAULT 0;
+    """,
     3: """
     -- DECLARED IDLE — see the SQLite ledger for what it means and who clears it.
     ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS idle_at DOUBLE PRECISION NOT NULL DEFAULT 0;

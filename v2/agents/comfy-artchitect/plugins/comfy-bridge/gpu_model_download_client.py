@@ -30,7 +30,7 @@ class GpuModelDownloadClient:
     @staticmethod
     def command(request: ModelDownloadRequest, attempt_id: str = "") -> str:
         modules = {}
-        for name in ("model_download_request", "model_download_redirect_policy", "gpu_model_download_worker"):
+        for name in ("model_download_request", "model_download_redirect_policy", "gpu_download_activity", "gpu_model_download_worker"):
             modules[name] = Path(__file__).with_name(name + ".py").read_text(encoding="utf-8")
         bundle = base64.b64encode(json.dumps(modules).encode()).decode()
         payload = base64.b64encode(json.dumps(request.as_dict()).encode()).decode()

@@ -126,9 +126,11 @@ class InstanceRow:
     auth_token: str = ""
     #: DECLARED IDLE: the moment the account's last window left (a sign-out, a closed tab, a
     #: dropped socket) or its unwatched run ended. Zero = nobody has said so. The declaration
-    #: drops the lease and disarms the box's own busy report — a download for nobody is not
-    #: work — and any later contact (a heartbeat, a touch, a new run's events) clears it.
+    #: drops the client lease; any later contact clears it. It does NOT override actual GPU
+    #: work: background downloads and renders can outlive the browser window.
     idle_at: float = 0.0
+    reap_token: str = ""
+    reap_until: float = 0.0
 
     @property
     def live(self) -> bool:
@@ -136,14 +138,13 @@ class InstanceRow:
 
     @property
     def abandoned(self) -> bool:
-        """Has the account's last window left without coming back? While true, the reaper does
-        not ask the box whether it is busy: what it is doing, it is doing for nobody."""
+        """Has the account's last window left without coming back? Activity is still probed."""
         return bool(self.idle_at)
 
     @property
     def ready(self) -> bool:
         """Usable by an agent — running AND reachable. Both, because either alone is a lie."""
-        return self.state == "running" and bool(self.url)
+        return self.state == "running" and bool(self.url) and not self.reap_token
 
     def idle_since(self, now: float) -> float:
         """Seconds since anything showed interest in this machine.

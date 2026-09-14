@@ -348,41 +348,38 @@
 }
 .refs-count { font: var(--fs-tiny) var(--mono); color: var(--faint); }
 .refs-count.is-short { color: var(--warn); }
-.refs-add, .refs-slot-btn {
+.refs-slot-btn {
   display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px;
   background: var(--bg2); color: var(--text); border: 1px solid var(--border2); border-radius: var(--r-control);
   font: inherit; font-size: var(--fs-control); font-weight: var(--fw-semi); cursor: pointer; white-space: nowrap;
 }
-.refs-add:hover:not(:disabled), .refs-slot-btn:hover:not(:disabled) { border-color: var(--accent); }
-.refs-add:disabled, .refs-slot-btn:disabled { opacity: .5; cursor: default; }
-/* A TARGET, NOT A BILLBOARD. This was a full-width slab in --prim-bg at 16px — the loudest
-   element in the window, for a control that is only ever used once at the start of a chat, sat
-   above two lines of body-size prose. It read as an advert for itself.
-   Dashed and transparent says "drop here" without shouting; the accent is spent on the states
-   that mean something — pointing at it, and dragging onto it. */
-.refs-add-big {
-  width: 100%; justify-content: center; gap: 10px; padding: 18px; margin: 0;
-  background: transparent; color: var(--dim);
-  border: 1px dashed var(--border2); border-radius: var(--r-panel);
-  font-size: var(--fs-control); font-weight: var(--fw-semi);
-  white-space: normal; line-height: 1.3;
-  transition: color .12s, border-color .12s, background .12s;
-}
-.refs-add-big:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--bg3); }
-/* MID-DRAG: solid and filled, so the target confirms it has the file before you let go. */
-.refs-add-big.is-over { color: var(--text); border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
-/* Was --fs-body/--dim: larger and louder than the file rows under it, which is what made an
-   empty panel read as a pitch. */
-.refs-empty { margin: 0; font-size: var(--fs-small); color: var(--faint); line-height: 1.5; text-wrap: pretty; }
-.refs-slot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
+.refs-slot-btn:hover:not(:disabled) { border-color: var(--accent); }
+.refs-slot-btn:disabled { opacity: .5; cursor: default; }
+/* DRAGGING OVER THE PANEL, anywhere that is not a slot: the file will land under "Other". Only
+   the ground tints — no border change — so it reads as quieter than a slot accepting a drop,
+   which is the outcome the person usually wants. */
+.refs.is-over { background: var(--accent-soft); }
+/* WRAPS RATHER THAN CRUSHES. The rail is a fixed 252px whenever a file is open (.st-rail), which
+   leaves this row about 206px; the button is `white-space: nowrap` and will not shrink, so the
+   text column was left ~96px and the slot fell apart — the agent's one-line description stacked
+   into six, and the filename broke mid-word into "identity.pn" / "g". `flex-basis: 150px` on the
+   text is the hinge: above it the row stays one line exactly as before, below it the button drops
+   onto its own line with the full width to itself, which is the only honest thing to do with a
+   control that cannot get smaller. */
+.refs-slot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 9px 10px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
 .refs-slot.is-filled { border-style: solid; }
 .refs-slot.is-empty { border-color: var(--warn); }
 .refs-slot.is-over { background: var(--accent-soft); border-color: var(--accent); }
-.refs-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.refs-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 150px; }
+/* On the wrapped line the button has the row to itself; keep it on the right where it was. */
+.refs-slot-btn { flex: none; margin-left: auto; }
 .refs-role { font-size: var(--fs-body); font-weight: var(--fw-semi); color: var(--text); }
 .refs-what { font-size: var(--fs-meta); color: var(--dim); line-height: 1.45; text-wrap: pretty; }
 .refs-missing { font-size: var(--fs-meta); color: var(--warn); }
-.refs-file { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; font-size: var(--fs-tiny); color: var(--accent-text, var(--accent)); cursor: pointer; text-align: left; word-break: break-all; }
+/* `overflow-wrap: anywhere`, NOT `word-break: break-all`: break-all splits at whatever character
+   sits at the edge even when the word would have fitted on the next line, which is what turned
+   identity.png into "identity.pn" + "g" in the 252px rail. */
+.refs-file { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; font-size: var(--fs-tiny); color: var(--accent-text, var(--accent)); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .refs-file:hover { text-decoration: underline; }
 .refs-size { color: var(--faint); }
 .refs-free { display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 0; }

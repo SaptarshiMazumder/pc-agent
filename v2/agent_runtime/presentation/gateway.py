@@ -2705,6 +2705,18 @@ class Gateway:
 
     # --------------------------------------------------------- artifact detection
 
+    def _enrich_details(self, event: AgentEvent) -> None:
+        """A tool's ``details`` rides the tool_execution_end event (engine/native.py); coerce it
+        to something the socket can actually serialize, IN PLACE.
+
+        A sandboxed tool's details are already JSON-checked by the sandbox protocol, so this is
+        for the trusted in-process path, where a tool is free to put a Path in there."""
+        if event.type != "tool_execution_end":
+            return
+        payload = event.payload or {}
+        if payload.get("details") is not None:
+            payload["details"] = _json_safe(payload["details"])
+
     def _enrich_artifacts(self, event: AgentEvent) -> None:
         """Lift a tool result's DECLARED artifacts to the top of the event so clients can
         render them, IN PLACE. Nothing is inferred: the artifacts are exactly what the
@@ -7417,6 +7429,8 @@ class Gateway:
             # RENDER seam: tag tool-result / assistant events with the media files they
             # produced (server-side detection = single source of truth for every client).
             self._enrich_artifacts(event)
+            # ...and the structured half of a tool's answer, for the windows that read it.
+            self._enrich_details(event)
             # THE ASK IS A TOOL CALL, AND ITS RETURN IS THE STAMP. A tool that declares itself a
             # checkpoint (`ask_user`) has just put a question in front of the user: stamp the
             # conversation NOW, not at the end of the turn, so a tool that spends money later in

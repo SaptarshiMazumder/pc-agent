@@ -56,6 +56,18 @@ class InstanceStore(Protocol):
         of why a machine went away, and that is the first question after a surprising invoice."""
         ...
 
+    def claim_reap(self, c: Any, row: InstanceRow, *, now: float, claim_seconds: float) -> str | None:
+        """Atomically claim an unchanged activity snapshot, excluding future keepalives.
+
+        Retains the live slot until destruction succeeds. An expired claim can be recovered
+        after a worker crash; a second sweeper cannot take an unexpired claim.
+        """
+        ...
+
+    def finish_reap(self, c: Any, row_id: str, token: str, *, reason: str, now: float) -> bool:
+        """Mark dead only if this caller still owns the cleanup claim."""
+        ...
+
     def live_rows(self, c: Any) -> list[InstanceRow]:
         """Every live row, for the reaper's idle sweep."""
         ...

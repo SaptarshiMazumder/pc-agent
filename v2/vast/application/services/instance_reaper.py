@@ -2,8 +2,8 @@
 
 IDLE SWEEP reads our table: rows nobody has touched for `idle_seconds`, with no live lease, get
 destroyed. This is the expected path and it handles the ordinary case — a user wandered off.
-A row the daemon has DECLARED IDLE (the account's last window left; its run ended with nobody
-watching) has no lease and gets no say from the box: ten quiet minutes and it goes.
+Closing a window is not proof that background work stopped. Every ready machine is probed;
+busy or unknown activity protects it, including GPU-side downloads.
 
 ORPHAN SWEEP reads the MARKETPLACE and compares. It exists because of an asymmetry that is easy
 to miss:
@@ -36,7 +36,7 @@ from vast.application.interfaces.gpu_marketplace import GpuMarketplace
 from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
 from vast.domain.errors import MarketplaceError
-from vast.domain.instance import row_id_from_label
+from vast.domain.instance import InstanceRow, row_id_from_label
 
 log = logging.getLogger("vast.reaper")
 
@@ -69,7 +69,8 @@ class InstanceReaper:
         """
         now = self._now()
         result: dict = {
-            "idle": 0, "orphans": 0, "vanished": 0, "foreign": 0, "busy": 0, "errors": [],
+            "idle": 0, "orphans": 0, "vanished": 0, "foreign": 0, "busy": 0,
+            "unknown": 0, "raced": 0, "errors": [],
         }
 
         self._sweep_idle(now, result)
@@ -88,6 +89,13 @@ class InstanceReaper:
             rows = self._store.live_rows(c)
 
         for row in rows:
+            if row.reap_token:
+                if row.reap_until > now:
+                    continue
+                # A timed-out/crashed sweeper cannot strand a live billing slot forever.
+                if self._destroy_idle(row, "resume interrupted cleanup", result):
+                    result["idle"] += 1
+                continue
             # A row still waiting for its rental to come back is judged on AGE, not on contact:
             # nothing will ever touch it, so the idle clock would never start.
             if row.state == "starting" and row.instance_id is None:
@@ -96,24 +104,34 @@ class InstanceReaper:
                 reason = "rental never returned an instance id"
             elif row.idle_since(now) < cfg.idle_seconds:
                 continue
-            elif row.ready and not row.abandoned and self._probe.busy(row.url, row.auth_token):
-                # THE CLOCK SAYS IDLE; THE BOX SAYS OTHERWISE. The platform's idle clock only
-                # moves when something talks to the PLATFORM, and a render or a model download
-                # talks to nobody — a machine was destroyed with four downloads in flight for
-                # exactly that reason. The box is the authority on whether it is working —
-                # UNLESS the account was declared idle (its last window left, its run ended
-                # unwatched): then whatever the box is doing, it is doing for nobody, and that
-                # is not a reason to keep paying.
-                result["busy"] += 1
-                log.info("vast reap: %s is idle by the clock but busy on the box — kept", row.id)
-                continue
             else:
+                if row.ready:
+                    busy = self._probe.busy(row.url, row.auth_token)
+                    if busy is not False:
+                        result["busy" if busy is True else "unknown"] += 1
+                        if busy is not True:
+                            result["errors"].append(f"activity unknown for {row.id}; kept")
+                        continue
                 reason = f"idle for {int(row.idle_since(now))}s" + (
                     f", abandoned {int(now - row.idle_at)}s ago" if row.abandoned else ""
                 )
 
-            if self._destroy(row.instance_id, row.id, reason, result):
+            if self._destroy_idle(row, reason, result):
                 result["idle"] += 1
+
+    def _destroy_idle(self, row: InstanceRow, reason: str, result: dict) -> bool:
+        # Compare-and-swap AFTER remote probes. No DB transaction is held across network I/O.
+        # The claim retains the account's slot and makes subsequent keepalives fail rather
+        # than falsely acknowledging work on a machine already committed to destruction.
+        with self._db() as c:
+            token = self._store.claim_reap(c, row, now=self._now(), claim_seconds=300)
+        if token is None:
+            result["raced"] += 1
+            return False
+        if not self._destroy(row.instance_id, None, reason, result):
+            return False  # retain claim: a timeout may mean destroy succeeded remotely
+        with self._db() as c:
+            return self._store.finish_reap(c, row.id, token, reason=reason, now=self._now())
 
     # ------------------------------------------------------------------ orphans
 
@@ -149,6 +167,8 @@ class InstanceReaper:
         with self._db() as c:
             rows = self._store.live_rows(c)
         for row in rows:
+            if row.reap_token or row.created_at >= now:
+                continue
             if row.instance_id is None or row.instance_id in seen_instance_ids:
                 continue
             with self._db() as c:

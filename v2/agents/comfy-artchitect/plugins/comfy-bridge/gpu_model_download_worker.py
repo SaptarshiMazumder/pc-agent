@@ -17,6 +17,7 @@ from pathlib import Path
 
 from model_download_request import ModelDownloadRequest
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
+from gpu_download_activity import GpuDownloadActivity
 
 if os.name == "posix":
     import fcntl
@@ -33,6 +34,9 @@ class GpuModelDownloadWorker:
         request = ModelDownloadRequest(**payload)
         status_dir = self.root / "temp" / "agentd-model-downloads"
         status_dir.mkdir(parents=True, exist_ok=True)
+        activity = GpuDownloadActivity(
+            status_dir, lock=lambda file: fcntl.flock(file, fcntl.LOCK_EX),
+        )
         status_path = status_dir / f"{request.job_id}.json"
         lock_path = status_dir / f"{request.job_id}.lock"
         # Locks are kernel-owned: a killed process cannot leave a permanent stale lock.
@@ -48,6 +52,7 @@ class GpuModelDownloadWorker:
                 temporary = status_path.with_suffix(".tmp")
                 temporary.write_text(json.dumps(data), encoding="utf-8")
                 temporary.replace(status_path)
+                activity.update(request.job_id, state)
             try:
                 report("starting")
                 self.download(request, report)

@@ -15,8 +15,11 @@
  * never updates, which is the single most common way an agent app is broken.
  */
 
+import type { AgentdClient } from '@agentd/client'
+
 import { closeThinking, resultText, type SubagentItem, type ThreadItem } from './chat'
 import { freshArtifacts, readArtifacts, type Artifact } from './artifacts'
+import { applyApprovedDeletions, approvedDeletions } from './workspace-files'
 import { useApp, type AppState, type BackgroundJob, type ChatSession } from '../state/store'
 
 type Setter = (fn: (s: AppState) => Partial<AppState>) => void
@@ -76,10 +79,10 @@ export function jobsFromStatus(raw: unknown): BackgroundJob[] {
   return Array.isArray(raw) ? raw.map((j) => jobFromWire(j, Date.now())).filter((j) => j.id) : []
 }
 
-export function handleRunEvent(payload: any): void {
+export function handleRunEvent(payload: any, client?: AgentdClient): void {
   const set = useApp.setState as unknown as Setter
   const get = useApp.getState
-  fold(set, get, payload)
+  fold(set, get, payload, client)
 }
 
 /** Append to the bubble being streamed into, or start a new one.
@@ -133,6 +136,10 @@ function fold(
   set: (fn: (s: AppState) => Partial<AppState>) => void,
   get: () => AppState,
   payload: any,
+  /** Only for the one event that has to CALL the daemon rather than just fold into state:
+   *  comfy_delete's approval (see the tool_execution_end case). Undefined in a window that has
+   *  not connected yet, and the approval is simply not acted on. */
+  client?: AgentdClient,
 ): void {
   const key = String(payload?.sessionKey || '')
   const ev = payload?.event
@@ -317,11 +324,24 @@ function fold(
       // finishes would keep the one thing worth seeing invisible for the whole run. Deduped
       // against everything already shown, so a re-emit of the same name (or the agent_end backstop)
       // never doubles it.
-      // A DELETE LANDED: the folder changed and nothing declared a file, so nothing below would
-      // re-read it — the rows would sit there until the turn ended. The tool's result carries
-      // what went, but ToolItem keeps only its text, so the folder is asked instead; it is the
-      // truth for existence anyway (agentd/workspace-files.ts, mergeFiles).
-      if (String(ev.toolName || '') === 'comfy_delete') get().bumpWorkspace()
+      /* A DELETE WAS APPROVED — AND THIS SIDE IS WHAT MAKES IT HAPPEN.
+
+         comfy_delete cannot remove the file itself: it runs sandboxed, on a copy of the
+         workspace whose deletions are deliberately never synced back, so its unlink hit a
+         throwaway and the real file survived every time. It now decides and approves; the
+         removal is this call, through the daemon's workspace.delete.
+
+         Then re-read the folders — nothing declared a file, so nothing below would, and the
+         rows would sit there until the turn ended. The folder is the truth for existence
+         anyway (workspace-files.ts, mergeFiles). */
+      if (String(ev.toolName || '') === 'comfy_delete') {
+        const approved = approvedDeletions(ev.details)
+        if (approved.length && client) {
+          void applyApprovedDeletions(client, approved).finally(() => get().bumpWorkspace())
+        } else {
+          get().bumpWorkspace()
+        }
+      }
       const made = readArtifacts(ev.artifacts)
       if (made.length) {
         // A tool landed a file: the panel re-reads the chat's folders (agentd/workspace-files.ts)

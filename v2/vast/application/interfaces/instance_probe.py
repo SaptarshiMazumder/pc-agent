@@ -22,10 +22,11 @@ class InstanceProbe(Protocol):
         the next poll is the retry."""
         ...
 
-    def busy(self, url: str, auth: str = "") -> bool:
+    def busy(self, url: str, auth: str = "") -> bool | None:
         """True when ComfyUI at `url` reports work in flight — a running or pending prompt, or a
         Manager download in progress. The reaper's last question before destroying an "idle"
         machine: the platform's idle clock only knows who TALKED to the platform, and a render or
-        a model download talks to nobody. False when idle, and false when unreachable — an
-        unreachable box is not busy, and the reachability question belongs to `answers`."""
+        a model download talks to nobody. Includes the GPU-side downloader. False means
+        confirmed idle; None means unreachable, malformed, or stale activity evidence.
+        Unknown must never be treated as permission to destroy."""
         ...

@@ -20,7 +20,8 @@ from vast.domain.instance import LIVE_STATES, InstanceRow
 
 _COLS = (
     "id, account_id, instance_id, machine_id, url, state, hourly_usd, "
-    "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token, idle_at"
+    "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token, idle_at, "
+    "reap_token, reap_until"
 )
 _LIVE = ",".join("?" for _ in LIVE_STATES)
 
@@ -41,6 +42,8 @@ def _row(r: Any) -> InstanceRow:
         dead_reason=str(r["dead_reason"] or ""),
         auth_token=str(r["auth_token"] or ""),
         idle_at=float(r["idle_at"] or 0.0),
+        reap_token=str(r["reap_token"] or ""),
+        reap_until=float(r["reap_until"] or 0.0),
     )
 
 
@@ -159,13 +162,14 @@ class SqlInstanceStore:
     ) -> None:
         c.execute(
             "UPDATE vast_instances SET instance_id=?, machine_id=?, hourly_usd=?, "
-            "last_seen_at=?, auth_token=? WHERE id=?",
+            "last_seen_at=?, auth_token=? WHERE id=? AND reap_token='' AND state='starting'",
             (int(instance_id), int(machine_id), float(hourly_usd), now, auth_token, row_id),
         )
 
     def mark_ready(self, c: Any, row_id: str, *, url: str, now: float) -> None:
         c.execute(
-            "UPDATE vast_instances SET state='running', url=?, last_seen_at=? WHERE id=?",
+            "UPDATE vast_instances SET state='running', url=?, last_seen_at=? "
+            "WHERE id=? AND reap_token='' AND state IN ('starting', 'running')",
             (url, now, row_id),
         )
 
@@ -176,7 +180,7 @@ class SqlInstanceStore:
         cur = c.execute(
             "UPDATE vast_instances SET last_seen_at=?, idle_at=0, "
             "lease_until=CASE WHEN ?>lease_until THEN ? ELSE lease_until END "
-            f"WHERE account_id=? AND state IN ({_LIVE})",
+            f"WHERE account_id=? AND state IN ({_LIVE}) AND reap_token=''",
             (now, lease_until, lease_until, account_id, *LIVE_STATES),
         )
         return bool(getattr(cur, "rowcount", 0))
@@ -187,7 +191,7 @@ class SqlInstanceStore:
         since then, and moving it would buy the machine ten more minutes."""
         cur = c.execute(
             "UPDATE vast_instances SET lease_until=0, idle_at=? "
-            f"WHERE account_id=? AND state IN ({_LIVE})",
+            f"WHERE account_id=? AND state IN ({_LIVE}) AND reap_token=''",
             (now, account_id, *LIVE_STATES),
         )
         return bool(getattr(cur, "rowcount", 0))
@@ -197,6 +201,30 @@ class SqlInstanceStore:
             "UPDATE vast_instances SET state='dead', dead_at=?, dead_reason=? WHERE id=?",
             (now, str(reason)[:200], row_id),
         )
+
+    def claim_reap(self, c: Any, row: InstanceRow, *, now: float, claim_seconds: float) -> str | None:
+        token = uuid.uuid4().hex
+        instance_match = "instance_id IS NULL" if row.instance_id is None else "instance_id=?"
+        params = [token, now + claim_seconds, row.id, row.state, row.last_seen_at,
+                  row.lease_until, row.idle_at, row.reap_token, now]
+        if row.instance_id is not None:
+            params.append(row.instance_id)
+        cur = c.execute(
+            "UPDATE vast_instances SET reap_token=?, reap_until=? "
+            "WHERE id=? AND state=? AND state IN ('starting', 'running') "
+            "AND last_seen_at=? AND lease_until=? AND idle_at=? AND reap_token=? "
+            "AND reap_until<=? AND " + instance_match,
+            tuple(params),
+        )
+        return token if cur.rowcount else None
+
+    def finish_reap(self, c: Any, row_id: str, token: str, *, reason: str, now: float) -> bool:
+        cur = c.execute(
+            "UPDATE vast_instances SET state='dead', dead_at=?, dead_reason=?, "
+            "reap_token='', reap_until=0 WHERE id=? AND reap_token=?",
+            (now, str(reason)[:200], row_id, token),
+        )
+        return bool(cur.rowcount)
 
     # ------------------------------------------------------------------ reaper liveness
 

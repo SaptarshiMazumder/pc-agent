@@ -7,15 +7,26 @@
  * workflows and outputs the rail already lists, and the agent reads them off the same folder.
  * The button that used to sit above the composer put an upload beside the wrong door.
  *
+ * THE AGENT DECLARES THE DOORS; THIS PANEL HAS NONE OF ITS OWN. There is no standing "Add
+ * reference" button, and the section does not render at all until there is a slot or a file —
+ * because asking for an input is something the agent does, by declaring a slot, and a permanent
+ * upload button next to that is a second answer to a question already answered. It also cost
+ * what little width the rail has: a nowrap button sharing `justify-content: space-between` with
+ * the heading squeezed the "1 of 1" count to nothing and stacked it one character per line.
+ *
+ * DROPPING STILL WORKS ANYWHERE IN THE PANEL, on a slot or between them — an affordance with no
+ * chrome, so it costs no space and competes with nothing. A drop on a slot stops there
+ * (`stopPropagation`) rather than also bubbling to the panel and landing the same file a second
+ * time under "Other".
+ *
  * WHAT THE PERSON SEES. Empty slots first, each with what the agent asked for, so "what is it
  * waiting on" is answered by the list itself — and a "2 of 3" count when a run is refused for a
- * missing slot. A filled slot shows the file and a Replace. Files added before any slot existed,
- * or extra ones, sit under "Other" with their real names; the agent can move one into a role
- * from chat ("the second one is the shirt" → comfy_reference_assign), or the user drops it on
- * the slot.
+ * missing slot. A filled slot shows the file and a Replace. Extra files sit under "Other" with
+ * their real names; the agent can move one into a role from chat ("the second one is the shirt"
+ * → comfy_reference_assign), or the user drops it on the slot.
  */
 
-import { ImagePlus, RefreshCw, Upload } from 'lucide-react'
+import { RefreshCw, Upload } from 'lucide-react'
 import { useRef, useState, type DragEvent } from 'react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
@@ -38,11 +49,12 @@ export function ReferenceSlots({
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
-  /* THE ONBOARDING ZONE'S OWN DRAG STATE. `over` holds the ROLE being dragged onto, and this
-     zone has no role — `dragOver(null)` therefore cleared the highlight instead of setting one,
-     so the single biggest drop target in the window was the only one that never acknowledged a
-     drag. A separate flag rather than a sentinel role, because null already means "none". */
-  const [overZone, setOverZone] = useState(false)
+  /* THE PANEL'S OWN DRAG STATE, for a drop that is not on any slot. `over` holds the ROLE being
+     dragged onto, and the panel has no role — `dragOver(null)` would therefore CLEAR the
+     highlight instead of setting one, so the biggest drop target here would be the only one that
+     never acknowledged a drag. A separate flag rather than a sentinel role, because null already
+     means "none". */
+  const [overPanel, setOverPanel] = useState(false)
   const pickRef = useRef<HTMLInputElement>(null)
   const pickRole = useRef<string | null>(null)
 
@@ -70,58 +82,36 @@ export function ReferenceSlots({
 
   const drop = (role: string | null) => (e: DragEvent) => {
     e.preventDefault()
+    // STOPS HERE. The panel is a drop target too, so without this a file dropped on a slot lands
+    // twice — once in the role, once again under "Other" as the event bubbles.
+    e.stopPropagation()
     setOver(null)
+    setOverPanel(false)
     void add(e.dataTransfer?.files || null, role)
   }
   const dragOver = (role: string | null) => (e: DragEvent) => {
     e.preventDefault()
+    // Same reason: while a slot is lit, the panel behind it must not light up as well.
+    e.stopPropagation()
     if (over !== role) setOver(role)
   }
 
   const filled = slots.filter((s) => s.file).length
-  if (!slots.length && !free.length) {
-    // Nothing declared yet and nothing added: one line and the button, so the door exists before
-    // the agent has asked for anything — a person who already knows what they will need can
-    // start here.
-    // BIG, BY DESIGN. This is the one door for the workflow's inputs, and a small "Add" beside a
-    // heading was missed by the very person who asked for it. Full width, primary, one line
-    // saying what it takes — nothing else in the rail competes with it while there is nothing.
-    return (
-      <section
-        className="refs refs-onboard"
-        onDrop={(e) => {
-          setOverZone(false)
-          drop(null)(e)
-        }}
-        onDragOver={(e) => {
-          e.preventDefault()
-          if (!overZone) setOverZone(true)
-        }}
-        onDragLeave={() => setOverZone(false)}
-      >
-        <header className="refs-head">
-          <span className="refs-title">References</span>
-        </header>
-        <button
-          type="button"
-          className={`refs-add refs-add-big${overZone ? ' is-over' : ''}`}
-          disabled={disabled || !!busy}
-          onClick={() => pick(null)}
-        >
-          <ImagePlus size={22} strokeWidth={2} />
-          {busy ? 'Adding…' : 'Add reference image or video'}
-        </button>
-        <p className="refs-empty">
-          Drop files here any time. The agent asks for what it needs, and everything you add lands in
-          this chat's references.
-        </p>
-        <FilePicker pickRef={pickRef} onPick={(files) => void add(files, pickRole.current)} />
-      </section>
-    )
-  }
+  /* NOTHING DECLARED AND NOTHING ADDED => NO SECTION AT ALL, not an empty one inviting an upload.
+     The rail simply starts at the file tree until the agent asks for something. This owns its own
+     border-bottom, so the separator leaves with it rather than dangling above the tree. */
+  if (!slots.length && !free.length) return null
 
   return (
-    <section className="refs">
+    <section
+      className={`refs${overPanel ? ' is-over' : ''}`}
+      onDrop={drop(null)}
+      onDragOver={(e) => {
+        e.preventDefault()
+        if (!overPanel) setOverPanel(true)
+      }}
+      onDragLeave={() => setOverPanel(false)}
+    >
       <header className="refs-head">
         <span className="refs-heading">
           <span className="refs-title">References</span>
@@ -131,9 +121,6 @@ export function ReferenceSlots({
             </span>
           )}
         </span>
-        <button type="button" className="refs-add" disabled={disabled || !!busy} onClick={() => pick(null)}>
-          <ImagePlus size={16} strokeWidth={2} /> Add reference
-        </button>
       </header>
 
       {slots.map((s) => (

@@ -97,6 +97,9 @@ class InstanceService:
             # ten minutes is still reaped, which is the rule that was meant.
             with self._db() as c:
                 self._store.heartbeat(c, account_id, now=now)
+                row = self._store.by_id(c, row.id)
+            if row is None:
+                raise SlotLost(f"the slot for {account_id} vanished during ensure")
             # Another call owns the rental. Refresh in case it became reachable since — but
             # never start a second one.
             return self._refresh(row)
@@ -257,7 +260,7 @@ class InstanceService:
         polling, the next poll tries again, and a transient blip must not present as a hard
         error on a machine that is booting perfectly well.
         """
-        if row.state != "starting" or row.instance_id is None:
+        if row.reap_token or row.state != "starting" or row.instance_id is None:
             return row
         try:
             live = self._marketplace().get_instance(row.instance_id)
@@ -314,9 +317,8 @@ class InstanceService:
             return alive, self._store.live_for(c, account_id)
 
     def idle(self, account_id: str) -> tuple[bool, InstanceRow | None]:
-        """The account's last window has left, or its unwatched run ended: nobody is using the
-        machine, whatever it is doing. Drops the lease and marks the row abandoned, so the idle
-        clock runs from the last real contact and the reaper stops taking the box's word for it.
+        """Drop the departing client's lease without moving the last-contact clock.
+        The reaper still checks GPU activity: background jobs can outlive their viewer.
         Any later heartbeat cancels this — a reload that re-attaches is not a departure."""
         now = self._now()
         with self._db() as c:

@@ -762,17 +762,21 @@ async def _execute_tool_calls(
                 ),
             )
         )
-        await on_event(
-            AgentEvent(
-                "tool_execution_end",
-                {
-                    "toolCallId": call.id,
-                    "toolName": call.name,
-                    "isError": result.is_error,
-                    "result": message_to_dict(msg),
-                },
-            )
-        )
+        end_payload: dict = {
+            "toolCallId": call.id,
+            "toolName": call.name,
+            "isError": result.is_error,
+            "result": message_to_dict(msg),
+        }
+        # `details` IS THE PROGRAM'S CHANNEL and it stopped here. The gateway already passes it
+        # through for a DIRECT tool call (tools.call) with a comment saying exactly why — a panel
+        # that needs structured output should never regex the prose — but a tool called inside a
+        # RUN reached the window with its text and nothing else, because ToolResultMessage has no
+        # such field and message_to_dict cannot invent one. So it rides the event instead of the
+        # message: the window gets it, the transcript does not grow, and the model never sees it.
+        if getattr(result, "details", None) is not None:
+            end_payload["details"] = result.details
+        await on_event(AgentEvent("tool_execution_end", end_payload))
 
     parallel: list[tuple[int, ToolCallContent]] = []
     sequential: list[tuple[int, ToolCallContent]] = []

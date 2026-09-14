@@ -99,6 +99,54 @@ export function useChatWorkspaceFiles(
   return files
 }
 
+/** The paths `comfy_delete` approved, out of its `details`. Shape-checked rather than
+ *  trusted: this drives a delete, and an older daemon (or an older build of the plugin)
+ *  sends a different key or no details at all — which must read as "nothing approved",
+ *  never as an exception in the event handler. */
+export function approvedDeletions(details: unknown): string[] {
+  const d = details as { approved?: unknown } | null | undefined
+  if (!d || !Array.isArray(d.approved)) return []
+  return d.approved.map((p) => String(p || '').trim()).filter(Boolean)
+}
+
+/**
+ * Remove the files the agent approved — the HOST half of comfy_delete.
+ *
+ * WHY THE WINDOW DOES THIS. The plugin runs sandboxed, and a sandbox is given a COPY of the
+ * workspace whose DELETIONS ARE NEVER SYNCED BACK (microvm_backend's header says so, and
+ * means it: an untrusted tool must not be able to erase a workspace through that channel).
+ * So the tool unlinked a throwaway copy, reported success, and the file was still there on
+ * the next call — the same three renders "deleted" twice over. The decision stays with the
+ * agent, where the slot/validation/download checks and the user's yes are; the act happens
+ * here, through the door the reference Replace flow has always used.
+ *
+ * ONLY WHAT WAS APPROVED. These paths come from the tool's own fenced resolve — already
+ * proven to sit inside this chat's three folders — and nothing here widens that.
+ *
+ * Returns how many actually went. A path already gone answers `not found`, which is a
+ * success for our purposes: the file is not there, which is what was asked for.
+ */
+export async function applyApprovedDeletions(
+  client: AgentdClient,
+  paths: string[],
+): Promise<number> {
+  let gone = 0
+  for (const path of paths) {
+    const res = (await client.request('workspace.delete', { agentId: AGENT_ID, path })) as {
+      ok?: boolean
+      error?: string
+    }
+    if (res?.ok || res?.error === 'not found') {
+      gone += 1
+      continue
+    }
+    // LOUD. The agent has already told the user the file is gone; if the host refused, that
+    // sentence was false and the panel is about to re-list the file with no explanation.
+    console.error('[workspace] refused to delete %s: %s', path, res?.error || 'no answer')
+  }
+  return gone
+}
+
 /** The panel's list: what the thread DECLARED first — those carry a mime and arrive the instant a
  *  tool names them — then whatever the folders hold that the thread did not mention. The same
  *  file from both sources is one entry, keyed case-insensitively with one separator: a desktop
