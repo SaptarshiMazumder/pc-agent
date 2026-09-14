@@ -394,6 +394,10 @@ OUTBOX_PROMPT = (
 )
 
 
+#: How long `_chat_send` waits for a finished run's teardown before calling the session busy.
+RUN_TEARDOWN_GRACE_S = 10.0
+
+
 @dataclass
 class RunHandle:
     run_id: str
@@ -408,6 +412,12 @@ class RunHandle:
     #                        Most runs do NOT start at a chat box, and unattended ones (cron)
     #                        carry the highest cost risk — so they need their own dimension.
     task: asyncio.Task | None = None
+    #: True once this run's agent_end has gone out. The task lives a little longer — usage
+    #: metering, telemetry, the title task's spawn — and `_chat_send` reads THIS, not the task,
+    #: to decide whether the session is free: the window releases its composer on agent_end, so
+    #: a message sent in that second (a person typing fast, or the window's own "all reference
+    #: slots are filled" announcement) arrived exactly when it was told it could.
+    ended: bool = False
     #: When this run last produced an event, on the monotonic clock. The silence watchdog reads
     #: it; `on_event` writes it. 0.0 until the run starts.
     last_event_at: float = 0.0
@@ -6737,13 +6747,27 @@ class Gateway:
 
         existing = self.runs.get(session_key)
         if existing is not None and existing.task is not None and not existing.task.done():
-            # Refused BEFORE a run_id would have existed — exactly the class of failure that
-            # used to be invisible. The client's traceId (below) is what makes it findable.
-            telemetry.count(
-                "run_refused_total", reason="active_run",
-                _props={"trace_id": str(params.get("traceId") or "")[:64]},
-            )
-            raise RuntimeError(f"session '{session_key}' already has an active run")
+            if existing.ended:
+                # THE RUN IS OVER FOR EVERYONE WATCHING — agent_end went out — and only its
+                # teardown is still on the task. Wait for that rather than refuse: a window's
+                # "all reference slots are filled" announcement, sent the instant the composer
+                # unlocked, was answered "already has an active run" one second before the
+                # run's usage row was written. Bounded, so a teardown that hangs still
+                # surfaces as the refusal below instead of a request that never returns.
+                try:
+                    await asyncio.wait_for(asyncio.shield(existing.task), RUN_TEARDOWN_GRACE_S)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                except Exception:  # noqa: BLE001 — the run's own failure already went out as agent_end
+                    pass
+            if not existing.task.done():
+                # Refused BEFORE a run_id would have existed — exactly the class of failure that
+                # used to be invisible. The client's traceId (below) is what makes it findable.
+                telemetry.count(
+                    "run_refused_total", reason="active_run",
+                    _props={"trace_id": str(params.get("traceId") or "")[:64]},
+                )
+                raise RuntimeError(f"session '{session_key}' already has an active run")
 
         # THE TRACKING NUMBER. Prefer the id the CLIENT minted: it exists before this handler
         # runs, so a failure in validation/attachments/the guard above is still traceable, and
@@ -7063,6 +7087,8 @@ class Gateway:
             # list of "events that count" is a list that eventually omits the one a slow tool
             # emits.
             handle.last_event_at = time.monotonic()
+            if event.type == "agent_end":
+                handle.ended = True  # see RunHandle.ended
             # A RUN PRODUCING EVENTS IS AN ACCOUNT IN USE — whatever the tool. The rented GPU's
             # idle clock only moves when something tells the platform; the agent's tools talk
             # to the instance. Once a minute per account, off the same stamp as the watchdog.

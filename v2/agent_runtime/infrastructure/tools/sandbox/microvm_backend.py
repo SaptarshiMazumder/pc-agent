@@ -220,7 +220,7 @@ class MicrovmPluginSandbox:
                 "job": job,
                 "timeout_s": timeout,
                 "code_key": slots.get("code_key"),
-                "workspace_key": slots.get("workspace_key") if ws_zip else "",
+                "workspace_key": slots.get("workspace_key") if workspace else "",
             }
             answer = await self._ask(run_params, timeout_s=timeout + TRANSFER_MARGIN_S,
                                      abort=abort)
