@@ -47,7 +47,7 @@ import reference_slots
 import studio_state
 from gpu_model_download_client import GpuModelDownloadClient
 from model_installation_service import ModelInstallationService
-import civitai_download_source
+from model_download_source_resolver import ModelDownloadSourceResolver
 from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
 from workflow_reference_repository import WorkflowReferenceRepository
@@ -1794,11 +1794,14 @@ class ComfyInstallTool(Tool):
         "progress shown as it goes) and comes back with 'installed' — naming the exact loader "
         "name to put in the workflow — or with the reason it could not. Nothing to poll, nothing "
         "to re-check afterwards. This is how you FIX a missing-model workflow yourself instead "
-        "of handing the user a list. Catalogued files use Manager; anything else downloads on the "
+        "of handing the user a list. Hugging Face and Civitai files use the platform GPU downloader "
+        "with the stored provider key when needed. Other catalogued files can use Manager; otherwise download on the "
         "GPU from any direct HTTPS link to the .safetensors file — Hugging Face /resolve/, a "
-        "Civitai download link (the platform's Civitai key is used where a file needs one), a "
+        "Civitai download link, a "
         "mirror, a publisher's CDN — and is verified as a real safetensors file before it counts "
         "as installed. Never lower Manager security. "
+        "Other hosts are public-download only. A generic HTTP 403 does not prove a provider key "
+        "is missing or invalid; report the actual failing host and error. "
         "Failures are reported immediately; success means the file is actually loadable."
     )
     parameters = {
@@ -1892,7 +1895,7 @@ class ComfyInstallTool(Tool):
                 await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
                 # A Civitai link is resolved HERE, where the platform's key is substituted,
                 # into the signed storage URL the GPU fetches without any credential.
-                resolve_source=lambda file: civitai_download_source.resolve(file, fetch),
+                resolve_source=ModelDownloadSourceResolver(fetch=fetch).resolve,
             )
             installed = await installer.install(files, abort, report)
             return ToolResult.text(

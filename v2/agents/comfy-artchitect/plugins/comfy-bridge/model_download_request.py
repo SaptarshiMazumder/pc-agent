@@ -14,10 +14,18 @@ class ModelDownloadRequest:
     url: str
     kind: str
     #: WHO HOSTS THE BYTES — a label for the report and the redirect policy, not a permission.
-    #: "civitai" marks a URL the runtime resolved from a Civitai download link
-    #: (civitai_download_source.py): the GPU sees the signed storage URL, never the link nor
-    #: the key that may have been needed to resolve it. Everything else is "direct".
+    #: "civitai" or "huggingface" marks a URL resolved by ModelDownloadSourceResolver:
+    #: the GPU receives the signed storage URL and never the platform key.
     source: str = "direct"
+    # The provider's permanent link identifies the source; signed CDN URLs rotate.
+    origin_url: str = ""
+
+    USER_AGENT = "agentd-model-downloader/1.0"
+
+    @staticmethod
+    def headers() -> dict:
+        return {"User-Agent": ModelDownloadRequest.USER_AGENT,
+                "Accept": "application/octet-stream", "Accept-Encoding": "identity"}
 
     DIRECTORIES = {
         "checkpoint": "checkpoints", "unet": "diffusion_models",
@@ -31,7 +39,8 @@ class ModelDownloadRequest:
     def __post_init__(self):
         # Direct installs intentionally accept data-only safetensors, not pickle/checkpoint
         # code. Other formats continue through Manager's curated catalogue.
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,220}\.safetensors", self.filename):
+        if (not re.fullmatch(r"[\w][\w .()\[\]-]{0,220}\.safetensors", self.filename)
+                or len(self.filename.encode("utf-8")) > 240):
             raise ValueError("GPU direct downloads require a basename ending in .safetensors")
         if self.kind not in self.DIRECTORIES:
             raise ValueError(f"Unsupported model kind: {self.kind}")
@@ -69,7 +78,8 @@ class ModelDownloadRequest:
 
     @property
     def source_id(self) -> str:
-        return hashlib.sha256(self.url.encode()).hexdigest()
+        return hashlib.sha256((self.origin_url or self.url).encode()).hexdigest()
 
     def as_dict(self) -> dict:
-        return {"filename": self.filename, "url": self.url, "kind": self.kind, "source": self.source}
+        return {"filename": self.filename, "url": self.url, "kind": self.kind,
+                "source": self.source, "origin_url": self.origin_url}

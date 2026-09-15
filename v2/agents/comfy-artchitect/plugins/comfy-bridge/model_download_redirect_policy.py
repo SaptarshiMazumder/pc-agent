@@ -20,4 +20,10 @@ class ModelDownloadRedirectPolicy(urllib.request.HTTPRedirectHandler):
         if (target.scheme != "https" or not target.hostname or target.username
                 or target.password or target.port not in (None, 443)):
             raise ValueError("Model download redirected outside plain HTTPS")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            # The GPU receives signed links, never provider headers. Keep this
+            # invariant if a future caller supplies headers to urllib directly.
+            for name in ("Authorization", "Cookie", "Proxy-Authorization"):
+                redirected.remove_header(name)
+        return redirected

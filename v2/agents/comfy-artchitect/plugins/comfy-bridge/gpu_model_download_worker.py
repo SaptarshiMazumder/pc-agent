@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from model_download_request import ModelDownloadRequest
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
@@ -61,9 +62,12 @@ class GpuModelDownloadWorker:
                 report("done")
             except Exception as error:
                 # Do not send a signed CDN URL (HTTPError's str) into logs/status.
-                message = (f"Source returned HTTP {error.code}" if isinstance(error, urllib.error.HTTPError)
+                message = (f"Source returned HTTP {error.code} from {urlsplit(error.url).hostname}; "
+                           "a refusal does not establish that a provider key is missing or invalid"
+                           if isinstance(error, urllib.error.HTTPError)
                            else str(error)[:400])
-                report("failed", error=f"{type(error).__name__}: {message}")
+                report("failed", error=f"{type(error).__name__}: {message}",
+                       http_status=error.code if isinstance(error, urllib.error.HTTPError) else None)
 
     def download(self, request: ModelDownloadRequest, report) -> None:
         models = (self.root / "models").resolve()
@@ -90,27 +94,35 @@ class GpuModelDownloadWorker:
                     opener = self.opener or urllib.request.build_opener(
                         ModelDownloadRedirectPolicy(request.source)
                     )
-                    with opener.open(request.url, timeout=60) as response:
-                        size = int(response.headers.get("Content-Length") or 0)
-                        if size <= 8:
-                            raise ValueError("Source must advertise a nonempty Content-Length")
-                        if size + 256 * 1024 * 1024 > shutil.disk_usage(folder).free + (partial.stat().st_size if partial.exists() else 0):
+                    http_request = urllib.request.Request(request.url, headers=request.headers())
+                    with opener.open(http_request, timeout=60) as response:
+                        length = response.headers.get("Content-Length")
+                        size = int(length) if length is not None else None
+                        if size is not None and size <= 8:
+                            raise ValueError("Source advertised an empty model file")
+                        if "text/html" in str(response.headers.get("Content-Type", "")).lower():
+                            raise ValueError("Source returned a web/login page instead of model weights")
+                        available = (shutil.disk_usage(folder).free - 256 * 1024 * 1024
+                                     + (partial.stat().st_size if partial.exists() else 0))
+                        if available <= 0 or (size is not None and size > available):
                             raise ValueError("Not enough GPU disk space for this model")
                         read = 0
                         last = self.clock()
                         report("downloading", received=0, total=size, attempt=attempt + 1)
                         with partial.open("wb") as output:
                             while chunk := response.read(1024 * 1024):
-                                output.write(chunk)
                                 read += len(chunk)
-                                if read > size:
+                                if size is not None and read > size:
                                     raise ValueError("Source exceeded its Content-Length")
+                                if read > available:
+                                    raise ValueError("Not enough GPU disk space for this model")
+                                output.write(chunk)
                                 if self.clock() - last >= 5:
                                     report("downloading", received=read, total=size, attempt=attempt + 1)
                                     last = self.clock()
                             output.flush()
                             os.fsync(output.fileno())
-                        if read != size:
+                        if size is not None and read != size:
                             raise OSError(f"Incomplete download: {read} of {size} bytes")
                     report("verifying", received=read, total=size)
                     self.verify(partial)

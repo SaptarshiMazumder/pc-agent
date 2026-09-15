@@ -3,6 +3,7 @@
 import asyncio
 
 from model_download_request import ModelDownloadRequest
+from gpu_model_download_failure import GpuModelDownloadFailure
 
 
 class ModelInstallationService:
@@ -20,9 +21,7 @@ class ModelInstallationService:
         self.await_loadable = await_loadable
         self.lease = lease
         self.direct = direct
-        # A file entry -> the entry the GPU downloader can act on. The one job today: a Civitai
-        # link becomes the signed storage URL (civitai_download_source.resolve). Identity when
-        # the host wires nothing, so every Hugging Face path is byte-identical.
+        # Provider authentication is handled by the injected resolver, before GPU I/O.
         self.resolve_source = resolve_source or (lambda file: file)
 
     async def install(self, files, abort, report):
@@ -38,11 +37,13 @@ class ModelInstallationService:
                           == file["filename"].lower()), None)
             # Validate all uncatalogued requests BEFORE starting any expensive transfer.
             try:
-                request = ModelDownloadRequest(**self.resolve_source(file))
+                request = ModelDownloadRequest(**file)
             except ValueError:
                 if entry is None:
                     raise
                 request = None  # Manager may support formats/hosts direct downloads forbid.
+            else:
+                request = ModelDownloadRequest(**self.resolve_source(file))
             plans.append((file, entry, request))
         queued, waiting, direct = [], [], []
         manager_files = {}
@@ -55,13 +56,14 @@ class ModelInstallationService:
                 if request is not None and entry is not None and self.direct.active(request):
                     report(f"{filename}: observing existing GPU download; not submitting to Manager")
                     direct.append(request)
-                elif entry is None:
-                    report(f"{filename}: absent from Manager catalogue; using GPU-side downloader")
-                    self.direct.start(request)
-                    direct.append(request)
                 elif self.queued_recently(filename) and self.manager_busy() is not False:
                     waiting.append(filename)
                     manager_files[filename] = file
+                elif entry is None or (request is not None and request.source in ("civitai", "huggingface")):
+                    reason = "absent from Manager catalogue" if entry is None else "provider download link resolved"
+                    report(f"{filename}: {reason}; using GPU-side downloader")
+                    self.direct.start(request)
+                    direct.append(request)
                 else:
                     try:
                         self.submit(file, entry)
@@ -106,12 +108,12 @@ class ModelInstallationService:
                 fallback.append(self._start_fallback(
                     file, "Manager is idle but ComfyUI does not list the file", abort, report,
                 ))
-            await self.direct.wait(fallback, abort, report)
+            await self._wait_direct(fallback, abort, report)
 
         # Both channels are watched concurrently: a direct failure is not hidden behind
         # Manager's long queue, nor is a Manager outage hidden behind the direct download.
         tasks = [asyncio.create_task(wait_manager()),
-                 asyncio.create_task(self.direct.wait(direct, abort, report))]
+                 asyncio.create_task(self._wait_direct(direct, abort, report))]
         try:
             await asyncio.gather(*tasks)
         finally:
@@ -146,3 +148,26 @@ class ModelInstallationService:
         report(f"{request.filename}: {reason}; retrying with GPU-side downloader")
         self.direct.start(request)
         return request
+
+    async def _wait_direct(self, requests, abort, report):
+        pending = list(requests)
+        refreshed = set()
+        while True:
+            try:
+                await self.direct.wait(pending, abort, report)
+                return
+            except GpuModelDownloadFailure as error:
+                request = error.request
+                if (error.http_status not in (401, 403)
+                        or request.source not in ("civitai", "huggingface")
+                        or not request.origin_url or request.job_id in refreshed):
+                    raise
+                self._check_abort(abort)
+                refreshed.add(request.job_id)
+                report(f"{request.filename}: storage refused the download; refreshing the provider link once")
+                fresh = ModelDownloadRequest(**self.resolve_source({
+                    "filename": request.filename, "kind": request.kind, "url": request.origin_url,
+                }))
+                self.lease()
+                self.direct.start(fresh)
+                pending = [fresh if item.job_id == request.job_id else item for item in pending]

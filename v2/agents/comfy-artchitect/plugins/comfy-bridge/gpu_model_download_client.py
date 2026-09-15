@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from model_download_request import ModelDownloadRequest
+from gpu_model_download_failure import GpuModelDownloadFailure
 
 
 class GpuModelDownloadClient:
@@ -135,7 +136,8 @@ class GpuModelDownloadClient:
                 last_seen[job_id] = self._clock()
                 state = status.get("state")
                 if state == "failed":
-                    raise ValueError(f"{request.filename}: GPU download failed: {status.get('error', 'unknown error')}")
+                    raise GpuModelDownloadFailure(request, status.get("error", "unknown error"),
+                                                  status.get("http_status"))
                 if state != "done" and time.time() - float(status.get("updated_at", 0)) > 180:
                     if self._reconcile(request, on_update):
                         del pending[job_id]

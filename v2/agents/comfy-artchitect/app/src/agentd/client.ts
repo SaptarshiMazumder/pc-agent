@@ -21,9 +21,22 @@ export type Status = 'connecting' | 'open' | 'closed'
  *
  *  The connect URL carries `scope=agent:<id>`, and the daemon strips that prefix before it forces
  *  the agent onto our requests — so anything we key BY agent id has to strip it too, or it writes
- *  a block under "agent:<id>" that the resolver never looks for. */
-export const AGENT_ID =
-  (new URL(location.href).searchParams.get('scope') || '').replace(/^agent:/, '') || 'agent-builder'
+ *  a block under "agent:<id>" that the resolver never looks for.
+ *
+ *  ON THE WEB THERE IS NO `?scope=`: the page is served at `/apps/<id>/` and the SDK reads the
+ *  agent off that path. This used to read only the parameter and fall back to `agent-builder`
+ *  (the window this file was copied from), so every settings save from the web went out as
+ *  `agents.agent-builder.*` and the daemon refused it — a comfy page may edit comfy's block and
+ *  nothing else. Same rule as the SDK now: parameter, then path, then THIS agent's own id. */
+function agentIdFromPage(): string {
+  const here = new URL(location.href)
+  const scoped = (here.searchParams.get('scope') || '').replace(/^agent:/, '')
+  if (scoped) return scoped
+  const onPath = /\/apps\/([^/]+)/.exec(here.pathname)
+  return onPath ? decodeURIComponent(onPath[1]) : 'comfy-artchitect'
+}
+
+export const AGENT_ID = agentIdFromPage()
 
 /** One client for the life of the page, plus its connection state.
  *

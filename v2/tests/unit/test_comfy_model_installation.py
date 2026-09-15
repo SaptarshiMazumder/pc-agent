@@ -285,6 +285,8 @@ async def test_accepted_but_not_loadable_is_never_success():
 
 @pytest.mark.asyncio
 async def test_tool_falls_back_from_manager_400(monkeypatch):
+    monkeypatch.setattr(comfy_bridge, "ModelDownloadSourceResolver",
+                        lambda **_: SimpleNamespace(resolve=lambda file: file))
     monkeypatch.setattr(comfy_bridge, "_manager_catalog", lambda: [{"filename": request().filename}])
     monkeypatch.setattr(comfy_bridge, "_loadable_names", lambda: {})
     monkeypatch.setattr(comfy_bridge, "_lease", lambda _: None)

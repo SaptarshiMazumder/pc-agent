@@ -300,15 +300,20 @@ to transient instance state.
      pack install back to the user: "install these custom nodes and tell me done" is a punt.
    - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**
    - **Backend choice is automatic inside `comfy_install`, not another tool to choose.**
-     Catalogued models use Manager. Anything else downloads directly on the owned GPU using
+     Hugging Face and Civitai links are resolved by the platform, using its stored provider
+     key when needed; only the resulting download link goes to the GPU. Other catalogued
+     models can use Manager. Everything else downloads directly on the owned GPU using
      its authenticated provisioning portal, from ANY direct HTTPS link to the `.safetensors`
      file: a Hugging Face `/resolve/` URL, a Civitai download link
      (`https://civitai.com/api/download/models/<version id>`, the model page's Download
      button), a mirror, a publisher's CDN. Supply the link and the filename to save as; the
      file is verified as a real safetensors before it counts as installed. Model bytes never pass through the
      runtime or browser. Do not downgrade the design just because Manager's catalogue is old,
-     and never weaken Manager security. Gated/private files need a supported authenticated
-     source; this direct path does not bypass source permissions.
+     and never weaken Manager security. Authentication is supported for Hugging Face and
+     Civitai when the platform account has file access. Other hosts must offer public downloads.
+     A generic HTTP 403 does not prove that a key is absent or invalid: a CDN can refuse the
+     request independently. Report the actual host/error and what the tool tried; do not invent
+     an authentication diagnosis or ask the user to download manually before using the tool.
    - Progress names the file and backend. A refusal/failure is an ERROR, not "still installing".
      Only the final loadability check confirms installation; queued, background and cancelled
      are not success. If it fails, use that error to fix the source/permissions/disk or report
