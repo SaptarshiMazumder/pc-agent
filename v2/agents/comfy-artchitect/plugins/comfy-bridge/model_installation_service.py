@@ -32,24 +32,44 @@ class ModelInstallationService:
             entry = next((m for m in catalog if str(m.get("filename", "")).lower()
                           == file["filename"].lower()), None)
             # Validate all uncatalogued requests BEFORE starting any expensive transfer.
-            request = ModelDownloadRequest(**file) if entry is None else None
+            try:
+                request = ModelDownloadRequest(**file)
+            except ValueError:
+                if entry is None:
+                    raise
+                request = None  # Manager may support formats/hosts direct downloads forbid.
             plans.append((file, entry, request))
         queued, waiting, direct = [], [], []
+        manager_files = {}
         try:
             for file, entry, request in plans:
                 if abort is not None and abort.is_set():
                     raise ValueError("Install cancelled before submission")
                 self.lease()
                 filename = file["filename"]
-                if request is not None:
+                if request is not None and entry is not None and self.direct.active(request):
+                    report(f"{filename}: observing existing GPU download; not submitting to Manager")
+                    direct.append(request)
+                elif entry is None:
                     report(f"{filename}: absent from Manager catalogue; using GPU-side downloader")
                     self.direct.start(request)
                     direct.append(request)
-                elif self.queued_recently(filename) and self.manager_busy():
+                elif self.queued_recently(filename) and self.manager_busy() is not False:
                     waiting.append(filename)
+                    manager_files[filename] = file
                 else:
-                    self.submit(file, entry)
+                    try:
+                        self.submit(file, entry)
+                    except Exception as error:
+                        # A timeout may have accepted the request. Never race an unknown
+                        # or active Manager writer with a second download backend.
+                        if self.manager_busy() is not False:
+                            raise ValueError(f"{filename}: Manager submission unconfirmed ({error}); "
+                                             "downloads may continue; no duplicate started") from error
+                        direct.append(self._start_fallback(file, str(error), abort, report))
+                        continue
                     queued.append(filename)
+                    manager_files[filename] = file
                     self.mark_queued([filename])
                     report(f"{filename}: accepted by Manager; not installed yet")
         except Exception as error:
@@ -67,6 +87,21 @@ class ModelInstallationService:
             state = await self.wait_manager(abort, report)
             if state != "idle":
                 raise ValueError(f"Manager wait ended as {state}; installation unconfirmed, downloads may continue")
+            self._check_abort(abort)
+            landed = await self.await_loadable(list(manager_files), abort)
+            self._check_abort(abort)
+            fallback = []
+            for filename, file in manager_files.items():
+                if filename in landed:
+                    continue
+                # Another chat can have started Manager during the inventory grace.
+                if self.manager_busy() is not False:
+                    raise ValueError(f"{filename}: Manager activity is not confirmed idle; "
+                                     "installation unconfirmed, no duplicate started")
+                fallback.append(self._start_fallback(
+                    file, "Manager is idle but ComfyUI does not list the file", abort, report,
+                ))
+            await self.direct.wait(fallback, abort, report)
 
         # Both channels are watched concurrently: a direct failure is not hidden behind
         # Manager's long queue, nor is a Manager outage hidden behind the direct download.
@@ -83,8 +118,24 @@ class ModelInstallationService:
         landed = await self.await_loadable(pending, abort) if pending else {}
         missing = [f for f in pending if f not in landed]
         if missing:
-            raise ValueError("Download finished but ComfyUI does not list: " + ", ".join(missing)
-                             + ". Installation is NOT confirmed; check the model directory and refresh inventory.")
+            raise ValueError("ComfyUI does not list: " + ", ".join(missing)
+                             + ". Installation is NOT confirmed; do not claim the files downloaded or run yet.")
         if abort is not None and abort.is_set():
             raise ValueError("Install verification cancelled; success is unconfirmed")
         return {**present, **landed}
+
+    @staticmethod
+    def _check_abort(abort):
+        if abort is not None and abort.is_set():
+            raise ValueError("Install cancelled; no further downloads started")
+
+    def _start_fallback(self, file, reason, abort, report):
+        self._check_abort(abort)
+        try:
+            request = ModelDownloadRequest(**file)
+        except ValueError as error:
+            raise ValueError(f"{file['filename']}: {reason}. GPU fallback unavailable: {error}") from error
+        self.lease()
+        report(f"{request.filename}: {reason}; retrying with GPU-side downloader")
+        self.direct.start(request)
+        return request

@@ -16,12 +16,13 @@ from model_download_request import ModelDownloadRequest
 
 class GpuModelDownloadClient:
     def __init__(self, *, fetch, connection, current_connection, get, lease,
-                 sleep=asyncio.sleep, clock=time.monotonic):
+                 ready, sleep=asyncio.sleep, clock=time.monotonic):
         self._fetch = fetch
         self._connection = connection
         self._current_connection = current_connection
         self._get = get
         self._lease = lease
+        self._ready = ready
         self._sleep = sleep
         self._clock = clock
         self._portal = None
@@ -56,7 +57,7 @@ class GpuModelDownloadClient:
         if conn["url"].rstrip("/") != active.get("url", "").rstrip("/") or conn["auth"] != active.get("auth"):
             raise ValueError("GPU connection changed; call gpu_ensure before installing")
         previous = self.status(request)
-        if previous and previous.get("state") == "done":
+        if previous and previous.get("state") == "done" and self._ready(request):
             return
         if previous and previous.get("state") in ("starting", "downloading", "verifying"):
             if time.time() - float(previous.get("updated_at", 0)) < 180:
@@ -83,7 +84,14 @@ class GpuModelDownloadClient:
         response = self._get("/api/view?" + query, timeout_s=15)
         if not response.ok:
             return None
-        result = response.json()
+        try:
+            result = response.json()
+        except ValueError:
+            return None
+        if not isinstance(result, dict) or result.get("state") not in (
+            "starting", "downloading", "verifying", "done", "failed",
+        ):
+            return None
         if result.get("source_id") != request.source_id:
             if result.get("state") == "failed":
                 return None  # a corrected URL may retry a failed destination
@@ -99,6 +107,12 @@ class GpuModelDownloadClient:
                 return None
         return result
 
+    def active(self, request: ModelDownloadRequest) -> bool:
+        previous = self.status(request)
+        # Even stale progress may belong to a live transfer. Resume observation;
+        # don't hand the same destination back to Manager on a tool retry.
+        return bool(previous and previous.get("state") in ("starting", "downloading", "verifying"))
+
     async def wait(self, requests: list[ModelDownloadRequest], abort, on_update=None) -> None:
         pending = {item.job_id: item for item in requests}
         started = self._clock()
@@ -112,14 +126,22 @@ class GpuModelDownloadClient:
                 status = self.status(request)
                 if status is None:
                     if self._clock() - last_seen[job_id] > 120:
-                        raise ValueError(f"{request.filename}: no GPU downloader status for 120s; installation unconfirmed")
+                        if self._reconcile(request, on_update):
+                            del pending[job_id]
+                            continue
+                        raise ValueError(f"{request.filename}: download tracking unavailable for 120s and "
+                                         "ComfyUI has not confirmed the file; download may still be running")
                     continue
                 last_seen[job_id] = self._clock()
                 state = status.get("state")
                 if state == "failed":
                     raise ValueError(f"{request.filename}: GPU download failed: {status.get('error', 'unknown error')}")
                 if state != "done" and time.time() - float(status.get("updated_at", 0)) > 180:
-                    raise ValueError(f"{request.filename}: GPU downloader stopped reporting progress; installation unconfirmed")
+                    if self._reconcile(request, on_update):
+                        del pending[job_id]
+                        continue
+                    raise ValueError(f"{request.filename}: GPU downloader stopped reporting progress; "
+                                     "installation unconfirmed, download may still be running")
                 progress = f"{request.filename}: GPU download {state}"
                 if status.get("total"):
                     progress += f" ({int(status.get('received', 0)) * 100 // int(status['total'])}%)"
@@ -133,3 +155,10 @@ class GpuModelDownloadClient:
                 last_lease = self._clock()
             if pending:
                 await self._sleep(5)
+
+    def _reconcile(self, request, on_update):
+        if not self._ready(request):
+            return False
+        if on_update:
+            on_update(f"{request.filename}: download tracking lost, but ComfyUI confirms the file is loadable")
+        return True

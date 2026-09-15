@@ -47,6 +47,7 @@ import reference_slots
 import studio_state
 from gpu_model_download_client import GpuModelDownloadClient
 from model_installation_service import ModelInstallationService
+from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
 from workflow_reference_repository import WorkflowReferenceRepository
 
@@ -56,7 +57,7 @@ from workflow_reference_repository import WorkflowReferenceRepository
 #: CheckpointLoaderSimple) simply invisible: a Flux-only instance reported "no models
 #: installed". Matching by what the VALUES look like means a loader from a custom pack
 #: installed five minutes ago is found the same way the stock ones are.
-_MODEL_EXTS = (".safetensors", ".sft", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx")
+_MODEL_EXTS = ModelReadiness.EXTENSIONS
 
 #: HOW A WAITING TOOL WAITS. A model download is minutes of nothing to do; comfy_install and
 #: comfy_node_install hold their call open until the work is done, and these are the cadences
@@ -83,14 +84,7 @@ _QUEUED_MEMORY_S = 3600.0
 
 def _looks_like_model_list(values) -> bool:
     """An enum whose entries are model FILENAMES, as opposed to sampler names or booleans."""
-    if not isinstance(values, list) or not values:
-        return False
-    names = [v for v in values if isinstance(v, str)]
-    if not names:
-        return False
-    hits = sum(1 for v in names if v.lower().endswith(_MODEL_EXTS))
-    # Most, not all: some packs mix a "None" sentinel or a .yaml config into the list.
-    return hits >= max(1, len(names) // 2)
+    return ModelReadiness.looks_like_model_list(values)
 
 
 def _model_enums(catalogue: dict):
@@ -592,10 +586,7 @@ class ComfyNodeSpecTool(Tool):
 #: what lets validate tell "not downloaded yet" from "not a legal value" on an EMPTY box, where
 #: the enum holds nothing that looks like a filename (see the shopping-list split in
 #: ComfyValidateTool).
-_MODEL_FIELDS = frozenset({
-    "ckpt_name", "unet_name", "lora_name", "vae_name", "clip_name", "clip_name1", "clip_name2",
-    "clip_name3", "control_net_name", "style_model_name", "upscale_model_name", "gligen_name",
-})
+_MODEL_FIELDS = ModelReadiness.FIELDS
 #: Loader inputs whose enum is the instance's list of uploaded MEDIA — a file list too, but not
 #: one comfy_install fetches: those arrive through the reference slots.
 _MEDIA_FIELDS = frozenset({"image", "video", "audio"})
@@ -1279,6 +1270,19 @@ class ComfyRunTool(Tool):
             if not answered:
                 return ToolResult.text(why, is_error=True)
 
+            # Check live loader names before uploads, billing or submitting /prompt.
+            # A past compile-check can predate downloads, deletes or a replaced GPU.
+            inventory = _get("/api/object_info", timeout_s=60.0)
+            if not inventory.ok:
+                return ToolResult.text(_failed(inventory, "check model readiness"), is_error=True)
+            missing_models = ModelReadiness(inventory.json()).missing(prompt)
+            if missing_models:
+                return ToolResult.text(
+                    "Cannot run: required models are not loadable:\n  " + "\n  ".join(missing_models)
+                    + "\nUse comfy_validate and comfy_install, then retry. Nothing was submitted.",
+                    is_error=True,
+                )
+
             # REFERENCE SLOTS ARE FILLED HERE, MECHANICALLY — see reference_slots. Every @role
             # token resolves to the file the user put in that slot, the files go up, the server
             # names go in. An empty slot is a refusal that names it: nothing runs on a guess, and
@@ -1644,6 +1648,13 @@ def _queue_busy(info: dict) -> bool:
     return bool(info.get("is_processing")) or int(info.get("in_progress_count") or 0) > 0
 
 
+def _manager_busy() -> bool | None:
+    info = _queue_info()
+    if not info or "is_processing" not in info or "in_progress_count" not in info:
+        return None
+    return _queue_busy(info)
+
+
 def _clock(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m}m{s:02d}s" if m else f"{s}s"
@@ -1700,15 +1711,16 @@ def _loadable_names() -> dict[str, str]:
     name is what the loader's enum carries and what the workflow must say — a graph naming the
     bare file validates as "missing" against an instance that has it."""
     inv = _get("/api/object_info", timeout_s=60.0)
-    out: dict[str, str] = {}
-    try:
-        if inv.ok:
-            for _c, _i, files in _model_enums(inv.json()):
-                for name in files:
-                    out.setdefault(Path(str(name)).name.lower(), str(name))
-    except ValueError:
-        pass
-    return out
+    if not inv.ok:
+        raise ValueError("ComfyUI loader inventory unavailable; installation cannot be verified")
+    return ModelReadiness(inv.json()).names()
+
+
+def _download_ready(request) -> bool:
+    inv = _get("/api/object_info", timeout_s=60.0)
+    if not inv.ok:
+        return False
+    return ModelReadiness(inv.json()).contains(request)
 
 
 async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
@@ -1864,11 +1876,11 @@ class ComfyInstallTool(Tool):
 
             direct = GpuModelDownloadClient(
                 fetch=fetch, connection=connection, current_connection=_override, get=_get,
-                lease=lambda: _lease(_WORK_LEASE_S),
+                lease=lambda: _lease(_WORK_LEASE_S), ready=_download_ready,
             )
             installer = ModelInstallationService(
                 catalog=_manager_catalog, loadable=_loadable_names, submit=submit,
-                start_manager=start_manager, manager_busy=lambda: _queue_busy(_queue_info()),
+                start_manager=start_manager, manager_busy=_manager_busy,
                 queued_recently=lambda filename: time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S,
                 mark_queued=studio_state.mark_queued, wait_manager=wait_manager,
                 await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
@@ -2250,9 +2262,7 @@ class ComfyValidateTool(Tool):
                     # was `pixel_space` — which validates, then renders a raw latent or runs out
                     # of memory. The model diagnosed that, re-emitted the right file, and was
                     # refused again. Same rule _hide_installed_files already applies.
-                    if field in _MODEL_FIELDS or _looks_like_model_list(choices) or (
-                        not choices and value.lower().endswith(_MODEL_EXTS)
-                    ):
+                    if ModelReadiness.is_model_input(field, choices, value):
                         missing_files.append(f"{value}  (for {cls}.{field}, node {nid})")
                         raw_missing.append(str(value))
                     else:

@@ -143,7 +143,8 @@ def test_worker_deduplicates_an_already_locked_destination(tmp_path, monkeypatch
 def client(**overrides):
     conn = {"url": "http://gpu:8188", "portal_url": "http://gpu:1111", "auth": "Bearer test-only"}
     args = dict(fetch=Mock(return_value=response({"status": "started"})), connection=lambda: conn,
-                current_connection=lambda: conn, get=Mock(return_value=response({}, 404)), lease=Mock())
+                current_connection=lambda: conn, get=Mock(return_value=response({}, 404)), lease=Mock(),
+                ready=lambda _: False)
     args.update(overrides)
     return GpuModelDownloadClient(**args)
 
@@ -209,7 +210,7 @@ def installer(**overrides):
                 manager_busy=lambda: False, queued_recently=lambda _: False, mark_queued=Mock(),
                 wait_manager=AsyncMock(return_value="idle"),
                 await_loadable=AsyncMock(side_effect=lambda names, abort: {n: n for n in names}), lease=Mock(),
-                direct=SimpleNamespace(start=Mock(), wait=AsyncMock()))
+                direct=SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
     args.update(overrides)
     return ModelInstallationService(**args)
 
@@ -236,14 +237,15 @@ async def test_catalogued_file_stays_on_manager():
 
 
 @pytest.mark.asyncio
-async def test_manager_400_returns_before_any_download_wait():
+async def test_manager_400_falls_back_to_direct_download():
     service = installer(catalog=lambda: [{"filename": request().filename}],
                         submit=Mock(side_effect=ValueError("HTTP 400: Invalid model install request")))
     progress = []
-    with pytest.raises(ValueError, match="HTTP 400"):
-        await service.install([request().as_dict()], asyncio.Event(), progress.append)
+    result = await service.install([request().as_dict()], asyncio.Event(), progress.append)
     service.wait_manager.assert_not_awaited()
-    assert "HTTP 400" in progress[-1]
+    service.direct.start.assert_called_once_with(request())
+    assert request().filename in result
+    assert "HTTP 400" in progress[0]
 
 
 @pytest.mark.asyncio
@@ -256,7 +258,8 @@ async def test_failed_direct_download_cancels_manager_wait_not_the_gpu_job():
             manager_cancelled.set()
     other = request("vae.safetensors", "vae")
     service = installer(catalog=lambda: [{"filename": other.filename}], wait_manager=manager,
-                        direct=SimpleNamespace(start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404"))))
+                        direct=SimpleNamespace(start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404")),
+                                               active=Mock(return_value=False)))
     with pytest.raises(ValueError, match="404"):
         await asyncio.wait_for(service.install([request().as_dict(), other.as_dict()], asyncio.Event(), lambda _: None), 1)
     assert manager_cancelled.is_set()
@@ -270,15 +273,19 @@ async def test_accepted_but_not_loadable_is_never_success():
 
 
 @pytest.mark.asyncio
-async def test_tool_preserves_manager_400_for_the_model(monkeypatch):
+async def test_tool_falls_back_from_manager_400(monkeypatch):
     monkeypatch.setattr(comfy_bridge, "_manager_catalog", lambda: [{"filename": request().filename}])
     monkeypatch.setattr(comfy_bridge, "_loadable_names", lambda: {})
     monkeypatch.setattr(comfy_bridge, "_lease", lambda _: None)
+    monkeypatch.setattr(comfy_bridge, "_manager_busy", lambda: False)
+    direct = SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=False))
+    monkeypatch.setattr(comfy_bridge, "GpuModelDownloadClient", lambda **kwargs: direct)
+    monkeypatch.setattr(comfy_bridge, "_await_loadable", AsyncMock(return_value={request().filename: request().filename}))
     monkeypatch.setattr(comfy_bridge, "_post", lambda *a, **k: response({"error": "Invalid model install request"}, 400))
     monkeypatch.setattr(comfy_bridge.studio_state, "install_allowed", lambda _: (True, ""))
     result = await comfy_bridge.ComfyInstallTool().execute("test", {"files": [request().as_dict()]}, asyncio.Event())
-    assert result.is_error
-    assert "400" in result.content[0].text
+    assert not result.is_error
+    direct.start.assert_called_once_with(request())
 
 
 def graph(vae="qwen_image_vae.safetensors"):
