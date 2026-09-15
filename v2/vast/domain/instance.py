@@ -131,6 +131,15 @@ class InstanceRow:
     idle_at: float = 0.0
     reap_token: str = ""
     reap_until: float = 0.0
+    #: WHICH AGENT RENTED IT — the pocket its time is charged from, the way a model call made
+    #: from that agent is: an agent subscription's credits pay for that agent's machine, the
+    #: platform pool for everything else. Empty on rows written before the column existed.
+    agent_id: str = ""
+    #: HOW FAR THIS MACHINE'S TIME HAS BEEN CHARGED TO THE ACCOUNT, as an epoch second. The
+    #: meter (services/gpu_meter.py) advances it every sweep and charges the slice between.
+    #: Rows from before metering existed were set to their death, or to the deploy, by the
+    #: migration — nothing historical is ever billed.
+    billed_until: float = 0.0
 
     @property
     def live(self) -> bool:

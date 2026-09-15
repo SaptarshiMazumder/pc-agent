@@ -35,6 +35,7 @@ from vast.application.instance_settings import InstanceSettings
 from vast.application.interfaces.gpu_marketplace import GpuMarketplace
 from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
+from vast.application.services.gpu_meter import GpuMeter
 from vast.domain.errors import MarketplaceError
 from vast.domain.instance import InstanceRow, row_id_from_label
 
@@ -51,6 +52,7 @@ class InstanceReaper:
         settings: InstanceSettings,
         now: Callable[[], float],
         probe: InstanceProbe,
+        meter: GpuMeter | None = None,
     ) -> None:
         self._db = db
         self._store = store
@@ -58,6 +60,7 @@ class InstanceReaper:
         self._settings = settings
         self._now = now
         self._probe = probe
+        self._meter = meter
 
     def sweep(self) -> dict:
         """Both sweeps, in order. Returns a summary a dashboard and an alarm can both read.
@@ -75,6 +78,14 @@ class InstanceReaper:
 
         self._sweep_idle(now, result)
         self._sweep_orphans(now, result)
+
+        # THE BILL, LAST: every machine still standing after the two sweeps is charged for the
+        # minutes since the last one, and a machine whose account could not pay is stopped
+        # here, with the one reason that is true. See gpu_meter.py.
+        if self._meter is not None:
+            for row in self._meter.charge_due(result):
+                if self._destroy_idle(row, "out of credits", result):
+                    result["unfunded_stopped"] = result.get("unfunded_stopped", 0) + 1
 
         with self._db() as c:
             self._store.record_sweep(c, now=now)

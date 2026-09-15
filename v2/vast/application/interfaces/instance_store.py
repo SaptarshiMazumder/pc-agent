@@ -23,7 +23,9 @@ class InstanceStore(Protocol):
 
     def by_id(self, c: Any, row_id: str) -> InstanceRow | None: ...
 
-    def claim(self, c: Any, account_id: str, now: float) -> tuple[InstanceRow, bool]:
+    def claim(
+        self, c: Any, account_id: str, now: float, agent_id: str = ""
+    ) -> tuple[InstanceRow, bool]:
         """Take this account's one live slot, or report who already holds it.
 
         Returns (row, mine). `mine` is True for AT MOST ONE caller — the one that must now go
@@ -83,6 +85,16 @@ class InstanceStore(Protocol):
     def failed_machines_since(self, c: Any, since: float) -> set[int]:
         """Machine ids of hosts that FAILED TO START since `since`, across every account — the
         ones the next rental must skip however cheap they are."""
+        ...
+
+    def unbilled_rows(self, c: Any, *, until: float, since: float) -> list[InstanceRow]:
+        """Rows with machine time nobody has paid for yet: a rate above zero and `billed_until`
+        short of `until` (live) or of `dead_at` (dead) — dead ones only if they died after
+        `since`, so the scan stays bounded. Oldest first."""
+        ...
+
+    def mark_billed(self, c: Any, row_id: str, *, until: float) -> None:
+        """Advance the row's paid-up mark. FORWARD ONLY: a stale sweep can never move it back."""
         ...
 
     def record_sweep(self, c: Any, *, now: float) -> None:

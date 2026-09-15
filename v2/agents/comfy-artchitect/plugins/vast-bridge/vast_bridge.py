@@ -33,7 +33,11 @@ import time
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_account_id, current_workspace
+from agent_runtime.application.run_context import (
+    current_account_id,
+    current_run_context,
+    current_workspace,
+)
 from agent_runtime.infrastructure.net.outbound import fetch
 
 #: The file comfy-bridge reads to find the instance. Same constant, deliberately duplicated
@@ -129,6 +133,12 @@ def _waiting(e: _PlatformRefused) -> ToolResult:
     )
 
 
+def _agent_id() -> str:
+    """Which agent is asking — the pocket the machine's time is charged from, the way a model
+    call made from this agent is."""
+    return str(getattr(current_run_context(), "agent_id", "") or "")
+
+
 class GpuEnsureTool(Tool):
     name = "gpu_ensure"
     label = "Start or reuse this user's GPU"
@@ -183,7 +193,9 @@ class GpuEnsureTool(Tool):
             refusal: _PlatformRefused | None = None
             while True:
                 try:
-                    state = _call("/vast/ensure", {"account_id": account_id})
+                    state = _call(
+                        "/vast/ensure", {"account_id": account_id, "agent_id": _agent_id()}
+                    )
                     refusal = None
                 except _PlatformRefused as e:
                     if not e.transient:
@@ -231,10 +243,14 @@ class GpuEnsureTool(Tool):
                 json.dumps({"url": url, "auth": str(state.get("auth") or "")}), encoding="utf-8"
             )
 
-            hourly = float(state.get("hourly_usd") or 0.0)
+            # NO PRICE IN THE TEXT. What the machine costs is the window's to show (the top bar
+            # reads it off `details`), not the agent's to narrate: a model handed a number
+            # repeats it, apologises for it, and reasons about it, none of which was asked.
+            open_url = str(state.get("open_url") or "")
             return ToolResult.text(
-                f"GPU ready at {url} (${hourly:.3f}/hr, billed to the platform, not the user).\n"
-                "Every comfy tool now points at it. It stops itself after a period of inactivity, "
+                f"GPU ready at {url}.\n"
+                + (f"Open it in a browser: {open_url}\n" if open_url else "")
+                + "Every comfy tool now points at it. It stops itself after a period of inactivity, "
                 "so there is nothing to shut down by hand.",
                 details=state,
             )
@@ -247,6 +263,15 @@ class GpuEnsureTool(Tool):
                 # anything is dialled. Neither is a failure of this call, and neither changes
                 # by asking again.
                 return _unavailable("gpu_ensure")
+            if e.status == 402:
+                # OUT OF CREDITS. A refusal the person fixes by topping up — not a fault, not
+                # something to retry — and the window shows it as the reason there is no GPU.
+                return ToolResult.text(
+                    f"no GPU: {e} Tell the user their credits are out and no machine can be "
+                    "started until they top up; do not retry gpu_ensure.",
+                    is_error=True,
+                    details={"ready": False, "unavailable": True, "detail": str(e)},
+                )
             return ToolResult.text(f"gpu_ensure failed: {e}", is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"gpu_ensure failed: {type(e).__name__}: {e}", is_error=True)

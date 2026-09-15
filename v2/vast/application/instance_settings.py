@@ -185,6 +185,11 @@ class InstanceSettings:
     #: everyone. This is the limit that actually bounds that.
     monthly_cap_usd: float = 20.0
 
+    #: WHAT THE PERSON PAYS PER DOLLAR THE MARKETPLACE CHARGES. 1.0 — the rate is known to the
+    #: cent at rental time and shown to them as such; there is nothing to estimate and so
+    #: nothing to pad, unlike a partner node priced per call. Env: VAST_CREDIT_MARKUP.
+    credit_markup: float = 1.0
+
     #: HOW MANY MACHINES MAY BE RUNNING AT ONCE, across every account. 0 = unlimited.
     #:
     #: The per-account cap bounds one user; this bounds the PLATFORM, including the case the

@@ -237,6 +237,10 @@ class VastMarketplace:
         container.update({str(k): str(v) for k, v in (env or ())})
         if auth_token:
             container["WEB_PASSWORD"] = auth_token
+            # The portal's "Open" login: a browser that arrives with `?token=<this>` gets the
+            # auth cookie for every port on the host — how the window's "open ComfyUI" link
+            # works without a password to type. The same secret, so there is still one.
+            container["OPEN_BUTTON_TOKEN"] = auth_token
         body: dict = {
             "client_id": "me",
             "image": image,

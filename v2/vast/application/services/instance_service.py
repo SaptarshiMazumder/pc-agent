@@ -30,6 +30,7 @@ from contextlib import AbstractContextManager
 from typing import Any
 
 from vast.application.instance_settings import InstanceSettings
+from vast.application.interfaces.account_charges import AccountCharges
 from vast.application.interfaces.gpu_marketplace import GpuMarketplace
 from vast.application.interfaces.instance_probe import InstanceProbe
 from vast.application.interfaces.instance_store import InstanceStore
@@ -60,6 +61,7 @@ class InstanceService:
         settings: InstanceSettings,
         now: Callable[[], float],
         probe: InstanceProbe,
+        charges: AccountCharges | None = None,
     ) -> None:
         # `marketplace` is a FACTORY, not an instance. Composition happens at import time while
         # the API key arrives later from the secret store; a client built eagerly would capture
@@ -70,6 +72,10 @@ class InstanceService:
         self._settings = settings
         self._now = now
         self._probe = probe
+        # WHO PAYS. With a port, the person: no credits, no machine, and every sweep charges
+        # the minutes (gpu_meter.py). Without one — a desktop daemon, a test — the platform
+        # pays, as it did before metering existed.
+        self._charges = charges
 
     @property
     def configured(self) -> bool:
@@ -82,11 +88,12 @@ class InstanceService:
 
     # ------------------------------------------------------------------ ensure
 
-    def ensure(self, account_id: str) -> InstanceRow:
-        """This account's instance, renting one if it has none. Safe to call repeatedly."""
+    def ensure(self, account_id: str, agent_id: str = "") -> InstanceRow:
+        """This account's instance, renting one if it has none. Safe to call repeatedly.
+        `agent_id` names the agent asking — the pocket the machine's time is charged from."""
         now = self._now()
         with self._db() as c:
-            row, mine = self._store.claim(c, account_id, now)
+            row, mine = self._store.claim(c, account_id, now, agent_id=agent_id)
 
         if not mine:
             # A POLL IS INTEREST. Nothing else touches last_seen_at while a machine boots —
@@ -218,8 +225,17 @@ class InstanceService:
         return fresh
 
     def _check_caps(self, account_id: str, now: float) -> None:
-        """Refuse a NEW rental that would breach either limit."""
+        """Refuse a NEW rental that would breach either limit — or that nobody can pay for."""
         cfg = self._settings
+        if self._charges is not None:
+            with self._db() as c:
+                row = self._store.live_for(c, account_id)
+            agent_id = row.agent_id if row is not None else ""
+            if not self._charges.funded(account_id, agent_id):
+                raise BudgetExhausted(
+                    "this account has no credits left, so no machine can be started — top up "
+                    "and try again."
+                )
         with self._db() as c:
             live = self._store.count_live(c) if cfg.max_live_instances else 0
             spent = (

@@ -24,6 +24,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
 
+from vast.application.interfaces.account_charges import AccountCharges, ChargeOutcome
 from vast.infrastructure.postgres_schema import create_schema as create_postgres_schema
 from vast.infrastructure.sqlite_schema import create_schema as create_sqlite_schema
 from vast.main.vast_factory import (
@@ -35,6 +36,8 @@ from vast.main.vast_factory import (
 from vast.presentation.vast_router import build_vast_router
 
 __all__ = [
+    "AccountCharges",
+    "ChargeOutcome",
     "SECRET_FIELDS",
     "build_reaper",
     "build_router",
@@ -51,6 +54,8 @@ def build_router(
     now: Callable[[], float],
     require_internal: Callable[[str | None], bool],
     resolve_bearer: Callable[[str], str | None],
+    charges: AccountCharges | None = None,
+    credits_per_usd: Callable[[], float] | None = None,
 ):
     """The /vast/* routes, wired and ready to mount.
 
@@ -59,9 +64,18 @@ def build_router(
     re-implemented, so this module cannot disagree with the service it is mounted in about who
     is allowed to spend money.
     """
+    # `charges` and `credits_per_usd` are the host's two answers about money — who pays for a
+    # machine's time, and what an hour of it costs in the person's own unit — so a window can
+    # say "about 89,500 credits an hour" from the same numbers the meter charges by.
+    cfg = settings_from_env()
     return build_vast_router(
-        service=build_service(db=db, now=now),
-        reaper=build_reaper(db=db, now=now),
+        service=build_service(db=db, now=now, settings=cfg, charges=charges),
+        reaper=build_reaper(db=db, now=now, settings=cfg, charges=charges),
         require_internal=require_internal,
         resolve_bearer=resolve_bearer,
+        credits_per_hour=(
+            (lambda hourly: int(round(hourly * cfg.credit_markup * credits_per_usd())))
+            if credits_per_usd is not None
+            else None
+        ),
     )

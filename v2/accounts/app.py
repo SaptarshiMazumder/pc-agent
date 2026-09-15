@@ -123,6 +123,7 @@ from identity.presentation.auth_router import build_auth_router
 # below and nothing else; see vast/__init__.py. Removing the feature is deleting them
 # and the directory.
 import vast
+from vast import ChargeOutcome
 
 # Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
 # the tests load this file by path, where the module has no package. Same defensive pattern as
@@ -1322,6 +1323,109 @@ def my_credits(
     }
 
 
+def _drain_grants(c: sqlite3.Connection, grants: list, credits: int) -> tuple[int, int]:
+    """Take `credits` from the grants, soonest-expiring first, as far as they go. Returns
+    (drained, shortfall). THE ONE PLACE A BALANCE GOES DOWN — the /debit route and the GPU
+    meter's charges both come through here, so a credit means the same thing to both."""
+    available = sum(int(g["credits"]) - int(g["credits_used"]) for g in grants)
+    drained = min(credits, max(0, available))
+    left = drained
+    for g in grants:
+        if left <= 0:
+            break
+        take = min(left, int(g["credits"]) - int(g["credits_used"]))
+        c.execute(
+            "UPDATE credit_grants SET credits_used = credits_used + ? WHERE id=?",
+            (take, g["id"]),
+        )
+        left -= take
+    return drained, credits - drained
+
+
+def _record_usage(
+    c: sqlite3.Connection,
+    ts: float,
+    *,
+    account_id: str,
+    model: str,
+    cost_usd: float,
+    credits: int,
+    event_id: str,
+    in_tokens: int = 0,
+    out_tokens: int = 0,
+    run_id: str = "",
+    turn_id: str = "",
+    funding_source: str = "",
+    agent_id: str = "",
+    model_tier: str = "",
+    cached_tokens: int = 0,
+    org_id: str = "",
+) -> bool:
+    """One consumption on the spend ledger: the usage row and its ledger entry, together.
+    False when `event_id` was already recorded (a retry) — then nothing is written twice."""
+    cur = c.execute(
+        "INSERT INTO usage (account_id, ts, month, model, in_tokens, out_tokens, cost_usd, "
+        "run_id, turn_id, credits, funding_source, agent_id, model_tier, cached_tokens, "
+        "event_id, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(event_id) WHERE event_id <> '' DO NOTHING",
+        (account_id, ts, _month_key(ts), model, in_tokens, out_tokens, cost_usd, run_id,
+         turn_id, credits, funding_source, agent_id, model_tier, cached_tokens, event_id, org_id),
+    )
+    if cur.rowcount == 0:
+        return False
+    ledger.post_consumption(
+        c, ts,
+        account_id=account_id,
+        cost_micros=ledger.usd_to_micros(cost_usd),
+        credits_charged=credits,
+        agent_id=agent_id,
+        ref=run_id,
+        idempotency_key=f"consumption:{event_id}" if event_id else "",
+    )
+    return True
+
+
+class _GpuCharges:
+    """vast's AccountCharges port, on this service's own tables (vast/application/interfaces/
+    account_charges.py). One transaction per charge: drain the grants, write the usage row, post
+    the ledger entry — the same three moves a model call's debit makes, for the same money.
+    In-process, because the vast module is mounted in this app: no HTTP to itself."""
+
+    def charge(
+        self, account_id: str, usd: float, *, event_id: str, label: str, agent_id: str = ""
+    ) -> ChargeOutcome:
+        credits = int(math.ceil(max(0.0, float(usd)) * ledger.credits_per_usd()))
+        ts = _now()
+        with _db() as c:
+            if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+                count("gpu_charge_total", outcome="unknown_account")
+                return ChargeOutcome(covered=False, credits=0, shortfall=credits)
+            # A REPLAY CHARGES NOTHING TWICE. The usage row is keyed by event_id; if this one
+            # is already there, the grants were already drained for it.
+            if event_id and c.execute(
+                "SELECT 1 FROM usage WHERE event_id=?", (event_id,)
+            ).fetchone() is not None:
+                count("gpu_charge_total", outcome="duplicate")
+                return ChargeOutcome(covered=True, credits=0, shortfall=0)
+            grants = _live_grants(c, account_id, agent_id, "")
+            drained, shortfall = _drain_grants(c, grants, credits)
+            _record_usage(
+                c, ts, account_id=account_id, model=f"gpu/{label}", cost_usd=float(usd),
+                credits=drained, event_id=event_id, agent_id=agent_id, funding_source="gpu",
+            )
+        count("gpu_charge_total", outcome="ok" if not shortfall else "short",
+              _props={"account_id": account_id})
+        count("credits_consumed_total", drained, _props={"account_id": account_id})
+        return ChargeOutcome(covered=shortfall == 0, credits=drained, shortfall=shortfall)
+
+    def funded(self, account_id: str, agent_id: str = "") -> bool:
+        with _db() as c:
+            if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+                return False
+            view = _funding_view(c, account_id, agent_id)
+        return int(view.get("credits_remaining") or 0) > 0
+
+
 @app.post("/debit")
 def debit(
     payload: dict = Body(...),
@@ -1377,18 +1481,7 @@ def debit(
         # the 13 intact. Draining bounds the leak to ONE call's shortfall; the next call finds
         # zero and is refused before the provider is touched. `shortfall` is reported so the
         # caller can meter exactly how much this account overshot.
-        drained = min(credits, available)
-        shortfall = credits - drained
-        left = drained
-        for g in grants:
-            if left <= 0:
-                break
-            take = min(left, int(g["credits"]) - int(g["credits_used"]))
-            c.execute(
-                "UPDATE credit_grants SET credits_used = credits_used + ? WHERE id=?",
-                (take, g["id"]),
-            )
-            left -= take
+        drained, shortfall = _drain_grants(c, grants, credits)
         view = _funding_view(c, account_id, agent_id, org_id)
     count("debit_total", outcome="drained" if shortfall else "ok")
     # The single number that says "are we selling faster than we are serving?"
@@ -1510,28 +1603,12 @@ def usage(payload: dict = Body(...), x_internal_key: str | None = Header(default
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             count("ledger_row_total", outcome="rejected", reason="unknown_account")
             raise HTTPException(status_code=404, detail="unknown account")
-        cur = c.execute(
-            "INSERT INTO usage (account_id, ts, month, model, in_tokens, out_tokens, cost_usd, "
-            "run_id, turn_id, credits, funding_source, agent_id, model_tier, cached_tokens, "
-            "event_id, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(event_id) WHERE event_id <> '' DO NOTHING",
-            (account_id, ts, _month_key(ts), model, in_tok, out_tok, cost, run_id, turn_id,
-             credits, funding_source, agent_id, model_tier, cached_tok, event_id, org_id),
+        duplicate = not _record_usage(
+            c, ts, account_id=account_id, model=model, cost_usd=cost, credits=credits,
+            event_id=event_id, in_tokens=in_tok, out_tokens=out_tok, run_id=run_id,
+            turn_id=turn_id, funding_source=funding_source, agent_id=agent_id,
+            model_tier=model_tier, cached_tokens=cached_tok, org_id=org_id,
         )
-        duplicate = cur.rowcount == 0
-        if not duplicate:
-            # The double-entry consequence of the same event, in the SAME transaction as the
-            # usage row: a provider is owed, and prepaid service was delivered. Keyed by the
-            # same event_id so a replay cannot post the money twice either.
-            ledger.post_consumption(
-                c, ts,
-                account_id=account_id,
-                cost_micros=ledger.usd_to_micros(cost),
-                credits_charged=credits,
-                agent_id=agent_id,
-                ref=run_id,
-                idempotency_key=f"consumption:{event_id}" if event_id else "",
-            )
         view = _budget_view(c, account_id)
     if duplicate:
         # Not an error: the proxy did the right thing by retrying. Worth counting because a
@@ -2461,7 +2538,9 @@ app.include_router(
 
 app.include_router(
     vast.build_router(
-        db=_db, now=_now, require_internal=_require_internal, resolve_bearer=_account_id_for_bearer
+        db=_db, now=_now, require_internal=_require_internal, resolve_bearer=_account_id_for_bearer,
+        # WHO PAYS FOR A MACHINE: the person, from the same credits a model call spends.
+        charges=_GpuCharges(), credits_per_usd=ledger.credits_per_usd,
     )
 )
 

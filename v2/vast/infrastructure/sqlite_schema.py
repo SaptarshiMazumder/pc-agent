@@ -12,9 +12,19 @@ from __future__ import annotations
 import sqlite3
 
 #: Bump when adding a step to _STEPS.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _STEPS: dict[int, str] = {
+    5: """
+    -- METERING. `agent_id` is the pocket the machine's time is charged from; `billed_until` is
+    -- how far that time has been charged (services/gpu_meter.py). Existing rows are marked paid
+    -- up to their death, or to now, so the first sweep after this deploy charges nobody for the
+    -- past — metering starts when it ships, not when the table did.
+    ALTER TABLE vast_instances ADD COLUMN agent_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vast_instances ADD COLUMN billed_until REAL NOT NULL DEFAULT 0;
+    UPDATE vast_instances SET billed_until = COALESCE(dead_at, strftime('%s', 'now'))
+        WHERE billed_until = 0;
+    """,
     4: """
     ALTER TABLE vast_instances ADD COLUMN reap_token TEXT NOT NULL DEFAULT '';
     ALTER TABLE vast_instances ADD COLUMN reap_until REAL NOT NULL DEFAULT 0;

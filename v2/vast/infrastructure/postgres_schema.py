@@ -12,9 +12,17 @@ from typing import Any
 
 #: Bump when adding a step to _STEPS. Kept in lockstep with the SQLite ledger: one module, one
 #: shape, two engines.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _STEPS: dict[int, str] = {
+    5: """
+    -- METERING — see the SQLite ledger. Existing rows are marked paid up to their death, or to
+    -- now, so the first sweep after this deploy charges nobody for the past.
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS agent_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS billed_until DOUBLE PRECISION NOT NULL DEFAULT 0;
+    UPDATE vast_instances SET billed_until = COALESCE(dead_at, EXTRACT(EPOCH FROM NOW()))
+        WHERE billed_until = 0;
+    """,
     4: """
     ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS reap_token TEXT NOT NULL DEFAULT '';
     ALTER TABLE vast_instances ADD COLUMN IF NOT EXISTS reap_until DOUBLE PRECISION NOT NULL DEFAULT 0;

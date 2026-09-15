@@ -13,6 +13,8 @@ from contextlib import AbstractContextManager
 from typing import Any
 
 from vast.application.instance_settings import InstanceSettings
+from vast.application.interfaces.account_charges import AccountCharges
+from vast.application.services.gpu_meter import GpuMeter
 from vast.application.services.instance_reaper import InstanceReaper
 from vast.application.services.instance_service import InstanceService
 from vast.infrastructure.sql_instance_store import SqlInstanceStore
@@ -57,6 +59,9 @@ def settings_from_env() -> InstanceSettings:
         idle_seconds=float(os.environ.get("VAST_IDLE_SECONDS", "") or 600),
         monthly_cap_usd=float(os.environ.get("VAST_MONTHLY_CAP_USD", "") or 20.0),
         max_live_instances=int(os.environ.get("VAST_MAX_LIVE_INSTANCES", "") or 10),
+        credit_markup=float(
+            os.environ.get("VAST_CREDIT_MARKUP", "") or InstanceSettings.credit_markup
+        ),
     )
 
 
@@ -65,8 +70,10 @@ def build_service(
     db: Callable[[], AbstractContextManager[Any]],
     now: Callable[[], float],
     settings: InstanceSettings | None = None,
+    charges: AccountCharges | None = None,
 ) -> InstanceService:
-    """The service, wired to Vast and to the host's database."""
+    """The service, wired to Vast and to the host's database. `charges` is the host's answer
+    to "who pays" (interfaces/account_charges.py); None means the platform does."""
     cfg = settings or settings_from_env()
     return InstanceService(
         db=db,
@@ -81,6 +88,7 @@ def build_service(
         settings=cfg,
         now=now,
         probe=HttpInstanceProbe(),
+        charges=charges,
     )
 
 
@@ -89,6 +97,7 @@ def build_reaper(
     db: Callable[[], AbstractContextManager[Any]],
     now: Callable[[], float],
     settings: InstanceSettings | None = None,
+    charges: AccountCharges | None = None,
 ) -> InstanceReaper:
     """The sweep, wired to the same marketplace and table the service uses.
 
@@ -96,9 +105,10 @@ def build_reaper(
     or the two end up disagreeing about what a dead instance looks like.
     """
     cfg = settings or settings_from_env()
+    store = SqlInstanceStore()
     return InstanceReaper(
         db=db,
-        store=SqlInstanceStore(),
+        store=store,
         marketplace=lambda: VastMarketplace(
             os.environ.get("VAST_API_KEY", "").strip(), comfy_port=cfg.comfy_port
         ),
@@ -106,4 +116,6 @@ def build_reaper(
         now=now,
         # The same probe the service uses to say "ready" answers the reaper's "busy?".
         probe=HttpInstanceProbe(),
+        # The bill: the person's credits, through the host's port — None means the platform pays.
+        meter=GpuMeter(db=db, store=store, charges=charges, settings=cfg, now=now),
     )

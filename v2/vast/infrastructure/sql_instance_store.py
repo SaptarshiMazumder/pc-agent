@@ -21,7 +21,7 @@ from vast.domain.instance import LIVE_STATES, InstanceRow
 _COLS = (
     "id, account_id, instance_id, machine_id, url, state, hourly_usd, "
     "created_at, last_seen_at, lease_until, dead_at, dead_reason, auth_token, idle_at, "
-    "reap_token, reap_until"
+    "reap_token, reap_until, agent_id, billed_until"
 )
 _LIVE = ",".join("?" for _ in LIVE_STATES)
 
@@ -44,6 +44,8 @@ def _row(r: Any) -> InstanceRow:
         idle_at=float(r["idle_at"] or 0.0),
         reap_token=str(r["reap_token"] or ""),
         reap_until=float(r["reap_until"] or 0.0),
+        agent_id=str(r["agent_id"] or ""),
+        billed_until=float(r["billed_until"] or 0.0),
     )
 
 
@@ -123,7 +125,9 @@ class SqlInstanceStore:
 
     # ------------------------------------------------------------------ claim
 
-    def claim(self, c: Any, account_id: str, now: float) -> tuple[InstanceRow, bool]:
+    def claim(
+        self, c: Any, account_id: str, now: float, agent_id: str = ""
+    ) -> tuple[InstanceRow, bool]:
         """Take the one live slot for this account, or report who already holds it.
 
         HOW THE RACE IS SETTLED. The insert carries its own guard (`WHERE NOT EXISTS`), which
@@ -137,12 +141,13 @@ class SqlInstanceStore:
         try:
             c.execute(
                 "INSERT INTO vast_instances "
-                "  (id, account_id, state, hourly_usd, created_at, last_seen_at, lease_until) "
-                "SELECT ?, ?, 'starting', 0, ?, ?, 0 "
+                "  (id, account_id, state, hourly_usd, created_at, last_seen_at, lease_until, "
+                "   agent_id) "
+                "SELECT ?, ?, 'starting', 0, ?, ?, 0, ? "
                 "WHERE NOT EXISTS ("
                 f"  SELECT 1 FROM vast_instances WHERE account_id=? AND state IN ({_LIVE})"
                 ")",
-                (new_id, account_id, now, now, account_id, *LIVE_STATES),
+                (new_id, account_id, now, now, str(agent_id or "")[:64], account_id, *LIVE_STATES),
             )
         except Exception:
             existing = self.live_for(c, account_id)
@@ -225,6 +230,23 @@ class SqlInstanceStore:
             (now, str(reason)[:200], row_id, token),
         )
         return bool(cur.rowcount)
+
+    # ------------------------------------------------------------------ the meter
+    def unbilled_rows(self, c: Any, *, until: float, since: float) -> list[InstanceRow]:
+        rows = c.execute(
+            f"SELECT {_COLS} FROM vast_instances "
+            "WHERE hourly_usd > 0 AND billed_until < COALESCE(dead_at, ?) "
+            f"AND (state IN ({_LIVE}) OR dead_at >= ?) "
+            "ORDER BY created_at ASC",
+            (until, *LIVE_STATES, since),
+        ).fetchall()
+        return [_row(r) for r in rows]
+
+    def mark_billed(self, c: Any, row_id: str, *, until: float) -> None:
+        c.execute(
+            "UPDATE vast_instances SET billed_until=? WHERE id=? AND billed_until<?",
+            (until, row_id, until),
+        )
 
     # ------------------------------------------------------------------ reaper liveness
 

@@ -13,7 +13,7 @@ from vast.application.services.instance_service import InstanceService
 from vast.domain.errors import MarketplaceError
 from vast.domain.instance import MachineInstance, label_for
 from vast.infrastructure.sql_instance_store import SqlInstanceStore
-from vast.infrastructure.sqlite_schema import _STEPS, create_schema
+from vast.infrastructure.sqlite_schema import SCHEMA_VERSION, _STEPS, create_schema
 
 
 @pytest.fixture
@@ -178,7 +178,10 @@ def test_old_schema_migrates_without_losing_rental(tmp_path):
         connection.execute("CREATE TABLE vast_schema_version (id INTEGER PRIMARY KEY, version INTEGER)")
         connection.execute("INSERT INTO vast_schema_version VALUES (1, 3)")
         connection.execute("INSERT INTO vast_instances (id,account_id,state,created_at,last_seen_at) VALUES ('old','alice','running',0,0)")
-        assert create_schema(connection) == 4
-        assert create_schema(connection) == 4
+        assert create_schema(connection) == SCHEMA_VERSION
+        assert create_schema(connection) == SCHEMA_VERSION
         row = SqlInstanceStore().live_for(connection, "alice")
         assert row.id == "old" and row.reap_token == "" and row.reap_until == 0
+        # A machine from before metering existed is paid up to the deploy: the first sweep after
+        # the migration charges nobody for the past.
+        assert row.billed_until > 0 and row.agent_id == ""

@@ -24,9 +24,9 @@ from vast.domain.errors import (
 from vast.domain.instance import InstanceRow
 
 
-def _view(row: InstanceRow | None) -> dict:
+def _view(row: InstanceRow | None, credits_per_hour: Callable[[float], int] | None = None) -> dict:
     if row is None:
-        return {"state": "none", "ready": False, "url": "", "auth": ""}
+        return {"state": "none", "ready": False, "url": "", "auth": "", "open_url": ""}
     return {
         "state": row.state,
         "ready": row.ready,
@@ -35,7 +35,19 @@ def _view(row: InstanceRow | None) -> dict:
         # it into the handover file and send it on every call. Only ever given to the account
         # that owns the rental, over the internal-key route this router already requires.
         "auth": f"Bearer {row.auth_token}" if row.auth_token else "",
+        # THE LINK A PERSON CAN CLICK. The machine's portal logs a browser in from `?token=`
+        # (the same secret, set as OPEN_BUTTON_TOKEN at launch) and its cookie covers every
+        # port on the host — so this opens ComfyUI itself, no password to type. The plain
+        # `url` opened a login page nobody had the password for.
+        "open_url": (
+            f"{row.url.rstrip('/')}/?token={row.auth_token}"
+            if row.ready and row.auth_token else ""
+        ),
         "hourly_usd": row.hourly_usd,
+        # What an hour costs the person, in their own unit — the number the meter charges by.
+        "credits_per_hour": (
+            credits_per_hour(row.hourly_usd) if credits_per_hour and row.hourly_usd else 0
+        ),
         "instance_id": row.instance_id,
     }
 
@@ -46,8 +58,12 @@ def build_vast_router(
     reaper: InstanceReaper,
     require_internal: Callable[[str | None], bool],
     resolve_bearer: Callable[[str], str | None],
+    credits_per_hour: Callable[[float], int] | None = None,
 ) -> APIRouter:
     router = APIRouter()
+
+    def view(row: InstanceRow | None) -> dict:
+        return _view(row, credits_per_hour)
 
     def _bearer_of(authorization: str | None) -> str:
         a = (authorization or "").strip()
@@ -100,7 +116,7 @@ def build_vast_router(
         never blocks on the boot — poll it."""
         account = _caller(x_internal_key, authorization, _claimed(payload))
         try:
-            return _view(service.ensure(account))
+            return view(service.ensure(account, agent_id=str(payload.get("agent_id") or "")[:64]))
         except BudgetExhausted as e:
             raise HTTPException(status_code=402, detail=str(e)) from e
         except CapacityFull as e:
@@ -121,7 +137,7 @@ def build_vast_router(
         mistaken for an abandoned one; it is capped by the service."""
         account = _caller(x_internal_key, authorization, _claimed(payload))
         alive, row = service.heartbeat(account, float(payload.get("lease_seconds") or 0.0))
-        return {"alive": alive, **_view(row)}
+        return {"alive": alive, **view(row)}
 
     @router.post("/vast/download-connection")
     def download_connection(
@@ -146,7 +162,7 @@ def build_vast_router(
         last real contact and does not let the box argue."""
         account = _caller(x_internal_key, authorization, _claimed(payload))
         marked, row = service.idle(account)
-        return {"idle": marked, **_view(row)}
+        return {"idle": marked, **view(row)}
 
     @router.get("/vast/status/{account_id}")
     def status(
@@ -155,7 +171,7 @@ def build_vast_router(
         authorization: str | None = Header(default=None),
     ) -> dict:
         account = _caller(x_internal_key, authorization, account_id)
-        return _view(service.status(account))
+        return view(service.status(account))
 
     @router.post("/vast/release")
     def release(
@@ -166,7 +182,7 @@ def build_vast_router(
         """Give the machine back now rather than waiting for the idle sweep."""
         account = _caller(x_internal_key, authorization, _claimed(payload))
         released = service.release(account, reason="released by user")
-        return {"released": released, **_view(None)}
+        return {"released": released, **view(None)}
 
     @router.get("/vast/spend/{account_id}")
     def spend(
