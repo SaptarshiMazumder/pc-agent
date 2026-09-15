@@ -48,14 +48,19 @@ export default function SignIn(): JSX.Element {
   useEffect(() => {
     const back = oauthReturn()
     if (!back) return
+    /* CLEARED BEFORE THE EXCHANGE, not after. Finishing a sign-in ends in a hard refresh, and the
+       reload is queued from inside the await — so clearing it in the `.then` raced the unload and
+       lost: the code and state survived into the reloaded page, sat unread while the window was
+       signed in, and surfaced on the next SIGN-OUT as "this sign-in did not start in this tab",
+       because by then the stashed flow had already been spent. Reading and clearing together
+       means nothing downstream can carry them. */
+    clearOauthReturn()
     let alive = true
     setBusy(true)
     void finishExternalSignIn(back)
-      .then(() => alive && clearOauthReturn())
       .catch((err) => {
         if (!alive) return
         console.error('[auth] external sign-in failed', err)
-        clearOauthReturn()
         setError(String((err as Error)?.message || err))
       })
       .finally(() => alive && setBusy(false))

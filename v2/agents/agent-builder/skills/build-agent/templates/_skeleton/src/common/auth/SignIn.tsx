@@ -73,24 +73,29 @@ export default function SignIn({
   }, [])
 
   /* COMING BACK FROM THE PROVIDER. A load with `?code=&state=` is the second half of a flow this
-     tab started; redeem it and tell the caller. The query is stripped either way — on success so
-     a refresh does not replay a spent code, and on failure so the error is not re-thrown at every
-     reload with no way to clear it. */
+     tab started; redeem it and tell the caller.
+
+     THE QUERY IS STRIPPED FIRST, BEFORE THE EXCHANGE, and the order is the whole point. Stripping
+     it afterwards raced a reload and lost: `authCallback` ends by resolving the new identity, the
+     SDK reloads the window the moment that identity differs (identity.ts), and that reload is
+     queued from INSIDE the await — so the page could unload before the `.then` here ever ran. The
+     code and state survived into the reloaded page, sat unread in the address bar while the window
+     was signed in, and reappeared on the next SIGN-OUT, when this card mounted again, found a flow
+     that had already been spent, and accused the user of starting a sign-in in another tab.
+
+     Reading the params and removing them in the same breath means nothing downstream can preserve
+     them — no reload, no navigation, no second mount — whoever triggers it and whenever. */
   useEffect(() => {
     const back = oauthCallbackParams()
     if (!back) return
+    stripCallbackQuery()
     let alive = true
     setBusy(true)
     void authCallback(back)
-      .then(() => {
-        if (!alive) return
-        stripCallbackQuery()
-        onDone?.()
-      })
+      .then(() => alive && onDone?.())
       .catch((err) => {
         if (!alive) return
         console.error('[auth] external sign-in failed', err)
-        stripCallbackQuery()
         setError(String((err as Error)?.message || err))
       })
       .finally(() => alive && setBusy(false))
