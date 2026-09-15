@@ -18,26 +18,25 @@
 
 import {
   Building2,
-  Check,
+  ChevronDown,
+  ChevronRight,
   CreditCard,
   Loader2,
   RefreshCw,
-  Trash2,
-  X,
   MessageSquareText,
-  Plus,
   Settings2,
   Sparkles,
+  SquarePen,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
-import { when } from '../agentd/sessions'
 import { ProfileMenu } from '../common/auth/ProfileMenu'
 import RunModeBadge from '../common/runmode/RunModeBadge'
 import type { Auth } from '../common/auth/useAuth'
 import { useApp, type View } from '../state/store'
+import SessionItem from './SessionItem'
 
 /** The destinations that are not the conversation. Each is a shared module — see App.tsx. */
 const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
@@ -63,6 +62,8 @@ export function Sidebar({
   sharedGroupLabel = '',
   onRefreshChats,
   onDeleteChat,
+  onRenameChat,
+  onDuplicateChat,
 }: {
   view: View
   onView: (v: View) => void
@@ -101,8 +102,16 @@ export function Sidebar({
   /** Re-read the saved-conversation list. Returns a promise so the button can spin for exactly
    *  as long as the read takes — App owns the fetch, this owns the asking. */
   onRefreshChats?: () => Promise<void>
-  /** Delete one saved conversation. Confirmed in the row first; see the note below. */
+  /** Delete one saved conversation. The ⋯ menu arms before it fires; see ChatMenu. */
   onDeleteChat?: (sessionId: string) => Promise<void>
+  /** Retitle one saved conversation. An empty title clears a manual name and lets
+   *  auto-titling resume, so it is not treated as a cancel. */
+  onRenameChat?: (sessionId: string, title: string) => Promise<void>
+  /** Fork one saved conversation — transcript and all. */
+  onDuplicateChat?: (sessionId: string) => Promise<void>
+  /** EACH IS OPTIONAL AND EACH IS ONE MENU ITEM. A window that cannot do one passes nothing
+   *  and that row is absent, rather than present and inert. Pass none and the ⋯ never
+   *  appears at all. */
 }) {
   const chats = useApp((s) => s.chats)
   const chatsLoading = useApp((s) => s.chatsLoading)
@@ -129,19 +138,23 @@ export function Sidebar({
     void onRefreshChats().finally(() => setRefreshing(false))
   }
 
-  /* WHICH ROW IS ASKING "ARE YOU SURE", by session id. A two-step confirm in the row rather than
-     a window.confirm(): the native dialog steals focus, cannot be styled, and reads as a browser
-     interruption rather than as part of this list. Deleting a conversation cannot be undone —
-     the daemon removes the transcript — so one deliberate second click is the whole margin.
-     Nothing is armed at rest, and opening another row's confirm disarms the previous one. */
-  const [confirming, setConfirming] = useState('')
+  /* WHICH ROW IS BEING DELETED, by session id — the row shows a spinner where its ⋯ was.
+     THE CONFIRMATION MOVED INTO THE MENU: a pair of ✓/✗ buttons used to arm on the row itself,
+     live on every hover, a pixel from the row you were trying to open, in a list you scan
+     constantly. ChatMenu's Delete arms in place instead ("Click again to delete"), which is one
+     step further from the cursor and keeps the row free of destructive controls at rest. There
+     is still no undo — the daemon drops the transcript — so the arm is still the whole margin. */
   const [deleting, setDeleting] = useState('')
   const remove = (sessionId: string): void => {
     if (!onDeleteChat) return
-    setConfirming('')
     setDeleting(sessionId)
     void onDeleteChat(sessionId).finally(() => setDeleting(''))
   }
+
+  /* RECENT COLLAPSES. The list is the one thing in this rail with no upper bound, and a person
+     who is working out of the destinations above it should be able to put it away. Open by
+     default: it is why most people look here. */
+  const [recentOpen, setRecentOpen] = useState(true)
 
   return (
     <aside className="rail sidebar">
@@ -165,16 +178,22 @@ export function Sidebar({
         </span>
       </div>
 
-      {/* THE ONE CONSEQUENTIAL ACTION, filled and unmissable. Everything else in this rail is a
-          place to go; this is the thing you came to do. */}
-      {showPrimary && (
-        <button className="nav-primary" onClick={onNewChat}>
-          <Plus size={16} strokeWidth={2.2} />
-          <span>New conversation</span>
-        </button>
-      )}
-
       <nav className="nav-items">
+        {/* STARTING A CONVERSATION IS A ROW, not a filled slab. It was the latter — the argument
+            being that it is the one consequential action and everything else is a place to go.
+            The trouble is that it is ALSO the most repeated one, and a button styled to be
+            unmissable is still unmissable on the four-hundredth look while having crowded out
+            the rows beneath it the whole time. Every assistant worth copying — and the builder
+            window next door — makes it the first row and lets position carry the emphasis. */}
+        {showPrimary && (
+          <button className="nav-item" onClick={onNewChat}>
+            <span className="nav-ico">
+              <SquarePen size={15} strokeWidth={1.7} />
+            </span>
+            <span className="nav-item-label">New conversation</span>
+          </button>
+        )}
+
         {showConversation && (
           <button
             className={`nav-item${view === 'chat' ? ' on' : ''}`}
@@ -225,27 +244,41 @@ export function Sidebar({
                 belong to. Keyed to the same condition as the body below — a label over nothing is
                 worse than no label. */}
             {(chatsLoading || chats.length > 0) && (
-              <div className="section-label">
-                <span>Recent</span>
+              /* THE WHOLE HEAD IS THE TOGGLE, and the caret and the refresh only appear under the
+                 cursor — at rest this is a label, which is all it needs to be. */
+              <div
+                className="section-label section-head"
+                onClick={() => setRecentOpen((v) => !v)}
+                title={`${recentOpen ? 'collapse' : 'expand'} recent conversations`}
+              >
+                <span className="section-title">Recent</span>
                 {onRefreshChats && (
                   <button
                     type="button"
-                    className="label-btn"
-                    onClick={refresh}
+                    className="section-add"
+                    onClick={(e) => {
+                      // The head toggles; this must not, or reloading would also fold the list
+                      // away underneath the spinner.
+                      e.stopPropagation()
+                      refresh()
+                    }}
                     disabled={refreshing}
                     title="Reload the conversation list"
                     aria-label="Reload the conversation list"
                   >
                     <RefreshCw
-                      size={12}
+                      size={13}
                       strokeWidth={2}
                       className={refreshing ? 'ld-spin' : undefined}
                     />
                   </button>
                 )}
+                <span className="section-caret">
+                  {recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
               </div>
             )}
-            {chatsLoading ? (
+            {!recentOpen ? null : chatsLoading ? (
               /* NOT AN EMPTY LIST. Those look identical and mean opposite things, and the moment
                  it matters most is right after an account switch: the rows are gone because they
                  were the last user's, and the new ones are still on their way. */
@@ -262,78 +295,26 @@ export function Sidebar({
                 {chatsError && <p className="rail-error">{chatsError}</p>}
                 <div className="agents-list">
                   {chats.map((c) => (
-                    <div
+                    <SessionItem
                       key={c.sessionId}
-                      className={`row-line${
-                        confirming === c.sessionId || deleting === c.sessionId ? ' is-armed' : ''
-                      }`}
-                    >
-                      <button
-                        className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
-                        onClick={() => open(c.sessionId)}
-                        title={c.title || 'Untitled'}
-                      >
-                        <span className="row-main">
-                          <span className="row-title">
-                            {c.running && <span className="row-live" title="running" />}
-                            {c.title || 'Untitled'}
-                          </span>
-                          <span className="row-sub">{c.snippet || when(c.modified)}</span>
-                        </span>
-                      </button>
-                      {/* OVERLAID ON THE ROW, NOT BESIDE IT. As a flex sibling this stole ~24px
-                          from every title and, worse, sat OUTSIDE the row's own background — so
-                          the hover highlight stopped short of it and the button hung in the gap
-                          past the end of the bubble. Absolute, over the right edge, behind a
-                          scrim that masks the text underneath: the title keeps the full width and
-                          the actions reserve no space at all until they are wanted. Same idiom as
-                          `.session-row .row-actions` further up this stylesheet. */}
-                      {onDeleteChat && (
-                        <div className="row-acts">
-                          {deleting === c.sessionId ? (
-                            <span className="row-act is-busy" title="Deleting…">
-                              <Loader2 size={13} strokeWidth={2} className="ld-spin" />
-                            </span>
-                          ) : confirming === c.sessionId ? (
-                            <>
-                              <button
-                                type="button"
-                                className="row-act is-danger"
-                                onClick={() => remove(c.sessionId)}
-                                title="Delete this conversation — this cannot be undone"
-                                aria-label="Confirm delete"
-                              >
-                                <Check size={13} strokeWidth={2.4} />
-                              </button>
-                              <button
-                                type="button"
-                                className="row-act"
-                                onClick={() => setConfirming('')}
-                                title="Keep it"
-                                aria-label="Cancel delete"
-                              >
-                                <X size={13} strokeWidth={2.4} />
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              className="row-act"
-                              onClick={() => setConfirming(c.sessionId)}
-                              title={
-                                c.running
-                                  ? 'Running — stop it before deleting'
-                                  : 'Delete this conversation'
-                              }
-                              aria-label="Delete this conversation"
-                            >
-                              <Trash2 size={13} strokeWidth={1.9} />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      session={c}
+                      active={view === 'chat' && c.sessionId === currentKey}
+                      busy={deleting === c.sessionId}
+                      onOpen={() => open(c.sessionId)}
+                      onRename={
+                        onRenameChat
+                          ? (title) => void onRenameChat(c.sessionId, title)
+                          : undefined
+                      }
+                      onDuplicate={
+                        onDuplicateChat ? () => void onDuplicateChat(c.sessionId) : undefined
+                      }
+                      onDelete={onDeleteChat ? () => remove(c.sessionId) : undefined}
+                    />
                   ))}
+                  {chats.length === 0 && (
+                    <div className="row-sub list-empty">no conversations yet</div>
+                  )}
                 </div>
               </>
             )}

@@ -32,9 +32,16 @@ export interface GpuWarmup {
   state: GpuState
   /** The instance's address once it answers. "" until then. */
   url: string
+  /** The link a person can open: the machine's own ComfyUI, with the portal's login token on
+   *  it, so the browser is let in. `url` alone lands on a password page nobody has the
+   *  password for — which is what the top bar used to link to. "" until ready. */
+  openUrl: string
   /** What the platform said when it could not start one — shown, never acted on. */
   error: string
   hourlyUsd: number
+  /** What an hour of this machine costs the person, in credits — the platform's own number,
+   *  the one the meter charges by. 0 until known. */
+  creditsPerHour: number
   /** Ask again now (the panel's retry). */
   refresh: () => void
 }
@@ -65,8 +72,10 @@ export function useGpuWarmup(
 ): GpuWarmup {
   const [state, setState] = useState<GpuState>('idle')
   const [url, setUrl] = useState('')
+  const [openUrl, setOpenUrl] = useState('')
   const [error, setError] = useState('')
   const [hourlyUsd, setHourlyUsd] = useState(0)
+  const [creditsPerHour, setCreditsPerHour] = useState(0)
   // Survives re-renders so a slow poll cannot be started twice by React's strict double-mount.
   const inFlight = useRef(false)
 
@@ -83,7 +92,9 @@ export function useGpuWarmup(
           details?: {
             ready?: boolean
             url?: string
+            open_url?: string
             hourly_usd?: number
+            credits_per_hour?: number
             waiting?: boolean
             unavailable?: boolean
             detail?: string
@@ -91,8 +102,10 @@ export function useGpuWarmup(
         }
         const d = res?.details || {}
         setHourlyUsd(Number(d.hourly_usd || 0))
+        setCreditsPerHour(Number(d.credits_per_hour || 0))
         if (d.ready && d.url) {
           setUrl(String(d.url))
+          setOpenUrl(String(d.open_url || ''))
           setState('ready')
           setError('')
         } else if (d.waiting) {
@@ -152,6 +165,7 @@ export function useGpuWarmup(
           // The machine is gone (reaped, or failed). Say "no instance"; the next run's
           // gpu_ensure starts a fresh one. Not 'starting' — nothing is starting.
           setUrl('')
+          setOpenUrl('')
           setState('idle')
         }
       } catch {
@@ -167,5 +181,5 @@ export function useGpuWarmup(
     }
   }, [state, active, client])
 
-  return { state, url, error, hourlyUsd, refresh: ask }
+  return { state, url, openUrl, error, hourlyUsd, creditsPerHour, refresh: ask }
 }

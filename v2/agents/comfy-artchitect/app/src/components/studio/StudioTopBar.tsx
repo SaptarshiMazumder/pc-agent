@@ -116,11 +116,24 @@ function InstanceChip({
             /* THE LINK THE USER ASKED FOR: their instance, in a new tab — ComfyUI's own web UI
                on the rented machine, the one place they can watch a queue and outputs
                directly. The Vast console is the platform's account, not theirs, so it is not
-               offered. Nothing else knows this address: `gpu.url` is what the platform
-               handed the agent. */
-            <a className="sb-link st-mono" href={gpu.url} target="_blank" rel="noreferrer">
+               offered. `openUrl` carries the portal's login token, so the tab opens ComfyUI
+               itself; the bare `url` opened a password page nobody had the password for. */
+            <a
+              className="sb-link st-mono"
+              href={gpu.openUrl || gpu.url}
+              target="_blank"
+              rel="noreferrer"
+            >
               open ComfyUI ↗
             </a>
+          )}
+          {gpu.state === 'ready' && gpu.creditsPerHour > 0 && (
+            /* WHAT IT COSTS, where the thing that costs it is. The person's credits pay for the
+               machine by the minute now; a rate they can see is the difference between a bill
+               and a surprise. */
+            <p className="sb-note">
+              about {gpu.creditsPerHour.toLocaleString()} credits an hour while it runs
+            </p>
           )}
           {gpu.state === 'waiting' && (
             <p className="sb-note">{gpu.error || 'no GPU free this minute — asking again'}</p>

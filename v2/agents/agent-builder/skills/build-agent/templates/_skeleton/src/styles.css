@@ -291,6 +291,26 @@ h2 { font-size: var(--fs-lead); }
 .hover-btn { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 2px; border-radius: var(--r-sm); display: flex; }
 .row:hover .hover-btn { opacity: .7; }
 .hover-btn:hover { opacity: 1 !important; color: var(--text); background: var(--bg); }
+/* A DELETE IN FLIGHT IS NOT A HOVER STATE. `.hover-btn` is invisible at rest, so a spinner in its
+   place would only show while the cursor happened to stay on the row. */
+.hover-btn.is-busy { opacity: 1; color: var(--dim); cursor: default; }
+/* A RUN IS GOING ON THIS CONVERSATION. Before the title, because it changes what the row MEANS
+   rather than decorating it, and pulsing because a static dot reads as a status that was true at
+   some point rather than one that is true now. */
+.row-live {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent, #c9f24b);
+  vertical-align: middle;
+  animation: row-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes row-live-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
 .rename-input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-pill); padding: 5px 11px; font: inherit; font-size: var(--fs-row); outline: none; }
 
 /* the hover tooltip, portalled to <body> so a scroll container's overflow can never clip it */
@@ -315,6 +335,11 @@ h2 { font-size: var(--fs-lead); }
 }
 .chat-menu-item:hover { background: var(--bg3); }
 .chat-menu-item .cm-ico { display: flex; color: var(--dim); flex: none; }
+.chat-menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
+/* DELETE READS AS DELETE, but only inside the menu — the row it belongs to carries no
+   colour at all until you open this. */
+.chat-menu-item.danger { color: var(--danger); }
+.chat-menu-item.danger:hover { background: var(--danger-soft); }
 
 .footer-nav { display: flex; gap: 6px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); }
 .footer-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; }

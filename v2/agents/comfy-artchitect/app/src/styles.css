@@ -332,6 +332,9 @@ h2 { font-size: var(--fs-lead); }
 .hover-btn { opacity: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 2px; border-radius: var(--r-sm); display: flex; }
 .row:hover .hover-btn { opacity: .7; }
 .hover-btn:hover { opacity: 1 !important; color: var(--text); background: var(--bg); }
+/* A DELETE IN FLIGHT IS NOT A HOVER STATE. `.hover-btn` is invisible at rest, so the spinner that
+   replaces the ⋯ while the daemon works would only show while the cursor stayed on the row. */
+.hover-btn.is-busy { opacity: 1; color: var(--dim); cursor: default; }
 .rename-input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-pill); padding: 5px 11px; font: inherit; font-size: var(--fs-row); outline: none; }
 
 /* the hover tooltip, portalled to <body> so a scroll container's overflow can never clip it */
@@ -374,6 +377,11 @@ h2 { font-size: var(--fs-lead); }
 }
 .chat-menu-item:hover { background: var(--bg3); }
 .chat-menu-item .cm-ico { display: flex; color: var(--dim); flex: none; }
+.chat-menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
+/* DELETE READS AS DELETE, but only in the menu — the row it belongs to carries no colour at all
+   until you open this. The soft fill on hover is the confirmation surface for the second click. */
+.chat-menu-item.danger { color: var(--danger); }
+.chat-menu-item.danger:hover { background: var(--danger-soft); }
 
 .footer-nav { display: flex; gap: 6px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--border); }
 .footer-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; }
@@ -497,6 +505,8 @@ h2 { font-size: var(--fs-lead); }
 .milestone.is-warn .milestone-tick { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
 .milestone-label { color: var(--text); }
 .milestone-detail { color: var(--faint); font-size: 11px; }
+a.milestone-detail { color: var(--accent-text); text-decoration: none; }
+a.milestone-detail:hover { text-decoration: underline; }
 
 /* The scroller's frame — it exists so the jump button can be positioned against the VIEWPORT of
    the thread rather than against its scrolling content, where it would drift away as you read. */

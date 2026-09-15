@@ -34,7 +34,13 @@ import { useCredits } from './agentd/credits'
 import { handleRunEvent, jobsFromStatus } from './agentd/run-events'
 import { MAX_FILES } from './agentd/chat'
 import { useRun } from './agentd/run'
-import { deleteSession, listSessions, loadHistory } from './agentd/sessions'
+import {
+  deleteSession,
+  forkSession,
+  listSessions,
+  loadHistory,
+  renameSession,
+} from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
@@ -196,7 +202,7 @@ export default function App() {
   /* THE BALANCE, beside the thing that spends it. Re-read when a run ends, because that is when
      it changed. `null` means "not known" — a build with no accounts service, where showing a
      zero would be a lie. */
-  const credits = useCredits(client!, session.running)
+  const credits = useCredits(client!, session.running, gpu.state === 'ready')
 
   /* ONE auth state for the window. It lives here rather than in the Sidebar because the sign-in
      card is rendered here too, and two `useAuth()` calls would be two states that disagree about
@@ -383,6 +389,47 @@ export default function App() {
      the same answer a moment later, but the person who pressed the button should not watch their
      own click take a network round trip to land. `closeSession` also moves `currentSessionKey`
      off the deleted chat, and the boot effect makes a fresh one when nothing is left. */
+  /* RENAME AND DUPLICATE, the other two items on a conversation's menu. Both are the daemon's
+     work; App does the I/O for the same reason it owns the delete — the rail asks, this answers,
+     and there is one place that knows how to put the list back in step afterwards.
+
+     NO LOCAL PRE-UPDATE on either, unlike the delete below. A delete removes the row you are
+     looking at and waiting a round trip to see it go feels broken; a rename lands on a row that
+     stays put, and `sessions.changed` brings the new title back within a frame or two. Guessing
+     at it here would only mean two writes and a flicker when they disagree. */
+  const renameChat = useCallback(
+    async (sessionId: string, title: string): Promise<void> => {
+      if (!client) return
+      try {
+        await renameSession(client, sessionId, title)
+        void refreshChats()
+      } catch (e) {
+        useApp
+          .getState()
+          .failChatsLoad(String((e as Error)?.message || e) || 'could not rename that conversation')
+      }
+    },
+    [client, refreshChats],
+  )
+
+  const duplicateChat = useCallback(
+    async (sessionId: string): Promise<void> => {
+      if (!client) return
+      try {
+        // The copy is OPENED, not merely made. A fork you have to go and find in the list is a
+        // command whose result is invisible; this is the one case where the new row is the point.
+        const key = await forkSession(client, sessionId)
+        await refreshChats()
+        useApp.getState().openSession(key)
+      } catch (e) {
+        useApp
+          .getState()
+          .failChatsLoad(String((e as Error)?.message || e) || 'could not copy that conversation')
+      }
+    },
+    [client, refreshChats],
+  )
+
   const deleteChat = useCallback(
     async (sessionId: string): Promise<void> => {
       if (!client) return
@@ -495,6 +542,8 @@ export default function App() {
            own progress for exactly as long as the work takes. */
         onRefreshChats={() => refreshChats()}
         onDeleteChat={deleteChat}
+        onRenameChat={renameChat}
+        onDuplicateChat={duplicateChat}
       />
 
       {/* `is-studio` must track the SAME condition as the branch below — an unknown view falls

@@ -17,6 +17,8 @@ export interface Milestone {
   label: string
   /** A short detail drawn from the call or its result: a count, a filename. */
   detail?: string
+  /** A place to go — the detail renders as a link that opens in a new tab. */
+  href?: string
 }
 
 /** `wrote 16 nodes — …` -> `16 nodes`; the first number and its unit, when the result leads with
@@ -36,6 +38,16 @@ type Read = (args: Record<string, unknown>, result: string, isError: boolean) =>
 
 /** The ComfyUI agent's own vocabulary. Keyed by tool name; null = render as a plain tool row. */
 export const MILESTONES: Record<string, Read> = {
+  /* THE MACHINE, AND THE DOOR TO IT. gpu_ensure's own text names the openable link ("Open it in
+     a browser: …"); the milestone makes it a click, here in the conversation where the person
+     is looking, rather than a URL to copy out of a tool row. */
+  gpu_ensure: (_a, result, isError) => {
+    if (isError || !/^GPU ready at /.test(result)) return null
+    const open = /Open it in a browser: (\S+)/.exec(result)
+    return open
+      ? { label: 'GPU ready', detail: 'open ComfyUI ↗', href: open[1] }
+      : { label: 'GPU ready' }
+  },
   comfy_probe: (_a, result, isError) =>
     isError
       ? { label: 'Instance unreachable' }

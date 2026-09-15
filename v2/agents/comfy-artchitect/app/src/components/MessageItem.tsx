@@ -418,8 +418,19 @@ export default function MessageItem({
               <div className={`milestone${item.isError ? ' is-warn' : ''}`}>
                 <span className="milestone-tick">{item.isError ? '!' : '✓'}</span>
                 <span className="milestone-label">{milestone.label}</span>
-                {milestone.detail && (
-                  <span className="milestone-detail st-mono">{milestone.detail}</span>
+                {milestone.detail && milestone.href ? (
+                  <a
+                    className="milestone-detail st-mono"
+                    href={milestone.href}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {milestone.detail}
+                  </a>
+                ) : (
+                  milestone.detail && (
+                    <span className="milestone-detail st-mono">{milestone.detail}</span>
+                  )
                 )}
               </div>
             </div>

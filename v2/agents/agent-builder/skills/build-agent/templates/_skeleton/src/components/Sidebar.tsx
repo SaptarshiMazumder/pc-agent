@@ -19,21 +19,23 @@
 import {
   Building2,
   CreditCard,
+  ChevronDown,
+  ChevronRight,
   MessageSquareText,
-  Plus,
   Settings2,
   Sparkles,
+  SquarePen,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import { loadHistory } from '../agentd/sessions'
 
-import { when } from '../agentd/sessions'
 import { ProfileMenu } from '../common/auth/ProfileMenu'
 import RunModeBadge from '../common/runmode/RunModeBadge'
 import type { Auth } from '../common/auth/useAuth'
 import { useApp, type View } from '../state/store'
+import SessionItem from './SessionItem'
 
 /** The destinations that are not the conversation. Each is a shared module — see App.tsx. */
 const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
@@ -52,6 +54,9 @@ export function Sidebar({
   name = 'This agent',
   extraDestinations = [],
   middle,
+  onRenameChat,
+  onDuplicateChat,
+  onDeleteChat,
   counts = {},
   showPrimary = true,
   showConversation = true,
@@ -75,6 +80,13 @@ export function Sidebar({
    *  its sections here and keeps its chat in a side panel instead — same file, same bottom, so
    *  the account and the shared destinations stay single-sourced. */
   middle?: ReactNode
+  /* THE CONVERSATION MENU. Each of these is one item on a row's ⋯, and each is OPTIONAL: pass
+     only what this window can actually do, and pass none at all to leave the rows plain. A menu
+     entry that is present but inert is worse than one that is absent. `agentd/sessions.ts`
+     already has renameSession, forkSession and deleteSession — wire these to those in App. */
+  onRenameChat?: (sessionId: string, title: string) => void | Promise<void>
+  onDuplicateChat?: (sessionId: string) => void | Promise<void>
+  onDeleteChat?: (sessionId: string) => void | Promise<void>
   /** A number to show beside a destination — the balance next to Credits, say. OPTIONAL and
    *  per-id, so a template that has no figure for one simply passes nothing and the row renders
    *  without it. Never invent one: a count that is a guess is worse than no count. */
@@ -115,6 +127,9 @@ export function Sidebar({
       })
   }
 
+  /* Open by default: it is why most people look here. */
+  const [recentOpen, setRecentOpen] = useState(true)
+
   return (
     <aside className="rail sidebar">
       <div className="brand">
@@ -140,9 +155,11 @@ export function Sidebar({
       {/* THE ONE CONSEQUENTIAL ACTION, filled and unmissable. Everything else in this rail is a
           place to go; this is the thing you came to do. */}
       {showPrimary && (
-        <button className="nav-primary" onClick={onNewChat}>
-          <Plus size={16} strokeWidth={2.2} />
-          <span>New conversation</span>
+        <button className="nav-item" onClick={onNewChat}>
+          <span className="nav-ico">
+            <SquarePen size={15} strokeWidth={1.7} />
+          </span>
+          <span className="nav-item-label">New conversation</span>
         </button>
       )}
 
@@ -193,22 +210,43 @@ export function Sidebar({
           middle
         ) : (
           <>
-            {chats.length > 0 && <div className="section-label">Recent</div>}
-            <div className="agents-list">
-              {chats.map((c) => (
-                <button
-                  key={c.sessionId}
-                  className={`row ${view === 'chat' && c.sessionId === currentKey ? 'on' : ''}`}
-                  onClick={() => open(c.sessionId)}
-                  title={c.title || 'Untitled'}
-                >
-                  <span className="row-main">
-                    <span className="row-title">{c.title || 'Untitled'}</span>
-                    <span className="row-sub">{c.snippet || when(c.modified)}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+            {chats.length > 0 && (
+              /* THE WHOLE HEAD IS THE TOGGLE; the caret only appears under the cursor, so at
+                 rest this is a label, which is all it needs to be. The conversation list is the
+                 one thing in this rail with no upper bound — being able to put it away is what
+                 keeps the destinations above it reachable in a window used for a month. */
+              <div
+                className="section-label section-head"
+                onClick={() => setRecentOpen((v) => !v)}
+                title={`${recentOpen ? 'collapse' : 'expand'} recent conversations`}
+              >
+                <span className="section-title">Recent</span>
+                <span className="section-caret">
+                  {recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
+              </div>
+            )}
+            {recentOpen && (
+              <div className="agents-list">
+                {chats.map((c) => (
+                  <SessionItem
+                    key={c.sessionId}
+                    session={c}
+                    active={view === 'chat' && c.sessionId === currentKey}
+                    onOpen={() => open(c.sessionId)}
+                    onRename={
+                      onRenameChat
+                        ? (title) => void onRenameChat(c.sessionId, title)
+                        : undefined
+                    }
+                    onDuplicate={
+                      onDuplicateChat ? () => void onDuplicateChat(c.sessionId) : undefined
+                    }
+                    onDelete={onDeleteChat ? () => void onDeleteChat(c.sessionId) : undefined}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
