@@ -350,8 +350,16 @@ _EMPTY_GENERIC = (
 )
 
 
-async def _diagnose_empty(model: str, timeout_s: float | None) -> str:
+async def _diagnose_empty(model: str, timeout_s: float | None) -> str | None:
     """Why did this model stream back nothing? Ask it a trivial question, NOT streamed.
+
+    RETURNS NONE WHEN THE MODEL IS FINE. An empty reply from a reachable, funded model is not
+    a fault of the call — it is what the model chose to say, and the ENGINE knows what that
+    means: after a question card it is the correct answer (silence), otherwise its own retry
+    asks again. This used to return a guess ("length is the usual cause") as the run's error,
+    and the window printed that guess in red under every question card, where the reply is
+    supposed to be empty. Only a probe that itself FAILS names a real error: the provider is
+    refusing this account, key or model, and that sentence is the one worth showing.
 
     A provider that refuses a call — an unfunded account, a dead key, a model the gateway will
     not serve — states the reason in an HTTP error on the ordinary path. Over a STREAM the same
@@ -401,15 +409,10 @@ async def _diagnose_empty(model: str, timeout_s: float | None) -> str:
             "there, or switch to another model."
         )
     log.warning(
-        "empty-completion probe for %s SUCCEEDED — the model is reachable; this conversation is "
-        "what it would not answer", model,
+        "empty-completion probe for %s SUCCEEDED — the model is reachable; the empty reply is "
+        "the model's own and the engine decides what it means", model,
     )
-    return (
-        f"{model} returned an empty response to this conversation, but it answers a short prompt "
-        "normally — so the provider and your key are fine. Something about this conversation is "
-        "what it will not answer, and length is the usual cause. Start a new chat, or shorten "
-        "this one, or switch models."
-    )
+    return None
 
 
 def _provider_reason(raw: str) -> str:

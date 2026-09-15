@@ -2502,6 +2502,10 @@ app.include_router(
         rate_limit=_check_rate,
         available=identity_factory.tokens_available,
         external_providers=identity_factory.external_providers,
+        # Which origins a finished external sign-in may return to. Built here, at the composition
+        # root, rather than read inside the router: the router does HTTP, and a rule about who we
+        # are is not HTTP.
+        return_policy=identity_factory.return_target_policy(),
     )
 )
 

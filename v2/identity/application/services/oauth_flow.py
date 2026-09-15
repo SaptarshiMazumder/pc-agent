@@ -44,7 +44,7 @@ class OAuthFlowStore:
         self._flows: dict[str, dict] = {}
         self._clock = clock
 
-    def begin(self, *, provider: str, redirect_uri: str, code_challenge: str = "") -> dict:
+    def begin(self, *, provider: str, return_to: str, code_challenge: str = "") -> dict:
         self._sweep()
         if len(self._flows) >= MAX_PENDING:
             raise AuthenticationFailed("too many sign-ins in progress; try again shortly")
@@ -60,10 +60,30 @@ class OAuthFlowStore:
             # with the code.
             "challenge": code_challenge or challenge,
             "provider": provider,
-            "redirect_uri": redirect_uri,
+            # WHERE THE BROWSER GOES AFTER the provider sends it to OUR one registered
+            # redirect. It is not what the provider is told — see return_target_policy for
+            # why there is exactly one of those — so it is checked before it is stored and
+            # never reaches the provider at all.
+            "return_to": return_to,
             "at": float(self._clock()),
         }
         self._flows[flow["state"]] = flow
+        return flow
+
+    def peek(self, state: str) -> dict:
+        """Read a pending flow WITHOUT spending it.
+
+        ``/auth/return`` needs the destination while the code is still in flight; the
+        client's ``/auth/callback`` is what actually finishes the sign-in and that is what
+        consumes. Reading and consuming in the same step would mean the redirect burned
+        the flow and the page it redirected TO found nothing.
+        """
+        self._sweep()
+        flow = self._flows.get(state or "")
+        if flow is None:
+            raise AuthenticationFailed("this sign-in link is no longer valid; start again")
+        if float(self._clock()) - float(flow["at"]) > FLOW_TTL_S:
+            raise AuthenticationFailed("this sign-in took too long; start again")
         return flow
 
     def consume(self, state: str) -> dict:

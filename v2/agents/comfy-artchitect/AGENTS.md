@@ -300,9 +300,12 @@ to transient instance state.
      pack install back to the user: "install these custom nodes and tell me done" is a punt.
    - A file that genuinely FAILS or arrives corrupt gets **re-downloaded, never designed around.**
    - **Backend choice is automatic inside `comfy_install`, not another tool to choose.**
-     Catalogued models use Manager. An uncatalogued public Hugging Face `.safetensors` file
-     downloads directly on the owned GPU using its authenticated provisioning portal. Supply
-     the exact `/resolve/` URL and matching filename. Model bytes never pass through the
+     Catalogued models use Manager. Anything else downloads directly on the owned GPU using
+     its authenticated provisioning portal, from ANY direct HTTPS link to the `.safetensors`
+     file: a Hugging Face `/resolve/` URL, a Civitai download link
+     (`https://civitai.com/api/download/models/<version id>`, the model page's Download
+     button), a mirror, a publisher's CDN. Supply the link and the filename to save as; the
+     file is verified as a real safetensors before it counts as installed. Model bytes never pass through the
      runtime or browser. Do not downgrade the design just because Manager's catalogue is old,
      and never weaken Manager security. Gated/private files need a supported authenticated
      source; this direct path does not bypass source permissions.

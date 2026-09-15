@@ -26,7 +26,9 @@ if os.name == "posix":
 class GpuModelDownloadWorker:
     def __init__(self, root: Path, *, opener=None, clock=time.monotonic, sleep=time.sleep):
         self.root = root.resolve()
-        self.opener = opener or urllib.request.build_opener(ModelDownloadRedirectPolicy())
+        # A test's fake opener, or None: then each download gets a fresh opener carrying the
+        # redirect policy its SOURCE calls for (Hugging Face storage, or Civitai's).
+        self.opener = opener
         self.clock = clock
         self.sleep = sleep
 
@@ -85,7 +87,10 @@ class GpuModelDownloadWorker:
                 try:
                     # Restart interrupted transfers; never append bytes without validating
                     # Range/ETag semantics. Atomic final rename prevents partial loader entries.
-                    with self.opener.open(request.url, timeout=60) as response:
+                    opener = self.opener or urllib.request.build_opener(
+                        ModelDownloadRedirectPolicy(request.source)
+                    )
+                    with opener.open(request.url, timeout=60) as response:
                         size = int(response.headers.get("Content-Length") or 0)
                         if size <= 8:
                             raise ValueError("Source must advertise a nonempty Content-Length")

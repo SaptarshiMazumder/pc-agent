@@ -47,6 +47,7 @@ import reference_slots
 import studio_state
 from gpu_model_download_client import GpuModelDownloadClient
 from model_installation_service import ModelInstallationService
+import civitai_download_source
 from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
 from workflow_reference_repository import WorkflowReferenceRepository
@@ -1793,8 +1794,11 @@ class ComfyInstallTool(Tool):
         "progress shown as it goes) and comes back with 'installed' — naming the exact loader "
         "name to put in the workflow — or with the reason it could not. Nothing to poll, nothing "
         "to re-check afterwards. This is how you FIX a missing-model workflow yourself instead "
-        "of handing the user a list. Catalogued files use Manager; uncatalogued public Hugging "
-        "Face safetensors automatically download on the GPU. Never lower Manager security. "
+        "of handing the user a list. Catalogued files use Manager; anything else downloads on the "
+        "GPU from any direct HTTPS link to the .safetensors file — Hugging Face /resolve/, a "
+        "Civitai download link (the platform's Civitai key is used where a file needs one), a "
+        "mirror, a publisher's CDN — and is verified as a real safetensors file before it counts "
+        "as installed. Never lower Manager security. "
         "Failures are reported immediately; success means the file is actually loadable."
     )
     parameters = {
@@ -1815,9 +1819,11 @@ class ComfyInstallTool(Tool):
                         },
                         "url": {
                             "type": "string",
-                            "description": "Direct download URL (a Hugging Face /resolve/ link, a "
-                            "Civitai download URL for catalogued models). Uncatalogued files "
-                            "require a public HF /resolve/ URL whose basename matches filename.",
+                            "description": "Direct HTTPS download URL of the .safetensors file: a "
+                            "Hugging Face /resolve/ link, a Civitai download link "
+                            "(https://civitai.com/api/download/models/<version id>, from the "
+                            "model page's Download button), or any other host's direct link. "
+                            "filename is what to save as.",
                         },
                         "kind": {
                             "type": "string",
@@ -1884,6 +1890,9 @@ class ComfyInstallTool(Tool):
                 queued_recently=lambda filename: time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S,
                 mark_queued=studio_state.mark_queued, wait_manager=wait_manager,
                 await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
+                # A Civitai link is resolved HERE, where the platform's key is substituted,
+                # into the signed storage URL the GPU fetches without any credential.
+                resolve_source=lambda file: civitai_download_source.resolve(file, fetch),
             )
             installed = await installer.install(files, abort, report)
             return ToolResult.text(

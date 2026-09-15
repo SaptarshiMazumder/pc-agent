@@ -161,15 +161,40 @@ locals {
       # Discovery, not endpoints: Google publishes its authorization/token/JWKS addresses behind
       # this one URL and rotates them there, so nothing here ages.
       AGENTD_OIDC_GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
-      # WHERE GOOGLE SENDS THE BROWSER BACK, and it is checked AGAIN at the token exchange. It has
-      # to match an Authorized redirect URI on the Google client character for character — a
-      # mismatch here is `redirect_uri_mismatch`, which is the usual reason a flow works on a
-      # laptop and fails in staging. Defaults to the web client's own origin, because the clients
-      # compute their redirect from the page they are served at and the sign-in card is also the
-      # page Google returns to.
+      # THE ONE ADDRESS REGISTERED WITH GOOGLE, for the entire deployment, forever.
+      #
+      # This used to default to the web client's origin, because each client computed its redirect
+      # from the page it was served at. That needed a console entry per SURFACE — the web app, the
+      # daemon's /apps/<id>/ windows, every vanity hostname, four desktop loopback ports — and one
+      # more for every agent Agent Builder generates. A generated agent cannot add an entry to
+      # somebody's Google console, so that was not a scaling problem; it had no path to working.
+      #
+      # Now Google only ever sees the accounts service's own /auth/return, which forwards the
+      # browser to whichever page began the flow (identity/presentation/auth_router.py). Register
+      # THIS and nothing else, ever — including for desktop, whose loopback ports Google no longer
+      # sees at all.
       AGENTD_OIDC_GOOGLE_REDIRECT_URI = (
-        var.oidc_google_redirect_uri != "" ? var.oidc_google_redirect_uri : local.app_origin
+        var.oidc_google_redirect_uri != "" ? var.oidc_google_redirect_uri : (
+          local.public_host == "" ? "" :
+          "${local.url_scheme}://${local.public_host}:${local.services["accounts"].port}/auth/return"
+        )
       )
+      # WHICH PAGES THAT ROUTE MAY FORWARD TO. It carries an authorization code, so an unchecked
+      # destination is an open redirect with a credential attached — this list is what makes it
+      # a forwarder for OUR surfaces rather than a generic one. Loopback is always allowed and is
+      # deliberately absent: the desktop's port is not knowable in advance, and 127.0.0.1 reaches
+      # only the machine the browser is already on (identity/domain/return_target_policy.py).
+      AGENTD_OIDC_RETURN_ORIGINS = join(",", compact(concat(
+        [
+          local.app_origin,
+          # The daemon, where every agent window is served: one entry covers /apps/<id>/ for every
+          # agent that exists or will ever be generated.
+          local.public_host == "" ? "" :
+          "${local.url_scheme}://${local.public_host}:${local.services["daemon"].port}",
+          var.admin_hostname == "" ? "" : "${local.url_scheme}://${var.admin_hostname}",
+        ],
+        [for h in keys(var.agent_hostnames) : "${local.url_scheme}://${h}"],
+      )))
 
       # ── the admin control plane (accounts/admin_api.py) ──
       #

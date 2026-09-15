@@ -61,6 +61,18 @@ class OidcProvider:
         self._clock = clock
         self._meta: dict | None = None
 
+    @property
+    def redirect_uri(self) -> str:
+        """The ONE address registered with this provider for the whole deployment.
+
+        Readable so the caller can refuse a sign-in that could not possibly complete,
+        rather than sending someone to a provider that will reject the request. Both
+        ``authorization_url`` and ``exchange`` fall back to it when handed nothing, which
+        is what makes the two match by construction — the provider requires them to be
+        identical and a mismatch is the classic "works locally, 400s in staging".
+        """
+        return self._redirect_uri
+
     # -- provider metadata ------------------------------------------------------------------
 
     def metadata(self) -> dict:

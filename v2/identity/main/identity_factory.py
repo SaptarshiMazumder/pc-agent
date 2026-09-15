@@ -28,6 +28,7 @@ from identity.application.interfaces.account_directory import AccountDirectory
 from identity.application.interfaces.identity_provider import IdentityProvider
 from identity.application.services.auth_service import AuthService
 from identity.application.services.principal_service import PrincipalService
+from identity.domain.return_target_policy import ReturnTargetPolicy
 from identity.domain.errors import IdentityConfigurationError
 from identity.infrastructure.jwt_token_issuer import SUPPORTED, JwtTokenIssuer
 from identity.infrastructure.local_password_provider import LocalPasswordProvider
@@ -45,6 +46,26 @@ KNOWN = (LOCAL, OIDC)
 
 def configured_provider_name() -> str:
     return (os.environ.get("AGENTD_IDENTITY_PROVIDER") or LOCAL).strip().lower() or LOCAL
+
+
+def return_origins() -> tuple[str, ...]:
+    """Origins an external sign-in may send the browser back to (AGENTD_OIDC_RETURN_ORIGINS).
+
+    Comma-separated ``scheme://host[:port]``, with ``:*`` for any port and ``*.`` for any
+    subdomain. Loopback is always allowed and never needs listing (return_target_policy).
+
+    EMPTY MEANS ONLY LOOPBACK, which is the safe direction: a deployment that forgot this
+    refuses to send codes to its own web app — visible immediately, and the refusal names
+    the variable — where a permissive default would forward an authorization code to
+    whatever origin asked for one.
+    """
+    raw = os.environ.get("AGENTD_OIDC_RETURN_ORIGINS", "")
+    return tuple(o.strip() for o in raw.split(",") if o.strip())
+
+
+def return_target_policy() -> ReturnTargetPolicy:
+    """The policy object the auth router enforces."""
+    return ReturnTargetPolicy(return_origins())
 
 
 def issuer() -> str:

@@ -245,6 +245,10 @@
   cursor: pointer; transition: all .12s;
 }
 .sb-chip:hover { border-color: var(--accent); color: var(--text); }
+.sb-chip:disabled { cursor: default; opacity: .7; }
+/* the open-ComfyUI button and its one-line reason when there is nothing to open */
+.sb-open { display: inline-flex; align-items: center; gap: 8px; }
+.sb-open-note { font-size: var(--fs-tiny); color: var(--faint); white-space: nowrap; }
 .sb-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--border2); }
 .sb-chip.is-live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .sb-chip.is-live .sb-dot { background: var(--ok); animation: st-pulse 1.8s var(--ease-smooth) infinite; }

@@ -32,17 +32,28 @@ def response(data, status=200):
 
 
 @pytest.mark.parametrize("url", [
-    "http://huggingface.co/org/repo/resolve/main/model.safetensors",
-    "https://evil.test/org/repo/resolve/main/model.safetensors",
-    "https://huggingface.co@127.0.0.1/org/repo/resolve/main/model.safetensors",
-    "https://huggingface.co/org/repo/blob/main/model.safetensors",
-    "https://huggingface.co/org/repo/resolve/main/%2e%2e/model.safetensors",
-    "https://huggingface.co/org/repo/resolve/main/model.safetensors?token=secret",
-    "https://huggingface.co/org/repo/resolve/main/different.safetensors",
+    "http://huggingface.co/org/repo/resolve/main/model.safetensors",          # not TLS
+    "https://huggingface.co@127.0.0.1/org/repo/resolve/main/model.safetensors",  # credentials in the URL
+    "https://huggingface.co/org/repo/resolve/main/%2e%2e/model.safetensors",  # path traversal
+    "https://user:pw@mirror.example/model.safetensors",
+    "https://mirror.example:8443/model.safetensors",
 ])
-def test_direct_download_refuses_untrusted_or_ambiguous_urls(url):
+def test_direct_download_refuses_plain_http_credentials_and_traversal(url):
     with pytest.raises(ValueError):
         ModelDownloadRequest("model.safetensors", url, "vae")
+
+
+@pytest.mark.parametrize("url", [
+    "https://evil.test/org/repo/resolve/main/model.safetensors",   # any host: open by decision
+    "https://huggingface.co/org/repo/blob/main/model.safetensors",
+    "https://huggingface.co/org/repo/resolve/main/model.safetensors?token=secret",
+    "https://huggingface.co/org/repo/resolve/main/different.safetensors",  # the request names the file
+    "https://b2.civitai.com/file/x/y?X-Amz-Signature=abc",
+])
+def test_direct_download_accepts_any_https_link(url):
+    # The host allowlist went (open weights live everywhere); what protects the GPU is that the
+    # bytes are verified as a real safetensors file after download, not where they came from.
+    assert ModelDownloadRequest("model.safetensors", url, "vae").filename == "model.safetensors"
 
 
 @pytest.mark.parametrize("filename", ["../model.safetensors", "x;bad.safetensors", "model.ckpt", "x\\model.safetensors"])

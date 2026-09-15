@@ -13,12 +13,15 @@ manager that opens its own ``_db()``, so identity never learns how accounts conn
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from urllib.parse import urlencode
 from typing import Callable
 
-from fastapi import APIRouter, Body, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse
 
 from identity.application.services.auth_service import AuthService
 from identity.application.services.oauth_flow import OAuthFlowStore
+from identity.domain.return_target_policy import ReturnTargetPolicy
 from identity.domain.errors import (
     AccountDisabled,
     AuthenticationFailed,
@@ -108,11 +111,16 @@ def build_auth_router(
     rate_limit: RateLimiter | None = None,
     available: Callable[[], bool] = lambda: True,
     external_providers: Callable[[], list] = list,
+    return_policy: ReturnTargetPolicy | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
     # Pending browser flows live for the life of the process (see OAuthFlowStore for why that is
     # the right storage for a value measured in minutes).
     flows = OAuthFlowStore()
+    # LOOPBACK-ONLY when nothing was configured. Not a convenience default: the alternative is a
+    # deployment that forwards authorization codes to whatever origin asked, and this way the
+    # first sign-in attempt says exactly which variable is missing.
+    targets = return_policy or ReturnTargetPolicy()
 
     def _external(name: str):
         return next((p for p in external_providers() if p.name == name), None)
@@ -286,21 +294,45 @@ def build_auth_router(
     def authorize(request: Request, payload: dict = Body(...)) -> dict:
         _guard(request)
         name = str(payload.get("provider") or "").strip()
-        redirect_uri = str(payload.get("redirect_uri") or "").strip()
+        # STILL CALLED `redirect_uri` ON THE WIRE, and every client still sends its own page. It is
+        # no longer what the provider is told, though — it is where WE send the browser once the
+        # provider has sent it back to us. Keeping the field name is what let this change ship
+        # without touching clients/ui, the desktop loopback, _common/auth/SignIn.tsx, or any agent
+        # bundle already built from it.
+        return_to = str(payload.get("redirect_uri") or "").strip()
         provider = _external(name)
         if provider is None:
             raise HTTPException(status_code=404, detail=f"unknown provider '{name}'")
+        # CHECKED BEFORE THE FLOW EXISTS. A destination refused here costs nothing; refused after
+        # the round trip, the provider has already minted a code against it.
+        #
+        # OUTSIDE the try below, and that is the point: the one in there maps AuthenticationFailed
+        # to 429, because the only way it could fail was "too many sign-ins in progress". A refused
+        # destination is not a rate limit — answering 429 would tell an integrator to back off and
+        # retry a request that will never succeed, and hide a configuration error behind a
+        # transient-looking one.
         try:
+            return_to = targets.check(return_to)
+        except AuthenticationFailed as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        try:
+            if not getattr(provider, "redirect_uri", ""):
+                raise IdentityConfigurationError(
+                    f"provider '{name}' has no AGENTD_OIDC_{name.upper()}_REDIRECT_URI, so there "
+                    "is no registered address for it to send anyone back to"
+                )
             flow = flows.begin(
                 provider=name,
-                redirect_uri=redirect_uri,
+                return_to=return_to,
                 code_challenge=str(payload.get("code_challenge") or "").strip(),
             )
+            # NO redirect_uri PASSED, deliberately: the adapter falls back to the one address
+            # registered with the provider, and `exchange` below does the same, so the two cannot
+            # drift apart. The provider requires them identical.
             url = provider.authorization_url(
                 state=flow["state"],
                 nonce=flow["nonce"],
                 code_challenge=flow["challenge"],
-                redirect_uri=redirect_uri,
             )
         except AuthenticationFailed as e:
             raise HTTPException(status_code=429, detail=str(e)) from e
@@ -312,6 +344,49 @@ def build_auth_router(
         if not payload.get("code_challenge"):
             out["code_verifier"] = flow["verifier"]
         return out
+
+    @router.get("/return")
+    def oauth_return(
+        request: Request,
+        code: str = Query(""),
+        state: str = Query(""),
+        error: str = Query(""),
+    ):
+        """THE ONE ADDRESS REGISTERED WITH THE PROVIDER, for every surface this product has.
+
+        The alternative was a console entry per surface — the web app, each `/apps/<id>/` window,
+        every vanity hostname, four desktop loopback ports — and one more for every agent Agent
+        Builder ever generates. A generated agent cannot add an entry to somebody's Google console,
+        so that was not a scaling problem, it was a dead end.
+
+        So the provider only ever sees this route, and this route forwards the browser to whichever
+        page began the flow, carrying the code and state exactly as the provider delivered them.
+        The client that started it then finishes as it always did, through `/auth/callback`, with
+        no idea any of this happened.
+
+        IT DOES NOT CONSUME THE FLOW. The code is still in flight; `/auth/callback` is what spends
+        it. Consuming here would burn the flow on the way to the page that needs it.
+
+        NOT A GENERIC REDIRECTOR. The destination was checked against the deployment's own origins
+        before the flow was created, and is checked again here — an open redirect with an
+        authorization code stapled to it is the one way this design can go wrong.
+        """
+        _guard(request)
+        try:
+            flow = flows.peek(state)
+            target = targets.check(str(flow.get("return_to") or ""))
+        except AuthenticationFailed as e:
+            # NOWHERE SAFE TO SEND ANYONE. A bad or expired state means no destination we trust,
+            # so this answers in place rather than redirecting somewhere a caller chose.
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        # The provider reports a refusal in the query too — a user pressing "Cancel" arrives here
+        # with `error` and no code. That is THEIR answer, not a failure of ours, and it belongs in
+        # front of the person who gave it rather than on this blank route.
+        sep = "&" if "?" in target else "?"
+        carried = urlencode({k: v for k, v in (("code", code), ("state", state), ("error", error)) if v})
+        # 302, not 307: this is a GET and must stay one.
+        return RedirectResponse(f"{target}{sep}{carried}", status_code=302)
 
     @router.post("/callback")
     def callback(request: Request, response: Response, payload: dict = Body(...)) -> dict:
@@ -330,7 +405,8 @@ def build_auth_router(
                 # one uses the one we kept. The code alone is never enough either way.
                 code_verifier=str(payload.get("code_verifier") or "") or flow["verifier"],
                 nonce=flow["nonce"],
-                redirect_uri=flow["redirect_uri"],
+                # Same omission as `authorize`: the adapter's own registered address, so the value
+                # sent here is by construction the value the code was issued against.
             )
         except AuthenticationFailed as e:
             raise HTTPException(status_code=401, detail=str(e)) from e

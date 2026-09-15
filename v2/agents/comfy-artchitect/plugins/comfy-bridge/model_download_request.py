@@ -13,6 +13,11 @@ class ModelDownloadRequest:
     filename: str
     url: str
     kind: str
+    #: WHO HOSTS THE BYTES — a label for the report and the redirect policy, not a permission.
+    #: "civitai" marks a URL the runtime resolved from a Civitai download link
+    #: (civitai_download_source.py): the GPU sees the signed storage URL, never the link nor
+    #: the key that may have been needed to resolve it. Everything else is "direct".
+    source: str = "direct"
 
     DIRECTORIES = {
         "checkpoint": "checkpoints", "unet": "diffusion_models",
@@ -30,16 +35,28 @@ class ModelDownloadRequest:
             raise ValueError("GPU direct downloads require a basename ending in .safetensors")
         if self.kind not in self.DIRECTORIES:
             raise ValueError(f"Unsupported model kind: {self.kind}")
+        self._check_url()
+
+    def _check_url(self) -> None:
+        """ANY HOST, over TLS. The host allowlist that used to live here (Hugging Face only)
+        was opened on purpose: open weights live on Civitai, on mirrors, on a publisher's own
+        CDN, and a list of hosts was a list of places the agent could not fetch from. What
+        keeps the GPU safe is not the host — it is that the URL carries no credential, walks
+        no path, and that the bytes are verified as a real safetensors file before ComfyUI
+        ever sees them (GpuModelDownloadWorker.verify). The filename is the request's own, not
+        the URL's last segment: a signed storage link rarely ends in the file's name."""
         parsed = urlsplit(self.url)
-        parts = unquote(parsed.path).split("/")
+        path = unquote(parsed.path)
         if (
-            parsed.scheme != "https" or parsed.hostname != "huggingface.co"
+            parsed.scheme != "https" or not parsed.hostname
             or parsed.username or parsed.password or parsed.port not in (None, 443)
-            or parsed.query or parsed.fragment or len(parts) < 6 or parts[3] != "resolve"
-            or any(p in (".", "..", "") for p in parts[1:])
-            or "\\" in unquote(parsed.path) or parts[-1] != self.filename
+            or parsed.fragment or not path.strip("/")
+            or any(p in (".", "..") for p in path.split("/")) or "\\" in path
         ):
-            raise ValueError("Use the exact public Hugging Face HTTPS /owner/repo/resolve/revision/file URL and filename")
+            raise ValueError(
+                "Use a direct HTTPS link to the .safetensors file — no credentials in the URL, "
+                "no '..' in the path"
+            )
 
     @property
     def directory(self) -> str:
@@ -55,4 +72,4 @@ class ModelDownloadRequest:
         return hashlib.sha256(self.url.encode()).hexdigest()
 
     def as_dict(self) -> dict:
-        return {"filename": self.filename, "url": self.url, "kind": self.kind}
+        return {"filename": self.filename, "url": self.url, "kind": self.kind, "source": self.source}

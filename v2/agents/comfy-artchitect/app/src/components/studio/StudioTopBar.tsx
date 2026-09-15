@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentdClient } from '@agentd/client'
 import type { StudioState } from './useStudioState'
 import type { GpuWarmup } from './useGpuWarmup'
+import { OpenComfyButton } from './OpenComfyButton'
 import { useInstanceProbe } from './useInstanceProbe'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
@@ -202,6 +203,11 @@ export function StudioTopBar({
       <span className="sb-name">Workspace</span>
 
       <span className="sb-spacer" />
+
+      {/* THE DOOR TO THE MACHINE, asked of the platform on every click (OpenComfyButton). Not
+          the popover's link: that one depends on the window's own GPU poll, which can fail
+          silently and take the link with it. */}
+      <OpenComfyButton client={client} />
 
       <InstanceChip state={state} client={client} gpu={gpu} />
 

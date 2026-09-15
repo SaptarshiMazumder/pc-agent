@@ -7,7 +7,8 @@ from model_download_request import ModelDownloadRequest
 
 class ModelInstallationService:
     def __init__(self, *, catalog, loadable, submit, start_manager, manager_busy,
-                 queued_recently, mark_queued, wait_manager, await_loadable, lease, direct):
+                 queued_recently, mark_queued, wait_manager, await_loadable, lease, direct,
+                 resolve_source=None):
         self.catalog = catalog
         self.loadable = loadable
         self.submit = submit
@@ -19,6 +20,10 @@ class ModelInstallationService:
         self.await_loadable = await_loadable
         self.lease = lease
         self.direct = direct
+        # A file entry -> the entry the GPU downloader can act on. The one job today: a Civitai
+        # link becomes the signed storage URL (civitai_download_source.resolve). Identity when
+        # the host wires nothing, so every Hugging Face path is byte-identical.
+        self.resolve_source = resolve_source or (lambda file: file)
 
     async def install(self, files, abort, report):
         catalog = self.catalog()
@@ -33,7 +38,7 @@ class ModelInstallationService:
                           == file["filename"].lower()), None)
             # Validate all uncatalogued requests BEFORE starting any expensive transfer.
             try:
-                request = ModelDownloadRequest(**file)
+                request = ModelDownloadRequest(**self.resolve_source(file))
             except ValueError:
                 if entry is None:
                     raise
@@ -132,7 +137,9 @@ class ModelInstallationService:
     def _start_fallback(self, file, reason, abort, report):
         self._check_abort(abort)
         try:
-            request = ModelDownloadRequest(**file)
+            # Resolved again, not reused: a Civitai storage URL is signed for a while, and this
+            # fallback can come minutes after the first resolution.
+            request = ModelDownloadRequest(**self.resolve_source(file))
         except ValueError as error:
             raise ValueError(f"{file['filename']}: {reason}. GPU fallback unavailable: {error}") from error
         self.lease()

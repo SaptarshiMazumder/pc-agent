@@ -99,7 +99,9 @@ async def test_fallback_is_bounded_and_missing_is_not_reported_as_downloaded():
 
 @pytest.mark.asyncio
 async def test_fallback_does_not_relax_url_security():
-    payload = {**model().as_dict(), "url": "https://untrusted.test/companion.safetensors"}
+    # Any HTTPS host is allowed now (the allowlist was opened on purpose); what the fallback
+    # must still refuse is a link that is not plain TLS — here, plain HTTP.
+    payload = {**model().as_dict(), "url": "http://untrusted.test/companion.safetensors"}
     installer = service()
     with pytest.raises(ValueError, match="fallback unavailable"):
         await installer.install([payload], asyncio.Event(), lambda _: None)
