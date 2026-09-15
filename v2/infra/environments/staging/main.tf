@@ -85,6 +85,14 @@ module "stack" {
   agent_hostnames = var.agent_hostnames
   admin_hostname  = var.admin_hostname
 
+  # SIGN IN WITH GOOGLE. Empty here means the module builds no external providers, the accounts
+  # discovery document advertises none, and every sign-in card renders the password form it always
+  # did — so this is inert until the Google client actually exists and its redirect URI is
+  # registered. The module already read these; nothing PASSED them, so setting the tfvar did
+  # nothing at all and the buttons could never appear however the secret was filled in.
+  oidc_providers           = var.oidc_providers
+  oidc_google_redirect_uri = var.oidc_google_redirect_uri
+
   # Publishing (modules/publish.tf, deploy/PUBLISH-SERVICE.md). WITHOUT `publish_image_tag`
   # there is no publish service at all — see the header. Push the image to the repository named
   # by the `publish_ecr_repository` output, then apply again with the tag.
@@ -635,4 +643,33 @@ output "executor_ecr_repository" {
 output "executor_url" {
   description = "Where the hosted daemon ships untrusted sandbox jobs. Empty until executor_image_tag is set."
   value       = module.stack.executor_url
+}
+
+variable "oidc_providers" {
+  description = <<-EOT
+    External sign-in providers this environment offers, comma-separated — "google", or "" for none.
+
+    EMPTY IS A REAL STATE, not a placeholder: no adapters are built and the sign-in card is exactly
+    what it is today. Set it only once the provider's OAuth client exists AND its secrets are in
+    this environment's Secrets Manager entry — a named provider with REPLACE_ME credentials renders
+    a button that dead-ends.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "oidc_google_redirect_uri" {
+  description = <<-EOT
+    Where Google sends the browser back, overriding the app origin.
+
+    MUST MATCH an Authorized redirect URI on the OAuth client EXACTLY, and it is sent again at the
+    token exchange where a mismatch is refused — the most common reason a flow works on a laptop
+    and fails in a deployment. Empty = the module uses this environment's app origin, which is what
+    the web client computes for itself.
+
+    Desktop is NOT this value: an installed app cannot be a redirect target and uses a loopback
+    listener with its own registered http://127.0.0.1:<port>/ entries.
+  EOT
+  type        = string
+  default     = ""
 }

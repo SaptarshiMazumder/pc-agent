@@ -16,11 +16,20 @@ THE RESOLUTION ORDER, AND WHY:
      Google" do the obvious thing instead of silently creating a second account with a second
      credit balance.
 
-  3. Otherwise create a new account and link it.
+  3. If the email is TAKEN but the provider would not vouch for it, refuse — see below.
+
+  4. Otherwise create a new account and link it.
 
 Step 2 is gated on ``email_verified`` and that gate is the whole security of this function. An
 unverified email is a string the caller typed; honouring it would let anyone claim any account by
 registering with its address at a sloppy provider.
+
+STEP 3 IS WHAT THAT GATE USED TO COST. Failing the check fell through to step 4, which minted a
+second account on the same address — its own credits, its own workspace, its own orgs — and said
+nothing about it. The person signs in with Google, lands in an empty account where their work used
+to be, and has no way to find out the first one is still there. A refusal they can act on is worth
+more than a silent duplicate they cannot, so an email that is already taken and not verified by
+the provider stops here rather than quietly forking the user in two.
 """
 
 from __future__ import annotations
@@ -96,10 +105,27 @@ class PrincipalService:
                 return record
 
         email = (assertion.email or "").strip().lower()
-        if email and assertion.email_verified:
+        if email:
             by_email = self._directory.find_by_email(email)
             if by_email is not None:
-                return by_email
+                if assertion.email_verified:
+                    return by_email
+                # THE EMAIL IS TAKEN AND THE PROVIDER WOULD NOT VOUCH FOR IT. Linking here is the
+                # takeover this function exists to prevent, so that is not on the table — but
+                # falling through to `create` is not the safe alternative it looks like. It mints a
+                # SECOND account on the same address, with its own credit balance, its own
+                # workspace and its own orgs, and tells the person nothing: they sign in with
+                # Google, find an empty account where their work was, and have no way to discover
+                # that the first one still exists. Nobody can be expected to keep two accounts
+                # because they used two doors.
+                #
+                # So: refuse, and say which door works. 403 rather than 401 — we know exactly who
+                # this is, and the credential was fine; what is refused is the account.
+                raise AccountDisabled(
+                    f"{email} already has an account here, and {assertion.provider} did not "
+                    "confirm you own that address. Sign in the way you did the first time, or "
+                    "verify the address with your provider and try again."
+                )
 
         if not create_missing:
             raise AccountDisabled("no account for this identity")
