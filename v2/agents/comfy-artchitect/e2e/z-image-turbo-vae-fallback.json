@@ -1,0 +1,23 @@
+{
+  "id": "z-image-turbo-vae-fallback",
+  "agent_id": "comfy-artchitect",
+  "goal": "Z-Image Turbo, end to end, on an instance that does not have it yet — the case that could not run at all. ComfyUI Manager reported its install finished, ae.safetensors was not in models/vae/ afterwards, and nothing tried again: the agent looped on comfy_inventory waiting for a file that was never coming and ended with 'downloaded but not registered', which is a sentence about our bookkeeping rather than about the file. The fix retries a missing Manager download through the GPU downloader and blocks the run until the required models are really there. This scenario is that path: install, notice the hole, fill it, render.",
+
+  "_comment_turn": "Phrased as a lazy real user — names the model and the subject, defers everything else (which checkpoint, which VAE, what resolution, which sampler) to the agent. Naming ae.safetensors here would TELL the agent what to fix and test nothing; the whole point is that it finds the missing file itself.",
+  "turns": [
+    "make me an image with z-image turbo — a woman in a gold jacket, studio lighting, head and shoulders. set up whatever it needs on my instance."
+  ],
+
+  "_comment_checks": "THE RED-TO-GREEN PAIR is no_unrecovered_error + comfy_run: on the old code, against an instance without Z-Image, the VAE never arrived, the run never happened and the error was never recovered from. Both are green only if the fallback actually filled the hole. produced_artifact is the weakest of these — it proves a file exists, not that it is any good — so the image still gets looked at afterwards.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_unrecovered_error" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 40 }
+  ],
+  "max_turns": 40
+}

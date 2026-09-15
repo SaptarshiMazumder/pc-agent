@@ -17,7 +17,7 @@ import os
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -1073,14 +1073,39 @@ def _config_file_path():
 
 
 def _json_safe(value):
-    """Coerce a live Config value to something JSON-serializable (Path -> str, recurse)."""
+    """Coerce a value to something JSON-serializable: Path -> str, dataclass -> dict, recurse.
+
+    TOTAL BY CONSTRUCTION, and that is the whole point of it. Whatever escapes this function
+    reaches ``json.dumps`` on the socket, and a raise there does not degrade one field — it takes
+    the turn down with it, mid-run, with no ``agent_end`` for any client to act on.
+
+    That is not hypothetical. This walked dicts, lists and Paths only, so when tool ``details``
+    began riding the tool_execution_end event (see ``_enrich_details``) the first tool to carry a
+    non-trivial one killed the run it was part of: ``web_search`` hands back a ``list[SearchResult]``,
+    the recursion stepped into the list and returned each dataclass untouched, and the run died on
+    "Object of type SearchResult is not JSON serializable" — six tool calls into an e2e, nowhere
+    near anything to do with search.
+
+    So the last branch RENDERS what it cannot convert instead of passing it through. A field that
+    arrives as ``repr(obj)`` is a small, visible loss in a debugging channel; an exception on the
+    wire is the loss of everything that run was doing.
+    """
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+        # Keys too: json.dumps coerces int keys but raises on a tuple, and a details dict keyed by
+        # anything exotic would fail exactly as loudly as the values used to.
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
         return [_json_safe(v) for v in value]
-    return value
+    # A DATACLASS IS THE COMMON SHAPE for a tool's structured output — a plain record of simple
+    # fields. Walked here rather than through ``dataclasses.asdict``, which deep-copies what this
+    # has to visit anyway and raises on a member it cannot handle instead of degrading.
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _json_safe(getattr(value, f.name, None)) for f in fields(value)}
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    return repr(value)
 
 
 def _persist_config_patch(patch: dict) -> tuple[bool, str]:
