@@ -1,5 +1,15 @@
 # secrets
+#
+# `.env` ALONE WAS NOT ENOUGH. It matches exactly one filename, and set-keys.ps1 reads a file
+# PER ENVIRONMENT -- .env.staging, .env.production -- none of which that pattern covers. Those
+# files hold live provider keys, the payment rail's credentials and DATABASE_URL; the only
+# reason none has ever been committed is that nobody happened to `git add` one.
+#
+# The negation keeps the two tracked templates visible, which is what makes the pattern safe
+# to widen: .env.example is the thing people copy FROM, and it holds no values.
 .env
+.env.*
+!.env.example
 
 # runtime data (sessions, screenshots)
 .agentd/
