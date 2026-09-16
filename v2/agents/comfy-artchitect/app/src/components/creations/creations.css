@@ -1,0 +1,120 @@
+/* My creations — the library screen's own rules. Tokens only; `theme.css` decides the look.
+ * Co-located and imported by the screen, so deleting the screen takes its rules out of the bundle.
+ * The workflow cards themselves keep their rules in ../workflows/workflows.css. */
+
+/* The screen scrolls as one column of sections; the page head above it stays put. */
+.cr-scroll { overflow-y: auto; gap: var(--sp-panel); padding-bottom: var(--sp-panel); }
+
+/* ── the segment toggle in the page head ─────────────────────────────────────────────────── */
+.cr-seg {
+  flex: none; display: flex; gap: 3px; padding: 3px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-pill);
+}
+.cr-seg-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 0; border-radius: var(--r-pill); cursor: pointer;
+  background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-meta);
+  font-weight: var(--fw-heavy);
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
+}
+.cr-seg-btn:hover { color: var(--text); }
+.cr-seg-btn.on { background: var(--accent-soft); color: var(--accent-text); }
+
+/* ── one chat's section ──────────────────────────────────────────────────────────────────── */
+.cr-sec { display: flex; flex-direction: column; gap: var(--sp-control); }
+
+.cr-sec-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0;
+  padding: 6px 0; border: 0; background: transparent; color: var(--text);
+  font: inherit; text-align: left;
+}
+.cr-sec-head.is-link { cursor: pointer; border-radius: var(--r-sm, 6px); }
+.cr-sec-head.is-link:hover .cr-sec-title { color: var(--accent-text); }
+.cr-sec-ico {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-text);
+}
+.cr-sec-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-lead); font-weight: var(--fw-heavy); letter-spacing: -0.01em;
+}
+.cr-sec-meta { flex: none; font-size: var(--fs-meta); color: var(--faint); }
+
+/* ── the render grid ─────────────────────────────────────────────────────────────────────── */
+.cr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-gap);
+}
+
+.cr-tile {
+  margin: 0; display: flex; flex-direction: column; min-width: 0;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-bubble);
+  overflow: hidden;
+}
+/* SQUARE AND COVERED: a wall of thumbnails is for finding, not judging — the lightbox is for
+   judging, and it shows the whole frame. */
+.cr-tile-media {
+  position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0;
+  background: var(--bg3); cursor: zoom-in; overflow: hidden;
+}
+.cr-tile-media img, .cr-tile-media video {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  transition: transform var(--dur-base) ease;
+}
+.cr-tile-media:hover img, .cr-tile-media:hover video { transform: scale(1.03); }
+.cr-tile-blank { display: grid; place-items: center; width: 100%; height: 100%; color: var(--faint); }
+.cr-tile-badge {
+  position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, .6); color: #fff;
+}
+
+.cr-tile-cap {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 6px 7px 10px;
+}
+.cr-tile-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-small); color: var(--text);
+}
+.cr-tile-size { flex: none; font-size: var(--fs-small); color: var(--faint); }
+.cr-tile-del {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px;
+  border: 1px solid transparent; border-radius: var(--r-sm, 6px);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.cr-tile-del:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+
+.cr-empty {
+  margin: var(--sp-panel) 0 0; max-width: var(--measure, 60ch);
+  font-size: var(--fs-meta); line-height: var(--lh-body); color: var(--faint);
+}
+
+/* ── the delete prompt ───────────────────────────────────────────────────────────────────── */
+.cr-veil {
+  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px;
+  background: rgba(0, 0, 0, .55); animation: ag-pop var(--dur-fast) var(--ease-smooth);
+}
+.cr-prompt {
+  width: min(440px, 100%); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.cr-prompt-head { display: flex; align-items: center; gap: 10px; }
+.cr-prompt-title {
+  flex: 1; min-width: 0; overflow-wrap: anywhere;
+  font-size: var(--fs-lead); font-weight: var(--fw-heavy); color: var(--text);
+}
+.cr-prompt-list {
+  margin: 0; padding: 0 0 0 18px; font-size: var(--fs-small); color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.cr-prompt-note { margin: 0; font-size: var(--fs-meta); line-height: var(--lh-body); color: var(--dim); }
+.cr-prompt-note.is-error { color: var(--danger); }
+.cr-prompt-actions { display: flex; justify-content: flex-end; }
+.cr-btn-danger {
+  display: flex; align-items: center; gap: 7px; padding: 8px 14px;
+  border: 1px solid var(--danger); border-radius: var(--r-pill); cursor: pointer;
+  background: var(--danger-soft); color: var(--danger); font: inherit; font-size: var(--fs-meta);
+  font-weight: var(--fw-heavy);
+}
+.cr-btn-danger:hover { background: var(--danger); color: #fff; }
+.cr-btn-danger:disabled { opacity: .6; cursor: default; }

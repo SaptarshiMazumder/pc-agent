@@ -82,3 +82,19 @@
   line-height: var(--lh-body);
   color: var(--faint);
 }
+
+/* The delete on a card. Quiet until hovered — it is the one destructive control on the screen and
+   should never read as the card's main action. */
+.wf-card-del {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm, 6px);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.wf-card-del:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }

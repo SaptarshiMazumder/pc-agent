@@ -53,7 +53,8 @@ import { Thread } from './components/Thread'
 /* THIS AGENT'S OWN SCREEN, in place of the scaffold's sample widgets. It reads the artifacts the
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
-import WorkflowShelf, { collectWorkflows } from './components/workflows/WorkflowShelf'
+import MyCreations from './components/creations/MyCreations'
+import { collectWorkflows } from './components/workflows/WorkflowCard'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
 import { StudioDashboard } from './components/studio/StudioDashboard'
@@ -536,7 +537,7 @@ export default function App() {
         /* A SCREEN OF THIS AGENT'S OWN, above the shared three. What this agent makes is FILES,
            and files are the one thing a conversation is a bad container for. */
         extraDestinations={[
-          { id: 'workflows', label: 'Workflows', icon: <WorkflowIcon size={15} /> },
+          { id: 'creations', label: 'My creations', icon: <WorkflowIcon size={15} /> },
         ]}
         /* The rail asks; App does the I/O. Both return promises so the buttons can show their
            own progress for exactly as long as the work takes. */
@@ -550,15 +551,27 @@ export default function App() {
           through to the studio, and a modifier keyed to 'chat' alone would lay it out wrong. */}
       <main
         className={`main${
-          ['credits', 'orgs', 'workflows', 'settings'].includes(view) ? '' : ' is-studio'
+          ['credits', 'orgs', 'creations', 'settings'].includes(view) ? '' : ' is-studio'
         }`}
       >
         {view === 'credits' ? (
           <Credits agentId={AGENT_ID} />
         ) : view === 'orgs' ? (
           <OrgView client={client ?? undefined} />
-        ) : view === 'workflows' ? (
-          <WorkflowShelf artifacts={files} />
+        ) : view === 'creations' ? (
+          /* EVERY CHAT'S FILES, not this one's: the library reads the workspace folders itself
+             (agentd/chat-library.ts) and needs the chat list only for the section titles.
+             Opening a section switches to that conversation — the studio branch below then
+             loads its transcript, the same as a click in the rail. */
+          <MyCreations
+            client={client ?? undefined}
+            chats={chats}
+            workspaceVersion={workspaceVersion}
+            onOpenChat={(key) => {
+              useApp.getState().openSession(key)
+              setView('chat')
+            }}
+          />
         ) : view === 'settings' ? (
           /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
              `onRestart` too if your window can restart the daemon — some settings only take

@@ -1,0 +1,247 @@
+/* My creations — every workflow and every render this account has made, filed by the chat that
+ * made it.
+ *
+ * WHY THE CONVERSATION IS NOT ENOUGH. A workflow is built by iterating — emit, run, read the
+ * server's complaint, change one thing, emit again — and a render is judged by looking at it next
+ * to the last one. Six chats in, the thing you want is in one of them, and the transcript is the
+ * slowest way to find out which. This screen is the library: one section per chat, newest first,
+ * and inside it either the workflows (each as its two files) or the renders (as a wall of
+ * thumbnails).
+ *
+ * IT INVENTS NOTHING. Sections come from the folders on disk (agentd/chat-library.ts), so an empty
+ * screen is a true statement, and a chat that was deleted keeps its files under "Deleted
+ * conversations" because deleting a chat never deleted its folder.
+ *
+ * DELETE IS DIRECT. One click, one note about running workflows, gone. The files are the user's
+ * own and the decision is theirs; the screen's job is to make the consequence visible, not to
+ * argue. The removal goes through the daemon's own workspace delete — the same door the
+ * reference Replace flow uses — and the list is re-read afterwards, so what is shown is what is
+ * on disk and never what the window remembers.
+ */
+
+import './creations.css'
+
+import { FileJson, Image as ImageIcon, MessageSquare, Play, Trash2 } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+
+import type { AgentdClient } from '@agentd/client'
+
+import { fileUrl, humanSize } from '../../agentd/artifacts'
+import {
+  deleteLibraryFiles,
+  useChatLibrary,
+  type ChatGroup,
+  type LibraryFile,
+} from '../../agentd/chat-library'
+import { when, type ChatRow } from '../../agentd/sessions'
+import { ImageLightbox } from '../studio/ImageLightbox'
+import { collectWorkflows, WorkflowCard, workflowFiles } from '../workflows/WorkflowCard'
+import { DeleteFilePrompt } from './DeleteFilePrompt'
+
+type Shelf = 'workflows' | 'outputs'
+
+/** The header of one chat's section. A live chat's header opens that chat — the files are the
+ *  reason to go back to it — and the orphan section has nowhere to go. */
+function SectionHead({ group, onOpen }: { group: ChatGroup; onOpen?: () => void }) {
+  const meta = `${group.files.length} file${group.files.length === 1 ? '' : 's'}${
+    group.modified ? ` · ${when(group.modified)}` : ''
+  }`
+  const inner = (
+    <>
+      <span className="cr-sec-ico">
+        <MessageSquare size={13} strokeWidth={1.8} />
+      </span>
+      <span className="cr-sec-title">{group.title}</span>
+      <span className="cr-sec-meta">{meta}</span>
+    </>
+  )
+  return onOpen ? (
+    <button className="cr-sec-head is-link" onClick={onOpen} title="Open this conversation">
+      {inner}
+    </button>
+  ) : (
+    <div className="cr-sec-head">{inner}</div>
+  )
+}
+
+/** One render. The thumbnail IS the file, loaded lazily — there is no thumbnail service, and a
+ *  render is the one thing that must never be shown as anything but itself. */
+function RenderTile({
+  file,
+  onOpen,
+  onDelete,
+}: {
+  file: LibraryFile
+  onOpen: () => void
+  onDelete: () => void
+}) {
+  const src = fileUrl(file.path)
+  return (
+    <figure className="cr-tile">
+      <button className="cr-tile-media" onClick={onOpen} title={file.name}>
+        {file.kind === 'video' ? (
+          <video src={src} muted preload="metadata" />
+        ) : file.kind === 'image' ? (
+          <img src={src} alt={file.name} loading="lazy" />
+        ) : (
+          <span className="cr-tile-blank">
+            <FileJson size={18} strokeWidth={1.6} />
+          </span>
+        )}
+        {file.kind === 'video' && (
+          <span className="cr-tile-badge">
+            <Play size={11} strokeWidth={2} />
+          </span>
+        )}
+      </button>
+      <figcaption className="cr-tile-cap">
+        <span className="cr-tile-name st-mono">{file.name}</span>
+        <span className="cr-tile-size">{humanSize(file.size || 0)}</span>
+        <button
+          className="cr-tile-del"
+          onClick={onDelete}
+          title="Delete this render"
+          aria-label={`Delete ${file.name}`}
+        >
+          <Trash2 size={13} strokeWidth={1.8} />
+        </button>
+      </figcaption>
+    </figure>
+  )
+}
+
+export default function MyCreations({
+  client,
+  chats,
+  workspaceVersion,
+  onOpenChat,
+}: {
+  client: AgentdClient | undefined
+  chats: ChatRow[]
+  workspaceVersion: number
+  onOpenChat: (sessionId: string) => void
+}) {
+  const [shelf, setShelf] = useState<Shelf>('workflows')
+  const { groups, loading, reload } = useChatLibrary(client, shelf, chats, workspaceVersion)
+
+  const [viewing, setViewing] = useState<LibraryFile | null>(null)
+  const [doomed, setDoomed] = useState<LibraryFile[] | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const askDelete = useCallback((files: LibraryFile[]) => {
+    setDeleteError('')
+    setDoomed(files)
+  }, [])
+  const doDelete = useCallback(async () => {
+    if (!client || !doomed) return
+    setDeleting(true)
+    try {
+      await deleteLibraryFiles(client, doomed)
+      setDoomed(null)
+      reload()
+    } catch (e) {
+      setDeleteError(String((e as Error)?.message || e) || 'the daemon refused')
+    } finally {
+      setDeleting(false)
+    }
+  }, [client, doomed, reload])
+
+  const total = useMemo(() => groups.reduce((n, g) => n + g.files.length, 0), [groups])
+  const sub = loading
+    ? 'Reading your folders…'
+    : total === 0
+      ? shelf === 'workflows'
+        ? 'No workflows yet'
+        : 'No renders yet'
+      : `${groups.length} conversation${groups.length === 1 ? '' : 's'} · newest first`
+
+  return (
+    <>
+      <header className="page-head">
+        <div className="page-head-text">
+          <h1 className="page-title">My creations</h1>
+          <p className="page-sub">{sub}</p>
+        </div>
+        {/* TWO SHELVES, ONE SCREEN. Workflows and renders are made by the same chats and are
+            wanted for the same reason — "which chat made that?" — so they share the sections
+            and differ only in how a file is drawn. */}
+        <div className="cr-seg" role="tablist">
+          <button
+            role="tab"
+            aria-selected={shelf === 'workflows'}
+            className={`cr-seg-btn${shelf === 'workflows' ? ' on' : ''}`}
+            onClick={() => setShelf('workflows')}
+          >
+            <FileJson size={13} strokeWidth={1.8} /> Workflows
+          </button>
+          <button
+            role="tab"
+            aria-selected={shelf === 'outputs'}
+            className={`cr-seg-btn${shelf === 'outputs' ? ' on' : ''}`}
+            onClick={() => setShelf('outputs')}
+          >
+            <ImageIcon size={13} strokeWidth={1.8} /> Renders
+          </button>
+        </div>
+      </header>
+
+      <div className="stage">
+        <div className="stage-main cr-scroll">
+          {!loading && total === 0 ? (
+            <p className="cr-empty">
+              {shelf === 'workflows'
+                ? 'Ask for a workflow in a conversation — something like “a text-to-image workflow using what my instance already has”. Each one is written twice, once to run and once to import, and both land here under the chat that made them.'
+                : 'Nothing has been rendered yet. Run a workflow in a conversation and every image and clip it produces lands here under that chat.'}
+            </p>
+          ) : (
+            groups.map((g) => (
+              <section key={g.folder || '__orphans'} className="cr-sec">
+                <SectionHead
+                  group={g}
+                  onOpen={g.sessionId ? () => onOpenChat(g.sessionId!) : undefined}
+                />
+                {shelf === 'workflows' ? (
+                  <div className="wf-shelf">
+                    {collectWorkflows(g.files).map((wf) => (
+                      <WorkflowCard key={wf.name} wf={wf} onDelete={(w) => askDelete(workflowFiles(w))} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="cr-grid">
+                    {g.files.map((f) => (
+                      <RenderTile
+                        key={f.rel || f.path}
+                        file={f}
+                        onOpen={() => setViewing(f)}
+                        onDelete={() => askDelete([f])}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))
+          )}
+        </div>
+      </div>
+
+      {viewing && (viewing.kind === 'image' || viewing.kind === 'video') && (
+        <ImageLightbox
+          src={fileUrl(viewing.path)}
+          name={viewing.name}
+          video={viewing.kind === 'video'}
+          onClose={() => setViewing(null)}
+        />
+      )}
+      {doomed && (
+        <DeleteFilePrompt
+          names={doomed.map((f) => f.name)}
+          busy={deleting}
+          error={deleteError}
+          onDelete={() => void doDelete()}
+          onClose={() => setDoomed(null)}
+        />
+      )}
+    </>
+  )
+}

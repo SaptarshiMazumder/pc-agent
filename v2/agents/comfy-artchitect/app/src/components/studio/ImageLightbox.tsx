@@ -27,10 +27,13 @@ import { createPortal } from 'react-dom'
 export function ImageLightbox({
   src,
   name,
+  video = false,
   onClose,
 }: {
   src: string
   name: string
+  /** A rendered clip rather than a still: drawn as a player, with the same frame and controls. */
+  video?: boolean
   onClose: () => void
 }) {
   /* ESCAPE CLOSES IT. A full-screen layer with no keyboard way out is a trap for anyone who is
@@ -58,7 +61,11 @@ export function ImageLightbox({
           <X size={16} strokeWidth={1.8} />
         </button>
       </div>
-      <img className="lb-img" src={src} alt={name} onClick={(e) => e.stopPropagation()} />
+      {video ? (
+        <video className="lb-img" src={src} controls autoPlay onClick={(e) => e.stopPropagation()} />
+      ) : (
+        <img className="lb-img" src={src} alt={name} onClick={(e) => e.stopPropagation()} />
+      )}
     </div>,
     document.body,
   )
