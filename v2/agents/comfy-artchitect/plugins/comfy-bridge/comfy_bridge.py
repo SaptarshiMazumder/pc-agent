@@ -51,6 +51,8 @@ from model_download_source_resolver import ModelDownloadSourceResolver
 from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
 from workflow_reference_repository import WorkflowReferenceRepository
+from workflow_dependency_repository import WorkflowDependencyRepository
+from workflow_installer_exporter import WorkflowInstallerExporter
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
 #: previous version of this tool was a hardcoded list of seven loaders, which made every model
@@ -1887,6 +1889,7 @@ class ComfyInstallTool(Tool):
                 fetch=fetch, connection=connection, current_connection=_override, get=_get,
                 lease=lambda: _lease(_WORK_LEASE_S), ready=_download_ready,
             )
+            selected_sources = {}
             installer = ModelInstallationService(
                 catalog=_manager_catalog, loadable=_loadable_names, submit=submit,
                 start_manager=start_manager, manager_busy=_manager_busy,
@@ -1896,11 +1899,20 @@ class ComfyInstallTool(Tool):
                 # A Civitai link is resolved HERE, where the platform's key is substituted,
                 # into the signed storage URL the GPU fetches without any credential.
                 resolve_source=ModelDownloadSourceResolver(fetch=fetch).resolve,
+                on_source=lambda file: selected_sources.update({file["filename"]: file}),
             )
             installed = await installer.install(files, abort, report)
+            export_warning = ""
+            repository = WorkflowDependencyRepository(Path(current_workspace(".") or "."))
+            for filename, source in selected_sources.items():
+                if filename in installed:
+                    try:
+                        repository.record_model(source, installed[filename])
+                    except (OSError, ValueError):
+                        export_warning = " Portable installer source metadata could not be recorded for every model."
             return ToolResult.text(
                 "Installed and loadable: " + "; ".join(f"{f} -> '{name}'" for f, name in installed.items())
-                + ". Re-validate with those names, then run."
+                + ". Re-validate with those names, then run." + export_warning
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
@@ -2209,6 +2221,12 @@ class ComfyValidateTool(Tool):
             # Invalidate the old shopping list FIRST. A failed reference fetch/check must not
             # leave a previous validation authorising the wrong companion file.
             studio_state.forget_validated(_workflow_name(path))
+            try:
+                export_path = Path(path).resolve()
+                if export_path.is_relative_to(Path(current_workspace(".") or ".").resolve() / "workflows"):
+                    WorkflowInstallerExporter.invalidate(export_path)
+            except (OSError, ValueError):
+                pass  # do not change validation semantics if old export cleanup is unavailable
             reference_problems = WorkflowReferenceRepository(
                 Path(current_workspace(".") or "."), fetch=fetch,
             ).check(graph, str(params.get("reference_workflow_url") or "").strip())
@@ -2303,11 +2321,24 @@ class ComfyValidateTool(Tool):
             except Exception:  # noqa: BLE001 — the report still goes out
                 pass
             if not (unknown_nodes or missing_files or bad_enums or bad_links):
+                artifacts, export_note = [], ""
+                try:
+                    artifacts, manifest = WorkflowInstallerExporter(
+                        Path(current_workspace(".") or "."), get=_get,
+                    ).export(path, graph, catalogue)
+                    export_note = "\nPortable installer: " + artifacts[0] + "\nDependency manifest: " + artifacts[1]
+                    if manifest["unresolved"]:
+                        export_note += "\nInstaller INCOMPLETE (will refuse to install): " + "; ".join(manifest["unresolved"])
+                    else:
+                        export_note += "\nUse the user's ComfyUI Python with --comfy-dir PATH; --dry-run previews it."
+                except Exception as error:  # export is optional; never turn a valid graph into a failure
+                    export_note = f"\nPortable installer export unavailable ({type(error).__name__}); validation still passed."
                 return ToolResult.text(
                     f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
                     "and every model file it names is loadable. Safe to comfy_run."
                     + (f"\n{downloading}" if downloading else "")
-                    + slots_note
+                    + slots_note + export_note,
+                    artifacts=artifacts,
                 )
             lines = ["the workflow does NOT compile against this instance:"]
             if unknown_nodes:

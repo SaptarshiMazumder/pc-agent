@@ -31,6 +31,7 @@ from agent_runtime.application.run_context import current_workspace
 import chat_paths
 import reference_slots
 from workflow_link import WorkflowLink
+from workflow_installer_exporter import WorkflowInstallerExporter
 
 
 def _slug(name: str) -> str:
@@ -196,6 +197,11 @@ class ComfyEmitTool(Tool):
             root.mkdir(parents=True, exist_ok=True)
             api_path = root / f"{name}.api.json"
             ui_path = root / f"{name}.json"
+            installer_note = ""
+            try:
+                WorkflowInstallerExporter.invalidate(api_path)
+            except OSError:
+                installer_note = "\nOld installer invalidation failed; download a fresh installer after validation."
             api_path.write_text(json.dumps(api, indent=2) + "\n", encoding="utf-8")
             ui_path.write_text(json.dumps(ui, indent=2) + "\n", encoding="utf-8")
 
@@ -253,6 +259,7 @@ class ComfyEmitTool(Tool):
                 + f"\n  run this:    {api_rel}"
                 + f"\n  import this: {ui_rel}"
                 + slots
+                + installer_note
                 + "\nRun it with comfy_run before calling it finished — a workflow that was "
                 "written has not yet been shown to work.",
                 details={"api": api_rel, "ui": ui_rel, "nodes": len(api), "slots": roles},

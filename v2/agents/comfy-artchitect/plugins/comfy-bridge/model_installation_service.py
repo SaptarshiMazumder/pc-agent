@@ -9,7 +9,7 @@ from gpu_model_download_failure import GpuModelDownloadFailure
 class ModelInstallationService:
     def __init__(self, *, catalog, loadable, submit, start_manager, manager_busy,
                  queued_recently, mark_queued, wait_manager, await_loadable, lease, direct,
-                 resolve_source=None):
+                 resolve_source=None, on_source=None):
         self.catalog = catalog
         self.loadable = loadable
         self.submit = submit
@@ -23,6 +23,7 @@ class ModelInstallationService:
         self.direct = direct
         # Provider authentication is handled by the injected resolver, before GPU I/O.
         self.resolve_source = resolve_source or (lambda file: file)
+        self.on_source = on_source or (lambda file: None)
 
     async def install(self, files, abort, report):
         catalog = self.catalog()
@@ -63,10 +64,13 @@ class ModelInstallationService:
                     reason = "absent from Manager catalogue" if entry is None else "provider download link resolved"
                     report(f"{filename}: {reason}; using GPU-side downloader")
                     self.direct.start(request)
+                    self.on_source({"filename": request.filename, "url": request.origin_url or request.url,
+                                    "kind": request.kind})
                     direct.append(request)
                 else:
                     try:
                         self.submit(file, entry)
+                        self.on_source({**file, "url": entry.get("url") or file["url"]})
                     except Exception as error:
                         # A timeout may have accepted the request. Never race an unknown
                         # or active Manager writer with a second download backend.
@@ -147,6 +151,8 @@ class ModelInstallationService:
         self.lease()
         report(f"{request.filename}: {reason}; retrying with GPU-side downloader")
         self.direct.start(request)
+        self.on_source({"filename": request.filename, "url": request.origin_url or request.url,
+                        "kind": request.kind})
         return request
 
     async def _wait_direct(self, requests, abort, report):

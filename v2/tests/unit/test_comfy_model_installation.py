@@ -228,23 +228,27 @@ def installer(**overrides):
 
 @pytest.mark.asyncio
 async def test_uncatalogued_qwen_automatically_uses_gpu():
-    service = installer()
+    observed = Mock()
+    service = installer(on_source=observed)
     progress = []
     result = await service.install([request().as_dict()], asyncio.Event(), progress.append)
     service.submit.assert_not_called()
     service.direct.start.assert_called_once_with(request())
     assert request().filename in result
     assert "absent from Manager" in progress[0]
+    observed.assert_called_once_with({"filename": request().filename, "url": request().url, "kind": request().kind})
 
 
 @pytest.mark.asyncio
 async def test_catalogued_file_stays_on_manager():
-    entry = {"filename": request().filename, "url": request().url}
-    service = installer(catalog=lambda: [entry])
+    entry = {"filename": request().filename, "url": "https://publisher.example/model.safetensors"}
+    observed = Mock()
+    service = installer(catalog=lambda: [entry], on_source=observed)
     await service.install([request().as_dict()], asyncio.Event(), lambda _: None)
     service.submit.assert_called_once_with(request().as_dict(), entry)
     service.start_manager.assert_called_once()
     service.direct.start.assert_not_called()
+    assert observed.call_args.args[0]["url"] == entry["url"]
 
 
 @pytest.mark.asyncio
@@ -284,7 +288,8 @@ async def test_accepted_but_not_loadable_is_never_success():
 
 
 @pytest.mark.asyncio
-async def test_tool_falls_back_from_manager_400(monkeypatch):
+async def test_tool_falls_back_from_manager_400(monkeypatch, tmp_path):
+    monkeypatch.setattr(comfy_bridge, "current_workspace", lambda *args: str(tmp_path))
     monkeypatch.setattr(comfy_bridge, "ModelDownloadSourceResolver",
                         lambda **_: SimpleNamespace(resolve=lambda file: file))
     monkeypatch.setattr(comfy_bridge, "_manager_catalog", lambda: [{"filename": request().filename}])
