@@ -68,12 +68,12 @@ terraform {
   # that does not exist yet. Run `infra/bootstrap` first, then uncomment and
   # `terraform init -migrate-state`.
   #
-  # backend "s3" {
-  #   bucket  = "agentd-tfstate-<account-id>"
-  #   key     = "production/terraform.tfstate"
-  #   region  = "ap-northeast-1" # the STATE bucket, unchanged; the workload below is ap-south-1
-  #   encrypt = true
-  # }
+  backend "s3" {
+     bucket  = "agentd-tfstate-891612568944"
+      key     = "production/terraform.tfstate"
+      region  = "ap-northeast-1"
+      encrypt = true
+   }
 }
 
 # MUMBAI, NOT TOKYO — the one place production genuinely diverges from staging by design.

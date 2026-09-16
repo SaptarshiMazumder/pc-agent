@@ -21,7 +21,7 @@
 # CHECK THIS ONE TWICE. Staging's live tfvars still carries the literal `you@example.com` from
 # this template, which means staging's alarms have been firing into a placeholder address. An
 # environment nobody hears from is not quiet; it is unmonitored.
-alert_email = "you@example.com"
+alert_email = "ackermanhisashi@gmail.com"
 
 # ── the publish service (deploy/PUBLISH-SERVICE.md) ──────────────────────────
 # EMPTY on the first apply: the image does not exist yet, because ECR is created by that
