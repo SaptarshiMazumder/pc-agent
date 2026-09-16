@@ -79,7 +79,7 @@ export function WorkflowCard<A extends Artifact>({
         <div className="wf-card-text">
           <span className="wf-card-title">{wf.name}</span>
           <span className="wf-card-meta">
-            {[wf.api && wf.ui ? 'both formats' : wf.api ? 'API only' : 'import only', humanSize(bytes)]
+            {[humanSize(bytes), wf.api && wf.ui ? 'run + import files' : wf.api ? 'run file only' : 'import file only']
               .filter(Boolean)
               .join(' · ')}
           </span>
@@ -104,8 +104,8 @@ export function WorkflowCard<A extends Artifact>({
           <a className="wf-file" href={fileUrl(wf.api.path)} download={wf.api.name}>
             <Play size={13} strokeWidth={1.8} />
             <span className="wf-file-text">
-              <span className="wf-file-name">API format</span>
-              <span className="wf-file-sub">what the server runs</span>
+              <span className="wf-file-name">Run file · .api.json</span>
+              <span className="wf-file-sub">send to the server</span>
             </span>
             <Download size={13} strokeWidth={1.7} className="wf-file-go" />
           </a>
@@ -114,8 +114,8 @@ export function WorkflowCard<A extends Artifact>({
           <a className="wf-file" href={fileUrl(wf.ui.path)} download={wf.ui.name}>
             <FileJson size={13} strokeWidth={1.8} />
             <span className="wf-file-text">
-              <span className="wf-file-name">Import format</span>
-              <span className="wf-file-sub">drag into ComfyUI</span>
+              <span className="wf-file-name">ComfyUI file · .json</span>
+              <span className="wf-file-sub">drag into the canvas</span>
             </span>
             <Download size={13} strokeWidth={1.7} className="wf-file-go" />
           </a>
