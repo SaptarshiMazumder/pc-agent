@@ -93,12 +93,29 @@ def _tool_succeeded(trace: Trace, args: dict) -> CheckResult:
 
 @_check("produced_artifact")
 def _produced_artifact(trace: Trace, args: dict) -> CheckResult:
-    """The run yielded a deliverable of a given kind (image/video/file) — the end-to-end proof."""
+    """The run yielded a deliverable of a given kind (image/video/file) — the end-to-end proof.
+
+    `file` narrows it to artifacts whose file name matches a regex — for a deliverable that is
+    one specific file among many of its kind (an `install_*.py` beside the workflow it belongs
+    to), where "some file exists" would pass on the workflow alone.
+    """
+    import re as _re
+
     kind = str(args.get("kind") or "")
+    name = str(args.get("file") or "")
+    try:
+        rx = _re.compile(name, _re.I) if name else None
+    except _re.error as e:
+        return CheckResult("produced_artifact", False, f"bad file pattern: {e}")
     arts = [a for t in trace.turns for a in t.artifacts]
-    matched = [a for a in arts if not kind or str(a.get("kind") or "") == kind]
+    matched = [
+        a for a in arts
+        if (not kind or str(a.get("kind") or "") == kind)
+        and (rx is None or rx.search(str(a.get("name") or a.get("path") or "")))
+    ]
+    what = " ".join(x for x in (kind or "any", f"named /{name}/" if name else "") if x)
     return CheckResult("produced_artifact", bool(matched),
-                       f"{len(matched)} {kind or 'any'} artifact(s) of {len(arts)} total")
+                       f"{len(matched)} {what} artifact(s) of {len(arts)} total")
 
 
 @_check("no_blocking_stall")
@@ -208,7 +225,8 @@ _ARGS: dict[str, dict[str, str]] = {
     "call_order": {"first": "tool that must run first (required)",
                    "then": "tool that must not run before it (required)"},
     "tool_succeeded": {"tool": "tool name (required)"},
-    "produced_artifact": {"kind": "artifact kind: image / video / file (default: any)"},
+    "produced_artifact": {"kind": "artifact kind: image / video / file (default: any)",
+                          "file": "regex the artifact's file name must match (default: any)"},
     "max_turns": {"n": "maximum turn count (required)"},
 }
 

@@ -1,0 +1,27 @@
+{
+  "id": "installer-export-z-image-turbo",
+  "agent_id": "comfy-artchitect",
+  "goal": "The portable installer, on the open-weight path. A Z-Image Turbo render on a fresh instance means models get downloaded during the chat, so the installer has REAL sources to record — the case the manifest is for. After comfy_validate passes, install_<name>.py and install_<name>.manifest.json must appear beside the workflow, declared as artifacts, and the chat must still end with the render pulled back. The user never asks for the installer: it is a side effect of validation, and a feature the model has to be told about would not be this feature.",
+
+  "_comment_turns": "A lazy real user — names the model and the subject, defers everything else. Nothing here hints at the installer. Turn two answers the brief check the agent's protocol asks before it builds; if it did not ask, the turn is harmless.",
+  "turns": [
+    "make me an image with z-image turbo — a lighthouse on a cliff at dusk, long exposure, moody. set up whatever it needs on my instance and show me the result here.",
+    "all fine, go with your defaults for everything — just make it and show me"
+  ],
+
+  "_comment_checks": "THE NEW PAIR is the two named produced_artifact checks: red on a daemon without the exporter (nothing named install_* is ever declared), green only when comfy_validate exports both files. The rest is the render path this depends on — a validate that never passes exports nothing, so a red here has to be triaged against comfy_run/comfy_download first.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_unrecovered_error" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "produced_artifact", "file": "^install_.*\\.py$" },
+    { "name": "produced_artifact", "file": "^install_.*\\.manifest\\.json$" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 40 }
+  ],
+  "max_turns": 40
+}

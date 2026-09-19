@@ -152,6 +152,8 @@ class TokenFetcher {
    *  so a genuine account change fires the identity-change listeners exactly once and a mere
    *  token refresh for the SAME account fires nothing. */
   private sig = ''
+  /** The one renewal armed for the token in hand — see `armRenewal`. */
+  private renewal: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly opts: DaemonOptions) {}
 
@@ -168,6 +170,7 @@ class TokenFetcher {
   forget(): void {
     this.answer = null
     this.inflight = null
+    this.disarmRenewal()
     // AND RE-RESOLVE NOW. Forgetting alone only helps whoever asks NEXT — and on a hosted window
     // nobody does: authStatus reads the token directly, the daemon has no runtime session to
     // broadcast `auth.changed` for, so a sign-out left the identity listeners silent, the gate
@@ -199,6 +202,7 @@ class TokenFetcher {
         const prev = this.answer
         this.answer = a
         this.push(a, prev)
+        this.armRenewal(a)
         // Fire the identity-change listeners when the RESOLVED identity actually changed — a new
         // account, a sign-out, a sign-in — so a window's auth-facing UI (org view, credits) can
         // re-read instead of holding boot's first answer forever. A same-account token refresh
@@ -222,12 +226,53 @@ class TokenFetcher {
           const transient = (x: string) => x === 'accounts_unreachable'
           const afterBoot = prevSig !== ''
           this.sig = sig
+          // RELOAD INSTEAD OF NOTIFY, never both. Firing the listeners first let every hook
+          // re-read and re-render the window as the new person — a signed-out sidebar, a gate
+          // flipping to its card, credits blanking — for the second or two before the reload
+          // that was already decided landed. Those frames were the "glitch" on every sign-in
+          // and sign-out. A page about to start over has nothing to tell its listeners; the
+          // reloaded page reads the new identity at boot like any other. Only when there is no
+          // page to reload (a script, a test) do the listeners hear about it.
+          if (afterBoot && !transient(prevSig) && !transient(sig) && reloadWindow()) return
           notifyIdentityChanged()
-          if (afterBoot && !transient(prevSig) && !transient(sig)) reloadWindow()
         }
       })
     }
     return this.inflight
+  }
+
+  /** RENEW BEFORE IT DIES, on a clock, not on luck.
+   *
+   *  A hosted socket's model calls pay with the access token it was handed, and that token lives
+   *  an hour. `push` hands a fresh one down the moment `state()` resolves one — but `state()`
+   *  only runs when something on the page ASKS. Nothing had to: a window opened, left alone for
+   *  an hour and then used sent its first message with a dead token, and the model proxy refused
+   *  it ("access token expired") — once, because the failure forced a reconnect that presented a
+   *  fresh one. Whether a window hit this depended on which unrelated hook happened to poll
+   *  identity: a comfy window that had drawn a file link polled every four minutes and never
+   *  saw it; the same window with an empty workspace always did.
+   *
+   *  So the fetcher keeps its own appointment: two minutes before the cookie token expires it
+   *  re-resolves, which is within the cache margin, so the same path that always renewed on a
+   *  lucky poll runs on purpose and pushes to every bound socket. Only for COOKIE tokens with a
+   *  socket to push to — a desktop runtime renews its own connections, and a script with no
+   *  client has nowhere to push. One refresh an hour per window. `unref` so a Node process that
+   *  embeds this SDK is never kept alive by it. */
+  private armRenewal(a: TokenAnswer): void {
+    this.disarmRenewal()
+    if (a.state !== 'ok' || a.via !== 'cookie' || !a.expiresAt || this.clients.size === 0) return
+    const inMs = Math.max(5_000, a.expiresAt * 1000 - Date.now() - 120_000)
+    const t = setTimeout(() => {
+      this.renewal = null
+      void this.state()
+    }, inMs)
+    ;(t as { unref?: () => void }).unref?.()
+    this.renewal = t
+  }
+
+  private disarmRenewal(): void {
+    if (this.renewal !== null) clearTimeout(this.renewal)
+    this.renewal = null
   }
 
   /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
@@ -277,10 +322,13 @@ function notifyIdentityChanged(): void {
 }
 
 /** Start the window over. A browser only: everything else that embeds this SDK — a Node script,
- *  a test — has no page to reload and no per-identity state to shed. */
-function reloadWindow(): void {
+ *  a test — has no page to reload and no per-identity state to shed. True when a reload was
+ *  actually asked for, so the caller knows whether anything after it still matters. */
+function reloadWindow(): boolean {
   const w = typeof window !== 'undefined' ? window : undefined
-  if (w && w.location && typeof w.location.reload === 'function') w.location.reload()
+  if (!(w && w.location && typeof w.location.reload === 'function')) return false
+  w.location.reload()
+  return true
 }
 
 /** Subscribe to identity changes (sign-in, sign-out, account switch). Returns the unsubscribe.

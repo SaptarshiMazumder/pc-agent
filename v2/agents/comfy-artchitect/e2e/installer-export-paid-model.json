@@ -1,0 +1,27 @@
+{
+  "id": "installer-export-paid-model",
+  "agent_id": "comfy-artchitect",
+  "goal": "The portable installer, on the PAID path. A hosted image model is a ComfyUI API node: nothing is downloaded, the node pack is built in, and the installer's job is to say so — the manifest must come out with no unresolved sources and the script must not pretend to fetch weights that do not exist. The brief rules out Nano Banana so the pick is a different partner node (Flux Pro / Kontext, Seedream, GPT Image, Ideogram, Recraft, Imagen…), and the second turn is the approval the paid gate asks for. After validation both install_* files must be declared beside the workflow, and the render still comes back to the chat.",
+
+  "_comment_turns": "Turn one is the brief; turn two answers the paid-approval ask_user the agent is REQUIRED to make before designing around a paid node. If the agent skipped the ask and ran, turn two is harmless.",
+  "turns": [
+    "make me a photo of a lighthouse on a cliff at dusk, long exposure, moody — use one of the paid api image models, not nano banana. best quality you can get.",
+    "yes, approved — go ahead with that one and show me the result here"
+  ],
+
+  "_comment_checks": "message_says asserts a CHOICE of a non-Gemini paid service, not a mention — a verb of selection near the name. The two named produced_artifact checks are the feature: red on a daemon without the exporter, green only when comfy_validate declares both files.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_unrecovered_error" },
+    { "name": "message_says", "pattern": "(pick|picked|choos|chose|using|use|go with|going with|best fit is|recommend)[^.\n]{0,80}(flux|kontext|seedream|gpt.?image|ideogram|recraft|imagen|stability|luma|runway|api node)" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "produced_artifact", "file": "^install_.*\\.py$" },
+    { "name": "produced_artifact", "file": "^install_.*\\.manifest\\.json$" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 40 }
+  ],
+  "max_turns": 40
+}

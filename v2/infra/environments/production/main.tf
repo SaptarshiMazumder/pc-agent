@@ -69,11 +69,11 @@ terraform {
   # `terraform init -migrate-state`.
   #
   backend "s3" {
-     bucket  = "agentd-tfstate-891612568944"
-      key     = "production/terraform.tfstate"
-      region  = "ap-northeast-1"
-      encrypt = true
-   }
+    bucket  = "agentd-tfstate-891612568944"
+    key     = "production/terraform.tfstate"
+    region  = "ap-northeast-1"
+    encrypt = true
+  }
 }
 
 # MUMBAI, NOT TOKYO — the one place production genuinely diverges from staging by design.
@@ -347,7 +347,7 @@ variable "ec2_capacity_pools" {
   }))
   default = {
     daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
-    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 2, primary = true }
   }
 }
 variable "accounts_desired_count" {

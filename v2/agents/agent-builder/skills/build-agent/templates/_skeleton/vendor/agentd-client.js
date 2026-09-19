@@ -139,6 +139,8 @@ var TokenFetcher = class {
      *  so a genuine account change fires the identity-change listeners exactly once and a mere
      *  token refresh for the SAME account fires nothing. */
     this.sig = "";
+    /** The one renewal armed for the token in hand — see `armRenewal`. */
+    this.renewal = null;
   }
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client) {
@@ -152,6 +154,7 @@ var TokenFetcher = class {
   forget() {
     this.answer = null;
     this.inflight = null;
+    this.disarmRenewal();
     if (typeof window !== "undefined") void this.state();
   }
   /** A current access token, or '' when the machine is signed out / unreachable. Callers that
@@ -172,18 +175,51 @@ var TokenFetcher = class {
         const prev = this.answer;
         this.answer = a;
         this.push(a, prev);
+        this.armRenewal(a);
         const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
         if (sig !== this.sig) {
           const prevSig = this.sig;
           const transient = (x) => x === "accounts_unreachable";
           const afterBoot = prevSig !== "";
           this.sig = sig;
+          if (afterBoot && !transient(prevSig) && !transient(sig) && reloadWindow()) return;
           notifyIdentityChanged();
-          if (afterBoot && !transient(prevSig) && !transient(sig)) reloadWindow();
         }
       });
     }
     return this.inflight;
+  }
+  /** RENEW BEFORE IT DIES, on a clock, not on luck.
+   *
+   *  A hosted socket's model calls pay with the access token it was handed, and that token lives
+   *  an hour. `push` hands a fresh one down the moment `state()` resolves one — but `state()`
+   *  only runs when something on the page ASKS. Nothing had to: a window opened, left alone for
+   *  an hour and then used sent its first message with a dead token, and the model proxy refused
+   *  it ("access token expired") — once, because the failure forced a reconnect that presented a
+   *  fresh one. Whether a window hit this depended on which unrelated hook happened to poll
+   *  identity: a comfy window that had drawn a file link polled every four minutes and never
+   *  saw it; the same window with an empty workspace always did.
+   *
+   *  So the fetcher keeps its own appointment: two minutes before the cookie token expires it
+   *  re-resolves, which is within the cache margin, so the same path that always renewed on a
+   *  lucky poll runs on purpose and pushes to every bound socket. Only for COOKIE tokens with a
+   *  socket to push to — a desktop runtime renews its own connections, and a script with no
+   *  client has nowhere to push. One refresh an hour per window. `unref` so a Node process that
+   *  embeds this SDK is never kept alive by it. */
+  armRenewal(a) {
+    this.disarmRenewal();
+    if (a.state !== "ok" || a.via !== "cookie" || !a.expiresAt || this.clients.size === 0) return;
+    const inMs = Math.max(5e3, a.expiresAt * 1e3 - Date.now() - 12e4);
+    const t = setTimeout(() => {
+      this.renewal = null;
+      void this.state();
+    }, inMs);
+    t.unref?.();
+    this.renewal = t;
+  }
+  disarmRenewal() {
+    if (this.renewal !== null) clearTimeout(this.renewal);
+    this.renewal = null;
   }
   /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
    *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
@@ -220,7 +256,9 @@ function notifyIdentityChanged() {
 }
 function reloadWindow() {
   const w = typeof window !== "undefined" ? window : void 0;
-  if (w && w.location && typeof w.location.reload === "function") w.location.reload();
+  if (!(w && w.location && typeof w.location.reload === "function")) return false;
+  w.location.reload();
+  return true;
 }
 function onIdentityChanged(cb) {
   identityListeners.add(cb);

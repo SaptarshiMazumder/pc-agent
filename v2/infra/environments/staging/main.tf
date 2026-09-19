@@ -272,7 +272,7 @@ variable "ec2_capacity_pools" {
   }))
   default = {
     daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
-    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 2, primary = true }
   }
 }
 

@@ -243,7 +243,7 @@ variable "ec2_capacity_pools" {
     # PRIMARY, so it inherits the names the single pre-pool pool used. That is what lets an
     # already-running environment adopt this split without replacing the four services that are
     # not actually moving anywhere.
-    shared = { instance_type = "t3.medium", min_size = 1, max_size = 3, primary = true }
+    shared = { instance_type = "t3.medium", min_size = 1, max_size = 2, primary = true }
   }
 
   validation {
