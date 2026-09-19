@@ -7,6 +7,7 @@ deduplicates chats/retries; a partial file is not a Comfy model until verificati
 from __future__ import annotations
 
 import json
+from http.client import IncompleteRead
 import os
 import shutil
 import struct
@@ -19,6 +20,7 @@ from urllib.parse import urlsplit
 from model_download_request import ModelDownloadRequest
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
 from gpu_download_activity import GpuDownloadActivity
+from model_download_resume_state import ModelDownloadResumeState
 
 if os.name == "posix":
     import fcntl
@@ -55,7 +57,8 @@ class GpuModelDownloadWorker:
                 temporary = status_path.with_suffix(".tmp")
                 temporary.write_text(json.dumps(data), encoding="utf-8")
                 temporary.replace(status_path)
-                activity.update(request.job_id, state)
+                # Keep the reaper's existing activity vocabulary stable across deployments.
+                activity.update(request.job_id, "downloading" if state == "retrying" else state)
             try:
                 report("starting")
                 self.download(request, report)
@@ -86,18 +89,18 @@ class GpuModelDownloadWorker:
         partial = target.with_suffix(target.suffix + ".agentd-part")
         if partial.is_symlink():
             raise ValueError("Refusing a symlink partial download")
+        resume = ModelDownloadResumeState(partial, request.source_id)
         try:
             for attempt in range(3):
                 try:
-                    # Restart interrupted transfers; never append bytes without validating
-                    # Range/ETag semantics. Atomic final rename prevents partial loader entries.
+                    resume = ModelDownloadResumeState(partial, request.source_id)
                     opener = self.opener or urllib.request.build_opener(
                         ModelDownloadRedirectPolicy(request.source)
                     )
-                    http_request = urllib.request.Request(request.url, headers=request.headers())
+                    http_request = urllib.request.Request(
+                        request.url, headers={**request.headers(), **resume.headers()})
                     with opener.open(http_request, timeout=60) as response:
-                        length = response.headers.get("Content-Length")
-                        size = int(length) if length is not None else None
+                        size = resume.accept(getattr(response, "status", 200), response.headers)
                         if size is not None and size <= 8:
                             raise ValueError("Source advertised an empty model file")
                         if "text/html" in str(response.headers.get("Content-Type", "")).lower():
@@ -106,10 +109,12 @@ class GpuModelDownloadWorker:
                                      + (partial.stat().st_size if partial.exists() else 0))
                         if available <= 0 or (size is not None and size > available):
                             raise ValueError("Not enough GPU disk space for this model")
-                        read = 0
-                        last = self.clock()
-                        report("downloading", received=0, total=size, attempt=attempt + 1)
-                        with partial.open("wb") as output:
+                        read = resume.offset
+                        started = last = self.clock()
+                        initial = read
+                        report("downloading", received=read, total=size, attempt=attempt + 1,
+                               resumed_from=initial, bytes_per_second=0)
+                        with partial.open("ab" if read else "wb") as output:
                             while chunk := response.read(1024 * 1024):
                                 read += len(chunk)
                                 if size is not None and read > size:
@@ -118,7 +123,9 @@ class GpuModelDownloadWorker:
                                     raise ValueError("Not enough GPU disk space for this model")
                                 output.write(chunk)
                                 if self.clock() - last >= 5:
-                                    report("downloading", received=read, total=size, attempt=attempt + 1)
+                                    report("downloading", received=read, total=size, attempt=attempt + 1,
+                                           resumed_from=initial,
+                                           bytes_per_second=(read - initial) / max(self.clock() - started, 0.001))
                                     last = self.clock()
                             output.flush()
                             os.fsync(output.fileno())
@@ -127,16 +134,29 @@ class GpuModelDownloadWorker:
                     report("verifying", received=read, total=size)
                     self.verify(partial)
                     partial.replace(target)
+                    resume.path.unlink(missing_ok=True)
                     return
                 except urllib.error.HTTPError as error:
-                    if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+                    if error.code == 416 and resume.offset:
+                        resume.reset()
+                        if attempt == 2:
+                            raise
+                    elif error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
                         raise
-                except (OSError, urllib.error.URLError):
+                except (OSError, urllib.error.URLError, IncompleteRead):
                     if attempt == 2:
                         raise
+                report("retrying", attempt=attempt + 2,
+                       received=partial.stat().st_size if partial.exists() else 0,
+                       total=resume.record.get("total"),
+                       reason="transfer interrupted; resume if identity is confirmed, otherwise restart")
                 self.sleep(2 ** attempt)
+        except ValueError:
+            # Invalid content or a mismatched range must never become a resumable prefix.
+            resume.reset()
+            raise
         finally:
-            partial.unlink(missing_ok=True)
+            resume.retain_partial()
 
     @staticmethod
     def verify(path: Path) -> None:

@@ -9,7 +9,8 @@ from workflow_installer_manifest import WorkflowInstallerManifest
 
 class WorkflowInstallerExporter:
     SOURCES = ("installer_source_policy", "model_download_request", "model_download_redirect_policy",
-               "gpu_download_activity", "gpu_model_download_worker", "workflow_installer_runtime")
+               "gpu_download_activity", "model_download_resume_state",
+               "gpu_model_download_worker", "workflow_installer_runtime")
 
     def __init__(self, workspace, *, get):
         self.workspace = Path(workspace).resolve()
