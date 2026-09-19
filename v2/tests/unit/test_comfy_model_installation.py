@@ -16,8 +16,10 @@ import gpu_model_download_worker
 from agent_runtime.infrastructure.net.outbound import Response
 from gpu_model_download_client import GpuModelDownloadClient
 from gpu_model_download_worker import GpuModelDownloadWorker
+from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
 from model_download_request import ModelDownloadRequest
+from model_download_resume_state import ModelDownloadResumeState
 from model_installation_service import ModelInstallationService
 from workflow_model_manifest import WorkflowModelManifest
 from workflow_reference_repository import WorkflowReferenceRepository
@@ -85,6 +87,173 @@ class DownloadResponse(io.BytesIO):
     def __init__(self, data, size=None):
         super().__init__(data)
         self.headers = {"Content-Length": str(len(data) if size is None else size)}
+
+
+def resumable_response(data, *, status=200, total=None, offset=0, etag='"stable"'):
+    result = DownloadResponse(data, total if status == 200 else None)
+    result.status = status
+    result.headers["ETag"] = etag
+    if status == 206:
+        result.headers["Content-Range"] = f"bytes {offset}-{total - 1}/{total}"
+    return result
+
+
+def test_worker_resumes_interrupted_transfer(tmp_path):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data)),
+                               resumable_response(data[24:], status=206, total=len(data), offset=24)]
+    events = []
+    worker = GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None)
+    worker.download(request(), lambda state, **fields: events.append((state, fields)))
+    assert opener.open.call_args_list[1].args[0].get_header("Range") == "bytes=24-"
+    assert opener.open.call_args_list[1].args[0].get_header("If-range") == '"stable"'
+    assert (tmp_path / "models/diffusion_models" / request().filename).read_bytes() == data
+    assert any(state == "retrying" for state, _ in events)
+    assert any(fields.get("resumed_from") == 24 for _, fields in events)
+
+
+@pytest.mark.parametrize("etag", ['"stable"', '"changed"'])
+def test_worker_restarts_when_server_returns_full_body(tmp_path, etag):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data)),
+                               resumable_response(data, etag=etag)]
+    GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None).download(request(), lambda *a, **k: None)
+    assert (tmp_path / "models/diffusion_models" / request().filename).read_bytes() == data
+
+
+@pytest.mark.parametrize("bad", ["etag", "offset", "total"])
+def test_worker_rejects_inconsistent_partial_response(tmp_path, bad):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    tail = resumable_response(data[24:], status=206, total=len(data), offset=24)
+    if bad == "etag":
+        tail.headers["ETag"] = '"different"'
+    elif bad == "offset":
+        tail.headers["Content-Range"] = f"bytes 23-{len(data)-1}/{len(data)}"
+    else:
+        tail.headers["Content-Range"] = f"bytes 24-{len(data)}/{len(data)+1}"
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data)), tail]
+    with pytest.raises(ValueError, match="identity/range"):
+        GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None).download(request(), lambda *a, **k: None)
+    assert not list((tmp_path / "models/diffusion_models").iterdir())
+
+
+def test_worker_resumes_across_invocations_and_rotated_provider_urls(tmp_path):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    original = ModelDownloadRequest(request().filename, "https://cdn.example/model?sig=old", "unet",
+                                    source="huggingface", origin_url=request().url)
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data)),
+                               TimeoutError(), TimeoutError()]
+    with pytest.raises(TimeoutError):
+        GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None).download(original, lambda *a, **k: None)
+    folder = tmp_path / "models/diffusion_models"
+    metadata = next(folder.glob("*.json")).read_text()
+    assert "sig=" not in metadata
+    fresh = ModelDownloadRequest(original.filename, "https://cdn.example/model?sig=new", "unet",
+                                 source="huggingface", origin_url=request().url)
+    opener.open.side_effect = [resumable_response(data[24:], status=206, total=len(data), offset=24)]
+    GpuModelDownloadWorker(tmp_path, opener=opener).download(fresh, lambda *a, **k: None)
+    assert opener.open.call_args.args[0].get_header("Range") == "bytes=24-"
+    assert list(folder.iterdir()) == [folder / original.filename]
+
+
+def test_worker_weak_etag_cannot_resume(tmp_path):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data), etag='W/"weak"'),
+                               resumable_response(data)]
+    GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None).download(request(), lambda *a, **k: None)
+    assert opener.open.call_args.args[0].get_header("Range") is None
+
+
+def test_resume_record_from_another_source_is_discarded(tmp_path):
+    partial = tmp_path / "weights.agentd-part"
+    partial.write_bytes(b"old")
+    partial.with_suffix(".agentd-part.json").write_text(json.dumps(
+        {"source_id": "other", "etag": '"same-tag"', "total": 100}))
+    resume = ModelDownloadResumeState(partial, "new")
+    assert resume.headers() == {}
+    assert not partial.exists()
+
+
+@pytest.mark.parametrize("status", [0, 408, 429, 500, 502, 503, 504])
+def test_transient_heartbeat_response_is_classified(monkeypatch, status):
+    monkeypatch.setattr(comfy_bridge, "current_account_id", lambda: "test")
+    monkeypatch.setattr(comfy_bridge, "fetch", lambda *a, **k: response({}, status))
+    with pytest.raises(GpuKeepaliveUnavailable):
+        comfy_bridge._lease(180)
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 409])
+def test_permanent_heartbeat_response_is_not_retryable(monkeypatch, status):
+    monkeypatch.setattr(comfy_bridge, "current_account_id", lambda: "test")
+    monkeypatch.setattr(comfy_bridge, "fetch", lambda *a, **k: response({}, status))
+    with pytest.raises(RuntimeError) as error:
+        comfy_bridge._lease(180)
+    assert not isinstance(error.value, GpuKeepaliveUnavailable)
+
+
+def test_worker_range_not_satisfiable_restarts_cleanly(tmp_path):
+    (tmp_path / "models").mkdir()
+    data = tensor_file()
+    opener = Mock()
+    opener.open.side_effect = [resumable_response(data[:24], total=len(data)),
+                               urllib.error.HTTPError(request().url, 416, "range", {}, None),
+                               resumable_response(data)]
+    GpuModelDownloadWorker(tmp_path, opener=opener, sleep=lambda _: None).download(request(), lambda *a, **k: None)
+    assert opener.open.call_args.args[0].get_header("Range") is None
+    assert (tmp_path / "models/diffusion_models" / request().filename).read_bytes() == data
+
+
+@pytest.mark.asyncio
+async def test_download_tracking_survives_transient_keepalive_failure():
+    now = [0]
+    async def sleep(_):
+        now[0] += 95
+    lease = Mock(side_effect=[GpuKeepaliveUnavailable("temporary"), None])
+    downloader = client(clock=lambda: now[0], sleep=sleep, lease=lease)
+    downloader.status = lambda req: {"state": "done" if now[0] >= 285 else "downloading",
+                                     "updated_at": time.time(), "received": 10, "total": 100,
+                                     "bytes_per_second": 1048576, "attempt": 2}
+    progress = []
+    await downloader.wait([request(), request("second.safetensors")], asyncio.Event(), progress.append)
+    assert lease.call_count == 2
+    assert any("Keepalive recovered" in p for p in progress)
+    assert any(request().filename in p and "second.safetensors" in p and "1.0 MiB/s" in p
+               and "attempt 2" in p for p in progress)
+    downloader._fetch.assert_not_called()  # never restarts a worker
+
+
+@pytest.mark.asyncio
+async def test_keepalive_retry_is_bounded_without_claiming_expiry():
+    now = [0]
+    async def sleep(_):
+        now[0] += 95
+    downloader = client(clock=lambda: now[0], sleep=sleep,
+                        lease=Mock(side_effect=GpuKeepaliveUnavailable("temporary")))
+    downloader.status = lambda req: {"state": "downloading", "updated_at": time.time()}
+    with pytest.raises(RuntimeError, match="does not prove lease expiry"):
+        await downloader.wait([request()], asyncio.Event())
+    downloader._fetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_permanent_keepalive_refusal_is_not_swallowed():
+    now = [0]
+    async def sleep(_):
+        now[0] += 95
+    downloader = client(clock=lambda: now[0], sleep=sleep, lease=Mock(side_effect=RuntimeError("ownership lost")))
+    downloader.status = lambda req: {"state": "downloading", "updated_at": time.time()}
+    with pytest.raises(RuntimeError, match="ownership lost"):
+        await downloader.wait([request()], asyncio.Event())
 
 
 def test_worker_streams_verifies_and_atomically_publishes(tmp_path):

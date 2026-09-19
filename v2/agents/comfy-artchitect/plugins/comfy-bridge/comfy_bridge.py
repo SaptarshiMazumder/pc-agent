@@ -46,6 +46,7 @@ import chat_paths
 import reference_slots
 import studio_state
 from gpu_model_download_client import GpuModelDownloadClient
+from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
 from model_installation_service import ModelInstallationService
 from model_download_source_resolver import ModelDownloadSourceResolver
 from model_readiness import ModelReadiness
@@ -304,6 +305,8 @@ def _lease(seconds: int) -> None:
         headers=_AUTH,
         timeout_s=15.0,
     )
+    if response.status in (0, 408, 429, 500, 502, 503, 504):
+        raise GpuKeepaliveUnavailable("GPU keepalive was not confirmed: platform temporarily unavailable")
     if not response.ok or response.json().get("alive") is not True:
         raise RuntimeError("GPU keepalive was not confirmed; call gpu_ensure before submitting more work")
 

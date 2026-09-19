@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 from model_download_request import ModelDownloadRequest
 from gpu_model_download_failure import GpuModelDownloadFailure
+from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
 
 
 class GpuModelDownloadClient:
@@ -32,7 +33,8 @@ class GpuModelDownloadClient:
     @staticmethod
     def command(request: ModelDownloadRequest, attempt_id: str = "") -> str:
         modules = {}
-        for name in ("model_download_request", "model_download_redirect_policy", "gpu_download_activity", "gpu_model_download_worker"):
+        for name in ("model_download_request", "model_download_redirect_policy", "gpu_download_activity",
+                     "model_download_resume_state", "gpu_model_download_worker"):
             modules[name] = Path(__file__).with_name(name + ".py").read_text(encoding="utf-8")
         bundle = base64.b64encode(json.dumps(modules).encode()).decode()
         payload = base64.b64encode(json.dumps(request.as_dict()).encode()).decode()
@@ -60,7 +62,7 @@ class GpuModelDownloadClient:
         previous = self.status(request)
         if previous and previous.get("state") == "done" and self._ready(request):
             return
-        if previous and previous.get("state") in ("starting", "downloading", "verifying"):
+        if previous and previous.get("state") in ("starting", "downloading", "retrying", "verifying"):
             if time.time() - float(previous.get("updated_at", 0)) < 180:
                 return  # worker still owns the download; no provisioning command duplication
         attempt_id = uuid.uuid4().hex
@@ -90,7 +92,7 @@ class GpuModelDownloadClient:
         except ValueError:
             return None
         if not isinstance(result, dict) or result.get("state") not in (
-            "starting", "downloading", "verifying", "done", "failed",
+            "starting", "downloading", "retrying", "verifying", "done", "failed",
         ):
             return None
         if result.get("source_id") != request.source_id:
@@ -101,7 +103,7 @@ class GpuModelDownloadClient:
         if expected and result.get("attempt_id") != expected:
             # A healthy concurrent worker won the lock: adopt it. Old failed status is
             # ignored until our new attempt publishes, not mistaken for a new failure.
-            if (result.get("state") in ("starting", "downloading", "verifying", "done")
+            if (result.get("state") in ("starting", "downloading", "retrying", "verifying", "done")
                     and time.time() - float(result.get("updated_at", 0)) < 180):
                 self._attempts.pop(request.job_id, None)
             else:
@@ -112,14 +114,17 @@ class GpuModelDownloadClient:
         previous = self.status(request)
         # Even stale progress may belong to a live transfer. Resume observation;
         # don't hand the same destination back to Manager on a tool retry.
-        return bool(previous and previous.get("state") in ("starting", "downloading", "verifying"))
+        return bool(previous and previous.get("state") in ("starting", "downloading", "retrying", "verifying"))
 
     async def wait(self, requests: list[ModelDownloadRequest], abort, on_update=None) -> None:
         pending = {item.job_id: item for item in requests}
         started = self._clock()
         last_lease = started
+        next_lease = started + 90
+        lease_failures = 0
         last_seen = {job_id: started for job_id in pending}
         reported = {}
+        last_report = ""
         while pending:
             if abort is not None and abort.is_set():
                 raise ValueError("Stopped waiting; GPU downloads may continue. No install success confirmed.")
@@ -147,14 +152,40 @@ class GpuModelDownloadClient:
                 progress = f"{request.filename}: GPU download {state}"
                 if status.get("total"):
                     progress += f" ({int(status.get('received', 0)) * 100 // int(status['total'])}%)"
-                if progress != reported.get(job_id) and on_update:
-                    on_update(progress)
+                if status.get("bytes_per_second") is not None:
+                    progress += f" {status['bytes_per_second'] / (1024 * 1024):.1f} MiB/s"
+                if status.get("attempt"):
+                    progress += f" attempt {status['attempt']}"
+                if status.get("resumed_from"):
+                    progress += f" resumed at {status['resumed_from'] / (1024 * 1024):.1f} MiB"
+                if state == "retrying":
+                    progress += "; " + status.get("reason", "retrying transfer")
                 reported[job_id] = progress
                 if state == "done":
                     del pending[job_id]
-            if self._clock() - last_lease >= 90:
-                self._lease()
-                last_lease = self._clock()
+            summary = "\n".join(reported.values())
+            if summary != last_report and on_update:
+                on_update(summary)
+                last_report = summary
+            if pending and self._clock() >= next_lease:
+                try:
+                    self._lease()
+                except (GpuKeepaliveUnavailable, TimeoutError, ConnectionError) as error:
+                    lease_failures += 1
+                    if self._clock() - last_lease >= 300:
+                        raise RuntimeError("GPU keepalive unconfirmed for 5 minutes; stopped tracking, "
+                                           "not the GPU downloads. Reconnect before submitting more work; "
+                                           "this does not prove lease expiry.") from error
+                    next_lease = self._clock() + min(15 * 2 ** min(lease_failures - 1, 2), 60)
+                    if on_update:
+                        on_update(summary + "\nKeepalive temporarily unavailable; retrying without "
+                                  "restarting downloads (lease expiry is not confirmed).")
+                else:
+                    if lease_failures and on_update:
+                        on_update(summary + "\nKeepalive recovered; downloads were not restarted.")
+                    lease_failures = 0
+                    last_lease = self._clock()
+                    next_lease = last_lease + 90
             if pending:
                 await self._sleep(5)
 
