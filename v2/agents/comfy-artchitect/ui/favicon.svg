@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Comfy Artchitect — the penguin on a lime tile, for the tab. The same drawing as
+  <!-- Comfy Penguin — the penguin on a lime tile, for the tab. The same drawing as
        src/components/BrandMark.tsx, frozen in the brand colours because a favicon has no
        surrounding text to take its colour from. -->
   <defs>

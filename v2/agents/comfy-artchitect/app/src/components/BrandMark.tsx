@@ -1,4 +1,4 @@
-/* The penguin — Comfy Artchitect's mark, inline.
+/* The penguin — Comfy Penguin's mark, inline.
  *
  * ONE COLOUR, `currentColor`, so the same drawing is ink on the lime brand tile, lime on the ink
  * rail, or whatever the surface around it says. The belly, the eyes and the seam under the hard

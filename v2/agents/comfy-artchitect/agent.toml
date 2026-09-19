@@ -1,4 +1,4 @@
-# Comfy Artchitect 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
+# Comfy Penguin 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
 #
 # WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
 # RunPod, a Modal endpoint 窶・the agent is told a URL and a credential and works against whatever
@@ -12,8 +12,8 @@
 # being present and permitting it; the agent reports precisely when it is not, rather than
 # pretending it can fix it.
 
-name = "Comfy Artchitect"
-version = "1.64.13"
+name = "Comfy Penguin"
+version = "1.64.14"
 description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
 tagline = "design ﾂｷ run ﾂｷ repair ﾂｷ iterate"
 color = "#7C5CFF"
@@ -24,7 +24,7 @@ suggestions = [
 ]
 
 [app]
-title = "Comfy Artchitect"
+title = "Comfy Penguin"
 mode = "window"
 entry = "ui/index.html"
 public = false

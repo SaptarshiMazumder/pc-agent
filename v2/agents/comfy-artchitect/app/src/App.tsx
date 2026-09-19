@@ -72,7 +72,7 @@ import { Settings } from './common/settings/Settings'
 /* WHAT THIS AGENT IS, in the user's words rather than yours — the opening screen's whole job.
    Edit these four lines and the four cards below; they are the first thing anyone reads, and the
    default text says nothing because only you know what this agent is for. */
-const AGENT_NAME = 'Comfy Artchitect'
+const AGENT_NAME = 'Comfy Penguin'
 const OPENING_EYEBROW = 'Point me at your ComfyUI'
 const OPENING_HEADLINE = 'What should we build?'
 const OPENING_BLURB =
@@ -602,7 +602,7 @@ export default function App() {
                   <span className="st-convo-title">
                     {/* The rail already knows this conversation's name, so the header can carry it
                         while the transcript is still coming. Falling back to the agent's name here
-                        would say "Comfy Artchitect" over a chat that is demonstrably not new. */}
+                        would say "Comfy Penguin" over a chat that is demonstrably not new. */}
                     {loadingHistory
                       ? openChat?.title || 'Opening conversation…'
                       : empty
