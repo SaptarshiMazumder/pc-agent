@@ -59,6 +59,11 @@ export default function SignIn({
   const [providers, setProviders] = useState<AuthProvider[]>([])
   /** Which provider button was pressed, so only that one shows progress. */
   const [going, setGoing] = useState('')
+  /** THIS LOAD IS A SIGN-IN FINISHING, not one starting: the address bar carries the provider's
+   *  answer and the effect below is redeeming it. While that is true the card shows one line and
+   *  no form — a form under "Continue with Google" on the way BACK from Google read as being
+   *  thrown out and asked again. It only drops to the form if the exchange fails. */
+  const [redeeming, setRedeeming] = useState(() => !!oauthCallbackParams())
 
   useEffect(() => {
     let alive = true
@@ -97,6 +102,7 @@ export default function SignIn({
         if (!alive) return
         console.error('[auth] external sign-in failed', err)
         setError(String((err as Error)?.message || err))
+        setRedeeming(false)
       })
       .finally(() => alive && setBusy(false))
     return () => {
@@ -148,6 +154,17 @@ export default function SignIn({
     } finally {
       setBusy(false)
     }
+  }
+
+  if (redeeming) {
+    return (
+      <div className="signin-wrap">
+        <div className="signin-card">
+          <div className="signin-brand">{product || 'Sign in'}</div>
+          <div className="signin-sub">Signing you in…</div>
+        </div>
+      </div>
+    )
   }
 
   return (

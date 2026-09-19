@@ -33,19 +33,40 @@ import {
   type ChatGroup,
   type LibraryFile,
 } from '../../agentd/chat-library'
-import { when, type ChatRow } from '../../agentd/sessions'
+import type { ChatRow } from '../../agentd/sessions'
 import { ImageLightbox } from '../studio/ImageLightbox'
 import { collectWorkflows, WorkflowCard, workflowFiles } from '../workflows/WorkflowCard'
 import { DeleteFilePrompt } from './DeleteFilePrompt'
 
 type Shelf = 'workflows' | 'outputs'
 
+/** "today, 11:59 PM" / "Tue 15 Sep" — a date you can place, unlike the rail's bare weekday. */
+function madeOn(ts: number): string {
+  const d = new Date(ts * 1000)
+  const sameDay = d.toDateString() === new Date().toDateString()
+  if (sameDay) return `today, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+/** What a section counts: workflows are pairs of files, so "4 files" would be "2 workflows". */
+function countLabel(shelf: Shelf, files: LibraryFile[]): string {
+  const n = shelf === 'workflows' ? collectWorkflows(files).length : files.length
+  const noun = shelf === 'workflows' ? 'workflow' : 'render'
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
+
 /** The header of one chat's section. A live chat's header opens that chat — the files are the
  *  reason to go back to it — and the orphan section has nowhere to go. */
-function SectionHead({ group, onOpen }: { group: ChatGroup; onOpen?: () => void }) {
-  const meta = `${group.files.length} file${group.files.length === 1 ? '' : 's'}${
-    group.modified ? ` · ${when(group.modified)}` : ''
-  }`
+function SectionHead({
+  group,
+  shelf,
+  onOpen,
+}: {
+  group: ChatGroup
+  shelf: Shelf
+  onOpen?: () => void
+}) {
+  const meta = `${countLabel(shelf, group.files)}${group.modified ? ` · ${madeOn(group.modified)}` : ''}`
   const inner = (
     <>
       <span className="cr-sec-ico">
@@ -181,12 +202,15 @@ export default function MyCreations({
             className={`cr-seg-btn${shelf === 'outputs' ? ' on' : ''}`}
             onClick={() => setShelf('outputs')}
           >
-            <ImageIcon size={13} strokeWidth={1.8} /> Renders
+            <ImageIcon size={13} strokeWidth={1.8} /> Images & videos
           </button>
         </div>
       </header>
 
-      <div className="stage">
+      {/* ONE COLUMN. The shared stage keeps a column free for the conversation's aside; a
+          library has no aside, and leaving the column empty squeezed every card into the left
+          half of a wide window. */}
+      <div className="stage cr-stage">
         <div className="stage-main cr-scroll">
           {!loading && total === 0 ? (
             <p className="cr-empty">
@@ -199,6 +223,7 @@ export default function MyCreations({
               <section key={g.folder || '__orphans'} className="cr-sec">
                 <SectionHead
                   group={g}
+                  shelf={shelf}
                   onOpen={g.sessionId ? () => onOpenChat(g.sessionId!) : undefined}
                 />
                 {shelf === 'workflows' ? (

@@ -28,6 +28,8 @@ import {
 } from '@agentd/client'
 import { useCallback, useEffect, useState } from 'react'
 
+import { signOutTransition } from './sign-out-transition'
+
 export type { AuthState, RunMode }
 
 export interface Auth {
@@ -98,7 +100,17 @@ export function useAuth(client: AgentdClient): Auth {
     void load()
   }, [load])
 
-  const signOut = useCallback(() => run(() => authLogout({ client })), [run, client])
+  /** THE GATE COVERS THE EXIT. The flag goes up before the call, so the frames between the click
+   *  and the page starting over (the SDK reloads on a resolved sign-out) show the gate's card and
+   *  not this app drawing itself as nobody. Only a FAILED sign-out lowers it: on success the page
+   *  is gone before anything here runs again, and the reloaded one reads its state fresh. */
+  const signOut = useCallback(async () => {
+    signOutTransition.begin()
+    await run(() => authLogout({ client }))
+    if (!(await authStatus({ client }).then((s) => !s.signedIn).catch(() => false))) {
+      signOutTransition.end()
+    }
+  }, [run, client])
 
   /** Local (the user's own API keys) or Cloud (platform keys, metered to their account).
    *  MACHINE-WIDE, unlike identity: the model proxy is one piece of daemon state shared by every

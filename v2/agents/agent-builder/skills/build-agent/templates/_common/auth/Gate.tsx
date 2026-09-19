@@ -1,5 +1,8 @@
 /* Sign in first, when this daemon demands it — or when this agent does, whatever the daemon says.
  *
+ * COPIED VERBATIM from the common modules. Do not edit; `validate_agent` compares it against the
+ * source. If you need something it does not expose, add it there so every agent gets it.
+ *
  * WHAT THIS REPLACED. `signInFirst()` awaited a vanilla-DOM gate that painted itself over the page
  * BEFORE the app rendered, which is why every scaffolded agent's entry point had to be an async
  * IIFE that rendered nothing until it resolved. The gate is agentd's React card now, so it renders
@@ -12,14 +15,30 @@
  *
  * ...UNLESS THE AGENT ITSELF DEMANDS ONE — see `require`.
  *
- * IT RENDERS THE APP WHILE IT IS ASKING. A blank screen during a status probe is indistinguishable
- * from a broken window, and the probe is a round trip to a daemon that may not be there.
+ * IT NEVER SHOWS THE APP AS A GUESS. It used to render the app while the probe was out, on the
+ * theory that a blank screen reads as a broken window. What that produced, on every signed-out
+ * visit and on every return from Google, was the app for a beat, then the sign-in card, then the
+ * app again once the page started over — three screens for one sign-in, and the middle one made
+ * people think they had been thrown out. The probe's frames now show a card with the product's
+ * name on it and nothing else: the honest state while the answer is on its way, and the same card
+ * the sign-in form appears on, so a signed-out visit is one screen that fills in.
+ *
+ * A RETURN FROM AN EXTERNAL PROVIDER IS KNOWN BEFORE ANY PROBE. The address bar says so
+ * (`?code=&state=`), so the gate goes straight to the card — which redeems the code and, on
+ * success, is the last thing drawn before the app.
+ *
+ * A SIGN-OUT IS COVERED, TOO. The button lives deep inside the app, and between its click and
+ * the page starting over the app kept drawing itself signed out. The account menu raises a flag
+ * (sign-out-transition.ts); the gate draws the card over those frames.
  */
 
-import { authStatus, type AgentdClient } from '@agentd/client'
+import { authStatus, oauthCallbackParams, onIdentityChanged, type AgentdClient } from '@agentd/client'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import SignIn from './SignIn'
+import { signOutTransition } from './sign-out-transition'
+
+import './auth.css'
 
 /** What the probe concluded. `blocked` is the dead end below. */
 type Verdict = 'pending' | 'through' | 'sign-in' | 'blocked'
@@ -48,7 +67,10 @@ export default function Gate({
   require?: boolean
   children: ReactNode
 }) {
-  const [verdict, setVerdict] = useState<Verdict>('pending')
+  // A load carrying the provider's answer is a sign-in finishing, not a page to probe: the card
+  // is the right first frame, and it knows how to finish the job.
+  const [verdict, setVerdict] = useState<Verdict>(() => (oauthCallbackParams() ? 'sign-in' : 'pending'))
+  const [signingOut, setSigningOut] = useState(signOutTransition.current)
 
   const check = useCallback(() => {
     void authStatus({ client })
@@ -67,11 +89,44 @@ export default function Gate({
       })
   }, [client, demand])
 
-  useEffect(check, [check])
+  useEffect(() => {
+    // Not on a return from the provider: the card redeems the code first and calls `check`
+    // itself when that is done. Probing now would only draw the form over the finishing flow.
+    if (!oauthCallbackParams()) check()
+    // RE-PROBE ON EVERY AUTH CHANGE, not only at mount. A window that signed out used to keep
+    // rendering the app — signed out, with a "○" avatar and a "Local" persona — because this
+    // gate had already answered "through" once and was never asked again. The SDK reloads the
+    // window on a change after boot; this covers the ones at boot, and desktop's socket
+    // broadcast.
+    const offSocket = client?.on('auth.changed', check)
+    const offIdentity = onIdentityChanged(check)
+    const offLeaving = signOutTransition.subscribe(setSigningOut)
+    return () => {
+      offSocket?.()
+      offIdentity()
+      offLeaving()
+    }
+  }, [check, client])
 
+  if (signingOut) return <Waiting product={product} note="Signing out…" />
+  if (verdict === 'pending') return <Waiting product={product} note="" />
   if (verdict === 'sign-in') return <SignIn product={product} onDone={check} />
   if (verdict === 'blocked') return <Blocked product={product} />
   return <>{children}</>
+}
+
+/* THE FRAMES BETWEEN: the same card the form sits on, with only the product's name and, when
+ * there is something to say, one line under it. Drawn while the probe is out and while a
+ * sign-out is under way — never the app, which would be a guess about who is looking. */
+function Waiting({ product, note }: { product: string; note: string }) {
+  return (
+    <div className="signin-wrap">
+      <div className="signin-card">
+        <div className="signin-brand">{product || 'Sign in'}</div>
+        {note && <div className="signin-sub">{note}</div>}
+      </div>
+    </div>
+  )
 }
 
 /* THE DEAD END: sign-in is demanded and this daemon has no accounts service to demand it from.

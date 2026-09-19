@@ -379,10 +379,14 @@ resource "aws_ecs_capacity_provider" "ec2" {
       # the buffer. The cost is running slightly emptier machines, which is the cheaper mistake.
       target_capacity = var.ec2_target_capacity
 
-      # Two at a time, not one. A burst that needs three instances took three sequential rounds
-      # of (add one, re-evaluate) at step size 1 — each round paying a full instance boot.
+      # ONE AT A TIME, reverted from two. The argument for two was that a burst needing three
+      # instances otherwise takes three sequential rounds of (add one, re-evaluate), each paying
+      # a full instance boot. What it actually did at this fleet size was overshoot: the pool
+      # went to its ceiling of three machines for four tasks that fit on one, because each
+      # placement gap during a rollout bought a PAIR of boxes. Overshoot costs real money every
+      # hour; a slower burst costs a few minutes, once.
       minimum_scaling_step_size = 1
-      maximum_scaling_step_size = 2
+      maximum_scaling_step_size = 1
     }
   }
 

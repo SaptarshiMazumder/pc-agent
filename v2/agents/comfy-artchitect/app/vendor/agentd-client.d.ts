@@ -745,6 +745,8 @@ declare class TokenFetcher {
      *  so a genuine account change fires the identity-change listeners exactly once and a mere
      *  token refresh for the SAME account fires nothing. */
     private sig;
+    /** The one renewal armed for the token in hand — see `armRenewal`. */
+    private renewal;
     constructor(opts: DaemonOptions);
     /** Register a client to receive `auth.update` pushes. Idempotent. */
     bind(client: AgentdClient): void;
@@ -758,6 +760,25 @@ declare class TokenFetcher {
      *  need to know WHY ask `state()`. */
     accessToken(): Promise<string>;
     state(): Promise<TokenAnswer>;
+    /** RENEW BEFORE IT DIES, on a clock, not on luck.
+     *
+     *  A hosted socket's model calls pay with the access token it was handed, and that token lives
+     *  an hour. `push` hands a fresh one down the moment `state()` resolves one — but `state()`
+     *  only runs when something on the page ASKS. Nothing had to: a window opened, left alone for
+     *  an hour and then used sent its first message with a dead token, and the model proxy refused
+     *  it ("access token expired") — once, because the failure forced a reconnect that presented a
+     *  fresh one. Whether a window hit this depended on which unrelated hook happened to poll
+     *  identity: a comfy window that had drawn a file link polled every four minutes and never
+     *  saw it; the same window with an empty workspace always did.
+     *
+     *  So the fetcher keeps its own appointment: two minutes before the cookie token expires it
+     *  re-resolves, which is within the cache margin, so the same path that always renewed on a
+     *  lucky poll runs on purpose and pushes to every bound socket. Only for COOKIE tokens with a
+     *  socket to push to — a desktop runtime renews its own connections, and a script with no
+     *  client has nowhere to push. One refresh an hour per window. `unref` so a Node process that
+     *  embeds this SDK is never kept alive by it. */
+    private armRenewal;
+    private disarmRenewal;
     /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
      *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
      *  So when a genuinely NEW cookie token arrives, every bound open socket gets it via

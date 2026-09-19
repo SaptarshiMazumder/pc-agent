@@ -390,32 +390,43 @@ resource "aws_ecs_service" "svc" {
   }
 
   # WHERE A TASK LANDS INSIDE ITS POOL. Ordered: the first strategy decides, the second breaks
-  # ties.
+  # ties — and which one comes first is the whole behaviour.
   #
-  # THERE WAS NO STRATEGY HERE AT ALL, and the default — spread across instances — is what made
-  # a 2 GB task unplaceable on a fleet with 3 GB free. Spread deliberately puts the next task on
-  # the emptiest box, so free memory ends up divided evenly between instances: two boxes with
-  # ~1600 MiB each rather than one with ~3200. Nothing is full, and yet nothing large fits.
+  # THERE WAS NO STRATEGY HERE AT ALL to begin with, and the ECS default — spread across
+  # instances — is what made a 2 GB task unplaceable on a fleet with 3 GB free: spread puts each
+  # task on the emptiest box, so free memory ends up divided evenly rather than contiguous.
   #
-  #   spread on AZ  first, so the copies of a scaled-out service land in different availability
-  #                 zones. Two tasks on one box survive a task crash and nothing else; this is
-  #                 what makes the second copy actually worth paying for.
-  #   binpack       on memory, so within an AZ tasks consolidate instead of scattering. Free
-  #                 memory stays contiguous — which is what a large task needs — and a drained
-  #                 box can actually empty, which is what lets scale-in ever happen.
+  # BINPACK IS FIRST, AND SPREAD-FIRST WAS A MISTAKE. The reasoning for putting AZ spread ahead
+  # of it was that copies of a scaled-out service should land in different availability zones.
+  # True, but it only applies to a service running MORE THAN ONE task — and at rest every
+  # service here runs exactly one. With one task each, AZ spread has no copies to separate and
+  # simply scatters four small tasks across three machines.
+  #
+  # That is not merely wasteful, it DEADLOCKS scale-in. ECS managed termination protection
+  # protects any instance running a task, so scattering tasks protects every box, and the group
+  # reports "could not scale to desired capacity because all remaining instances are protected
+  # from scale-in" while an empty instance keeps billing. Observed in production on 2026-09-19:
+  # four tasks totalling 2,560 MiB held three boxes, one of them with zero tasks on it.
+  #
+  #   binpack on memory  first: fill one box before touching the next, so free memory stays
+  #                      contiguous (what a large task needs) and idle boxes actually empty
+  #                      (what lets scale-in happen at all).
+  #   spread on AZ       second: still separates the copies of a service that HAS copies, which
+  #                      is when the AZ argument was ever real — it just no longer overrides
+  #                      consolidation to do it.
   dynamic "ordered_placement_strategy" {
     for_each = each.value.on_ec2 ? [1] : []
     content {
-      type  = "spread"
-      field = "attribute:ecs.availability-zone"
+      type  = "binpack"
+      field = "memory"
     }
   }
 
   dynamic "ordered_placement_strategy" {
     for_each = each.value.on_ec2 ? [1] : []
     content {
-      type  = "binpack"
-      field = "memory"
+      type  = "spread"
+      field = "attribute:ecs.availability-zone"
     }
   }
 

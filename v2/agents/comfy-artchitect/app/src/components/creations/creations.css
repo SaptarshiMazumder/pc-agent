@@ -3,6 +3,7 @@
  * The workflow cards themselves keep their rules in ../workflows/workflows.css. */
 
 /* The screen scrolls as one column of sections; the page head above it stays put. */
+.cr-stage { grid-template-columns: minmax(0, 1fr); }
 .cr-scroll { overflow-y: auto; gap: var(--sp-panel); padding-bottom: var(--sp-panel); }
 
 /* ── the segment toggle in the page head ─────────────────────────────────────────────────── */
