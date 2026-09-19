@@ -25,9 +25,10 @@ import {
   RefreshCw,
   MessageSquareText,
   Settings2,
-  Sparkles,
   SquarePen,
 } from 'lucide-react'
+
+import { BrandMark } from './BrandMark'
 import { useState, type ReactNode } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -159,10 +160,10 @@ export function Sidebar({
   return (
     <aside className="rail sidebar">
       <div className="brand">
-        {/* The agent's mark. A gradient tile rather than a logo file, so an agent that never
-            ships artwork still has an identity on screen. */}
+        {/* The agent's mark: the penguin architect, ink on the lime tile. Inline so it takes the
+            tile's colour rather than shipping a second drawing per theme (BrandMark.tsx). */}
         <span className="brand-tile" aria-hidden="true">
-          <Sparkles size={17} strokeWidth={1.9} />
+          <BrandMark size={28} />
         </span>
         <span className="brand-text">
           <span className="brand-name">{name}</span>
