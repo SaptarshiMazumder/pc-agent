@@ -27,6 +27,7 @@ path in tests and its siblings are not importable by name from there.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -246,3 +247,107 @@ class WebhookPostProcessor:
         return AccountsPostProcessor(
             self._c, self._ledger, order, at=self._now()
         ).process(payment)
+
+    def refund(self, payment: PaymentIntent) -> ProcessedPayment:
+        """Money went back to the customer. Take the credits with it.
+
+        ALMOST ALWAYS A REFUND NOBODY HERE STARTED. The policy is "unused credits, when the
+        service genuinely failed you", and the way that is honoured is a human issuing a refund
+        from the rail's dashboard. This callback is the only notice we get, so it is the only
+        place the balance can be corrected — without it a refunded customer keeps spending.
+
+        HOW MANY CREDITS. Not a number the rail knows: it refunded an AMOUNT. The original
+        purchase recorded what that money bought, so the credits come back in the same
+        proportion as the money did — a half refund removes half the credits, and a full refund
+        removes all of them. Reading it from the purchase rather than recomputing from today's
+        markup is what stops a later price change from clawing back the wrong quantity.
+
+        CLAMPED AT WHAT THEY STILL HOLD, AND DELIBERATELY SILENT ABOUT THE REST. Someone can
+        spend between asking for a refund and it being processed, and a balance driven negative
+        would refuse their next turn for a debt they were never told about. The shortfall is
+        recorded on the transaction instead, where reconciliation can see it.
+        """
+        ts = self._now()
+        original = str(payment.meta.get("original") or "")
+        if not original:
+            raise ValueError(
+                "refund carries no original payment id, so there is no purchase to reverse"
+            )
+
+        row = self._c.execute(
+            "SELECT account_id, meta FROM ledger_txns WHERE txn_type = 'purchase' AND ref = ?",
+            (original,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"refund references payment {original}, which bought nothing here")
+
+        account_id = str(row["account_id"] or "")
+        try:
+            bought = json.loads(row["meta"] or "{}")
+        except ValueError as e:
+            raise ValueError(f"purchase {original} has unreadable metadata: {e}") from e
+
+        credits_sold = int(bought.get("credits_sold") or 0)
+        gross_micros = int(bought.get("gross_micros") or 0)
+        refund_micros = self._ledger.usd_to_micros(payment.amount.to_usd())
+        if gross_micros <= 0:
+            raise ValueError(f"purchase {original} recorded no amount to refund against")
+        if refund_micros > gross_micros:
+            raise ValueError(
+                f"refund of {refund_micros} exceeds the {gross_micros} originally paid"
+            )
+
+        wanted = int(round(credits_sold * refund_micros / gross_micros))
+        removed, shortfall = self._take_back(account_id, wanted)
+
+        txn_id, created = self._ledger.post_refund(
+            self._c,
+            ts,
+            account_id=account_id,
+            refund_micros=refund_micros,
+            credits_removed=removed,
+            # The rail's own id for the refund, stable across redeliveries — the same
+            # exactly-once guarantee the purchase path relies on.
+            ref=payment.reference,
+            idempotency_key=f"refund:{payment.reference}" if payment.reference else "",
+        )
+        return ProcessedPayment(
+            reference=txn_id,
+            created=created,
+            detail={
+                "original": original,
+                "credits_wanted": wanted,
+                "credits_removed": removed,
+                "credits_shortfall": shortfall,
+            },
+        )
+
+    def _take_back(self, account_id: str, credits: int) -> tuple[int, int]:
+        """Remove up to `credits` from this account's live grants. Returns (removed, shortfall).
+
+        SOONEST-EXPIRING FIRST, matching `_drain_grants` in the accounts app, so a credit means
+        the same thing however it leaves: spending and refunding empty the same pocket in the
+        same order, and the grant a user would have burned next is the one that disappears.
+        """
+        if credits <= 0:
+            return 0, 0
+        rows = self._c.execute(
+            "SELECT id, credits, credits_used FROM credit_grants "
+            "WHERE account_id = ? AND credits > credits_used "
+            "ORDER BY CASE WHEN expires_at = 0 THEN 1 ELSE 0 END, expires_at ASC, id ASC",
+            (account_id,),
+        ).fetchall()
+
+        left = credits
+        for g in rows:
+            if left <= 0:
+                break
+            take = min(left, int(g["credits"]) - int(g["credits_used"]))
+            if take <= 0:
+                continue
+            self._c.execute(
+                "UPDATE credit_grants SET credits_used = credits_used + ? WHERE id = ?",
+                (take, g["id"]),
+            )
+            left -= take
+        return credits - left, left

@@ -51,10 +51,23 @@ class PaymentEventService:
             return {"ok": True, "event": event.id, "duplicate": True, "processed": False}
 
         self._intents.record(event.payment, at=at)
-        if event.type != payment_event.PURCHASE_SUCCEEDED:
-            return {"ok": True, "event": event.id, "type": event.type, "processed": False}
 
-        done = self._post_processor.process(event.payment)
+        # TWO EVENTS CHANGE ANYTHING; the rest are recorded and acted on by nothing.
+        #
+        # A REFUND IS NOT OPTIONAL TO HANDLE, and for a while it was: this branch read
+        # `!= PURCHASE_SUCCEEDED`, so `refund.processed` arrived, was recorded, and returned
+        # `processed: False`. The money went back and the credits stayed — a refunded customer
+        # kept a spendable balance, and nothing anywhere said so.
+        #
+        # It matters most for the refund nobody here initiated. Support issues one from the
+        # rail's own dashboard, which is the normal way to honour a refund policy, and this
+        # callback is the ONLY thing that will ever hear about it.
+        if event.type == payment_event.REFUND_SUCCEEDED:
+            done = self._post_processor.refund(event.payment)
+        elif event.type == payment_event.PURCHASE_SUCCEEDED:
+            done = self._post_processor.process(event.payment)
+        else:
+            return {"ok": True, "event": event.id, "type": event.type, "processed": False}
         return {
             "ok": True,
             "event": event.id,
