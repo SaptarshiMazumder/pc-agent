@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>About — Comfy Penguin</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="legal.css" />
+</head>
+<body>
+<main>
+<header class="doc">
+  <p class="brand">Comfy Penguin</p>
+  <h1>About Comfy Penguin</h1>
+  <p class="updated">Last updated 22 September 2026</p>
+</header>
+
+<p>Comfy Penguin designs, runs and repairs <strong>ComfyUI workflows</strong> — on your own
+ComfyUI instance, not ours.</p>
+
+<p>You describe what you want to generate. The agent connects to the ComfyUI server you point it
+at, reads what is actually installed there — the checkpoints, the custom nodes, the samplers —
+builds a graph against that, submits it, reads whatever the server rejects, fixes it, and runs it
+again until the result is right. You get back both the images and the workflow file, importable
+into ComfyUI like any other.</p>
+
+<h2>Why it works against your instance</h2>
+<p>Every ComfyUI install is different. A tool that writes workflows from memory names checkpoints
+that exist on its author's machine and wires last year's model families the way they used to work.
+Comfy Penguin reads the machine in front of it before it writes anything, which is the difference
+between a workflow file and a workflow that runs.</p>
+
+<p>Where that instance lives is your business: a workstation on your desk, a rented GPU on
+Vast or RunPod, a Modal endpoint. The agent is given a URL and a credential and works with
+whatever is there. We do not host GPUs and we do not resell compute.</p>
+
+<h2>What you pay for</h2>
+<p>You buy credits, in packs of US$5, US$10 and US$20. Credits are spent on the AI model calls the
+agent makes while it is reasoning, researching a model family and repairing your graph — not on
+the image generation itself, which runs on your own hardware at your own cost. Credits are drawn
+down as you use them, at the rate shown in the app; nothing is charged on a schedule and there is
+no subscription to cancel.</p>
+
+<h2>Who runs it</h2>
+<p>Comfy Penguin is operated by Nakama AI, registered at
+Indrakanan, Ward No. 12, Kanainatsal, Sripalli, Barddhaman, Bardhaman, West Bengal 713103, India. It is a small operation, which is worth
+saying plainly: emails are answered by the person who built the thing, usually within a day or
+two. Reach us at <a href="contact.html">Contact</a>.</p>
+
+<nav class="doc">
+  <a href="about.html">About</a>
+  <a href="contact.html">Contact</a>
+  <a href="terms.html">Terms &amp; Conditions</a>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="refund.html">Refunds &amp; Cancellation</a>
+  <a href="delivery.html">Delivery</a>
+  <a href="./">Back to Comfy Penguin</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,98 @@
+/* Shared styling for the policy pages (privacy, terms, refund, shipping, contact, about).
+ *
+ * PLAIN AND STATIC ON PURPOSE. These are read by a Razorpay reviewer and, occasionally, by a
+ * customer looking for the refund rule at the moment they are annoyed. Neither is helped by the
+ * app's dark chrome, and both are hurt by anything that needs JavaScript to render: a reviewer
+ * with a script blocker must still see the text. No fonts are fetched either -- a policy page
+ * that renders late reads as a broken site. */
+
+:root {
+  color-scheme: light;
+  --ink: #16191d;
+  --soft: #4a5159;
+  --rule: #dfe3e8;
+  --accent: #1c6e5a;
+  --bg: #fdfdfc;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2.5rem 1.25rem 5rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+main { max-width: 42rem; margin: 0 auto; }
+
+header.doc {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.brand {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+h1 { font-size: 1.9rem; line-height: 1.15; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+
+.updated { color: var(--soft); font-size: 0.875rem; margin: 0; }
+
+h2 {
+  font-size: 1.12rem;
+  margin: 2.25rem 0 0.6rem;
+  letter-spacing: -0.01em;
+}
+
+p, li { color: var(--ink); }
+ul { padding-left: 1.2rem; }
+li { margin-bottom: 0.4rem; }
+
+a { color: var(--accent); }
+
+dl.facts { margin: 0; }
+dl.facts dt { font-weight: 600; margin-top: 1rem; }
+dl.facts dd { margin: 0.15rem 0 0; color: var(--soft); }
+
+/* The one thing a customer is usually here to find. */
+.callout {
+  background: #eef5f2;
+  border-left: 3px solid var(--accent);
+  padding: 0.9rem 1.1rem;
+  margin: 1.5rem 0;
+  border-radius: 3px;
+}
+.callout p { margin: 0; }
+
+nav.doc {
+  margin-top: 3.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.875rem;
+}
+nav.doc a { margin-right: 1rem; display: inline-block; margin-bottom: 0.35rem; }
+
+@media (prefers-color-scheme: dark) {
+  /* Deliberately not inverted. These pages are printed, PDF'd and pasted into review tickets,
+     and a dark policy page is a worse artefact than a light one on a dark screen. */
+}
+
+/* A DETAIL NOBODY HAS SUPPLIED YET, rendered so it cannot ship unnoticed. Razorpay's reviewer
+   rejects a policy page carrying a placeholder, and the failure mode to avoid is the quiet one:
+   a grey "Company Name" that reads as deliberate. This is meant to be found by eye and by
+   `grep -r 'class="fill"' ui/`. */
+.fill {
+  background: #ffe9a8;
+  border-bottom: 1px dashed #b07c00;
+  color: #6a4a00;
+  padding: 0 0.2em;
+  font-weight: 600;
+}
