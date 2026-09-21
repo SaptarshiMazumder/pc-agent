@@ -22,12 +22,12 @@
          pointer-events: none on the strip, auto on the links: the bar spans the window so the text
          can centre, and without this it would swallow clicks meant for whatever sits beneath it. -->
     <nav class="site-legal" aria-label="Policies">
-      <a href="about.html">About</a>
-      <a href="contact.html">Contact</a>
+      <a class="secondary" href="about.html">About</a>
+      <a class="secondary" href="contact.html">Contact</a>
       <a href="terms.html">Terms</a>
       <a href="privacy.html">Privacy</a>
       <a href="refund.html">Refunds</a>
-      <a href="delivery.html">Delivery</a>
+      <a class="secondary" href="delivery.html">Delivery</a>
     </nav>
     <style>
       .site-legal {
@@ -46,7 +46,7 @@
       .site-legal a {
         pointer-events: auto;
         color: currentColor;
-        opacity: 0.38;
+        opacity: 0.55;
         text-decoration: none;
         /* Legible on whatever the app paints behind it, dark or light, without knowing which. */
         mix-blend-mode: difference;
@@ -54,8 +54,24 @@
       }
       .site-legal a:hover,
       .site-legal a:focus-visible { opacity: 0.95; text-decoration: underline; }
-      /* A phone has no room to spare at the bottom edge, where the composer lives. */
-      @media (max-width: 640px) { .site-legal { display: none; } }
+      /* A PHONE STILL GETS THEM. This started as `display: none` below 640px, to keep the strip
+         off the composer -- which left a phone with no route to the policies at all, on the
+         devices most of these users are on. The composer owns the bottom edge there, so the
+         strip moves to the top-right gutter instead, and thins to the three links a customer or
+         a payment reviewer actually comes looking for. The other three stay one tap away: every
+         policy page's own footer lists all six. */
+      @media (max-width: 640px) {
+        .site-legal {
+          top: calc(env(safe-area-inset-top, 0px) + 2px);
+          bottom: auto;
+          left: auto;
+          right: 8px;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          font-size: 10px;
+        }
+        .site-legal a.secondary { display: none; }
+      }
     </style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
