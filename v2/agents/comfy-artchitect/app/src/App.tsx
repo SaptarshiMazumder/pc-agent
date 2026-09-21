@@ -22,7 +22,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { onIdentityChanged } from '@agentd/client'
 import {
-  ArrowRight,
   Loader2,
   PanelLeft,
   PanelRight,
@@ -73,15 +72,30 @@ import { Settings } from './common/settings/Settings'
    Edit these four lines and the four cards below; they are the first thing anyone reads, and the
    default text says nothing because only you know what this agent is for. */
 const AGENT_NAME = 'Comfy Penguin'
-const OPENING_EYEBROW = 'Point me at your ComfyUI'
 const OPENING_HEADLINE = 'What should we build?'
+/* NO EYEBROW ABOVE THE HEADLINE. It read "Point me at your ComfyUI", which asked the visitor for
+   a setup step before it had told them what they were setting up.
+
+   THE BLURB SAYS NOTHING ABOUT WHOSE HARDWARE RUNS THE GRAPH. It used to ("your instance", "your
+   box"), and that is a claim about the product's shape, not a description of what it does --
+   the kind that has to be corrected in the app, the policy pages and the store listing together
+   the moment the shape changes. What the agent does is the same either way. */
 const OPENING_BLURB =
-  'I read what is actually installed on your instance, design the graph with you, run it there, ' +
-  'and repair what the server rejects. I never name a model or a node I have not seen on your ' +
-  'box — which is what makes the workflows I hand back ones that run.'
+  'I design the graph with you, run it, read what the server rejects, and repair it until the ' +
+  'result is right. You get the images and the workflow file itself — ready to import and ' +
+  'run again.'
 
 
 export default function App() {
+  /* THE SIGN-IN SCREEN KEEPS THE POLICY FOOTER; the app does not -- About and Contact are rail
+     rows once there is a rail. Gate renders its card instead of this component when the
+     deployment demands an account, so "App has mounted" is exactly "the visitor is past the
+     gate", and index.html's strip hides on that attribute. */
+  useEffect(() => {
+    document.documentElement.setAttribute('data-app-ready', '')
+    return () => document.documentElement.removeAttribute('data-app-ready')
+  }, [])
+
   const { client, status } = useClient()
   const connected = status === 'open'
 
@@ -641,10 +655,6 @@ export default function App() {
                 ) : empty ? (
                   /* THE OPENING. Not a placeholder — the only screen guaranteed to be read. */
                   <div className="opening">
-                    <span className="opening-eyebrow">
-                      <ArrowRight size={13} strokeWidth={2} />
-                      {OPENING_EYEBROW}
-                    </span>
                     <h2 className="opening-headline">{OPENING_HEADLINE}</h2>
                     <p className="opening-blurb">{OPENING_BLURB}</p>
                     {/* The four ways in used to be a grid of cards HERE. They moved under the

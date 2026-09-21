@@ -35,9 +35,9 @@ password.</strong></p>
 <ul>
   <li><strong>What you type</strong> — your messages to the agent, and its replies.</li>
   <li><strong>Files you upload</strong> — images and workflow files you give it to work with.</li>
-  <li><strong>Your ComfyUI connection details</strong> — the URL of your instance and any
-  credential you configure so the agent can reach it. This is stored so you do not have to
-  re-enter it. It is used for one purpose: talking to your instance.</li>
+  <li><strong>What it makes for you</strong> — the workflow files, installer scripts and rendered
+  images and videos, kept in your workspace so you can find them again under My creations. You
+  can delete any of them there.</li>
   <li><strong>Operational logs</strong> — timestamps, error messages, which model was called and
   how many tokens it used. This is what the credit balance is computed from and what we read when
   something breaks.</li>
@@ -68,9 +68,12 @@ to anyone to train on.</p>
   uses — which may include OpenAI, Google, Anthropic and Moonshot. This is unavoidable: it is how
   the agent thinks.</dd>
 
-  <dt>Your own ComfyUI instance</dt>
-  <dd>Prompts and images are sent to the ComfyUI server <em>you</em> nominate. If that is a rented
-  GPU, that host's privacy terms apply to what happens there, not ours.</dd>
+  <dt>The GPU machine</dt>
+  <dd>Your prompts, the reference images you upload and the images being rendered pass through a
+  GPU machine we rent for you from Vast.ai, a marketplace of independent hosts. The machine is
+  destroyed after about ten minutes without activity and nothing is kept on it; the finished
+  images are copied back to your workspace with us first. Vast.ai's terms apply to the machine
+  itself.</dd>
 
   <dt>Payment gateway</dt>
   <dd>Razorpay, for taking payments and issuing refunds. Their own privacy policy governs the card
