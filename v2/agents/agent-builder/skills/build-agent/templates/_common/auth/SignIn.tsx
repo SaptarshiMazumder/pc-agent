@@ -36,16 +36,21 @@ import {
   oauthCallbackParams,
   type AuthProvider,
 } from '@agentd/client'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+
+import { SignInWaiting } from './SignInWaiting'
 
 import './auth.css'
 
 export default function SignIn({
   product = '',
+  mark,
   onDone,
 }: {
   /** What the user is signing in TO. Shown as the card's title. */
   product?: string
+  /** The product's mark, above the title. Optional. */
+  mark?: ReactNode
   /** Called once the credential is stored, so the caller can re-read its auth state. */
   onDone?: () => void
 }) {
@@ -156,23 +161,21 @@ export default function SignIn({
     }
   }
 
-  if (redeeming) {
-    return (
-      <div className="signin-wrap">
-        <div className="signin-card">
-          <div className="signin-brand">{product || 'Sign in'}</div>
-          <div className="signin-sub">Signing you in…</div>
-        </div>
-      </div>
-    )
-  }
+  if (redeeming) return <SignInWaiting product={product} note="Signing you in…" mark={mark} />
 
   return (
     <div className="signin-wrap">
       <form className="signin-card" onSubmit={onSubmit} noValidate>
-        <div className="signin-brand">{product || 'Sign in'}</div>
-        <div className="signin-sub">
-          {mode === 'in' ? 'Sign in to continue' : 'Create your account'}
+        <div className="signin-head">
+          {mark && (
+            <div className="signin-mark" aria-hidden="true">
+              {mark}
+            </div>
+          )}
+          <div className="signin-brand">{product || 'Sign in'}</div>
+          <div className="signin-sub">
+            {mode === 'in' ? 'Sign in to continue' : 'Create your account'}
+          </div>
         </div>
 
         {/* ABOVE THE FORM, because for a user who has one of these it is the whole interaction —

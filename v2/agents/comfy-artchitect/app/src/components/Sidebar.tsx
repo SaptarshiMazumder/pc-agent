@@ -21,13 +21,7 @@ import {
   ChevronDown,
   ChevronRight,
   CreditCard,
-  FileText,
-  Info,
   Loader2,
-  Mail,
-  ReceiptText,
-  ShieldCheck,
-  Truck,
   RefreshCw,
   MessageSquareText,
   Settings2,
@@ -46,17 +40,6 @@ import { useApp, type View } from '../state/store'
 import SessionItem from './SessionItem'
 
 /** The destinations that are not the conversation. Each is a shared module — see App.tsx. */
-/** The six pages every visitor can read, signed in or not. Order: who we are, how to reach us,
- *  then the policies in the order a buyer meets them. */
-const LEGAL_PAGES: { href: string; label: string; icon: JSX.Element }[] = [
-  { href: 'about.html', label: 'About us', icon: <Info size={15} /> },
-  { href: 'contact.html', label: 'Contact us', icon: <Mail size={15} /> },
-  { href: 'terms.html', label: 'Terms', icon: <FileText size={15} /> },
-  { href: 'privacy.html', label: 'Privacy', icon: <ShieldCheck size={15} /> },
-  { href: 'refund.html', label: 'Refunds', icon: <ReceiptText size={15} /> },
-  { href: 'delivery.html', label: 'Delivery', icon: <Truck size={15} /> },
-]
-
 const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
   { id: 'credits', label: 'Credits', icon: <CreditCard size={15} /> },
   { id: 'orgs', label: 'Organizations', icon: <Building2 size={15} /> },
@@ -72,6 +55,7 @@ export function Sidebar({
   status,
   name = 'This agent',
   extraDestinations = [],
+  afterDestinations = [],
   middle,
   counts = {},
   showPrimary = true,
@@ -96,6 +80,9 @@ export function Sidebar({
   /** A TEMPLATE's own screens, rendered above the shared three. This is how a dashboard variant
    *  gets a nav entry without shipping its own copy of this file — the base is written once. */
   extraDestinations?: { id: View; label: string; icon: JSX.Element }[]
+  /** Rows drawn UNDER the shared three (credits, orgs, settings) — the app's own screens that
+   *  belong after the account rather than before the conversation. Same shape as `extra`. */
+  afterDestinations?: { id: View; label: string; icon: JSX.Element }[]
   /** Replaces the MIDDLE of the rail (the Recent-chats list). A workbench-shaped template puts
    *  its sections here and keeps its chat in a side panel instead — same file, same bottom, so
    *  the account and the shared destinations stay single-sourced. */
@@ -251,23 +238,17 @@ export function Sidebar({
             {counts[d.id] ? <span className="nav-count">{counts[d.id]}</span> : null}
           </button>
         ))}
-
-        {/* THE POLICY PAGES ARE LINKS, NOT VIEWS, and that is not a shortcut. They are plain
-            HTML files served from ui/ beside this app, and they have to render with JavaScript
-            off -- a payment gateway's reviewer or anyone with a blocker still has to be able
-            to read them -- so they cannot be React screens behind a `view`. All six sit here
-            in the rail, where a person looks for them, rather than in a strip at the foot of
-            the page.
-
-            A NEW TAB, because these are the only rows in this rail that leave the app, and
-            navigating away would drop an unsent message and the conversation on screen. */}
-        <div className="nav-group">About &amp; legal</div>
-        {LEGAL_PAGES.map((p) => (
-          <a key={p.href} className="nav-item" href={p.href} target="_blank" rel="noopener noreferrer">
-            <span className="nav-ico">{p.icon}</span>
-            <span className="nav-item-label">{p.label}</span>
-          </a>
+        {afterDestinations.map((d) => (
+          <button
+            key={d.id}
+            className={`nav-item${view === d.id ? ' on' : ''}`}
+            onClick={() => onView(d.id)}
+          >
+            <span className="nav-ico">{d.icon}</span>
+            <span className="nav-item-label">{d.label}</span>
+          </button>
         ))}
+
       </nav>
 
       <div className="sidebar-scroll">

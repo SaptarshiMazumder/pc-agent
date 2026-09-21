@@ -18,6 +18,7 @@ import { createRoot } from 'react-dom/client'
 
 import App from './App'
 import Gate from './common/auth/Gate'
+import { BrandMark } from './components/BrandMark'
 import './tokens.css'
 import './theme.css'
 import './styles.css'
@@ -29,7 +30,7 @@ if (!host) throw new Error('#root is missing from index.html')
 
 createRoot(host).render(
   <StrictMode>
-    <Gate>
+    <Gate product="Comfy Penguin" mark={<BrandMark size={42} />}>
       <App />
     </Gate>
   </StrictMode>,
