@@ -84,6 +84,20 @@ module "stack" {
   root_domain     = var.root_domain
   agent_hostnames = var.agent_hostnames
   admin_hostname  = var.admin_hostname
+  extra_domains   = var.extra_domains
+
+  # REGION, EXPLICITLY, although the module's default is already this one. Staging inheriting
+  # it means a change to that default silently moves this environment to another region on the
+  # next apply, and production -- which passes it -- would not move with it. The two files
+  # disagreeing about where staging lives is not a difference anybody would look for.
+  region = "ap-northeast-1"
+
+  # NOT COPIED FROM PRODUCTION, DELIBERATELY: `alb_deletion_protection` and
+  # `secret_recovery_window_days`. Both default loose here (false / 0 days) and production sets
+  # them tight (true / 30 days), which looks like drift and is not. Staging's whole value is
+  # that it can be torn down and stood back up; protection on its load balancer and a 30-day
+  # tombstone on every secret it recreates would take exactly that away. The parity that
+  # matters is architectural -- same services, same pools, same rails -- not the blast radius.
 
   # SIGN IN WITH GOOGLE. Empty here means the module builds no external providers, the accounts
   # discovery document advertises none, and every sign-in card renders the password form it always
@@ -428,6 +442,24 @@ variable "agent_hostnames" {
   default = {
     "platform.staging.thorgodofthunder.site" = "cloud-agent-builder"
   }
+}
+
+variable "extra_domains" {
+  description = <<-EOT
+    Product domains this environment answers to that are NOT the platform's own -- a zone, a
+    certificate and a place on every TLS listener, and nothing else. See modules/extra_domains.tf.
+
+    EMPTY HERE, AND THE VARIABLE STILL EXISTS. Production serves comfypenguin.com through this;
+    staging has no second domain to serve. The knob is declared anyway so the two root modules
+    have the SAME SHAPE -- the same reason root_domain and certificate_arn both exist in both
+    files while only one of them is set. A mechanism production uses and staging cannot even
+    express is one that gets rehearsed for the first time in production.
+
+    Setting one is not free of manual work: point the registrar at the zone this creates
+    (`terraform output extra_domain_name_servers`), or ACM cannot validate and the apply waits.
+  EOT
+  type        = list(string)
+  default     = []
 }
 
 variable "admin_hostname" {
