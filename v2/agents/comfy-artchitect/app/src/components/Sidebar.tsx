@@ -21,9 +21,13 @@ import {
   ChevronDown,
   ChevronRight,
   CreditCard,
+  FileText,
   Info,
   Loader2,
   Mail,
+  ReceiptText,
+  ShieldCheck,
+  Truck,
   RefreshCw,
   MessageSquareText,
   Settings2,
@@ -42,6 +46,17 @@ import { useApp, type View } from '../state/store'
 import SessionItem from './SessionItem'
 
 /** The destinations that are not the conversation. Each is a shared module — see App.tsx. */
+/** The six pages every visitor can read, signed in or not. Order: who we are, how to reach us,
+ *  then the policies in the order a buyer meets them. */
+const LEGAL_PAGES: { href: string; label: string; icon: JSX.Element }[] = [
+  { href: 'about.html', label: 'About us', icon: <Info size={15} /> },
+  { href: 'contact.html', label: 'Contact us', icon: <Mail size={15} /> },
+  { href: 'terms.html', label: 'Terms', icon: <FileText size={15} /> },
+  { href: 'privacy.html', label: 'Privacy', icon: <ShieldCheck size={15} /> },
+  { href: 'refund.html', label: 'Refunds', icon: <ReceiptText size={15} /> },
+  { href: 'delivery.html', label: 'Delivery', icon: <Truck size={15} /> },
+]
+
 const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
   { id: 'credits', label: 'Credits', icon: <CreditCard size={15} /> },
   { id: 'orgs', label: 'Organizations', icon: <Building2 size={15} /> },
@@ -237,22 +252,22 @@ export function Sidebar({
           </button>
         ))}
 
-        {/* ABOUT AND CONTACT ARE LINKS, NOT VIEWS, and that is not a shortcut. Both are plain
-            HTML files served from ui/ beside this app, and they carry the terms, privacy and
-            refund policies in their own footers. Those have to render with JavaScript off --
-            a payment gateway's reviewer or anyone with a blocker still has to be able to read
-            them -- so they cannot be React screens behind a `view`.
+        {/* THE POLICY PAGES ARE LINKS, NOT VIEWS, and that is not a shortcut. They are plain
+            HTML files served from ui/ beside this app, and they have to render with JavaScript
+            off -- a payment gateway's reviewer or anyone with a blocker still has to be able
+            to read them -- so they cannot be React screens behind a `view`. All six sit here
+            in the rail, where a person looks for them, rather than in a strip at the foot of
+            the page.
 
             A NEW TAB, because these are the only rows in this rail that leave the app, and
             navigating away would drop an unsent message and the conversation on screen. */}
-        <a className="nav-item" href="about.html" target="_blank" rel="noopener noreferrer">
-          <span className="nav-ico"><Info size={15} /></span>
-          <span className="nav-item-label">About us</span>
-        </a>
-        <a className="nav-item" href="contact.html" target="_blank" rel="noopener noreferrer">
-          <span className="nav-ico"><Mail size={15} /></span>
-          <span className="nav-item-label">Contact us</span>
-        </a>
+        <div className="nav-group">About &amp; legal</div>
+        {LEGAL_PAGES.map((p) => (
+          <a key={p.href} className="nav-item" href={p.href} target="_blank" rel="noopener noreferrer">
+            <span className="nav-ico">{p.icon}</span>
+            <span className="nav-item-label">{p.label}</span>
+          </a>
+        ))}
       </nav>
 
       <div className="sidebar-scroll">
