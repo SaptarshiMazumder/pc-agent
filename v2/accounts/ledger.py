@@ -11,12 +11,13 @@ event writes entries that MUST sum to zero, in one transaction, and any balance 
 by replaying entries. If the books do not balance the write is rejected rather than accepted and
 silently wrong — which is the whole point when the alternative is discovering it at year end.
 
-THE FIVE EVENTS
+THE SIX EVENTS
   purchase       user pays -> we owe them service, we owe a provider, a creator has earned
   promo_grant    we give credits away -> same liability, no cash, and NEVER a creator accrual
   consumption    a model call ran -> provider billed, some of the liability becomes revenue
   expiry         unspent credits died -> liability becomes breakage revenue
   payout         we actually pay a creator -> the accrued liability is settled
+  refund         money went back -> the purchase reversed for the part that was returned
 
 UNITS. Integer MICRO-DOLLARS (1 USD = 1_000_000). Floats accumulate rounding error, and money
 that does not add up is indistinguishable from money that was stolen.
@@ -486,6 +487,62 @@ def post_payout(
         c, "payout",
         [("creator_payable", DEBIT, amount_micros), ("cash", CREDIT, amount_micros)],
         ts, account_id=creator_id, ref=ref, idempotency_key=idempotency_key,
+    )
+
+
+def post_refund(
+    c: sqlite3.Connection,
+    ts: float,
+    *,
+    account_id: str,
+    refund_micros: int,
+    credits_removed: int,
+    agent_id: str = "",
+    ref: str = "",
+    idempotency_key: str = "",
+) -> tuple[str, bool]:
+    """Money went back to a user, and the credits it bought were taken off them.
+
+    THE PURCHASE, PARTIALLY UNDONE. A refund is not a new kind of event so much as the reversal
+    of one, so these entries are the purchase's own, negated and scaled to the amount actually
+    returned: the liability we took on is discharged, the cash we took is given back, and the
+    inference reserved against those credits is released because that inference will now never
+    be bought.
+
+    THE PROCESSING FEE IS DELIBERATELY NOT REVERSED. `post_purchase` booked it as an expense the
+    moment the rail took it, and the rail does not hand it back when a payment is refunded — so
+    reversing it here would invent money that no one returned. The net effect across a purchase
+    and its full refund is therefore a loss of exactly the fee, which is what really happened.
+
+    WHY IT BALANCES FOR ANY PAIR OF NUMBERS. `refund_micros` and the released reserve are
+    independent: the first is what the rail sent back, the second is what those credits would
+    have cost us. Each appears once as a debit and once as a credit, so the transaction is
+    balanced by construction rather than by the two happening to be equal — which they are not,
+    since the amount refunded carries margin the reserve never held.
+
+    Returns (txn_id, created); `created=False` means this refund was already posted.
+    """
+    if refund_micros <= 0:
+        return "", False
+
+    entries: list[tuple[str, str, int]] = [
+        # We no longer owe the service, and the money is no longer ours.
+        ("user_credit_liability", DEBIT, refund_micros),
+        ("cash", CREDIT, refund_micros),
+    ]
+    released = credits_to_cost_micros(credits_removed)
+    if released > 0:
+        # Inference that was fenced off for credits nobody holds any more. Same release as
+        # `post_expiry` performs, for the same reason — the difference is only why the credits
+        # went away.
+        entries += [("cash", DEBIT, released), ("inference_reserve", CREDIT, released)]
+
+    return post(
+        c, "refund", entries, ts,
+        account_id=account_id, agent_id=agent_id, ref=ref,
+        idempotency_key=idempotency_key,
+        meta={"refund_micros": int(refund_micros), "credits_removed": int(credits_removed),
+              "reserve_released_micros": released},
     )
 
 
