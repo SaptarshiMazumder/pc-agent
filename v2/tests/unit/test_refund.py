@@ -248,10 +248,16 @@ def test_refund_event_reaches_the_post_processor():
     from payments.application.services.payment_event_service import PaymentEventService
     from payments.domain import payment_event
 
+    class _Payload:
+        # The service logs the rail's reference for every event it acts on, so the fake needs
+        # one -- a bare object() passed until that logging existed and would pass again the
+        # moment someone removed it, which is exactly the regression this file is here to stop.
+        reference = "rfnd_1"
+
     class _Event:
         id = "evt_1"
         type = payment_event.REFUND_SUCCEEDED
-        payment = object()
+        payment = _Payload()
 
     class _Verifier:
         def verify(self, body, headers):
