@@ -76,14 +76,13 @@ const OPENING_HEADLINE = 'What should we build?'
 /* NO EYEBROW ABOVE THE HEADLINE. It read "Point me at your ComfyUI", which asked the visitor for
    a setup step before it had told them what they were setting up.
 
-   THE BLURB SAYS NOTHING ABOUT WHOSE HARDWARE RUNS THE GRAPH. It used to ("your instance", "your
-   box"), and that is a claim about the product's shape, not a description of what it does --
-   the kind that has to be corrected in the app, the policy pages and the store listing together
-   the moment the shape changes. What the agent does is the same either way. */
+   THE BLURB SAYS WHOSE HARDWARE RUNS THE GRAPH, because that is the first thing a visitor wants
+   to know and the policy pages say the same: the platform rents the GPU, the visitor brings
+   nothing. It used to say "your instance" and "your box", which was the opposite of true. */
 const OPENING_BLURB =
-  'I design the graph with you, run it, read what the server rejects, and repair it until the ' +
-  'result is right. You get the images and the workflow file itself — ready to import and ' +
-  'run again.'
+  'Tell me what to make. I rent a GPU for you, set ComfyUI up on it, design the graph, run it, ' +
+  'and repair whatever the server rejects until the result is right. You get the images, the ' +
+  'workflow file, and an installer to run it on a ComfyUI of your own.'
 
 
 export default function App() {
