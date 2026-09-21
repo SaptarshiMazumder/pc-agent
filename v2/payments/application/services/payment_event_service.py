@@ -17,6 +17,7 @@ forever and eventually disable the endpoint — taking the events we DO care abo
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable, Mapping
 
@@ -24,6 +25,8 @@ from payments.application.interfaces.payment_intent_store import PaymentIntentSt
 from payments.application.interfaces.payments_post_processor import PaymentsPostProcessor
 from payments.application.interfaces.webhook_verifier import WebhookVerifier
 from payments.domain import payment_event
+
+log = logging.getLogger("payments")
 
 
 class PaymentEventService:
@@ -63,10 +66,20 @@ class PaymentEventService:
         # rail's own dashboard, which is the normal way to honour a refund policy, and this
         # callback is the ONLY thing that will ever hear about it.
         if event.type == payment_event.REFUND_SUCCEEDED:
+            log.info("payment event %s: refund, reversing %s", event.id, event.payment.reference)
             done = self._post_processor.refund(event.payment)
         elif event.type == payment_event.PURCHASE_SUCCEEDED:
+            log.info("payment event %s: purchase, granting %s", event.id, event.payment.reference)
             done = self._post_processor.process(event.payment)
         else:
+            # SAY SO. An ignored event used to return 200 and write nothing anywhere, which
+            # reads in the logs exactly like a handled one — so "the rail says it sent a
+            # refund and nothing happened" could only be investigated by staring at the
+            # ledger. The rail's own name for the event is the thing worth recording: it is
+            # what distinguishes "we do not act on this type" from "the type we wanted never
+            # arrived", and those have completely different fixes.
+            log.info("payment event %s: type %r is not acted on, recorded only",
+                     event.id, event.type)
             return {"ok": True, "event": event.id, "type": event.type, "processed": False}
         return {
             "ok": True,

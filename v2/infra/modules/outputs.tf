@@ -239,3 +239,11 @@ output "region" {
   description = "The region this environment lives in — scripts and CI read it from here instead of hardcoding it, so the EU production move is a provider-block change in ONE root module."
   value       = data.aws_region.current.name
 }
+
+# Nameservers for each extra domain (extra_domains.tf). Paste these at that domain's REGISTRAR,
+# exactly as with root_domain -- until they propagate, ACM cannot validate the certificate and
+# the apply sits waiting on it with no other symptom.
+output "extra_domain_name_servers" {
+  description = "Per extra domain: the Route 53 nameservers to set at its registrar."
+  value       = { for d, z in aws_route53_zone.extra : d => z.name_servers }
+}

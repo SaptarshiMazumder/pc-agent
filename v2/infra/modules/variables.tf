@@ -1363,6 +1363,42 @@ variable "root_domain" {
 # Empty (the default, and every environment without a domain) => fully dormant: no ALB rules,
 # and AGENTD_APP_HOSTS carries "{}", which the daemon reads as off. Changing domain is
 # rewriting the keys — no image is rebuilt.
+variable "extra_domains" {
+  description = <<-EOT
+    Domains this deployment ANSWERS TO but is not NAMED after. Each gets its own Route 53 zone,
+    its own ACM certificate, and a place on every TLS listener; `agent_hostnames` then decides
+    what each one serves.
+
+    THE DISTINCTION FROM root_domain IS THE WHOLE POINT. root_domain is the platform's identity:
+    the zone, both certificates, the per-agent wildcard, the admin console, and -- through
+    `public_host` -- the TOKEN ISSUER stamped into every access token. A domain listed HERE gets
+    none of that. It is a name that resolves and terminates TLS, nothing more.
+
+    THIS EXISTS BECAUSE THE ALTERNATIVE WAS TRIED. Pointing root_domain at a product's domain
+    renames the entire platform after one product: on 2026-09-21 the issuer became
+    `comfypenguin.com:4100`, the admin console moved with it, and the web client lost its
+    hostname altogether because root_domain's wildcard swallowed every name that was left. One
+    agent's launch should not be able to do that to an account.
+
+    NO WILDCARD, DELIBERATELY. `<bundle-id>.<root_domain>` is how a published agent gets a URL,
+    and that is the platform's mechanism on the platform's name. A domain here serves the exact
+    hostnames it is given.
+
+    THE MANUAL STEP is root_domain's: point the registrar's nameservers at the zone this
+    creates (`extra_domain_name_servers`), or ACM cannot validate and the apply waits on it.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for d in var.extra_domains :
+      can(regex("^[a-z0-9][a-z0-9-]*([.][a-z0-9][a-z0-9-]*)+$", d))
+    ])
+    error_message = "each extra domain must be a bare lowercase domain like \"example.com\" (no scheme, no port, no trailing dot)."
+  }
+}
+
 variable "agent_hostnames" {
   description = "Vanity hostname -> agent id. Each becomes an ALB host rule to the daemon plus an AGENTD_APP_HOSTS entry, so the agent's own UI is served at that hostname's root. Requires a certificate that covers the names."
   type        = map(string)

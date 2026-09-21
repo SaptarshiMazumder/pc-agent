@@ -131,7 +131,13 @@ module "stack" {
   #
   # prod.thorgodofthunder.site IS AN INTERIM NAME. Moving to the real domain is these three
   # values and nothing else in the repo (infra/DOMAIN-SETUP.md, "Changing the domain later").
-  root_domain     = var.root_domain
+  root_domain = var.root_domain
+
+  # DOMAINS THIS DEPLOYMENT ANSWERS TO BUT IS NOT NAMED AFTER (modules/extra_domains.tf). Each
+  # gets a zone, a certificate and a place on every TLS listener; `agent_hostnames` above says
+  # what it serves. No wildcard, no admin console, no say over the issuer -- all of that stays
+  # on root_domain, which is what keeps one product's launch from renaming the platform.
+  extra_domains   = var.extra_domains
   agent_hostnames = var.agent_hostnames
   admin_hostname  = var.admin_hostname
 
@@ -502,8 +508,33 @@ variable "agent_hostnames" {
   description = "Vanity hostname -> agent id (ALB host rule + AGENTD_APP_HOSTS, one map so they cannot disagree)."
   type        = map(string)
   default = {
+    # COMFY ARTCHITECT ON ITS OWN DOMAIN, which is an `extra_domains` entry rather than this
+    # environment's root_domain. The distinction is the point: comfypenguin.com is a name that
+    # resolves and serves one agent, while root_domain below is the platform's identity -- the
+    # zone, the wildcard, the admin console and the token issuer. Making a product's domain the
+    # root renamed the whole account after one agent; see extra_domains.tf.
+    #
+    # This URL is now stable. Moving the PLATFORM to rapidbase.ai later changes root_domain and
+    # nothing here.
+    "comfypenguin.com" = "comfy-artchitect"
+
+    # Cloud Agent Builder, on the platform's own domain where it belongs.
     "platform.prod.thorgodofthunder.site" = "cloud-agent-builder"
   }
+}
+
+variable "extra_domains" {
+  description = <<-EOT
+    Product domains served by this environment. comfypenguin.com is Comfy Artchitect's, and it
+    is deliberately NOT root_domain: that would move the token issuer, the admin console and the
+    per-agent wildcard onto a single agent's brand, which is exactly what happened on
+    2026-09-21 and cost the web client its hostname.
+
+    Each needs its registrar pointed at the zone this creates -- `terraform output
+    extra_domain_name_servers`. Until that propagates ACM cannot validate and the apply waits.
+  EOT
+  type        = list(string)
+  default     = ["comfypenguin.com"]
 }
 
 variable "admin_hostname" {
