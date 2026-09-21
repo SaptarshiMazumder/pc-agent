@@ -60,6 +60,9 @@
          strip moves to the top-right gutter instead, and thins to the three links a customer or
          a payment reviewer actually comes looking for. The other three stay one tap away: every
          policy page's own footer lists all six. */
+      /* Past the gate the rail carries About and Contact instead -- see App.tsx. */
+      :root[data-app-ready] .site-legal { display: none; }
+
       @media (max-width: 640px) {
         .site-legal {
           top: calc(env(safe-area-inset-top, 0px) + 2px);

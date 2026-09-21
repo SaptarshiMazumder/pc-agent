@@ -1049,7 +1049,7 @@ a.milestone-detail:hover { text-decoration: underline; }
   padding: 7px 9px; border: 0; border-radius: var(--r-control);
   background: transparent; color: var(--dim);
   font-family: var(--sans); font-size: var(--fs-control); font-weight: var(--fw-medium);
-  cursor: pointer; text-align: left;
+  cursor: pointer; text-align: left; text-decoration: none;
   transition: background var(--dur-base) ease, color var(--dur-base) ease;
 }
 .nav-item:hover { background: var(--bg3); color: var(--text); }

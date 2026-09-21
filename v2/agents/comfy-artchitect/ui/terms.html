@@ -20,10 +20,12 @@
 Service means you accept them.</p>
 
 <h2>1. What the Service does</h2>
-<p>Comfy Penguin is an AI agent that designs, runs and repairs ComfyUI workflows against
-<strong>a ComfyUI instance you provide and control</strong>. We do not supply GPUs, host ComfyUI,
-or resell compute. Whether your instance is reachable, what models it has, and what it costs you
-to run are yours.</p>
+<p>Comfy Penguin is an AI agent that designs, runs and repairs ComfyUI workflows on
+<strong>a GPU machine we rent for you</strong> from a third-party marketplace (currently Vast.ai)
+while a conversation needs one. One machine per account; it is destroyed after about ten minutes
+without activity, or when your credits run out, and nothing on it is kept. The images it renders
+are copied to your workspace with us before that. The machine's time is charged to your credits
+at the marketplace's own rate (clause 3).</p>
 
 <h2>2. Your account</h2>
 <p>You must be 18 or older. Sign in is through Google; keep that account secure, because anyone
@@ -34,9 +36,15 @@ credentials. Tell us promptly if you think someone else has access.</p>
 <ul>
   <li>Credits are prepaid and are sold in packs of <strong>US$5, US$10 and US$20</strong>. The
   price and the currency charged are shown before you confirm the payment.</li>
-  <li>Credits are consumed by the AI model calls the agent makes for you. The rate is shown in
-  the app and may change for future purchases; it never changes retroactively for credits you
+  <li>Credits are consumed by three things: the AI model calls the agent makes for you; the GPU
+  machine's time, charged by the minute at the marketplace's hourly rate for that machine
+  (including its disk) for as long as it is up, with no markup; and paid hosted models, which the
+  agent only uses after showing you the price and getting your yes. The rates are shown in the
+  app and may change for future purchases; they never change retroactively for credits you
   already hold.</li>
+  <li>The GPU machine keeps running, and keeps being charged, for about ten minutes after your
+  last activity, so that a follow-up does not start from a cold machine. Closing the app does not
+  stop it sooner. A long render keeps it alive until the render finishes.</li>
   <li><strong>Credits are valid for 12 months from the date of purchase</strong> and expire
   after that.</li>
   <li>Credits are not money, not a deposit and not transferable. They have no cash value except
@@ -72,8 +80,9 @@ result is lawful to use for your purpose is yours to do.</strong></p>
 <h2>6. Availability</h2>
 <p>We aim to keep the Service up, and we do not promise a specific uptime. It may be unavailable
 during maintenance, or because a dependency we rely on — a model provider, our hosting, the
-payment gateway, or your own ComfyUI instance — is down. If a failure on our side consumes your
-credits, we restore them or refund them.</p>
+payment gateway, or the GPU marketplace — is down, or because no suitable machine is available
+to rent at that moment. If a failure on our side consumes your credits, we restore them or refund
+them.</p>
 
 <h2>7. No warranty</h2>
 <p>The Service is provided "as is". AI systems make mistakes: a workflow may fail, a repair may
@@ -84,14 +93,14 @@ implied warranties of merchantability and fitness for a particular purpose.</p>
 <h2>8. Limitation of liability</h2>
 <p>To the maximum extent permitted by law, our total liability for any claim connected with the
 Service is limited to <strong>the amount you paid us in the 12 months before the claim
-arose</strong>. We are not liable for lost profits, lost data, or indirect or consequential loss
-— including GPU rental or other compute you paid a third party for. Nothing here limits
-liability that cannot lawfully be limited, including for fraud.</p>
+arose</strong>. We are not liable for lost profits, lost data, or indirect or consequential loss.
+Nothing here limits liability that cannot lawfully be limited, including for fraud.</p>
 
 <h2>9. Third parties</h2>
-<p>The Service depends on Google (sign-in), Razorpay (payments), Amazon Web Services (hosting)
-and AI model providers. Their terms apply to their part of the transaction. Your ComfyUI host, if
-you rent one, is entirely your arrangement.</p>
+<p>The Service depends on Google (sign-in), Razorpay (payments), Amazon Web Services (hosting),
+Vast.ai (the GPU machines) and AI model providers. Their terms apply to their part of the
+transaction. The GPU machine is rented in our name, on your behalf; you have no contract with
+the host and owe it nothing directly.</p>
 
 <h2>10. Ending it</h2>
 <p>You may stop using the Service and delete your account at any time; see the

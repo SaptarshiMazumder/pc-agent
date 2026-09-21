@@ -15,31 +15,35 @@
   <p class="updated">Last updated 22 September 2026</p>
 </header>
 
-<p>Comfy Penguin designs, runs and repairs <strong>ComfyUI workflows</strong> — on your own
-ComfyUI instance, not ours.</p>
+<p>Comfy Penguin designs, runs and repairs <strong>ComfyUI workflows</strong> — on a GPU machine
+we rent for you, for as long as you are using it.</p>
 
-<p>You describe what you want to generate. The agent connects to the ComfyUI server you point it
-at, reads what is actually installed there — the checkpoints, the custom nodes, the samplers —
-builds a graph against that, submits it, reads whatever the server rejects, fixes it, and runs it
-again until the result is right. You get back both the images and the workflow file, importable
-into ComfyUI like any other.</p>
+<p>You describe what you want to generate. The agent rents a GPU machine running ComfyUI on your
+behalf, installs the models the job needs, reads what is actually on that machine — the
+checkpoints, the custom nodes, the samplers — builds a graph against that, submits it, reads
+whatever the server rejects, fixes it, and runs it again until the result is right. You get back
+the images, the workflow file importable into ComfyUI like any other, and an installer script
+that sets the same thing up on a ComfyUI of your own.</p>
 
-<h2>Why it works against your instance</h2>
+<h2>Why it works against a real machine</h2>
 <p>Every ComfyUI install is different. A tool that writes workflows from memory names checkpoints
 that exist on its author's machine and wires last year's model families the way they used to work.
 Comfy Penguin reads the machine in front of it before it writes anything, which is the difference
 between a workflow file and a workflow that runs.</p>
 
-<p>Where that instance lives is your business: a workstation on your desk, a rented GPU on
-Vast or RunPod, a Modal endpoint. The agent is given a URL and a credential and works with
-whatever is there. We do not host GPUs and we do not resell compute.</p>
+<p>The machine is rented from the Vast.ai GPU marketplace when a conversation needs one, one
+machine per account, and destroyed again after about ten minutes without activity. You can open
+the ComfyUI running on it from the app while it is up. Nothing is kept on it: model files are
+downloaded fresh each time, and every image it renders is copied back to your workspace with us
+before the machine goes away.</p>
 
 <h2>What you pay for</h2>
-<p>You buy credits, in packs of US$5, US$10 and US$20. Credits are spent on the AI model calls the
-agent makes while it is reasoning, researching a model family and repairing your graph — not on
-the image generation itself, which runs on your own hardware at your own cost. Credits are drawn
-down as you use them, at the rate shown in the app; nothing is charged on a schedule and there is
-no subscription to cancel.</p>
+<p>You buy credits, in packs of US$5, US$10 and US$20. Credits are spent on three things: the AI
+model calls the agent makes while it is reasoning, researching and repairing your graph; the GPU
+machine, charged by the minute at the marketplace's own hourly rate for as long as it is up, with
+no markup from us; and any paid hosted model the agent uses on your say-so, at the price it shows
+you before it asks. Credits are drawn down as you use them, at the rates shown in the app; nothing
+is charged on a schedule and there is no subscription to cancel.</p>
 
 <h2>Who runs it</h2>
 <p>Comfy Penguin is operated by Nakama AI, registered at

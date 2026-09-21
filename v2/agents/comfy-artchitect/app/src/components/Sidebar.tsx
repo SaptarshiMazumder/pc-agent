@@ -21,7 +21,9 @@ import {
   ChevronDown,
   ChevronRight,
   CreditCard,
+  Info,
   Loader2,
+  Mail,
   RefreshCw,
   MessageSquareText,
   Settings2,
@@ -234,6 +236,23 @@ export function Sidebar({
             {counts[d.id] ? <span className="nav-count">{counts[d.id]}</span> : null}
           </button>
         ))}
+
+        {/* ABOUT AND CONTACT ARE LINKS, NOT VIEWS, and that is not a shortcut. Both are plain
+            HTML files served from ui/ beside this app, and they carry the terms, privacy and
+            refund policies in their own footers. Those have to render with JavaScript off --
+            a payment gateway's reviewer or anyone with a blocker still has to be able to read
+            them -- so they cannot be React screens behind a `view`.
+
+            A NEW TAB, because these are the only rows in this rail that leave the app, and
+            navigating away would drop an unsent message and the conversation on screen. */}
+        <a className="nav-item" href="about.html" target="_blank" rel="noopener noreferrer">
+          <span className="nav-ico"><Info size={15} /></span>
+          <span className="nav-item-label">About us</span>
+        </a>
+        <a className="nav-item" href="contact.html" target="_blank" rel="noopener noreferrer">
+          <span className="nav-ico"><Mail size={15} /></span>
+          <span className="nav-item-label">Contact us</span>
+        </a>
       </nav>
 
       <div className="sidebar-scroll">
