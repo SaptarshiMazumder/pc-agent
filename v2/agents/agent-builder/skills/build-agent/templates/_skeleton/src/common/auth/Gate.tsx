@@ -36,9 +36,8 @@ import { authStatus, oauthCallbackParams, onIdentityChanged, type AgentdClient }
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import SignIn from './SignIn'
+import { SignInWaiting } from './SignInWaiting'
 import { signOutTransition } from './sign-out-transition'
-
-import './auth.css'
 
 /** What the probe concluded. `blocked` is the dead end below. */
 type Verdict = 'pending' | 'through' | 'sign-in' | 'blocked'
@@ -46,12 +45,15 @@ type Verdict = 'pending' | 'through' | 'sign-in' | 'blocked'
 export default function Gate({
   client,
   product = '',
+  mark,
   require: demand = false,
   children,
 }: {
   client?: AgentdClient
   /** What the user is signing in to. Shown on the card. */
   product?: string
+  /** The product's mark, drawn on the card and the waiting screen. Optional. */
+  mark?: ReactNode
   /**
    * THIS AGENT demands an identity, whatever the deployment would settle for.
    *
@@ -108,25 +110,11 @@ export default function Gate({
     }
   }, [check, client])
 
-  if (signingOut) return <Waiting product={product} note="Signing out…" />
-  if (verdict === 'pending') return <Waiting product={product} note="" />
-  if (verdict === 'sign-in') return <SignIn product={product} onDone={check} />
+  if (signingOut) return <SignInWaiting product={product} note="Signing out…" mark={mark} />
+  if (verdict === 'pending') return <SignInWaiting product={product} note="" mark={mark} />
+  if (verdict === 'sign-in') return <SignIn product={product} mark={mark} onDone={check} />
   if (verdict === 'blocked') return <Blocked product={product} />
   return <>{children}</>
-}
-
-/* THE FRAMES BETWEEN: the same card the form sits on, with only the product's name and, when
- * there is something to say, one line under it. Drawn while the probe is out and while a
- * sign-out is under way — never the app, which would be a guess about who is looking. */
-function Waiting({ product, note }: { product: string; note: string }) {
-  return (
-    <div className="signin-wrap">
-      <div className="signin-card">
-        <div className="signin-brand">{product || 'Sign in'}</div>
-        {note && <div className="signin-sub">{note}</div>}
-      </div>
-    </div>
-  )
 }
 
 /* THE DEAD END: sign-in is demanded and this daemon has no accounts service to demand it from.

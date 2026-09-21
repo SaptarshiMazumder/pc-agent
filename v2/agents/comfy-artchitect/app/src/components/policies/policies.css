@@ -1,0 +1,60 @@
+/* The policy pages, in the app's own clothes. The markup comes from the shipped HTML files
+ * (see PolicyPage.tsx), whose classes are `header.doc`, `.brand`, `.updated`, `dl.facts`,
+ * `.callout` and `nav.doc`; this maps each onto the app's tokens so the words read as part of
+ * the window rather than as a pasted document. Tokens only. */
+
+.pol-stage { grid-template-columns: minmax(0, 1fr); }
+.pol-scroll { overflow-y: auto; padding-bottom: var(--sp-panel); }
+
+/* A READING COLUMN IN THE MIDDLE OF THE STAGE, like the credits page's cards: a document
+   pinned to the left edge of a wide window reads as a mistake. */
+.pol {
+  width: 100%;
+  max-width: 68ch;
+  margin: 0 auto;
+  font-size: var(--fs-control);
+  line-height: 1.65;
+  color: var(--text);
+}
+
+/* The file's own header repeats the brand and title the page head already shows. Keep the
+   date, hide the rest. */
+.pol header.doc { margin-bottom: var(--sp-panel); }
+.pol header.doc .brand, .pol header.doc h1 { display: none; }
+.pol .updated { margin: 0; font-size: var(--fs-meta); color: var(--faint); }
+
+.pol h2 {
+  margin: 28px 0 8px; font-size: var(--fs-lead); font-weight: var(--fw-heavy);
+  letter-spacing: -0.01em; color: var(--text);
+}
+.pol p { margin: 0 0 12px; }
+.pol ul { margin: 0 0 12px; padding-left: 1.2em; }
+.pol li { margin-bottom: 6px; }
+.pol strong { color: var(--text); font-weight: var(--fw-heavy); }
+.pol a { color: var(--accent-text); text-decoration: none; }
+.pol a:hover { text-decoration: underline; }
+
+.pol dl.facts { margin: 0 0 12px; }
+.pol dl.facts dt { margin-top: 14px; font-weight: var(--fw-heavy); color: var(--text); }
+.pol dl.facts dd { margin: 2px 0 0; color: var(--dim); }
+
+.pol .callout {
+  margin: 18px 0; padding: 12px 14px; border-radius: var(--r-sm, 6px);
+  background: var(--accent-soft); border-left: 3px solid var(--accent);
+}
+.pol .callout p { margin: 0; }
+
+/* The footer that links the six pages: a row of quiet chips, and clicks stay in the app. */
+.pol nav.doc {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+.pol nav.doc a {
+  padding: 6px 11px; border: 1px solid var(--border2); border-radius: var(--r-pill);
+  font-size: var(--fs-meta); color: var(--dim);
+}
+.pol nav.doc a:hover { color: var(--accent-text); border-color: var(--accent-edge); text-decoration: none; }
+/* "Back to Comfy Penguin" is for the standalone page; in here the rail is the way back. */
+.pol nav.doc a[href="./"] { display: none; }
+
+.pol-error { color: var(--danger); font-size: var(--fs-meta); }

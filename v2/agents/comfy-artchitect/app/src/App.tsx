@@ -26,6 +26,8 @@ import {
   PanelLeft,
   PanelRight,
   Workflow as WorkflowIcon,
+  Info,
+  Mail,
 } from 'lucide-react'
 
 import { AGENT_ID, useClient } from './agentd/client'
@@ -53,6 +55,8 @@ import { Thread } from './components/Thread'
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
 import MyCreations from './components/creations/MyCreations'
+import PolicyPage from './components/policies/PolicyPage'
+import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
@@ -508,7 +512,8 @@ export default function App() {
   /* THE CARD OVER EVERYTHING, when the account menu asks to sign in. `<Gate>` in main.tsx
      handles the case where the daemon DEMANDS an account before the app runs; this is the other
      one — somebody choosing to sign in from inside a window that was working fine without it. */
-  if (account.wantsSignIn) return <SignIn product={AGENT_NAME} onDone={account.signedIn} />
+  if (account.wantsSignIn)
+    return <SignIn product={AGENT_NAME} mark={<BrandMark size={38} />} onDone={account.signedIn} />
 
   /* WHAT THIS SCREEN IS ABOUT, from what is actually on it. A title invented from sample text
      would be a lie the first time somebody opened a real conversation. */
@@ -552,6 +557,14 @@ export default function App() {
         extraDestinations={[
           { id: 'creations', label: 'My creations', icon: <WorkflowIcon size={15} /> },
         ]}
+        /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
+           from the shipped HTML files (components/policies), which stay readable with no
+           account and no JavaScript for anyone who arrives from outside; Terms, Privacy,
+           Refunds and Delivery are one click away inside either page. Two rows, not six. */
+        afterDestinations={[
+          { id: 'about', label: 'About us', icon: <Info size={15} /> },
+          { id: 'contact', label: 'Contact us', icon: <Mail size={15} /> },
+        ]}
         /* The rail asks; App does the I/O. Both return promises so the buttons can show their
            own progress for exactly as long as the work takes. */
         onRefreshChats={() => refreshChats()}
@@ -564,7 +577,9 @@ export default function App() {
           through to the studio, and a modifier keyed to 'chat' alone would lay it out wrong. */}
       <main
         className={`main${
-          ['credits', 'orgs', 'creations', 'settings'].includes(view) ? '' : ' is-studio'
+          ['credits', 'orgs', 'creations', 'settings', 'about', 'contact'].includes(view)
+            ? ''
+            : ' is-studio'
         }`}
       >
         {view === 'credits' ? (
@@ -585,6 +600,10 @@ export default function App() {
               setView('chat')
             }}
           />
+        ) : view === 'about' ? (
+          <PolicyPage key="about" start="about.html" />
+        ) : view === 'contact' ? (
+          <PolicyPage key="contact" start="contact.html" />
         ) : view === 'settings' ? (
           /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
              `onRestart` too if your window can restart the daemon — some settings only take
