@@ -18,7 +18,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_runtime.presentation import gateway
-from agent_runtime.presentation.gateway import VENDORED_SDK_REL, _app_asset_bytes
+from agent_runtime.presentation.gateway import VENDORED_SDK_REL
+
+# The substitution moved out of gateway into AppAssetResponseBuilder.body_for; the daemon's
+# one instance is still reached through gateway, and still resolves `sdk_client_asset` from
+# that module at call time -- which is what keeps the monkeypatch below pointing at the
+# thing these tests mean to replace.
+_app_asset_bytes = gateway._app_assets.body_for
 
 ON_DISK = b"// the SDK as it was the day this agent was scaffolded\n"
 CURRENT = b"// the SDK this engine ships\n"

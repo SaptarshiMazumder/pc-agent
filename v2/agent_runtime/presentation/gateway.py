@@ -83,6 +83,9 @@ from agent_runtime.presentation.protocol import (
     parse_frame,
 )
 from agent_runtime.runtime_paths import sdk_client_asset
+from agent_runtime.presentation.app_asset_response_builder import (
+    AppAssetResponseBuilder,
+)
 
 log = logging.getLogger("agentd")
 
@@ -532,38 +535,21 @@ def _cookie_value(headers, name: str) -> str:
     return ""
 
 
-def _app_asset_bytes(target: Path, ui_root: Path) -> bytes:
-    """The bytes to serve for one app asset — with the vendored SDK substituted for the copy on
-    disk.
+def _canonical_sdk_bytes() -> bytes | None:
+    """The engine's own SDK build, or None when no canonical copy is staged."""
+    canonical = sdk_client_asset()
+    return canonical.read_bytes() if canonical else None
 
-    WHY THE FILE ON DISK IS NOT TRUSTED. `vendor/agentd-client.js` is COPIED into an agent when it
-    is scaffolded, so it is a snapshot of whatever the SDK was on the day that agent was born and
-    it never changes again. Pack time re-vendors it (bundle_io.pack_bundle), which covers agents
-    that arrive as a package — but an agent AUTHORED here is served straight off disk and is never
-    packed at all. Those copies age silently against a daemon that keeps moving.
 
-    That is not a theoretical decay. When the accounts service stopped returning the pre-token
-    `login.token` field, every agent holding an older SDK read a field the server no longer sent
-    and reported "the accounts server returned no session token" — while the server answered 200.
-    Rebuilding the image fixed the agents shipped IN it and none of the ones users had already
-    created, because those live in each account's own directory.
-
-    Substituting here fixes all of them at once, with no migration to run and nothing to remember:
-    the SDK an app loads is the SDK belonging to the engine serving it, always.
-
-    FAILS OPEN. An install with no canonical SDK staged (`_data/sdk/`, see runtime_paths) serves
-    the file on disk exactly as before — a missing build asset must never turn into a 404 on the
-    one script the page cannot start without.
-    """
-    if target.name != Path(VENDORED_SDK_REL).name:
-        return target.read_bytes()  # the overwhelmingly common path: not the SDK, no work
-    try:
-        if target.relative_to(ui_root).as_posix() != VENDORED_SDK_REL:
-            return target.read_bytes()
-        canonical = sdk_client_asset()
-        return canonical.read_bytes() if canonical else target.read_bytes()
-    except (ValueError, OSError):
-        return target.read_bytes()
+# ONE INSTANCE FOR THE PROCESS. It is stateless but for its compressed-bytes memo, and that memo
+# is keyed by content — so every agent this daemon serves shares one cache rather than each
+# re-gzipping the same vendored SDK. `_app_asset_bytes` used to live here; it is now this
+# object's `body_for`, unchanged.
+_app_assets = AppAssetResponseBuilder(
+    sdk_asset_bytes=_canonical_sdk_bytes,
+    guess_mime=guess_mime,
+    vendored_sdk_rel=VENDORED_SDK_REL,
+)
 
 
 def _oauth_page(message: str) -> HttpResponse:
@@ -2252,12 +2238,18 @@ class Gateway:
             # no cron, no watcher — an agent nobody visits is an agent nobody needs updated.
             self._web_app_refresh(agent_id)
         # NOT `target.read_bytes()`: the vendored SDK is served from this engine's build rather
-        # than the snapshot frozen into the agent when it was scaffolded. See _app_asset_bytes.
-        body = _app_asset_bytes(target, ui_root)
+        # than the snapshot frozen into the agent when it was scaffolded, and text assets go out
+        # gzipped when the client accepts it. See AppAssetResponseBuilder.
+        accept_encoding = ""
+        if headers:
+            try:
+                accept_encoding = headers.get("Accept-Encoding") or ""
+            except Exception:  # noqa: BLE001 — a header mapping that will not answer is not fatal
+                accept_encoding = ""
+        body, content_headers = _app_assets.build(target, ui_root, accept_encoding)
         hdrs = Headers()
-        hdrs["Content-Type"] = guess_mime(target)
-        hdrs["Content-Length"] = str(len(body))
-        hdrs["Cache-Control"] = "no-store"  # local-first: always the installed version
+        for key, value in content_headers.items():
+            hdrs[key] = value
         # THE ENTRY PAGE HANDS ITS ASSETS AN IDENTITY. `/apps/<id>/?session=<tok>` names the
         # account for THIS request only; the page's relative asset urls carry no query, so a hosted
         # account-layer app would 404 every chunk after this one. Writing the session into a cookie
