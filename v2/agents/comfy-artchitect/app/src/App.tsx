@@ -130,41 +130,6 @@ export default function App() {
      and leaving it here would have made `main` fall through to an empty screen rather than to
      the studio if anything ever set it. */
   const isStudio = !['credits', 'orgs', 'creations', 'about', 'contact'].includes(view)
-
-  /* THE MODEL THIS AGENT ACTUALLY RUNS ON, read from the daemon's config rather than inferred
-     from the last turn.
-
-     `session.usage.model` is reported BY a completed run, so before the first message of a
-     conversation there is no usage and the composer said "no model yet" -- which was never
-     true. A model is always configured; the window simply had not been told yet.
-
-     THE AGENT'S OWN VALUE WINS over the daemon's, key by key, which is the same layering the
-     settings page applied (`agents[<id>].model` over the top-level `model`).
-
-     ON FAILURE IT STAYS EMPTY AND SAYS SO IN THE CONSOLE -- the composer then renders no model
-     chip at all rather than inventing one. An unreadable config is a real fault and belongs in
-     the log; it is not a reason to print a confident wrong answer. */
-  const [configModel, setConfigModel] = useState('')
-  useEffect(() => {
-    if (!client || !connected) return
-    let live = true
-    void (client.request('config.get') as Promise<Record<string, unknown>>)
-      .then((cfg) => {
-        if (!live) return
-        // THROUGH `values`. config.get answers { values, env, authored, ... } -- reading
-        // cfg.model directly found nothing and the chip stayed hidden, which is why the model
-        // only ever appeared once a turn had reported its own usage.
-        const values = (cfg?.values ?? {}) as Record<string, unknown>
-        const agents = (values.agents ?? {}) as Record<string, { model?: string }>
-        setConfigModel(String(agents?.[AGENT_ID]?.model || values.model || ''))
-      })
-      .catch((e) => {
-        console.error('config.get failed; the composer will show no model', e)
-      })
-    return () => {
-      live = false
-    }
-  }, [client, connected])
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -831,7 +796,6 @@ export default function App() {
                   onCredits={() => setView('credits')}
                   maxFiles={MAX_FILES}
                   connected={connected}
-                  model={session.usage?.model || configModel}
                   meter={
                     pct === null ? null : (
                       <ContextRing

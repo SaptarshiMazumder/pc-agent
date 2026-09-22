@@ -389,7 +389,8 @@ h2 { font-size: var(--fs-lead); }
 .footer-icon.active { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft); }
 .footer-icon.anon { color: var(--faint); }
 .push-end { margin-left: auto; }
-.grow { flex: 1; min-width: 0; }
+/* Pushes send to the far edge when there IS room, and costs nothing when there is not. */
+.grow { flex: 1 1 0; min-width: 0; }
 
 /* collapsed icon rail — the sidebar is never GONE, only narrow. See the shell rules above. */
 .sidebar--rail { align-items: center; gap: 5px; padding: 13px 0; }
@@ -831,7 +832,16 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* min-width: 0 IS LOAD-BEARING. A flex item's floor is its content, so without it this row
    refuses to be narrower than its chips and simply overflows the composer -- which is exactly
    what put the send button half outside the rounded box on a 376px screen. */
-.composer-foot { display: flex; align-items: center; gap: 10px; margin-top: 6px; min-width: 0; }
+.composer-foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 6px; min-width: 0;
+  /* WRAPPING IS THE BACKSTOP, not the plan. Shrinking the chips should keep this on one line at
+     every width I can compute -- but the send button ended up outside the box twice while that
+     reasoning said it could not, so the row is now allowed to take a second line instead of
+     pushing its last child through the border. A taller composer is a worse look; a button
+     hanging outside it is a broken one. */
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
 
 /* ── the composer's action row ─────────────────────────────────────────────────────────────
    ONE ROW, NOT A ROW PLUS A CAPTION. Below this box there used to be `.composer-hint`: a
@@ -845,7 +855,6 @@ a.milestone-detail:hover { text-decoration: underline; }
    teaches once what one press discovers.
 
    NOT MONOSPACE. The mono face was what made a line of ordinary facts read as debug output. */
-.composer-model,
 .composer-credits,
 .composer-note {
   flex: none;
@@ -868,12 +877,11 @@ a.milestone-detail:hover { text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* THE ONE THING THAT GIVES. When the row runs out of room something has to, and the model is
-   the right sacrifice: the balance is a number you act on, + and send are the actions
-   themselves, and a model id truncates to something still recognisable ("gemini/gemini-2.5…").
-   `flex: 0 1 auto` lets it shrink where `flex: none` made it shove the send button out of the
-   box instead. */
-.composer-model { color: var(--accent-text); flex: 0 1 auto; }
+/* SHRINKS SECOND. The model gives way first (it truncates to something still recognisable), but
+   with `flex: none` here the balance alone could still overrun the row -- "1,000,000 credits" is
+   not a small chip. Both shrinkable means the only items that cannot are the two 36px buttons
+   and the gaps: about 112px against roughly 298px of room, so the row cannot overflow. */
+.composer-credits { flex: 0 1 auto; }
 .composer-credits { cursor: pointer; transition: background .12s ease, color .12s ease; }
 .composer-credits:hover { background: var(--bg4); color: var(--text); }
 /* Out of credits is the one state here that must interrupt: the next message will be refused. */
@@ -908,7 +916,6 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* Narrow: the model name is the first thing that may be sacrificed -- the balance and the send
    button are both things you act on, and the model is a fact you can check elsewhere. */
 @media (max-width: 420px) {
-  .composer-model { max-width: 34vw; }
   .composer-note { display: none; }
 }
 
