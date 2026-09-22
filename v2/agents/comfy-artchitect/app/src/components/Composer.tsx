@@ -251,9 +251,50 @@ export function Composer({
           >
             <Plus size={19} />
           </button>
-          {/* BESIDE THE COMPOSER, because building a window and looking at it are one loop. It
-              used to live only in the agentd window: build here, switch app, find the agent, open
-              it, come back. */}
+          {/* WHAT IS ANSWERING, AND WHAT IT COSTS -- on the action row rather than on a line of
+              their own. They used to sit in a `composer-hint` strip below, in MONOSPACE, sharing
+              a ` · ` separated sentence with three keyboard instructions; on a phone that wrapped
+              to three lines and was the largest thing under an empty input.
+
+              THE KEYBOARD HINTS ARE GONE, not moved. "Enter to send · Shift+Enter for a new line"
+              is a desktop fact printed permanently under a box most people now open on a touch
+              screen, where there is no Shift and Enter is whatever the on-screen keyboard says.
+              It taught, once, something one press discovers. */}
+          {/* NO PLACEHOLDER WHEN UNKNOWN. This used to read "no model yet" whenever the prop
+              was empty, which was every fresh conversation -- and it was false: a model is
+              always configured, the window just had not read it yet. An absent chip says
+              nothing; a present one that is wrong is worse than silence. */}
+          {model && (
+            <span className="composer-model" title="The model answering on this account">
+              {model}
+            </span>
+          )}
+          {credits !== null && (
+            /* A dead end is the worst place to learn you are out of credits, so the readout is
+               also the way to the top-up panel. */
+            <button
+              type="button"
+              className={`composer-credits ${credits === 0 ? 'empty' : ''}`}
+              onClick={onCredits}
+              title={
+                credits === 0
+                  ? 'Out of credits — the next message will be refused. Click to top up.'
+                  : 'Platform credits left on this account. Click to top up.'
+              }
+            >
+              {credits === 0 ? 'no credits' : credits.toLocaleString()}
+            </button>
+          )}
+          {/* STATUS STILL EARNS ITS ROOM -- it is what is happening now, not an instruction.
+              Only ever one of these, and only when there is something to say. */}
+          {stopping ? (
+            <span className="composer-note">stopping…</span>
+          ) : !connected ? (
+            <span className="composer-note bad">not connected</span>
+          ) : dragging ? (
+            <span className="composer-note">drop to attach — analysis only, 5 MB each</span>
+          ) : null}
+          {/* BESIDE THE COMPOSER, because building a window and looking at it are one loop. */}
           {meter}
           {onFork && (
             <button
@@ -299,50 +340,18 @@ export function Composer({
           )}
         </div>
 
-        {/* SEPARATORS ARE THE STYLESHEET'S, not this file's — every conditional piece below used
-            to carry its own ` · `, which is how a hint ends up starting with a stray dot the
-            moment one of them is absent. */}
-        <div className="composer-hint">
-          {/* SAID IN WORDS, not only as a spinner on a 36px button. "Why is it still going?" is
-              the question the spinner alone leaves unanswered — this names what is being waited
-              on, so the delay reads as a step finishing rather than as a click that missed. */}
-          {stopping && <span className="hint-stopping">stopping — finishing the step in flight</span>}
-          <span className="hint-model">{model || 'no model yet'}</span>
-          {credits !== null && (
-            <>
-              {/* A dead end is the worst place to learn you are out of credits, so the readout is
-                  also the way to the top-up panel. */}
-              <button
-                type="button"
-                className={`hint-credits ${credits === 0 ? 'empty' : ''}`}
-                onClick={onCredits}
-                title={
-                  credits === 0
-                    ? 'Out of credits — the next message will be refused. Click to top up.'
-                    : 'Platform credits left on this account. Updates after each message. Click to top up.'
-                }
-              >
-                {credits === 0 ? 'no credits left — top up' : `${credits.toLocaleString()} credits`}
-              </button>
-            </>
-          )}
-          {/* STATUS AND INSTRUCTIONS ARE DIFFERENT THINGS, so they are different elements.
-              `hint-note` is what is happening right now — always worth the room. `hint-keys`
-              teaches the keyboard, which a narrow window (the dashboard's agent panel) can
-              drop without losing anything it could not discover by pressing Enter. */}
-          {!connected ? (
-            <span className="hint-note">not connected</span>
-          ) : running ? (
-            <span className="hint-note">running — press Stop to interrupt</span>
-          ) : dragging ? (
-            <span className="hint-note">drop to attach</span>
-          ) : (
-            <span className="hint-keys">
-              Enter to send · Shift+Enter for a new line · paste or drop images — for analysis
-              only, 5 MB each
-            </span>
-          )}
-        </div>
+        {/* THE IMAGE RULE EARNS ITS LINE; the keyboard hints did not.
+            "for analysis only" is not a tip, it is the answer to "why did it not use my
+            reference?" -- this agent reads an attached image, it does not send it to ComfyUI
+            as an input -- and 5 MB is a limit a person hits with one phone photo. Deleting
+            both along with the Enter/Shift+Enter lecture threw away the only two facts on
+            that strip a user could not discover by trying.
+
+            ONE LINE, SANS, and only while the box is empty: it is a thing to learn once, and
+            once you are typing you have learned it or do not need it yet. */}
+        {!text.trim() && !pending.length && (
+          <p className="composer-imagehint">Images: analysis only, 5 MB each</p>
+        )}
 
         <input
           ref={pickRef}

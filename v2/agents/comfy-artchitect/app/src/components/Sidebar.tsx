@@ -23,7 +23,6 @@ import {
   Loader2,
   RefreshCw,
   MessageSquareText,
-  Settings2,
   SquarePen,
 } from 'lucide-react'
 
@@ -49,7 +48,6 @@ const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
   // one; it detects the module by path, not by a rail entry. Dropping the import to match
   // this row would fail the next validate, and packing would ship an agent a colleague can
   // never be invited into.
-  { id: 'settings', label: 'Settings', icon: <Settings2 size={15} /> },
 ]
 
 export function Sidebar({
