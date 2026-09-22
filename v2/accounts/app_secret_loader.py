@@ -68,6 +68,22 @@ class AppSecretLoader:
             "app secret %s: loaded %d of %d declared fields (%s)",
             self._secret_id, len(loaded), len(self._fields), ", ".join(loaded) or "none",
         )
+        # A KEY IN THE VAULT THAT NOBODY DECLARED IS READ AND THROWN AWAY, and silently: the
+        # operator sets a value, the service never sees it, and everything downstream behaves as
+        # though it was never set. That cost a production afternoon -- RAZORPAY_INR_PER_USD was
+        # sitting in this secret at 89 while the rail went on charging USD to Indian cards that
+        # decline it, because the field was not in `fields`.
+        #
+        # A WARNING, NOT AN ERROR. A secret legitimately outlives the code that reads it: a field
+        # left behind by a removed feature must not stop the service booting. But it must not be
+        # invisible either.
+        undeclared = sorted(set(secret) - set(self._fields))
+        if undeclared:
+            log.warning(
+                "app secret %s: %d key(s) present but NOT DECLARED, so not exported: %s "
+                "-- add them to the loader's `fields` or delete them from the secret",
+                self._secret_id, len(undeclared), ", ".join(undeclared),
+            )
         return loaded
 
     def _fetch(self) -> dict:
