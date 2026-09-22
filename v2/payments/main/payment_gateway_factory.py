@@ -74,6 +74,35 @@ def _razorpay_fx():
     return RazorpayCurrencyConverter(rate)
 
 
+def charge_display(price_usd: float) -> dict:
+    """What the customer will actually be charged for a product priced in USD.
+
+    THE PAGE AND THE CHECKOUT READ ONE RATE. The catalogue used to render `$1.00` while the rail
+    charged Rs 89, because the price display and the conversion had no connection -- a customer
+    was shown one number and asked to pay another. Both now come from `_razorpay_fx`, so they
+    cannot disagree even by a rounding step.
+
+    EMPTY WHEN THERE IS NOTHING TO SAY: another rail, or Razorpay with no rate configured. The
+    client falls back to the USD price, which is exactly what every deployment did before.
+
+    USD REMAINS THE UNIT OF ACCOUNT. This is presentation -- the products table, the ledger and
+    every credit figure stay in dollars, because that is what provider costs are quoted in.
+    """
+    if configured_provider_name() != RAZORPAY:
+        return {}
+    fx = _razorpay_fx()
+    if not fx.enabled:
+        return {}
+    from payments.domain.money import Money
+
+    minor = fx.to_rail(Money.from_usd(price_usd))
+    return {
+        # Major units, for a human: 8900 paise -> 89.0
+        "charge_price": round(minor / 100, 2),
+        "charge_currency": fx.charge_currency,
+    }
+
+
 def _require(name: str) -> str:
     value = (os.environ.get(name) or "").strip()
     if not value:

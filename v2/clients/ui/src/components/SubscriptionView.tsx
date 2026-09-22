@@ -31,6 +31,27 @@ import PageShell from './PageShell'
  * Local (BYOK) mode has no account and no credits, so the whole billing half is hidden there and
  * the old free-plan card is what remains.
  */
+/* WHAT THE CUSTOMER'S BANK WILL SEE. A product is priced in USD and the ledger keeps it that
+   way, but the Razorpay rail charges Indian cards in rupees -- so a page reading "$1.00" in
+   front of a Rs 89 checkout is how somebody decides the site is broken and closes it.
+
+   Falls back to the dollar price whenever the rail charges in the currency of the price, which
+   is every other deployment and Razorpay before a rate is set. */
+function priceLabel(p: { priceUsd: number; chargePrice?: number; chargeCurrency?: string }): string {
+  if (!p.chargePrice || !p.chargeCurrency) return `$${p.priceUsd.toFixed(2)}`
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: p.chargeCurrency,
+      maximumFractionDigits: 2,
+    }).format(p.chargePrice)
+  } catch {
+    // An unknown currency code must not take the shop down; the code beside the number is
+    // still unambiguous.
+    return `${p.chargeCurrency} ${p.chargePrice.toFixed(2)}`
+  }
+}
+
 export default function SubscriptionView() {
   const flavor = useApp((s) => s.flavor)
   const session = useAuthSession()
@@ -169,7 +190,7 @@ export default function SubscriptionView() {
                         <div>
                           <div className="card-name">{p.credits.toLocaleString()} credits</div>
                           <div className="card-by">
-                            ${p.priceUsd.toFixed(2)}
+                            {priceLabel(p)}
                             {p.periodDays > 0 ? ` · expires after ${p.periodDays} days` : ''}
                           </div>
                         </div>
@@ -184,10 +205,10 @@ export default function SubscriptionView() {
                           type="button"
                           disabled={!!busy}
                           onClick={() => void buy(p)}
-                          title={`Add ${p.credits.toLocaleString()} credits for $${p.priceUsd.toFixed(2)}`}
+                          title={`Add ${p.credits.toLocaleString()} credits for ${priceLabel(p)}`}
                         >
                           <CreditCard size={15} />
-                          {busy === p.id ? 'Adding…' : `Buy · $${p.priceUsd.toFixed(2)}`}
+                          {busy === p.id ? 'Adding…' : `Buy · ${priceLabel(p)}`}
                         </button>
                       </div>
                     </div>

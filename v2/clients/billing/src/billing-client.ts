@@ -36,7 +36,12 @@ function toPack(d: Record<string, unknown>): CreditPack {
     credits: Number(d.credits || 0),
     seats: Number(d.seats || 0),
     modelTierMax: String(d.model_tier_max || ''),
-    periodDays: Number(d.period_days || 0)
+    periodDays: Number(d.period_days || 0),
+    // Absent on every rail that charges in the price's own currency, and on Razorpay until a
+    // rate is configured — so 0/'' means "just show the dollars", the behaviour that predates
+    // this field.
+    chargePrice: Number(d.charge_price || 0),
+    chargeCurrency: String(d.charge_currency || '')
   }
 }
 
