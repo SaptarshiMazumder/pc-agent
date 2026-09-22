@@ -119,3 +119,20 @@
 }
 .cr-btn-danger:hover { background: var(--danger); color: #fff; }
 .cr-btn-danger:disabled { opacity: .6; cursor: default; }
+
+/* ── phones ───────────────────────────────────────────────────────────────────────────────── */
+/* The header stops being a row at 820px (styles.css), so the shelf toggle gets its own line and
+   starts from the left edge with the title rather than floating to the right of nothing. */
+@media (max-width: 820px) {
+  .cr-seg {
+    align-self: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  /* Two labels today; a third would scroll rather than shrink these below a thumb's width. */
+  .cr-seg-btn { flex: none; min-height: 38px; }
+
+  /* 180px tiles leave a single column on a 360px screen once the page padding is taken out.
+     140px keeps two, which is what makes a library of thumbnails worth scrolling. */
+  .cr-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}

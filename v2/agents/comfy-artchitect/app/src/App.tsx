@@ -46,6 +46,7 @@ import {
 import { useApp, useSession } from './state/store'
 
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
+import { ContextRing } from './components/ContextRing'
 import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
@@ -71,7 +72,6 @@ import LiveReload from './common/dev/LiveReload'
 import SignIn from './common/auth/SignIn'
 import { useAuth } from './common/auth/useAuth'
 import OrgView from './common/orgs/OrgView'
-import { Settings } from './common/settings/Settings'
 
 /* WHAT THIS AGENT IS, in the user's words rather than yours — the opening screen's whole job.
    Edit these four lines and the four cards below; they are the first thing anyone reads, and the
@@ -126,7 +126,45 @@ export default function App() {
      reader the moment the drawer handles moved out of the studio's own header -- see the bar
      below. `is-studio` and the bar MUST agree: a handle offering a workspace that the current
      view does not render is the same bug as a view with no handle at all. */
-  const isStudio = !['credits', 'orgs', 'creations', 'settings', 'about', 'contact'].includes(view)
+  /* NO 'settings'. The page is gone (see the rail), so the view it named renders nothing --
+     and leaving it here would have made `main` fall through to an empty screen rather than to
+     the studio if anything ever set it. */
+  const isStudio = !['credits', 'orgs', 'creations', 'about', 'contact'].includes(view)
+
+  /* THE MODEL THIS AGENT ACTUALLY RUNS ON, read from the daemon's config rather than inferred
+     from the last turn.
+
+     `session.usage.model` is reported BY a completed run, so before the first message of a
+     conversation there is no usage and the composer said "no model yet" -- which was never
+     true. A model is always configured; the window simply had not been told yet.
+
+     THE AGENT'S OWN VALUE WINS over the daemon's, key by key, which is the same layering the
+     settings page applied (`agents[<id>].model` over the top-level `model`).
+
+     ON FAILURE IT STAYS EMPTY AND SAYS SO IN THE CONSOLE -- the composer then renders no model
+     chip at all rather than inventing one. An unreadable config is a real fault and belongs in
+     the log; it is not a reason to print a confident wrong answer. */
+  const [configModel, setConfigModel] = useState('')
+  useEffect(() => {
+    if (!client || !connected) return
+    let live = true
+    void (client.request('config.get') as Promise<Record<string, unknown>>)
+      .then((cfg) => {
+        if (!live) return
+        // THROUGH `values`. config.get answers { values, env, authored, ... } -- reading
+        // cfg.model directly found nothing and the chip stayed hidden, which is why the model
+        // only ever appeared once a turn had reported its own usage.
+        const values = (cfg?.values ?? {}) as Record<string, unknown>
+        const agents = (values.agents ?? {}) as Record<string, { model?: string }>
+        setConfigModel(String(agents?.[AGENT_ID]?.model || values.model || ''))
+      })
+      .catch((e) => {
+        console.error('config.get failed; the composer will show no model', e)
+      })
+    return () => {
+      live = false
+    }
+  }, [client, connected])
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -616,21 +654,24 @@ export default function App() {
         >
           <Menu size={18} strokeWidth={1.8} />
         </button>
-        <span className="mobile-bar-name">{AGENT_NAME}</span>
+        {/* NO PRODUCT NAME HERE. It used to carry "Comfy Penguin", which put the name on screen
+            TWICE on an empty chat: this bar, and the conversation header right beneath it,
+            whose title falls back to the agent's name until the chat has one of its own.
+
+            Every view already titles itself -- `.st-convo-head` names the conversation, and
+            `.page-head` names Credits, My creations, About and Contact. A bar that repeats
+            whichever of those is below it is a second title, never a first one. */}
         {/* Only where there IS one to open: the workspace belongs to the studio, and `solo`
             means the run has produced nothing for it to hold yet. */}
-        {isStudio && !solo ? (
+        {isStudio && !solo && (
           <button
-            className="st-drawer-btn"
+            className="st-drawer-btn mobile-bar-end"
             aria-label="Open workspace"
             aria-expanded={drawer === 'workspace'}
             onClick={(e) => openDrawer('workspace', e)}
           >
             <PanelRight size={18} strokeWidth={1.8} />
           </button>
-        ) : (
-          /* Holds the title centred against the menu button on views with no second handle. */
-          <span className="mobile-bar-spacer" aria-hidden="true" />
         )}
       </div>
       {/* RELOADS THIS WINDOW when the agent is rebuilt, so building it stops meaning "reopen it
@@ -700,20 +741,6 @@ export default function App() {
           <PolicyPage key="about" start="about.html" />
         ) : view === 'contact' ? (
           <PolicyPage key="contact" start="contact.html" />
-        ) : view === 'settings' ? (
-          /* `agentId` is what makes this agent's values win over the daemon's, key by key. Pass
-             `onRestart` too if your window can restart the daemon — some settings only take
-             effect on a fresh process, and without it a save that needs one can only say so. */
-          client && (
-            /* NO BYOK GROUP. Those keys only matter on a daemon running against the
-               user's own provider accounts; this agent is web-delivered and metered by
-               the platform, with no local mode to switch into — so the fields could never
-               take effect, and a settings page offering a dead control makes the live ones
-               look doubtful too. (This agent declares no settings at all — the instance is
-               provisioned and the model keys are the platform's — so the page is intentionally
-               near-empty.) */
-            <Settings client={client} agentId={AGENT_ID} hideSecrets tabs={['general', 'models']} />
-          )
         ) : (
           /* THE STUDIO: conversation beside a live dashboard of what the run produced
              (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
@@ -800,15 +827,14 @@ export default function App() {
                   onCredits={() => setView('credits')}
                   maxFiles={MAX_FILES}
                   connected={connected}
-                  model={session.usage?.model || ''}
+                  model={session.usage?.model || configModel}
                   meter={
                     pct === null ? null : (
-                      <span
-                        className="meter"
-                        title={`${session.usage!.used} of ${session.usage!.limit} tokens`}
-                      >
-                        {pct}% context
-                      </span>
+                      <ContextRing
+                        pct={pct}
+                        used={session.usage!.used}
+                        limit={session.usage!.limit}
+                      />
                     )
                   }
                 />
