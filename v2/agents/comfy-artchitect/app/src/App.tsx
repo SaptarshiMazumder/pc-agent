@@ -19,10 +19,11 @@
  * does exactly once, at the moment you had not yet asked.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { onIdentityChanged } from '@agentd/client'
 import {
   Loader2,
+  Menu,
   PanelLeft,
   PanelRight,
   Workflow as WorkflowIcon,
@@ -107,6 +108,52 @@ export default function App() {
   const newSession = useApp((s) => s.newSession)
   const currentKey = useApp((s) => s.currentSessionKey)
   const chats = useApp((s) => s.chats)
+
+  /* ── THE TWO DRAWERS (narrow viewports only) ──────────────────────────────────────────────
+     On a phone the studio's two panes cannot sit beside the chat: the conversation floors at
+     430px and the dashboard at 560px, so the row needs 996px and a 390px screen used to get a
+     sideways-scrolling canvas. The rail had it worse -- it was simply `display: none` below
+     820px, with no toggle anywhere, so navigation, credits and settings were unreachable.
+
+     THE CHAT IS THE PAGE; the other two slide over it. One state, not two booleans, because
+     "only one open at a time" is then structural rather than a rule to remember -- two open
+     drawers would fight over the scrim, the focus and the Escape key.
+
+     WIDE VIEWPORTS NEVER READ THIS. The stylesheet ignores the class above 820px, so the
+     desktop layout is untouched and the resizer still owns the chat's width there. */
+  const [drawer, setDrawer] = useState<'none' | 'rail' | 'workspace'>('none')
+  const drawerOpener = useRef<HTMLButtonElement | null>(null)
+  const drawerRef = useRef<HTMLDivElement | null>(null)
+
+  /* CLOSES ON ARRIVAL, keyed to the destination rather than to the click. A rail item, a
+     conversation in the list and My creations' "open this chat" all navigate through different
+     callbacks -- and one of them goes straight to the store, where no wrapper of ours would see
+     it. Watching what changed catches every route in, including the ones added later. */
+  useEffect(() => { setDrawer('none') }, [view, currentKey])
+
+  useEffect(() => {
+    if (drawer === 'none') return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawer('none') }
+    window.addEventListener('keydown', onKey)
+    // Focus follows the panel, or a keyboard user tabs through the chat behind it.
+    drawerRef.current?.focus()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawer])
+
+  const openDrawer = useCallback(
+    (which: 'rail' | 'workspace', e: React.MouseEvent<HTMLButtonElement>) => {
+      drawerOpener.current = e.currentTarget
+      setDrawer((now) => (now === which ? 'none' : which))
+    },
+    [],
+  )
+
+  // Back to the button that opened it -- dumping focus at the top of the document is how a
+  // keyboard user loses their place entirely.
+  const closeDrawer = useCallback(() => {
+    setDrawer('none')
+    drawerOpener.current?.focus()
+  }, [])
   const seedComposer = useApp((s) => s.seedComposer)
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
@@ -538,11 +585,25 @@ export default function App() {
     session.usage && session.usage.limit > 0 ? Math.round(session.usage.pct * 100) : null
 
   return (
-    <div className="shell">
+    <div className={`shell${drawer === 'none' ? '' : ` drawer-open drawer-${drawer}`}`}>
+      {/* The scrim is the affordance AND the dismissal, but never the only one: Escape closes
+          too, and the toggle that opened the panel closes it again. Rendered only while a
+          drawer is open so it cannot swallow a tap the rest of the time. */}
+      {drawer !== 'none' && (
+        <div className="drawer-scrim" onClick={closeDrawer} aria-hidden="true" />
+      )}
       {/* RELOADS THIS WINDOW when the agent is rebuilt, so building it stops meaning "reopen it
           by hand after every change". Renders nothing, and is inert once the agent is published —
           only the authoring plugin can emit the event it listens for. */}
       <LiveReload client={client ?? undefined} />
+      <div
+        className="drawer-host drawer-host--rail"
+        ref={drawer === 'rail' ? drawerRef : null}
+        tabIndex={-1}
+        role={drawer === 'rail' ? 'dialog' : undefined}
+        aria-modal={drawer === 'rail' ? true : undefined}
+        aria-label={drawer === 'rail' ? 'Navigation' : undefined}
+      >
       <Sidebar
         view={view}
         onView={setView}
@@ -572,6 +633,7 @@ export default function App() {
         onRenameChat={renameChat}
         onDuplicateChat={duplicateChat}
       />
+      </div>
 
       {/* `is-studio` must track the SAME condition as the branch below — an unknown view falls
           through to the studio, and a modifier keyed to 'chat' alone would lay it out wrong. */}
@@ -629,6 +691,17 @@ export default function App() {
                 the minimum, this owns what the person dragged it to. */}
             <div className="st-convo" style={solo ? undefined : { width: chatWidth }}>
               <div className="st-convo-head">
+                {/* NARROW VIEWPORTS ONLY (the stylesheet hides them above 820px). The rail and
+                    the dashboard live off-canvas there, and a panel with no way to open it is
+                    the bug this replaced. */}
+                <button
+                  className="st-drawer-btn"
+                  aria-label="Open navigation"
+                  aria-expanded={drawer === 'rail'}
+                  onClick={(e) => openDrawer('rail', e)}
+                >
+                  <Menu size={18} strokeWidth={1.8} />
+                </button>
                 <span className="st-live-dot" />
                 <div className="st-convo-titles">
                   <span className="st-convo-title">
@@ -657,6 +730,19 @@ export default function App() {
                     <PanelLeft size={14} strokeWidth={1.7} />
                   )}
                 </button>
+                {/* Only when there IS a dashboard: `solo` means the run has produced nothing
+                    yet and StudioDashboard is not rendered at all, so a toggle here would open
+                    an empty panel. */}
+                {!solo && (
+                  <button
+                    className="st-drawer-btn"
+                    aria-label="Open workspace"
+                    aria-expanded={drawer === 'workspace'}
+                    onClick={(e) => openDrawer('workspace', e)}
+                  >
+                    <PanelRight size={18} strokeWidth={1.8} />
+                  </button>
+                )}
               </div>
 
               <div className="st-convo-body">
@@ -729,6 +815,14 @@ export default function App() {
               <>
                 <ChatResizer side={chatSide} />
 
+                <div
+                  className="drawer-host drawer-host--workspace"
+                  ref={drawer === 'workspace' ? drawerRef : null}
+                  tabIndex={-1}
+                  role={drawer === 'workspace' ? 'dialog' : undefined}
+                  aria-modal={drawer === 'workspace' ? true : undefined}
+                  aria-label={drawer === 'workspace' ? 'Workspace' : undefined}
+                >
                 <StudioDashboard
                   client={client ?? undefined}
                   gpu={gpu}
@@ -751,6 +845,7 @@ export default function App() {
                   credits={credits}
                   onCredits={() => setView('credits')}
                 />
+                </div>
               </>
             )}
           </div>

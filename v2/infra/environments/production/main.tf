@@ -129,8 +129,9 @@ module "stack" {
   # agent <bundle-id>.<root_domain> with no per-agent provisioning. certificate_arn/domain_name
   # below are the OTHER path - ride a certificate somebody else owns - and stay empty.
   #
-  # prod.thorgodofthunder.site IS AN INTERIM NAME. Moving to the real domain is these three
-  # values and nothing else in the repo (infra/DOMAIN-SETUP.md, "Changing the domain later").
+  # platform.nakamaai.co: delegated from the nakamaai.co zone at Cloudflare with one NS record
+  # (infra/DOMAIN-SETUP.md step 2). The apex nakamaai.co is the company landing page on Vercel and
+  # is never touched. prod.thorgodofthunder.site was the interim name.
   root_domain = var.root_domain
 
   # DOMAINS THIS DEPLOYMENT ANSWERS TO BUT IS NOT NAMED AFTER (modules/extra_domains.tf). Each
@@ -499,7 +500,7 @@ variable "marketplace_certificate_arn" {
 variable "root_domain" {
   description = "The environment's base domain. Non-empty = the module manages Route 53 + ACM + HTTPS + the per-agent wildcard."
   type        = string
-  default     = "prod.thorgodofthunder.site"
+  default     = "platform.nakamaai.co"
 }
 
 # The full hostname is the KEY (not a label): the module writes it into the ALB host rule and
@@ -519,7 +520,7 @@ variable "agent_hostnames" {
     "comfypenguin.com" = "comfy-artchitect"
 
     # Cloud Agent Builder, on the platform's own domain where it belongs.
-    "platform.prod.thorgodofthunder.site" = "cloud-agent-builder"
+    "builder.platform.nakamaai.co" = "cloud-agent-builder"
   }
 }
 
@@ -540,7 +541,7 @@ variable "extra_domains" {
 variable "admin_hostname" {
   description = "The standalone admin console's hostname (nginx server_name + the ALB rule that shields it from the wildcard)."
   type        = string
-  default     = "admin.prod.thorgodofthunder.site"
+  default     = "admin.platform.nakamaai.co"
 }
 
 variable "resolve_latency_p99_ms" {

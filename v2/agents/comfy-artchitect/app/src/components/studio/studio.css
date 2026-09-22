@@ -414,3 +414,76 @@
   cursor: pointer; padding: 4px 6px;
 }
 .fx-delete-clear:hover { color: var(--text); }
+
+
+/* ── phones ───────────────────────────────────────────────────────────────────────────────── */
+/* THIS FILE HAD NO BREAKPOINT AT ALL, and the header above says why: below ~1180px the studio
+   "PANS horizontally by design". That fallback holds on a laptop and falls apart on a phone.
+   The arithmetic: .st-convo floors at 430px, .st-dash at 560px, the handle is 6px -- so the row
+   cannot be narrower than 996px, inside a container set to `overflow-x: auto`. On a 390px
+   screen that is not a narrow app, it is a 1000px canvas you scroll sideways.
+
+   The dashboard becomes a right-hand drawer (styles.css, the 820px block) and the conversation
+   takes the whole width. Nothing is dropped -- the panel is a tap away, which is the one thing
+   the rail's old `display: none` got wrong. */
+@media (max-width: 820px) {
+  /* No sideways pan: there is only one column left to show. */
+  .st-cols { overflow-x: hidden; }
+
+  /* !important BECAUSE THE WIDTH IS AN INLINE STYLE. App.tsx writes the dragged width straight
+     onto the element (`style={{ width: chatWidth }}`) since it is user state, not design state
+     -- and an inline declaration outranks any stylesheet rule that is not marked. The drag
+     handle does not exist at this width, so the value it left behind must not either. */
+  .st-cols .st-convo {
+    width: auto !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+    border-right: 0;
+    border-left: 0;
+  }
+
+  /* A 6px col-resize target has no meaning without a cursor. */
+  .st-resizer { display: none; }
+
+  /* Which side the chat sits on stops being a question when it is the only thing there. */
+  .st-swap { display: none; }
+
+  /* The conversation header is the only chrome on screen, so it carries both drawer handles. */
+  .st-convo-head { padding-left: 10px; padding-right: 10px; gap: 8px; }
+}
+
+/* The two drawer handles. Hidden by default rather than shown by default: every viewport wide
+   enough to lay the panels out side by side must never see them. */
+.st-drawer-btn { display: none; }
+@media (max-width: 820px) {
+  .st-drawer-btn {
+    display: flex; align-items: center; justify-content: center;
+    flex: none; width: 44px; height: 44px;
+    margin: 0 -8px;              /* 44px of target inside the header's own rhythm */
+    border: 0; border-radius: var(--r-control, 8px);
+    background: transparent; color: var(--dim); cursor: pointer;
+    transition: background var(--dur-base) ease, color var(--dur-base) ease;
+  }
+  .st-drawer-btn:hover { background: var(--bg3); color: var(--text); }
+  .st-drawer-btn[aria-expanded='true'] { background: var(--accent-soft); color: var(--accent-text); }
+}
+
+/* ── the dashboard, once it is a 420px drawer rather than a 560px column ──────────────────── */
+/* Its internals were written against a 560px floor and keep their desktop shape otherwise: the
+   top bar overflowed off the right edge (the credits figure was clipped mid-number) and the
+   252px reference rail left the file view about 150px to live in. */
+@media (max-width: 820px) {
+  /* WRAPS INSTEAD OF OVERFLOWING. `.sb` is a flex row with a 12px gap and no wrap, so five
+     children -- title, ComfyUI link, GPU status, instance chip, credits -- were laid out on one
+     line whatever the width and simply ran off the end. */
+  .sb { flex-wrap: wrap; gap: 8px; padding: 10px 12px; row-gap: 6px; }
+
+  /* The dashboard's own two columns stack, for the same reason the studio's two did. */
+  .st-body { flex-direction: column; }
+  .st-rail {
+    flex: none; width: auto; min-width: 0;
+    max-height: 45%;
+    border-right: 0; border-bottom: 1px solid var(--border);
+  }
+  .st-rail:only-child { max-height: none; }
+}

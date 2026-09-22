@@ -531,7 +531,7 @@ a.milestone-detail:hover { text-decoration: underline; }
    `--glow-1` transparent (the default) renders nothing at all. */
 .thread::before {
   content: ''; position: fixed; z-index: 0; pointer-events: none;
-  left: 8%; bottom: -220px; width: 560px; height: 420px;
+  left: 8%; bottom: -220px; width: min(560px, 92vw); height: 420px;
   background: radial-gradient(ellipse at center, var(--glow-1), transparent 68%);
 }
 .thread-inner { position: relative; z-index: 1; }
@@ -931,15 +931,116 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* Below this the sidebar IS dropped, collapsed or not — 64px of icons plus a chat narrower than a
    phone is worse than the chat alone. This is the one place the never-hidden rule gives way, and
    it gives way to the viewport rather than to a click. */
+/* THE WRAPPERS ARE NOT BOXES ABOVE 820px. `display: contents` removes them from layout
+   entirely, so the rail stays the grid child it has always been and the dashboard stays the
+   flex child with its own order and 560px basis -- every rule written before the drawers
+   existed still applies, unchanged and unaware of them. The breakpoint below is the only place
+   either wrapper becomes real, and these two declarations MUST stay above it: same specificity,
+   so source order alone decides which wins.
+
+   The scrim is hidden here rather than only conditionally rendered, so that resizing a phone
+   layout up to a desktop one with a drawer still open cannot leave a dark sheet over the app. */
+.drawer-host { display: contents; }
+.drawer-scrim { display: none; }
+
 @media (max-width: 820px) {
   .shell, .shell.rail-icons, .shell.no-panel, .shell.rail-icons.no-panel {
     grid-template-areas: 'main';
     grid-template-columns: minmax(0, 1fr);
   }
-  .shell > .rail { display: none; }
+
+  /* THE RAIL SLIDES; IT NO LONGER VANISHES. This rule used to read
+     `.shell > .rail { display: none }` -- the comment above it argued that 64px of icons plus a
+     chat narrower than a phone is worse than the chat alone, which is true, and then took the
+     navigation away with no means of getting it back. On a phone that meant no new conversation,
+     no chat list, no credits, no settings and no way to reach the policy pages: not a narrower
+     app, a smaller one.
+
+     THE CHAT IS THE PAGE AT THIS WIDTH and both panels slide over it, which is the whole
+     layout decision. Fixed to the viewport rather than to the grid, so neither one can squeeze
+     the conversation to reach it. */
+  .drawer-host--rail {
+    display: flex;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    /* Never the full width: the sliver of chat still showing is what says this is a layer over
+       the page rather than a new page, and it is where a thumb reaches to dismiss it. */
+    width: min(86vw, 320px);
+    max-width: 320px;
+    transform: translateX(-100%);
+    transition: transform var(--dur-slow) var(--ease-smooth);
+  }
+  .shell.drawer-rail .drawer-host--rail { transform: none; }
+  .drawer-host--rail > .rail {
+    flex: 1; min-width: 0;
+    /* Under the notch otherwise -- the brand row is the first thing in the panel. */
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* The workspace, mirrored. Wider than the rail because it holds file trees and previews
+     rather than a list of labels. */
+  .drawer-host--workspace {
+    display: flex;
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 60;
+    width: min(92vw, 420px);
+    transform: translateX(100%);
+    transition: transform var(--dur-slow) var(--ease-smooth);
+  }
+  .shell.drawer-workspace .drawer-host--workspace { transform: none; }
+  .drawer-host--workspace > .st-dash {
+    flex: 1;
+    /* The desktop floor is 560px, which is wider than the phone this is now sitting on. */
+    min-width: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* AN OPAQUE GROUND UNDER BOTH PANELS, and this is the whole reason they came out see-through.
+     `--bg2` is not a surface in this theme -- theme.css defines it as
+     `rgba(255,255,255,0.028)`, a 2.8% white WASH meant to catch the aurora from the `--bg` that
+     `.shell` paints behind it. As a grid column that works. Torn out of the grid and floated
+     over the chat, a 2.8% wash is a window. `.st-dash` was worse: it declares no background at
+     all and simply inherited `.main`'s.
+
+     So the drawer host carries `--bg` (the opaque window ground) and the panel's own wash still
+     layers on top of it exactly as it does on the desktop. The give-away in the bug report was
+     that the dashboard's TOP BAR looked solid while everything under it did not -- `.sb` sets
+     `background: var(--pop)`, which is a real color. */
+  .drawer-host--rail,
+  .drawer-host--workspace {
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    /* The panel's own scrolling regions handle the overflow; the host must not add a second. */
+    overflow: hidden;
+  }
+
+  /* Derived from the surface rather than a hardcoded black, so it tracks the theme -- the same
+     color-mix idiom .chat-dropzone already uses for its overlay. */
+  .drawer-scrim {
+    display: block;
+    position: fixed; inset: 0; z-index: 55;
+    background: color-mix(in srgb, var(--bg4) 72%, transparent);
+  }
+
   .topbar { padding: 18px 18px 14px; }
   .thread { padding: 18px 18px 8px; }
-  .composer-wrap { padding: 10px 18px 16px; }
+  /* The home indicator sits over the last ~34px of a modern phone, which is exactly where the
+     send button was. Needs viewport-fit=cover on the meta tag to be non-zero. */
+  .composer-wrap { padding: 10px 18px max(16px, env(safe-area-inset-bottom, 0px)); }
+
+  /* TOUCH TARGETS. A 34px row is comfortable with a mouse and a coin toss with a thumb; 44px is
+     the figure both platform guidelines land on. Only at this width -- the desktop rail is
+     deliberately denser. */
+  .nav-item { min-height: 44px; }
+  .rail-btn, .rail-primary, .rail-agent { min-height: 44px; min-width: 44px; }
+}
+
+
+/* The slide is decoration; the panel arriving is the information. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-host--rail, .drawer-host--workspace { transition: none; }
 }
 
 
@@ -1306,8 +1407,41 @@ a.milestone-detail:hover { text-decoration: underline; }
    opening because the thing they fill IS the composer — a suggestion two hundred pixels away
    from the box it types into reads as decoration. Wrapping, because the column is resizable and
    four chips do not fit every width. */
-.starters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+/* THE SAME BOX AS THE COMPOSER, and centred in it -- the identical problem `.refmedia` solves
+   in studio.css, for the identical reason. `.composer` is capped at 720px and centred in
+   whatever the foot gives it; `.starters` is its SIBLING and was capped at nothing, so the
+   chips spread the full width of the wrapper and began nowhere near the box they seed. Matching
+   the cap puts them under the composer at every width.
+
+   CENTRED RATHER THAN FLUSH LEFT because these wrap. Four chips on one row read as a row
+   whatever their alignment, but the moment they break to two -- which is every phone, and any
+   window under about 560px -- flush left leaves a short second row hanging off the left edge.
+   Centred, both rows stay balanced under the box. */
+.starters {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  width: 100%; max-width: 720px; margin: 10px auto 0;
+  /* Only reachable if a chip ever stops growing (see `.starter` below); with the chips filling
+     their line there is no free space left for this to distribute. Kept as the honest fallback
+     rather than removed, so a future `max-width` on a chip degrades to centred instead of to
+     flush left. */
+  justify-content: center;
+}
 .starter {
+  /* FLUSH WITH THE COMPOSER ON BOTH EDGES. Centring the cluster was mathematically correct and
+     read as indented: the chips floated in the middle of a box whose own left and right edges
+     were 80px further out, so nothing lined up with anything.
+
+     Growing them instead means each ROW fills its line, so every row starts at the composer's
+     left edge and ends at its right one, whatever the mix of label lengths and however they
+     wrap. `flex: 1 1 auto` rather than `1 1 0`: the basis stays the label's natural width, so a
+     long chip still gets more room than a short one and the row keeps its rhythm instead of
+     chopping into equal columns.
+
+     `min-width: 0` because a flex item's default floor is its content, which would push a long
+     label past the right edge on a narrow phone -- the exact overflow this rule exists to end. */
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
   border: 1px solid var(--border2); border-radius: var(--r-pill);
   background: transparent; color: var(--dim);
   font: inherit; font-size: var(--fs-small); padding: 5px 12px;
