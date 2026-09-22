@@ -828,18 +828,11 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* THE ACTION ROW: what you can do with this conversation. */
 /* A little air over the controls. They sit directly under the last line of what you typed, and
    flush against it the row read as part of the text rather than as the toolbar below it. */
-.composer-foot { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+/* min-width: 0 IS LOAD-BEARING. A flex item's floor is its content, so without it this row
+   refuses to be narrower than its chips and simply overflows the composer -- which is exactly
+   what put the send button half outside the rounded box on a 376px screen. */
+.composer-foot { display: flex; align-items: center; gap: 10px; margin-top: 6px; min-width: 0; }
 
-/* THE STATUS ROW, copied from agentd: what it is running on, and what it costs. It used to be a
-   keyboard hint sharing the action row — so the model actually answering you, and the balance
-   paying for it, were nowhere on this screen. */
-/* ONE ROW THAT WRAPS, with the separators generated rather than written. Each piece is
-   conditional, so a hardcoded ` · ` between them shows up orphaned the moment one is absent. */
-/* LEFT, NOT CENTRED — the single change that makes this composer look aligned.
-   Everything else in the box runs on one left-to-right axis: the text, the attach button, the
-   action row. Centring this strip gave a wrapped block of small print an axis of its own, and
-   because it wraps to two lines on a narrow column it was the biggest thing on the screen doing
-   so. Flush left, it reads as a caption under the row it describes. */
 /* ── the composer's action row ─────────────────────────────────────────────────────────────
    ONE ROW, NOT A ROW PLUS A CAPTION. Below this box there used to be `.composer-hint`: a
    MONOSPACE strip joining the model, the balance and three keyboard instructions with generated
@@ -856,6 +849,7 @@ a.milestone-detail:hover { text-decoration: underline; }
 .composer-credits,
 .composer-note {
   flex: none;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   height: 26px;
@@ -874,7 +868,12 @@ a.milestone-detail:hover { text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.composer-model { color: var(--accent-text); }
+/* THE ONE THING THAT GIVES. When the row runs out of room something has to, and the model is
+   the right sacrifice: the balance is a number you act on, + and send are the actions
+   themselves, and a model id truncates to something still recognisable ("gemini/gemini-2.5…").
+   `flex: 0 1 auto` lets it shrink where `flex: none` made it shove the send button out of the
+   box instead. */
+.composer-model { color: var(--accent-text); flex: 0 1 auto; }
 .composer-credits { cursor: pointer; transition: background .12s ease, color .12s ease; }
 .composer-credits:hover { background: var(--bg4); color: var(--text); }
 /* Out of credits is the one state here that must interrupt: the next message will be refused. */
@@ -1097,6 +1096,7 @@ a.milestone-detail:hover { text-decoration: underline; }
   .mobile-bar {
     display: flex; align-items: center; gap: 4px;
     position: fixed; top: 0; left: 0; right: 0; z-index: 25;
+    /* The anchor the mark centres against. */
     height: calc(46px + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) 8px 0;
     background: var(--bg);
@@ -1105,6 +1105,22 @@ a.milestone-detail:hover { text-decoration: underline; }
   /* The workspace handle sits at the far edge; with the title gone there is nothing between
      it and the menu button to push it there. */
   .mobile-bar-end { margin-left: auto; }
+
+  /* OUT OF THE FLEX FLOW, so the mark is centred on the BAR rather than on the space left
+     between the buttons -- which would shift it sideways every time the workspace handle
+     appeared or went away. pointer-events: none because it is decoration sitting over the
+     middle of a bar whose two ends are the things you press. */
+  .mobile-bar-mark {
+    position: absolute;
+    left: 50%;
+    top: env(safe-area-inset-top, 0px);
+    height: 46px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    color: var(--accent);
+    pointer-events: none;
+  }
 
   /* Room for it. Every view gets the same inset, so nothing is ever underneath the bar --
      including the studio's own conversation header. */

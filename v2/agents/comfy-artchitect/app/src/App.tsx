@@ -654,13 +654,17 @@ export default function App() {
         >
           <Menu size={18} strokeWidth={1.8} />
         </button>
-        {/* NO PRODUCT NAME HERE. It used to carry "Comfy Penguin", which put the name on screen
-            TWICE on an empty chat: this bar, and the conversation header right beneath it,
-            whose title falls back to the agent's name until the chat has one of its own.
+        {/* THE MARK, NOT THE NAME. The bar carried the words "Comfy Penguin" and they were a
+            second title: the conversation header beneath it already names the chat, and
+            `.page-head` already names Credits, My creations, About and Contact. The penguin
+            repeats nothing -- it says which app this is without competing with whatever the
+            page below has called itself.
 
-            Every view already titles itself -- `.st-convo-head` names the conversation, and
-            `.page-head` names Credits, My creations, About and Contact. A bar that repeats
-            whichever of those is below it is a second title, never a first one. */}
+            CENTRED ABSOLUTELY rather than by a flex spacer, so it stays on the middle of the
+            bar whether or not the workspace handle is rendered on the right. */}
+        <span className="mobile-bar-mark" aria-hidden="true">
+          <BrandMark size={22} />
+        </span>
         {/* Only where there IS one to open: the workspace belongs to the studio, and `solo`
             means the run has produced nothing for it to hold yet. */}
         {isStudio && !solo && (
