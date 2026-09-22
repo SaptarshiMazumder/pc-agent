@@ -286,16 +286,21 @@ def _proxy(method: str, url: str, token: str, body: dict | None = None) -> tuple
 # ============================================================== the router
 
 
-def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one cohesive surface
-    router = APIRouter(prefix="/admin", tags=["admin"])
+def make_require_admin(deps: AdminDeps) -> Callable[[str | None], sqlite3.Row]:
+    """The door, built once against a set of deps and shared by every admin surface.
+
+    IT LIVES OUT HERE so that a second admin router — admin_metrics_api, and whatever follows —
+    cannot end up with its own slightly different copy. "Who may administer this deployment" is
+    the kind of check that must have exactly one implementation: two of them stay identical
+    right up until the day one is fixed and the other is not, and the one that is not is a way
+    into every account on the platform.
+
+    Two failures, told apart on purpose: 401 means "we do not know who you are" and is fixed by
+    signing in; 403 means "we know, and no" and is not. Beyond that the 403 says nothing about
+    who IS an admin — that is not information a non-admin is owed.
+    """
 
     def require_admin(authorization: str | None) -> sqlite3.Row:
-        """The door. Returns the calling admin's account row, or raises.
-
-        Two failures, told apart on purpose: 401 means "we do not know who you are" and is fixed
-        by signing in; 403 means "we know, and no" and is not. Beyond that the 403 says nothing
-        about who IS an admin — that is not information a non-admin is owed.
-        """
         token = _bearer(authorization)
         cfg = deps.settings()
         with deps.db() as c:
@@ -306,6 +311,13 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
                     status_code=403, detail="this account is not a platform admin"
                 )
         return row
+
+    return require_admin
+
+
+def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one cohesive surface
+    router = APIRouter(prefix="/admin", tags=["admin"])
+    require_admin = make_require_admin(deps)
 
     # ---------------------------------------------------------------- whoami
 

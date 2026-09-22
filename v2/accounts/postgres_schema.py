@@ -190,6 +190,26 @@ _STEPS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS ix_entry_txn ON ledger_entries(txn_id);
     CREATE INDEX IF NOT EXISTS ix_entry_account ON ledger_entries(account, ts);
     CREATE INDEX IF NOT EXISTS ix_entry_acct ON ledger_entries(account_id, ts);
+
+    -- WHAT THE DASHBOARD NEEDS, and the only reason it is not here already: nothing had ever
+    -- asked "how many, per day". Every existing read is keyed by an account or a month.
+    --
+    -- accounts(created_at): sign-ups per day. Without it the group-by scans the whole identity
+    -- table -- the one table every sign-in touches.
+    --
+    -- Revenue per day needs nothing new. It reads ledger_entries filtered by `account` and a ts
+    -- range, which is exactly ix_entry_account(account, ts).
+    --
+    -- The transactions list needs payment_intents(ts), which is declared by the store that owns
+    -- that table rather than here: _init_db calls this module BEFORE
+    -- PostgresPaymentIntentStore.create_schema, so an index named here would run against a
+    -- table that does not exist yet and fail the boot of a fresh database.
+    --
+    -- ADD THEM WHILE THE TABLES ARE SMALL. A plain CREATE INDEX holds a lock that blocks writes
+    -- for its duration; at today's row counts that is milliseconds. Later it becomes a job for
+    -- CREATE INDEX CONCURRENTLY, which cannot run inside a transaction and so does not fit this
+    -- startup-time bootstrap at all.
+    CREATE INDEX IF NOT EXISTS ix_accounts_created ON accounts(created_at);
     """,
 }
 

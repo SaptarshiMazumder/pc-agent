@@ -114,6 +114,60 @@ export type Overview = {
 
 export const overview = (): Promise<Overview> => call<Overview>('/admin/overview')
 
+// --------------------------------------------------------------------------- trends
+//
+// The read-only half of the control plane (/admin/metrics, accounts/admin_metrics_api.py).
+// Separate from `overview` because these answer "how is it CHANGING" rather than "what is it
+// now" -- overview is one month's totals, these are a day-by-day series.
+//
+// EVERY SERIES IS DENSE. The server emits a row for every day in the window, zeros included, so
+// a chart can be drawn straight from `series` without the caller reconstructing missing days.
+// A gap closed silently is a flat line that never touched zero.
+
+export type SignupsTrend = {
+  days: number
+  accounts_total: number
+  signups_in_window: number
+  series: { day: string; count: number }[]
+}
+
+export type RevenueTrend = {
+  days: number
+  gross_usd: number
+  refunds_usd: number
+  net_usd: number
+  series: { day: string; gross_usd: number; refunds_usd: number; net_usd: number }[]
+}
+
+export type Txn = {
+  reference: string
+  account_id: string
+  email: string
+  status: string
+  kind: string
+  provider: string
+  amount_usd: number
+  currency: string
+  ts: number
+}
+
+/** Window is clamped server-side to 90 days; asking for more is not an error, just capped. */
+export const signupsTrend = (days = 30): Promise<SignupsTrend> =>
+  call<SignupsTrend>(`/admin/metrics/signups?days=${encodeURIComponent(days)}`)
+
+export const revenueTrend = (days = 30): Promise<RevenueTrend> =>
+  call<RevenueTrend>(`/admin/metrics/revenue?days=${encodeURIComponent(days)}`)
+
+export const transactions = (
+  limit = 50,
+  offset = 0,
+  status = '',
+): Promise<{ limit: number; offset: number; transactions: Txn[] }> =>
+  call(
+    `/admin/metrics/transactions?limit=${limit}&offset=${offset}` +
+      (status ? `&status=${encodeURIComponent(status)}` : ''),
+  )
+
 // --------------------------------------------------------------------------- accounts
 
 export type AccountRow = {
