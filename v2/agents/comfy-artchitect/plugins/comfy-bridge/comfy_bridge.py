@@ -51,6 +51,7 @@ from model_installation_service import ModelInstallationService
 from model_download_source_resolver import ModelDownloadSourceResolver
 from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
+import node_input_schema
 from workflow_reference_repository import WorkflowReferenceRepository
 from workflow_dependency_repository import WorkflowDependencyRepository
 from workflow_installer_exporter import WorkflowInstallerExporter
@@ -580,7 +581,30 @@ class ComfyNodeSpecTool(Tool):
 
             if not studio_state.has_emitted():
                 _hide_installed_files(spec)
-            return ToolResult.text(json.dumps(spec, indent=2)[:4000], details=spec)
+            # THE SHAPE THE PROMPT MUST USE, not only the schema. Partner nodes carry dynamic
+            # inputs whose prompt keys are dotted paths (`model.images.image_1`) — nothing in
+            # the raw schema says so, and a graph that guessed `image_1` validated, then died at
+            # execute time. node_input_schema flattens ANY node's schema into its real key set.
+            schema = node_input_schema.NodeInputSchema(spec)
+            example = schema.example("<node id>")
+            text = json.dumps(spec, indent=2)[:4000]
+            if node_input_schema.deprecated(spec):
+                text = (
+                    f"DEPRECATED: '{node_class}' has a successor on this instance — "
+                    "comfy_node_search names it; a graph with this class fails comfy_validate.\n\n"
+                    + text
+                )
+            text += (
+                "\n\nAPI-format `inputs` for this node — copy the KEYS exactly, edit the values; "
+                "a link is [node_id, output_index]:\n" + json.dumps(example, indent=1)
+            )
+            if schema.dynamic:
+                text += (
+                    "\nDynamic inputs use the dotted keys shown above. The option's own "
+                    "sub-inputs go under `<combo>.<name>`, list slots under `<list>.<slot>`; the "
+                    "bare sub-name is not an input and the run fails with a TypeError."
+                )
+            return ToolResult.text(text, details=spec)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(
                 f"comfy_node_spec failed: {type(e).__name__}: {e}", is_error=True
@@ -1001,6 +1025,47 @@ class ComfyDownloadTool(Tool):
             return ToolResult.text(f"comfy_download failed: {type(e).__name__}: {e}", is_error=True)
 
 
+def _is_api_link(value) -> bool:
+    """An API-format link: `[node_id, output_index]`."""
+    return (
+        isinstance(value, list) and len(value) == 2
+        and isinstance(value[0], str) and isinstance(value[1], int)
+    )
+
+
+def _execution_error_help(messages) -> str:
+    """For an `execution_error`, the failing node's accepted inputs in API format — so the
+    repair edits the right key instead of guessing. A TypeError at execute time is almost always
+    a key the node does not have (`image_1` for `model.images.image_1`), and the error text alone
+    sent the agent through blind retries, a deprecated fallback and a silent model downgrade.
+    Fetching the spec here costs one call and ends that."""
+    try:
+        for m in messages or []:
+            if not (isinstance(m, list) and len(m) > 1 and m[0] == "execution_error"):
+                continue
+            err = m[1] if isinstance(m[1], dict) else {}
+            node_type = str(err.get("node_type") or "")
+            if not node_type:
+                continue
+            res = _get(f"/api/object_info/{node_type}")
+            spec = (res.json() or {}).get(node_type) if res.ok else None
+            if not isinstance(spec, dict):
+                continue
+            schema = node_input_schema.NodeInputSchema(spec)
+            head = (
+                f"\n\nNode {err.get('node_id')} is {node_type}"
+                + (" (DEPRECATED — use its successor)" if node_input_schema.deprecated(spec) else "")
+                + ". Its inputs, in API format — copy the KEYS exactly:\n"
+            )
+            return head + json.dumps(schema.example("<node id>"), indent=1) + (
+                "\nRepair the keys and resubmit the SAME node class and model. A different class "
+                "or a smaller model is a design change: back through the ask."
+            )
+    except Exception:  # noqa: BLE001 — help is optional; the error itself is what matters
+        pass
+    return ""
+
+
 async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None:
     """Poll one queued run within `deadline` seconds. Returns the FINAL ToolResult (success or
     the instance's failure report), or None while the run is still going — the sandbox stops any
@@ -1038,7 +1103,8 @@ async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None
                 studio_state.run_finished(prompt_id, "failed")
                 return ToolResult.text(
                     f"the run FAILED ({status}). What the instance reported:\n"
-                    + json.dumps(messages, indent=2)[:2000],
+                    + json.dumps(messages, indent=2)[:2000]
+                    + _execution_error_help(messages),
                     details=entry,
                     is_error=True,
                 )
@@ -2256,6 +2322,12 @@ class ComfyValidateTool(Tool):
             raw_missing: list[str] = []
             bad_enums: list[str] = []
             bad_links: list[str] = []
+            # INPUTS AGAINST THE SCHEMA, for every node. "Compiles" used to mean the class exists,
+            # the links resolve and the enums are legal — and a node with the wrong KEYS passed,
+            # failed at execute time, and sent the agent into blind retries. Now the keys are
+            # checked here, with the right one named, and a deprecated class is refused outright:
+            # its successor is what goes in the graph (rule 20).
+            bad_inputs: list[str] = []
             for nid, entry in graph.items():
                 if not isinstance(entry, dict):
                     continue
@@ -2265,6 +2337,14 @@ class ComfyValidateTool(Tool):
                     unknown_nodes.append(f"node {nid}: class '{cls}' does not exist here")
                     raw_unknown.append(str(cls))
                     continue
+                if node_input_schema.deprecated(spec):
+                    bad_inputs.append(
+                        f"node {nid}: class '{cls}' is DEPRECATED here — comfy_node_search "
+                        f"'{cls}' names its successor; use that class"
+                    )
+                schema = node_input_schema.NodeInputSchema(spec)
+                for problem in schema.check(entry.get("inputs") or {}, _is_api_link):
+                    bad_inputs.append(f"node {nid} ({cls}): {problem}")
                 sections = spec.get("input") or {}
                 specs = {
                     name: s
@@ -2323,7 +2403,7 @@ class ComfyValidateTool(Tool):
                 studio_state.mark_validated(_workflow_name(path), raw_missing, raw_unknown)
             except Exception:  # noqa: BLE001 — the report still goes out
                 pass
-            if not (unknown_nodes or missing_files or bad_enums or bad_links):
+            if not (unknown_nodes or missing_files or bad_enums or bad_links or bad_inputs):
                 artifacts, export_note = [], ""
                 try:
                     artifacts, manifest = WorkflowInstallerExporter(
@@ -2355,6 +2435,12 @@ class ComfyValidateTool(Tool):
             if bad_links:
                 lines.append("broken links:")
                 lines += [f"  {x}" for x in bad_links]
+            if bad_inputs:
+                lines.append(
+                    "inputs the node does not accept, or needs (comfy_node_spec <class> prints "
+                    "the exact API-format keys — copy them):"
+                )
+                lines += [f"  {x}" for x in bad_inputs]
             if bad_enums:
                 lines.append("invalid values (fix the workflow):")
                 lines += [f"  {x}" for x in bad_enums]
