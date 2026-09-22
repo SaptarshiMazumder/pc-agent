@@ -1607,6 +1607,15 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 }
 .admin-bars:hover rect { opacity: 0.45; }
 .admin-bars rect:hover { opacity: 1; }
+
+/* The rail's payment reference. Monospace and user-select:all — it exists to be copied into
+   Razorpay's dashboard when somebody asks about a charge, and a half-selected id is useless. */
+.admin-ref {
+  font: 11.5px/1.5 var(--mono);
+  color: var(--dim);
+  user-select: all;
+  word-break: break-all;
+}
 .admin-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 13px 15px; }
 .admin-stat-label { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); }
 .admin-stat-value { font-size: 21px; font-weight: var(--fw-semi); color: var(--text); margin-top: 5px; font-variant-numeric: tabular-nums; }
