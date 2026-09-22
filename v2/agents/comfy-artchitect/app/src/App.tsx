@@ -122,6 +122,11 @@ export default function App() {
      WIDE VIEWPORTS NEVER READ THIS. The stylesheet ignores the class above 820px, so the
      desktop layout is untouched and the resizer still owns the chat's width there. */
   const [drawer, setDrawer] = useState<'none' | 'rail' | 'workspace'>('none')
+  /* Which branch `main` renders. It was computed inline on the className and needed a second
+     reader the moment the drawer handles moved out of the studio's own header -- see the bar
+     below. `is-studio` and the bar MUST agree: a handle offering a workspace that the current
+     view does not render is the same bug as a view with no handle at all. */
+  const isStudio = !['credits', 'orgs', 'creations', 'settings', 'about', 'contact'].includes(view)
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -592,6 +597,42 @@ export default function App() {
       {drawer !== 'none' && (
         <div className="drawer-scrim" onClick={closeDrawer} aria-hidden="true" />
       )}
+
+      {/* THE PHONE'S ONLY PERSISTENT CHROME (hidden above 820px). The handles used to live in
+          `.st-convo-head`, which exists ONLY in the studio branch -- so Credits, Settings,
+          Organizations, My creations, About and Contact each rendered with no rail and no way
+          to open one. Reaching Credits on a phone was a one-way trip, which is the very bug
+          the drawers were meant to end.
+
+          A SIBLING OF <main>, not a child, so it cannot depend on which view is mounted. The
+          shared screens come from src/common/ and this agent must not edit them; the only place
+          that reliably survives every branch is out here. */}
+      <div className="mobile-bar">
+        <button
+          className="st-drawer-btn"
+          aria-label="Open navigation"
+          aria-expanded={drawer === 'rail'}
+          onClick={(e) => openDrawer('rail', e)}
+        >
+          <Menu size={18} strokeWidth={1.8} />
+        </button>
+        <span className="mobile-bar-name">{AGENT_NAME}</span>
+        {/* Only where there IS one to open: the workspace belongs to the studio, and `solo`
+            means the run has produced nothing for it to hold yet. */}
+        {isStudio && !solo ? (
+          <button
+            className="st-drawer-btn"
+            aria-label="Open workspace"
+            aria-expanded={drawer === 'workspace'}
+            onClick={(e) => openDrawer('workspace', e)}
+          >
+            <PanelRight size={18} strokeWidth={1.8} />
+          </button>
+        ) : (
+          /* Holds the title centred against the menu button on views with no second handle. */
+          <span className="mobile-bar-spacer" aria-hidden="true" />
+        )}
+      </div>
       {/* RELOADS THIS WINDOW when the agent is rebuilt, so building it stops meaning "reopen it
           by hand after every change". Renders nothing, and is inert once the agent is published —
           only the authoring plugin can emit the event it listens for. */}
@@ -637,13 +678,7 @@ export default function App() {
 
       {/* `is-studio` must track the SAME condition as the branch below — an unknown view falls
           through to the studio, and a modifier keyed to 'chat' alone would lay it out wrong. */}
-      <main
-        className={`main${
-          ['credits', 'orgs', 'creations', 'settings', 'about', 'contact'].includes(view)
-            ? ''
-            : ' is-studio'
-        }`}
-      >
+      <main className={`main${isStudio ? ' is-studio' : ''}`}>
         {view === 'credits' ? (
           <Credits agentId={AGENT_ID} />
         ) : view === 'orgs' ? (
@@ -691,17 +726,6 @@ export default function App() {
                 the minimum, this owns what the person dragged it to. */}
             <div className="st-convo" style={solo ? undefined : { width: chatWidth }}>
               <div className="st-convo-head">
-                {/* NARROW VIEWPORTS ONLY (the stylesheet hides them above 820px). The rail and
-                    the dashboard live off-canvas there, and a panel with no way to open it is
-                    the bug this replaced. */}
-                <button
-                  className="st-drawer-btn"
-                  aria-label="Open navigation"
-                  aria-expanded={drawer === 'rail'}
-                  onClick={(e) => openDrawer('rail', e)}
-                >
-                  <Menu size={18} strokeWidth={1.8} />
-                </button>
                 <span className="st-live-dot" />
                 <div className="st-convo-titles">
                   <span className="st-convo-title">
@@ -730,19 +754,6 @@ export default function App() {
                     <PanelLeft size={14} strokeWidth={1.7} />
                   )}
                 </button>
-                {/* Only when there IS a dashboard: `solo` means the run has produced nothing
-                    yet and StudioDashboard is not rendered at all, so a toggle here would open
-                    an empty panel. */}
-                {!solo && (
-                  <button
-                    className="st-drawer-btn"
-                    aria-label="Open workspace"
-                    aria-expanded={drawer === 'workspace'}
-                    onClick={(e) => openDrawer('workspace', e)}
-                  >
-                    <PanelRight size={18} strokeWidth={1.8} />
-                  </button>
-                )}
               </div>
 
               <div className="st-convo-body">

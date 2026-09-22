@@ -90,3 +90,5 @@ plantuml-*.jar
 # They are reproducible by re-running and re-analysable offline with --replay; none of that needs
 # them in history.
 *.trace.jsonl
+/marketing
+/tmp
