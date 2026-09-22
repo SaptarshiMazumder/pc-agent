@@ -713,6 +713,12 @@ _APP_SECRET_FIELDS = (
     "RAZORPAY_KEY_ID",
     "RAZORPAY_KEY_SECRET",
     "RAZORPAY_WEBHOOK_SECRET",
+    # Rupees per dollar. NOT A SECRET, but it has to travel with the keys: the loader exports
+    # ONLY the fields declared here, so a value sitting in the vault undeclared is read and
+    # thrown away -- which is exactly what happened, leaving the rail charging USD to Indian
+    # cards that decline it while the secret plainly said 89. Absent = charge USD, the
+    # behaviour of every deployment not selling in India.
+    "RAZORPAY_INR_PER_USD",
     "DODO_API_KEY",
     "DODO_WEBHOOK_SECRET",
     "DODO_PRODUCT_ID",
