@@ -131,6 +131,7 @@ from vast import ChargeOutcome
 # the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
 try:  # pragma: no cover - exercised by whichever path the runtime takes
     import admin_api
+    import admin_metrics_api
     import ledger
     import orgs_api
     from accounts_post_processor import (
@@ -161,6 +162,7 @@ except ModuleNotFoundError:  # pragma: no cover
         return module
 
     admin_api = _sibling("admin_api")
+    admin_metrics_api = _sibling("admin_metrics_api")
     ledger = _sibling("ledger")
     orgs_api = _sibling("orgs_api")
     _post_processing = _sibling("accounts_post_processor")
@@ -379,6 +381,10 @@ def _init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS ix_usage_agent ON usage(agent_id, month);
             CREATE INDEX IF NOT EXISTS ix_usage_run   ON usage(run_id);
+            -- Sign-ups per day, for the admin dashboard. Mirrors the Postgres schema so a query
+            -- plan seen in dev is the plan production runs; without it the group-by scans the
+            -- identity table, which every sign-in touches.
+            CREATE INDEX IF NOT EXISTS ix_accounts_created ON accounts(created_at);
             -- Tenant-id-leading, PARTIAL: the org rollup and the per-member cap both start from
             -- org_id, and excluding '' keeps the index empty on a deployment with no orgs.
             CREATE INDEX IF NOT EXISTS ix_usage_org
@@ -820,6 +826,9 @@ def platform_discovery() -> dict:
         # provider itself, so adding Microsoft is four environment variables on this service and
         # zero client changes. Same rule the codebase already follows for models and tools.
         "providers": _providers(),
+        # WHETHER THE CARD MAY OFFER "Create an account". The same rule as providers: data the
+        # UI renders from, so closing sign-up in one environment is a variable, not a release.
+        "password_signup": _password_signup_open(),
         "token_auth": identity_factory.tokens_available(),
         "access_ttl_s": identity_factory.access_ttl_s(),
         "service": "accounts",
@@ -860,9 +869,27 @@ def _public_url(env_name: str) -> str:
     return (os.environ.get(env_name, "") or "").strip().rstrip("/")
 
 
+def _password_signup_open() -> bool:
+    """May anyone create an account with just an email and a password?
+
+    OFF IN PRODUCTION, ON BY DEFAULT. A password sign-up verifies nothing: any string with an @
+    in it became an account with tokens, and nothing in the stack sends mail to check. An
+    external provider (Google) hands us a verified address, so a deployment that offers one can
+    close this door and lose nothing. `AGENTD_PASSWORD_SIGNUP=0` closes it; unset keeps it open,
+    which is what desktop, dev and every test rely on. Existing password accounts still sign in
+    either way — this gates creation, not use.
+    """
+    return os.environ.get("AGENTD_PASSWORD_SIGNUP", "").strip().lower() not in ("0", "false", "no")
+
+
 @app.post("/signup")
 def signup(request: Request, payload: dict = Body(...)) -> dict:
     _check_rate(request)
+    if not _password_signup_open():
+        raise HTTPException(
+            status_code=403,
+            detail="sign-up with a password is closed here — continue with Google instead",
+        )
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
     if not email or "@" not in email:
@@ -2548,22 +2575,33 @@ app.include_router(
     )
 )
 
+# ONE AdminDeps, TWO ROUTERS. The administration surface and the read-only dashboard share a
+# door (make_require_admin) and the same primitives; building the deps twice would be two places
+# for "who may administer this deployment" to drift apart.
+_admin_deps = admin_api.AdminDeps(
+    db=_db,
+    account_for_token=_account_for_token,
+    budget_view=_budget_view,
+    funding_view=_funding_view,
+    apply_grant=_apply_grant,
+    revoke_sessions=lambda c, account_id: SqliteRefreshStore(c).revoke_account(account_id),
+    rotate_signing_key=_rotate_signing_key,
+    ledger_balances=ledger.balances,
+    micros_to_usd=ledger.micros_to_usd,
+    access_ttl_s=identity_factory.access_ttl_s,
+    now=_now,
+    month_key=_month_key,
+    settings=admin_api.AdminSettings.from_env,
+)
+
+# ONE DOOR OBJECT, handed to both surfaces. `is this account an admin` having a single
+# implementation is the point; passing it rather than letting the metrics module import it
+# keeps that visible here instead of buried in an import order.
+_require_admin = admin_api.make_require_admin(_admin_deps)
+
+app.include_router(admin_api.build_admin_router(_admin_deps))
+# READ-ONLY, and in its own module so it stays that way: sign-ups, revenue and transactions
+# over time, for the console at admin.<root_domain>. No route in it writes.
 app.include_router(
-    admin_api.build_admin_router(
-        admin_api.AdminDeps(
-            db=_db,
-            account_for_token=_account_for_token,
-            budget_view=_budget_view,
-            funding_view=_funding_view,
-            apply_grant=_apply_grant,
-            revoke_sessions=lambda c, account_id: SqliteRefreshStore(c).revoke_account(account_id),
-            rotate_signing_key=_rotate_signing_key,
-            ledger_balances=ledger.balances,
-            micros_to_usd=ledger.micros_to_usd,
-            access_ttl_s=identity_factory.access_ttl_s,
-            now=_now,
-            month_key=_month_key,
-            settings=admin_api.AdminSettings.from_env,
-        )
-    )
+    admin_metrics_api.build_admin_metrics_router(_admin_deps, _require_admin)
 )

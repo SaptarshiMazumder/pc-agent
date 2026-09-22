@@ -1583,6 +1583,30 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 
 /* stats */
 .admin-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+
+/* The day-by-day bars on the Trends tab. Hand-drawn SVG rather than a charting dependency:
+   this is one rect per day, and the admin document's CSP pins scripts to 'self' anyway.
+
+   preserveAspectRatio="none" on the <svg> is what lets a 0-100 viewBox stretch to whatever
+   width the panel has, so the bar count changes with the window (7/30/90 days) without any
+   measurement in JavaScript. Height stays fixed here, which is why the bars get wider rather
+   than taller as the window shrinks. */
+.admin-bars {
+  display: block;
+  width: 100%;
+  height: 84px;
+  margin-top: 12px;
+  overflow: visible;
+}
+.admin-bars rect {
+  fill: var(--accent);
+  /* Bars are read as a group; the individual day is available on hover via <title>. Slightly
+     back from full strength so a single tall bar does not dominate the panel. */
+  opacity: 0.68;
+  transition: opacity var(--dur-fast, .12s) ease;
+}
+.admin-bars:hover rect { opacity: 0.45; }
+.admin-bars rect:hover { opacity: 1; }
 .admin-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 13px 15px; }
 .admin-stat-label { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); }
 .admin-stat-value { font-size: 21px; font-weight: var(--fw-semi); color: var(--text); margin-top: 5px; font-variant-numeric: tabular-nums; }

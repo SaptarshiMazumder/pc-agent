@@ -77,6 +77,13 @@ class PostgresPaymentIntentStore:
         c.execute(
             "CREATE INDEX IF NOT EXISTS ix_intent_acct ON payment_intents (account_id, ts)"
         )
+        # NEWEST-FIRST ACROSS ALL ACCOUNTS -- what the admin transactions list reads.
+        # ix_intent_acct above is (account_id, ts), and a query filtering on ts ALONE cannot use
+        # it: the leading column is absent from the predicate, so the planner falls back to a
+        # scan of every intent ever recorded.
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS ix_intent_ts ON payment_intents (ts)"
+        )
         # How a webhook finds the attempt it belongs to.
         c.execute(
             "CREATE INDEX IF NOT EXISTS ix_intent_ref ON payment_intents (reference) "

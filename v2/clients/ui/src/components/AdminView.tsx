@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, CircleDollarSign, Cpu, KeyRound, Package, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, Users, Wallet } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, CircleDollarSign, Cpu, KeyRound, Package, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, TrendingUp, Users, Wallet } from 'lucide-react'
 
 import * as api from '../lib/admin'
 import DeploymentDefaults from './DeploymentDefaults'
@@ -22,10 +22,11 @@ import PageShell from './PageShell'
  * code — it already explains itself better than a client can from a 409.
  */
 
-type Tab = 'overview' | 'defaults' | 'users' | 'usage' | 'agents' | 'creators' | 'money' | 'keys'
+type Tab = 'overview' | 'trends' | 'defaults' | 'users' | 'usage' | 'agents' | 'creators' | 'money' | 'keys'
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <Activity size={16} /> },
+  { id: 'trends', label: 'Trends', icon: <TrendingUp size={16} /> },
   // Second, deliberately: after "how is the platform doing", the next thing an operator wants is
   // "what does everyone get by default". It is the only tab that writes the DAEMON rather than
   // the accounts service.
@@ -138,6 +139,145 @@ function Empty({ children }: { children: ReactNode }): ReactNode {
 }
 
 // --------------------------------------------------------------------------- overview
+
+// ============================================================== trends
+
+/** A day-by-day bar chart, in SVG, with no charting library.
+ *
+ * NO DEPENDENCY FOR THIS. A bar per day with a shared maximum is about thirty lines; a chart
+ * library is hundreds of kilobytes on a page an administrator opens occasionally, and the admin
+ * document's Content-Security-Policy pins scripts to 'self', so a CDN build could not load here
+ * even if it were wanted.
+ *
+ * ZEROS ARE DRAWN, not skipped -- the series arrives dense from the server precisely so a quiet
+ * day reads as a quiet day rather than as a gap the eye closes.
+ */
+function Bars({ points, format }: { points: { day: string; value: number }[]; format: (n: number) => string }): ReactNode {
+  const max = Math.max(1, ...points.map((p) => p.value))
+  const w = 100 / Math.max(1, points.length)
+  return (
+    <svg className="admin-bars" viewBox="0 0 100 34" preserveAspectRatio="none" role="img"
+         aria-label={`${points.length} days, peak ${format(max)}`}>
+      {points.map((p, i) => {
+        // A day with activity always gets a visible sliver: a 1-of-400 bar rounding to zero
+        // height is indistinguishable from nothing happening.
+        const h = p.value > 0 ? Math.max(0.6, (p.value / max) * 32) : 0
+        return (
+          <rect key={p.day} x={i * w + w * 0.15} y={33 - h} width={w * 0.7} height={h} rx={0.4}>
+            <title>{`${p.day}: ${format(p.value)}`}</title>
+          </rect>
+        )
+      })}
+    </svg>
+  )
+}
+
+function TrendsPanel(): ReactNode {
+  const [days, setDays] = useState(30)
+  const signups = usePanel(() => api.signupsTrend(days), [days])
+  const revenue = usePanel(() => api.revenueTrend(days), [days])
+  const txns = usePanel(() => api.transactions(50, 0, ''), [])
+
+  const windowPicker = (
+    <>
+      {[7, 30, 90].map((d) => (
+        <button key={d} className={`btn ghost ${days === d ? 'active' : ''}`} onClick={() => setDays(d)}>
+          {d}d
+        </button>
+      ))}
+    </>
+  )
+
+  return (
+    <>
+      <Panel
+        title="Sign-ups"
+        busy={signups.busy}
+        error={signups.error}
+        actions={
+          <>
+            {windowPicker}
+            <button className="btn ghost" onClick={signups.reload} title="Re-read">
+              <RefreshCw size={14} />
+            </button>
+          </>
+        }
+      >
+        <div className="admin-stats">
+          <Stat label="Accounts" value={num(signups.data?.accounts_total || 0)} />
+          <Stat label={`New · last ${days}d`} value={num(signups.data?.signups_in_window || 0)} />
+        </div>
+        {signups.data && (
+          <Bars
+            points={signups.data.series.map((p) => ({ day: p.day, value: p.count }))}
+            format={(n) => `${n} sign-up${n === 1 ? '' : 's'}`}
+          />
+        )}
+      </Panel>
+
+      <Panel
+        title="Revenue"
+        busy={revenue.busy}
+        error={revenue.error}
+        actions={
+          <button className="btn ghost" onClick={revenue.reload} title="Re-read">
+            <RefreshCw size={14} />
+          </button>
+        }
+      >
+        {/* FROM THE LEDGER, not from the payment rail -- a refund issued by hand in the rail's
+            own dashboard reaches the books through the webhook and would be invisible in a
+            list of the intents we created. */}
+        <div className="admin-stats">
+          <Stat label="Gross" value={usd(revenue.data?.gross_usd || 0)} />
+          <Stat label="Refunded" value={usd(revenue.data?.refunds_usd || 0)} />
+          <Stat label="Net" value={usd(revenue.data?.net_usd || 0)} sub={`last ${days} days`} />
+        </div>
+        {revenue.data && (
+          <Bars
+            points={revenue.data.series.map((p) => ({ day: p.day, value: p.net_usd }))}
+            format={(n) => usd(n)}
+          />
+        )}
+      </Panel>
+
+      <Panel
+        title="Transactions"
+        busy={txns.busy}
+        error={txns.error}
+        actions={
+          <button className="btn ghost" onClick={txns.reload} title="Re-read">
+            <RefreshCw size={14} />
+          </button>
+        }
+      >
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>When</th><th>Account</th><th>Kind</th><th>Status</th><th>Rail</th><th className="num">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(txns.data?.transactions || []).map((x) => (
+              <tr key={`${x.reference}:${x.ts}`}>
+                <td>{new Date(x.ts * 1000).toLocaleString()}</td>
+                {/* An intent whose account is gone still shows -- that is the row worth seeing. */}
+                <td>{x.email || x.account_id || <span className="dim">unknown</span>}</td>
+                <td>{x.kind}</td>
+                <td>{x.status}</td>
+                <td>{x.provider}</td>
+                <td className="num">{usd(x.amount_usd)}</td>
+              </tr>
+            ))}
+            {!txns.busy && !(txns.data?.transactions || []).length && (
+              <tr><td colSpan={6} className="dim">No transactions yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Panel>
+    </>
+  )
+}
 
 function OverviewPanel(): ReactNode {
   const { data, error, busy, reload } = usePanel(() => api.overview(), [])
@@ -1262,6 +1402,7 @@ export default function AdminView(): ReactNode {
     >
       {who.error && <div className="admin-error">{who.error}</div>}
       {tab === 'overview' && <OverviewPanel />}
+      {tab === 'trends' && <TrendsPanel />}
       {tab === 'defaults' && <DeploymentDefaults />}
       {tab === 'users' && <UsersPanel />}
       {tab === 'usage' && <UsagePanel />}

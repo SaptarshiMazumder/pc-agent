@@ -657,6 +657,22 @@ async function accountsBase(opts) {
   if (!base) throw new Error("this deployment has no accounts service to sign in to");
   return base;
 }
+async function authSignupOpen(opts = {}) {
+  let base;
+  try {
+    base = await accountsBase(opts);
+  } catch {
+    return true;
+  }
+  try {
+    const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: "no-store" });
+    if (!r.ok) return true;
+    const d = await r.json();
+    return d.password_signup !== false;
+  } catch {
+    return true;
+  }
+}
 async function authProviders(opts = {}) {
   let base;
   try {
@@ -1142,6 +1158,7 @@ export {
   authLogin,
   authLogout,
   authProviders,
+  authSignupOpen,
   authStatus,
   authUrl,
   billing,
