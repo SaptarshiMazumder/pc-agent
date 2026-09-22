@@ -382,3 +382,23 @@ def test_startup_is_idempotent_across_restarts(monkeypatch, tmp_path):
         module = _load_app_module(monkeypatch, tmp_path)
         with TestClient(module.app) as client:
             assert client.get("/health").status_code == 200
+
+
+
+def test_password_signup_can_be_closed_by_the_deployment(monkeypatch, tmp_path):
+    """AGENTD_PASSWORD_SIGNUP=0: /signup refuses, the discovery document says so, and an
+    account that already exists still signs in. Unset: everything as before."""
+    module = _load_app_module(monkeypatch, tmp_path)
+    with TestClient(module.app) as client:
+        assert client.get("/.well-known/agentd-platform").json()["password_signup"] is True
+        _signup(client, "kept@b.com")
+
+    monkeypatch.setenv("AGENTD_PASSWORD_SIGNUP", "0")
+    module = _load_app_module(monkeypatch, tmp_path)
+    with TestClient(module.app) as client:
+        assert client.get("/.well-known/agentd-platform").json()["password_signup"] is False
+        r = client.post("/signup", json={"email": "new@b.com", "password": "hunter2hunter2"})
+        assert r.status_code == 403
+        assert "Google" in r.json()["detail"]
+        r = client.post("/auth/login", json={"email": "kept@b.com", "password": "hunter2hunter2"})
+        assert r.status_code == 200, r.text

@@ -105,6 +105,9 @@ module "stack" {
   # registered. The module already read these; nothing PASSED them, so setting the tfvar did
   # nothing at all and the buttons could never appear however the secret was filled in.
   oidc_providers           = var.oidc_providers
+  # GOOGLE ONLY, like production: the card offers Google and nothing else. Existing password
+  # accounts keep their tokens but cannot sign in through the card any more.
+  password_signup          = false
   oidc_google_redirect_uri = var.oidc_google_redirect_uri
 
   # Publishing (modules/publish.tf, deploy/PUBLISH-SERVICE.md). WITHOUT `publish_image_tag`

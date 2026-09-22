@@ -1418,6 +1418,18 @@ variable "admin_hostname" {
   default     = ""
 }
 
+variable "password_signup" {
+  description = <<-EOT
+    May anyone create an account with just an email and a password? A password sign-up verifies
+    nothing — any string with an @ became an account — and nothing in the stack sends mail to
+    check. An environment that offers an external provider (oidc_providers) closes this and
+    loses nothing: Google hands over a verified address. Existing password accounts still sign
+    in; this gates creation only. Read by the accounts service as AGENTD_PASSWORD_SIGNUP.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "oidc_providers" {
   description = <<-EOT
     Which external sign-in providers this deployment offers, comma-separated — "google", or ""
