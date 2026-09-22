@@ -1,7 +1,7 @@
 {
   "user_editable": false,
   "model": "openai/gpt-5.6-luna",
-  "reasoning_effort": "medium",
+  "reasoning_effort": "high",
   "max_turns": 100,
   "verify_tool": false,
   "memory_enabled": true,

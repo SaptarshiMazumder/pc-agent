@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) non-zero; without it the
+         composer sits under the home indicator and the rail under the notch. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <!-- The window's title bar. Set it to the agent's name — it is also what the SDK's sign-in
          gate uses for its heading, so naming the product twice is not needed. -->
     <title>Comfy Penguin</title>

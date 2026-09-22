@@ -1,0 +1,31 @@
+{
+  "id": "identity-portrait-best-model",
+  "agent_id": "comfy-artchitect",
+  "goal": "The brief that went wrong in production on 22 Sep 2026: one reference photo, the same person in a cinematic rainy Tokyo street, best quality with no price limit. Two things must hold. First, the pick: the ask names a top-ranked hosted identity editor from the field guide (Seedream 5.0 Pro, GPT Image 2/2.5, Nano Banana 2/Pro) with credits and a runner-up, not one famous name beside a free fallback. Second, the run: the graph passes comfy_validate and then RUNS on the current partner node without the blind-retry loop — no fallback to a deprecated class, no quiet downgrade of the model. The schema-checked validate and the input example in the spec are what make the second hold.",
+
+  "_comment_turns": "A lazy real user with one photo. Turn two is the approval the paid gate asks for; it approves every service so no decline sends the design back to the field.",
+  "turns": [
+    {
+      "text": "Take the reference photo I just added and put the SAME person in a cinematic rainy Tokyo street at night — keep her face recognizable, then polish and upscale it to a proper portrait. Best quality there is, I don't mind what it costs. Give me the editable workflow and one rendered result.",
+      "reference_media": [{ "role": "person", "path": "assets/influencer-reference.png" }]
+    },
+    "Approved: all of them. Build it and run it."
+  ],
+
+  "_comment_checks": "message_says asserts a CHOICE among the guide's top hosted identity editors, priced in credits. The validate->run pair is the schema fix: a graph that validates must run. max_turns is tight on purpose: the production chat burned five runs; a fixed agent needs one, two at most.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_unrecovered_error" },
+    { "name": "tool_called", "tool": "comfy_price" },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "message_says", "pattern": "(seedream|gpt.?image|nano banana)[^\n]{0,160}\\d[\\d,]*\\s*credits" },
+    { "name": "tool_succeeded", "tool": "comfy_validate" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 30 }
+  ],
+  "max_turns": 30
+}
