@@ -650,7 +650,6 @@ export default function App() {
         onView={setView}
         onNewChat={() => newSession()}
         account={account}
-        client={client ?? undefined}
         status={status}
         name={AGENT_NAME}
         counts={{ credits: credits === null ? undefined : credits.toLocaleString() }}

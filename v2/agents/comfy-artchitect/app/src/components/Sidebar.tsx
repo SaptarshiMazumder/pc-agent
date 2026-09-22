@@ -17,7 +17,6 @@
  */
 
 import {
-  Building2,
   ChevronDown,
   ChevronRight,
   CreditCard,
@@ -31,10 +30,8 @@ import {
 import { BrandMark } from './BrandMark'
 import { useState, type ReactNode } from 'react'
 
-import type { AgentdClient } from '@agentd/client'
 
 import { ProfileMenu } from '../common/auth/ProfileMenu'
-import RunModeBadge from '../common/runmode/RunModeBadge'
 import type { Auth } from '../common/auth/useAuth'
 import { useApp, type View } from '../state/store'
 import SessionItem from './SessionItem'
@@ -42,7 +39,16 @@ import SessionItem from './SessionItem'
 /** The destinations that are not the conversation. Each is a shared module — see App.tsx. */
 const DESTINATIONS: { id: View; label: string; icon: JSX.Element }[] = [
   { id: 'credits', label: 'Credits', icon: <CreditCard size={15} /> },
-  { id: 'orgs', label: 'Organizations', icon: <Building2 size={15} /> },
+  // NO ORGANISATIONS ROW. Comfy Penguin is bought and used by one person -- the ComfyUI
+  // instance it drives belongs to that person -- so a teams page is a destination that only
+  // ever says "You are not in an organization yet."
+  //
+  // THE VIEW ITSELF STAYS MOUNTED in App.tsx, and that is not an oversight. validate_agent
+  // requires every windowed agent to render `common/orgs` (ui_rules._REQUIRED_COMPONENTS) so
+  // that seats and invites are always THE shared page rather than an agent's own guess at
+  // one; it detects the module by path, not by a rail entry. Dropping the import to match
+  // this row would fail the next validate, and packing would ship an agent a colleague can
+  // never be invited into.
   { id: 'settings', label: 'Settings', icon: <Settings2 size={15} /> },
 ]
 
@@ -51,7 +57,6 @@ export function Sidebar({
   onView,
   onNewChat,
   account,
-  client,
   status,
   name = 'This agent',
   extraDestinations = [],
@@ -73,7 +78,6 @@ export function Sidebar({
   /** The window's one auth state — owned by App, so the menu and the card cannot disagree. */
   account: Auth
   /** The daemon connection — the run-mode badge reads/sets the mode through it. */
-  client?: AgentdClient
   status: string
   /** What this agent is called. Yours to set. */
   name?: string
@@ -341,12 +345,17 @@ export function Sidebar({
       <div className="rail-spacer" />
 
       <div className="rail-foot">
-        {/* Whose keys pay for model calls — always on screen, click to switch. Shared component;
-            fixed "Cloud" on the web (no BYOK there). */}
-        <RunModeBadge client={client} />
+        {/* NO RUN-MODE BADGE. This agent has no local mode: the platform's keys pay for every model
+            call, on the web and on a desktop alike, so a Cloud/Local switch was a control that
+            could only ever say "Cloud". */}
         {/* WHO IS SIGNED IN, and the way to Credits from beside the identity it bills. Shared —
             do not replace it with one of your own; see src/common/README.md. */}
         <ProfileMenu {...account} onCredits={() => onView('credits')} />
+        {/* THE ADDRESS, in words: the avatar is one letter, and one letter does not answer "which
+            account is this" for someone with two. Where the Cloud/Local badge used to sit. */}
+        <span className="rail-foot-email" title={account.auth?.email || ''}>
+          {account.auth?.email || (account.auth?.signedIn ? 'Signed in' : 'Not signed in')}
+        </span>
       </div>
     </aside>
   )

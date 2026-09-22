@@ -964,7 +964,7 @@ a.milestone-detail:hover { text-decoration: underline; }
     display: flex;
     position: fixed;
     inset: 0 auto 0 0;
-    z-index: 60;
+    z-index: 35;
     /* Never the full width: the sliver of chat still showing is what says this is a layer over
        the page rather than a new page, and it is where a thumb reaches to dismiss it. */
     width: min(86vw, 320px);
@@ -985,7 +985,7 @@ a.milestone-detail:hover { text-decoration: underline; }
     display: flex;
     position: fixed;
     inset: 0 0 0 auto;
-    z-index: 60;
+    z-index: 35;
     width: min(92vw, 420px);
     transform: translateX(100%);
     transition: transform var(--dur-slow) var(--ease-smooth);
@@ -1021,17 +1021,29 @@ a.milestone-detail:hover { text-decoration: underline; }
      color-mix idiom .chat-dropzone already uses for its overlay. */
   .drawer-scrim {
     display: block;
-    position: fixed; inset: 0; z-index: 55;
+    position: fixed; inset: 0; z-index: 30;
     background: color-mix(in srgb, var(--bg4) 72%, transparent);
   }
 
-  /* THE BAR THAT IS ALWAYS THERE. Fixed rather than in flow, so it does not depend on which
+  /* ── the drawer stack: 25 (bar) < 30 (scrim) < 35 (panels) ─────────────────────────────
+     UNDER 40, WHICH IS A CEILING RATHER THAN A PREFERENCE. The SDK's account menu and the
+     conversation ⋯ menu both render through createPortal, so they leave the rail's DOM and
+     land on <body>, where their z-index competes with everything at the root: the account
+     menu at 40/41 (src/common/auth/auth.css) and .chat-menu at 61.
+
+     These first shipped at 50/55/60 and the account menu opened UNDERNEATH the drawer -- the
+     avatar looked dead, and there was no way to sign out on a phone. Raising it is not an
+     option: auth.css lives in src/common/, which validate_agent compares against the
+     platform's copy and this agent must not edit. So the drawer goes below the menus, which
+     is the correct order anyway -- a menu opened from inside a panel belongs on top of it.
+
+     THE BAR THAT IS ALWAYS THERE. Fixed rather than in flow, so it does not depend on which
      view `main` mounted -- Credits and Settings come from src/common/ and bring no header of
      their own. BELOW the scrim (50 < 55) on purpose: with a drawer open the bar is covered
      along with everything else, and the scrim is what takes the tap. */
   .mobile-bar {
     display: flex; align-items: center; gap: 4px;
-    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 25;
     height: calc(46px + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) 8px 0;
     background: var(--bg);
@@ -1213,11 +1225,13 @@ a.milestone-detail:hover { text-decoration: underline; }
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-card);
 }
 /* The account first — it is the answer to "who am I signed in as", which is the question this
-   corner exists for. The mode badge is the qualifier, so it sits to the right. */
+   corner exists for. The address beside it says which account, in words. */
 .rail-foot .agentd-pm { order: -1; flex: none; display: flex; align-items: center; }
 .rail-foot .agentd-pm-btn { width: 30px; height: 30px; font-size: var(--fs-meta); }
-/* Not stretched: a pill is as wide as its label. */
-.rail-foot .runmode { flex: none; align-self: center; font-size: var(--fs-small); }
+.rail-foot-email {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-small); color: var(--dim);
+}
 
 /* ── the page head ─────────────────────────────────────────────────────────────────────────── */
 .page-head {
@@ -1555,3 +1569,60 @@ a.milestone-detail:hover { text-decoration: underline; }
 }
 .bj-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .bj-cancel:disabled { opacity: .5; cursor: default; }
+
+/* ── the settings page on a phone ─────────────────────────────────────────────────────────── */
+/* src/common/settings/settings.css HAS NO BREAKPOINT AT ALL, and this agent may not add one to
+   it: validate_agent compares every src/common/ file against the platform's copy, so the fix
+   has to be an override from the agent's own stylesheet.
+
+   WHAT IT LOOKS LIKE UNFIXED, at 460px: `.settings-layout` is a flex row of a fixed 194px nav
+   plus 68px of side padding, leaving about 170px for the content -- and `.field` is itself a
+   row whose input is `flex: none; width: 210px`. A 210px control in a 170px column overlaps
+   the label beside it, and the label wraps to one word per line behind it.
+
+   SPECIFICITY, NOT SOURCE ORDER. Each selector here carries one extra class over the rule it
+   overrides, because settings.css arrives through Settings.tsx's own import and its position
+   in the bundle relative to this file is a property of the import graph rather than anything
+   stated. Winning on specificity means the fix does not quietly stop working when some
+   unrelated import moves. */
+@media (max-width: 820px) {
+  /* The nav stops being a column beside the content and becomes a scrollable row above it. */
+  .main .settings-layout {
+    flex-direction: column;
+    gap: 14px;
+    padding: 2px 16px 0;
+  }
+  .main .settings-nav {
+    width: auto;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 8px;
+    /* Two tabs today; a third must scroll rather than squeeze the first two. */
+    flex: none;
+  }
+  .main .settings-nav-item {
+    width: auto;
+    flex: none;
+    white-space: nowrap;
+    min-height: 44px;
+  }
+
+  /* Label above control, each on its own line, which is the only arrangement that fits. */
+  .main .settings-page .field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .main .settings-page .field input,
+  .main .settings-page .field select {
+    width: 100%;
+    /* The 210px was a fixed width for a fixed column; neither exists here. */
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* A row whose control is a button (Save, Reset) keeps the button its own size rather than
+     stretching it the full width of the card. */
+  .main .settings-page .field button { align-self: flex-start; }
+}

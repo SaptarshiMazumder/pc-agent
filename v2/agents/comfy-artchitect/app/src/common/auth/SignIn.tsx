@@ -72,6 +72,11 @@ export default function SignIn({
    *  Google-only deployment gets a Google-only card. With no provider the form stays, because
    *  otherwise there would be no way in at all. */
   const [signupOpen, setSignupOpen] = useState(true)
+  /** NOTHING BELOW THE TITLE UNTIL THE DEPLOYMENT HAS ANSWERED. Both facts come from the same
+   *  discovery document; drawing the form on a guess and then taking it away when the answer
+   *  arrived was a visible flash of a login nobody could use. The card's body waits for the
+   *  answer — or for the fetch to fail, which falls back to the form. */
+  const [doorsKnown, setDoorsKnown] = useState(false)
   const passwordForm = signupOpen || providers.length === 0
   /** THIS LOAD IS A SIGN-IN FINISHING, not one starting: the address bar carries the provider's
    *  answer and the effect below is redeeming it. While that is true the card shows one line and
@@ -81,16 +86,16 @@ export default function SignIn({
 
   useEffect(() => {
     let alive = true
-    void authProviders()
-      .then((list) => alive && setProviders(list.filter((p) => p.kind !== 'password')))
-      .catch(() => {
-        /* no accounts service, or it did not answer: the password form still works */
-      })
-    void authSignupOpen()
-      .then((open) => alive && setSignupOpen(open))
-      .catch(() => {
-        /* unknown: leave the door as it was */
-      })
+    void Promise.all([
+      authProviders().catch((): AuthProvider[] => []),
+      authSignupOpen().catch(() => true),
+    ]).then(([list, open]) => {
+      if (!alive) return
+      // Set together, then reveal: the body is drawn once, with both facts in hand.
+      setProviders(list.filter((p) => p.kind !== 'password'))
+      setSignupOpen(open)
+      setDoorsKnown(true)
+    })
     return () => {
       alive = false
     }
@@ -195,7 +200,7 @@ export default function SignIn({
         {/* ABOVE THE FORM, because for a user who has one of these it is the whole interaction —
             putting it under the password field asks them to read past the thing they are not
             going to use. The divider only appears when both doors exist. */}
-        {providers.length > 0 && (
+        {doorsKnown && providers.length > 0 && (
           <>
             <div className="signin-providers">
               {providers.map((p) => (
@@ -218,7 +223,7 @@ export default function SignIn({
           </>
         )}
 
-        {passwordForm && (
+        {doorsKnown && passwordForm && (
           <>
         <label className="signin-label" htmlFor="signin-email">
           Email
@@ -256,7 +261,7 @@ export default function SignIn({
 
         {error && <div className="signin-error">{error}</div>}
 
-        {passwordForm && signupOpen && (
+        {doorsKnown && passwordForm && signupOpen && (
           <button
             className="signin-toggle"
             type="button"
