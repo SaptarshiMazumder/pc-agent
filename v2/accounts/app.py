@@ -94,6 +94,7 @@ from payments.infrastructure.sqlite_payment_intent_store import SqlitePaymentInt
 from payments.main.payment_gateway_factory import (
     build_payment_gateway,
     build_webhook_verifier,
+    charge_display,
     has_webhook,
 )
 from payments.presentation.payment_router import build_payment_router
@@ -1740,8 +1741,13 @@ def list_products(kind: str = "") -> dict:
     except Exception as exc:  # noqa: BLE001 - browsing must not depend on a configured rail
         logging.getLogger("accounts").warning("catalogue served without a rail: %s", exc)
         provider, note = "", ""
+    # WHAT IT WILL ACTUALLY COST, beside the USD it is priced in. On the Razorpay rail an Indian
+    # card is charged in rupees, and a page that says $1.00 in front of a Rs 89 checkout is how a
+    # customer decides something is wrong. Empty on every other rail, so those clients are
+    # unchanged. Priced in USD still -- this is the same number, said in the currency the
+    # customer's bank will see.
     return {
-        "products": [dict(r) for r in rows],
+        "products": [{**dict(r), **charge_display(float(r["price_usd"] or 0))} for r in rows],
         "provider": provider,
         "payment_note": note,
     }

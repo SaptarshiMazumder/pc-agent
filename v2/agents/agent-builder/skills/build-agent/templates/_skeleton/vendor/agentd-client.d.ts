@@ -460,6 +460,15 @@ type CreditPack = {
     seats: number;
     modelTierMax: string;
     periodDays: number;
+    /** What the rail will actually charge, in `chargeCurrency`, when that differs from the USD
+     *  this product is priced in — Razorpay bills Indian cards in rupees. 0 when there is no
+     *  difference, which is every rail that charges in the currency of the price.
+     *
+     *  PRESENTATION ONLY. The product, the ledger and every credit figure stay in USD; this is
+     *  the same amount said in the currency the customer's bank will see, so the page and the
+     *  checkout cannot show two different numbers. */
+    chargePrice: number;
+    chargeCurrency: string;
 };
 type Catalog = {
     packs: CreditPack[];
