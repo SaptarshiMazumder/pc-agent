@@ -33,6 +33,7 @@ import {
   authCallback,
   authLogin,
   authProviders,
+  authSignupOpen,
   oauthCallbackParams,
   type AuthProvider,
 } from '@agentd/client'
@@ -64,6 +65,14 @@ export default function SignIn({
   const [providers, setProviders] = useState<AuthProvider[]>([])
   /** Which provider button was pressed, so only that one shows progress. */
   const [going, setGoing] = useState('')
+  /** Whether the password door is open at all. Production closes password sign-up (it verifies
+   *  nothing) and offers Google only; the deployment says so in its discovery document and this
+   *  card renders from that, so closing it is a variable, not a client release. With the door
+   *  closed AND a provider to offer, the email and password fields are not drawn either: a
+   *  Google-only deployment gets a Google-only card. With no provider the form stays, because
+   *  otherwise there would be no way in at all. */
+  const [signupOpen, setSignupOpen] = useState(true)
+  const passwordForm = signupOpen || providers.length === 0
   /** THIS LOAD IS A SIGN-IN FINISHING, not one starting: the address bar carries the provider's
    *  answer and the effect below is redeeming it. While that is true the card shows one line and
    *  no form — a form under "Continue with Google" on the way BACK from Google read as being
@@ -76,6 +85,11 @@ export default function SignIn({
       .then((list) => alive && setProviders(list.filter((p) => p.kind !== 'password')))
       .catch(() => {
         /* no accounts service, or it did not answer: the password form still works */
+      })
+    void authSignupOpen()
+      .then((open) => alive && setSignupOpen(open))
+      .catch(() => {
+        /* unknown: leave the door as it was */
       })
     return () => {
       alive = false
@@ -196,12 +210,16 @@ export default function SignIn({
                 </button>
               ))}
             </div>
-            <div className="signin-or">
-              <span>or</span>
-            </div>
+            {passwordForm && (
+              <div className="signin-or">
+                <span>or</span>
+              </div>
+            )}
           </>
         )}
 
+        {passwordForm && (
+          <>
         <label className="signin-label" htmlFor="signin-email">
           Email
         </label>
@@ -230,22 +248,26 @@ export default function SignIn({
           required
         />
 
-        {error && <div className="signin-error">{error}</div>}
-
         <button className="signin-btn" type="submit" disabled={busy}>
           {busy ? 'Please wait…' : mode === 'in' ? 'Sign in' : 'Create account'}
         </button>
+          </>
+        )}
 
-        <button
-          className="signin-toggle"
-          type="button"
-          onClick={() => {
-            setError('')
-            setMode((m) => (m === 'in' ? 'up' : 'in'))
-          }}
-        >
-          {mode === 'in' ? 'Create an account' : 'Have an account? Sign in'}
-        </button>
+        {error && <div className="signin-error">{error}</div>}
+
+        {passwordForm && signupOpen && (
+          <button
+            className="signin-toggle"
+            type="button"
+            onClick={() => {
+              setError('')
+              setMode((m) => (m === 'in' ? 'up' : 'in'))
+            }}
+          >
+            {mode === 'in' ? 'Create an account' : 'Have an account? Sign in'}
+          </button>
+        )}
       </form>
     </div>
   )
