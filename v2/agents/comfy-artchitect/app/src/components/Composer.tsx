@@ -30,7 +30,6 @@ export function Composer({
   forkBusy,
   meter,
   connected,
-  model,
   credits,
   onCredits,
   placeholder = 'Send a message…',
@@ -54,8 +53,6 @@ export function Composer({
   meter?: React.ReactNode
   /** Is the socket open? A composer that accepts a message it cannot send is a message lost. */
   connected: boolean
-  /** The model that actually ran the last step. Empty until something has run. */
-  model: string
   /** What the empty composer invites. Set it to your agent's job — "Ask about a paper…",
    *  "Describe the workflow…" — because the default is deliberately generic. */
   placeholder?: string
@@ -260,15 +257,6 @@ export function Composer({
               is a desktop fact printed permanently under a box most people now open on a touch
               screen, where there is no Shift and Enter is whatever the on-screen keyboard says.
               It taught, once, something one press discovers. */}
-          {/* NO PLACEHOLDER WHEN UNKNOWN. This used to read "no model yet" whenever the prop
-              was empty, which was every fresh conversation -- and it was false: a model is
-              always configured, the window just had not read it yet. An absent chip says
-              nothing; a present one that is wrong is worse than silence. */}
-          {model && (
-            <span className="composer-model" title="The model answering on this account">
-              {model}
-            </span>
-          )}
           {credits !== null && (
             /* A dead end is the worst place to learn you are out of credits, so the readout is
                also the way to the top-up panel. */

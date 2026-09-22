@@ -34,6 +34,7 @@ from typing import Mapping
 from payments.application.interfaces.webhook_verifier import WebhookRejected
 from payments.domain import payment_event, payment_status
 from payments.domain.money import Money
+from payments.infrastructure.razorpay_currency_converter import RazorpayCurrencyConverter
 from payments.domain.payment_event import PaymentEvent
 from payments.domain.payment_intent import PURCHASE, REFUND, PaymentIntent
 
@@ -52,10 +53,18 @@ EVENT_TYPES = {
 
 
 class RazorpayWebhookVerifier:
-    def __init__(self, webhook_secret: str) -> None:
+    def __init__(
+        self,
+        webhook_secret: str,
+        converter: RazorpayCurrencyConverter | None = None,
+    ) -> None:
         if not webhook_secret:
             raise ValueError("a Razorpay webhook secret is required")
         self._secret = webhook_secret
+        # MUST be the same conversion the gateway charged with. An INR capture read as dollars
+        # would post ~88x its value into the ledger, which would balance perfectly and be
+        # entirely wrong.
+        self._fx = converter or RazorpayCurrencyConverter()
 
     def verify(self, body: bytes, headers: Mapping[str, str]) -> PaymentEvent:
         signature = (headers.get("x-razorpay-signature") or "").strip()
@@ -117,7 +126,7 @@ class RazorpayWebhookVerifier:
             kind=REFUND if kind == payment_event.REFUND_SUCCEEDED else PURCHASE,
             provider="razorpay",
             reference=reference,
-            amount=Money.from_minor_units(
+            amount=self._fx.from_rail(
                 int(primary.get("amount") or 0), str(primary.get("currency") or "usd")
             ),
             status=status,

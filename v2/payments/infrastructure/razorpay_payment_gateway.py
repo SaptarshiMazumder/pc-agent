@@ -36,6 +36,7 @@ from payments.application.interfaces.payment_gateway import (
 )
 from payments.domain import payment_status
 from payments.domain.money import Money
+from payments.infrastructure.razorpay_currency_converter import RazorpayCurrencyConverter
 from payments.domain.payment_intent import PURCHASE, REFUND, PaymentIntent
 from payments.infrastructure.razorpay_api_client import RazorpayApiClient, RazorpayApiError
 
@@ -49,8 +50,15 @@ class RazorpayPaymentGateway:
         "You will be taken to Razorpay's secure payment page. Your card details never reach us."
     )
 
-    def __init__(self, client: RazorpayApiClient) -> None:
+    def __init__(
+        self,
+        client: RazorpayApiClient,
+        converter: RazorpayCurrencyConverter | None = None,
+    ) -> None:
         self._client = client
+        # Default converter is a disabled one, so an unconfigured deployment charges USD exactly
+        # as it did before this existed.
+        self._fx = converter or RazorpayCurrencyConverter()
 
     def begin_purchase(self, request: PurchaseRequest) -> PaymentIntent:
         if not request.amount.positive:
@@ -63,8 +71,11 @@ class RazorpayPaymentGateway:
             )
         reference = _reference_id(request.idempotency_key)
         payload = {
-            "amount": request.amount.minor_units(),
-            "currency": request.amount.currency.upper(),
+            # THE CHARGE CURRENCY, NOT THE BOOKS'. An Indian card cannot authorise a USD
+            # charge unless its owner has switched international transactions on, which almost
+            # nobody has -- see RazorpayCurrencyConverter.
+            "amount": self._fx.to_rail(request.amount),
+            "currency": self._fx.charge_currency,
             "description": request.description or "Credits",
             "callback_url": request.success_url,
             "callback_method": "get",
@@ -118,7 +129,8 @@ class RazorpayPaymentGateway:
     def refund(self, *, reference: str, amount: Money, idempotency_key: str = "") -> PaymentIntent:
         # `reference` is the PAYMENT id (pay_…) — the webhook verifier put it on the succeeded
         # intent for exactly this call; a Payment Link id cannot be refunded.
-        payload = {"amount": amount.minor_units()}
+        # Same conversion as the purchase: a refund is quoted to the rail in what it charged.
+        payload = {"amount": self._fx.to_rail(amount)}
         if idempotency_key:
             payload["notes"] = {"idempotency_key": idempotency_key}
         refund = self._client.post(f"/v1/payments/{reference}/refund", payload)

@@ -7,6 +7,7 @@
     RAZORPAY_KEY_ID              rzp_test_… / rzp_live_…  (required when razorpay)
     RAZORPAY_KEY_SECRET          the key's secret half    (required when razorpay)
     RAZORPAY_WEBHOOK_SECRET      set when creating the webhook in their dashboard
+    RAZORPAY_INR_PER_USD         rupees per dollar; unset = charge USD (declines Indian cards)
     DODO_API_KEY                 required when dodo
     DODO_PRODUCT_ID              the ONE pay-what-you-want product in Dodo's catalog; a
                                  merchant of record can only sell from its catalog, and its
@@ -55,6 +56,24 @@ def configured_provider_name() -> str:
     return (os.environ.get("AGENTD_PAYMENT_PROVIDER") or NULL).strip().lower() or NULL
 
 
+def _razorpay_fx():
+    """The INR/USD rate both halves of the Razorpay rail must agree on.
+
+    ONE READER, so the gateway cannot charge in rupees while the webhook reads dollars. Unset or
+    0 means no conversion, which is what every deployment did before this existed.
+    """
+    from payments.infrastructure.razorpay_currency_converter import RazorpayCurrencyConverter
+
+    raw = (os.environ.get("RAZORPAY_INR_PER_USD") or "").strip()
+    try:
+        rate = float(raw) if raw else 0.0
+    except ValueError as e:
+        # NOT a silent fall back to USD: that would quietly restore the decline this setting
+        # exists to fix, and it would do it on a deployment whose operator believed otherwise.
+        raise ValueError(f"RAZORPAY_INR_PER_USD is not a number: {raw!r}") from e
+    return RazorpayCurrencyConverter(rate)
+
+
 def _require(name: str) -> str:
     value = (os.environ.get(name) or "").strip()
     if not value:
@@ -82,7 +101,8 @@ def build_payment_gateway() -> PaymentGateway:
         from payments.infrastructure.razorpay_payment_gateway import RazorpayPaymentGateway
 
         return RazorpayPaymentGateway(
-            RazorpayApiClient(_require("RAZORPAY_KEY_ID"), _require("RAZORPAY_KEY_SECRET"))
+            RazorpayApiClient(_require("RAZORPAY_KEY_ID"), _require("RAZORPAY_KEY_SECRET")),
+            _razorpay_fx(),
         )
     if name == DODO:
         from payments.infrastructure.dodo_api_client import DEFAULT_BASE_URL, DodoApiClient
@@ -113,7 +133,7 @@ def build_webhook_verifier() -> WebhookVerifier:
     if name == RAZORPAY:
         from payments.infrastructure.razorpay_webhook_verifier import RazorpayWebhookVerifier
 
-        return RazorpayWebhookVerifier(_require("RAZORPAY_WEBHOOK_SECRET"))
+        return RazorpayWebhookVerifier(_require("RAZORPAY_WEBHOOK_SECRET"), _razorpay_fx())
     if name == DODO:
         from payments.infrastructure.dodo_webhook_verifier import DodoWebhookVerifier
 
