@@ -32,6 +32,7 @@ put half of every day's rows in tomorrow.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -94,6 +95,36 @@ def _page(limit: object, offset: object) -> tuple[int, int]:
     except (TypeError, ValueError):
         start = 0
     return max(1, min(size, PAGE_MAX)), max(0, start)
+
+
+def _order_of(meta: object) -> dict:
+    """product_id and credits out of an intent's `meta` blob.
+
+    THE WHOLE ORDER RIDES IN THERE (PurchaseOrder.to_metadata) because a payment settles minutes
+    or days later and the products row may have changed by then -- so this reads what the
+    customer was actually sold rather than what the catalogue says today. That is the number to
+    quote back at somebody asking about their charge.
+
+    A ROW WITHOUT USABLE META IS NOT AN ERROR. Refunds initiated from the rail's own dashboard
+    carry none, and intents predate this column entirely; they simply have no product to name.
+    """
+    if not meta:
+        return {}
+    try:
+        parsed = json.loads(meta) if isinstance(meta, (str, bytes)) else dict(meta)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    if parsed.get("product_id"):
+        out["product_id"] = str(parsed["product_id"])
+    if parsed.get("credits"):
+        try:
+            out["credits"] = int(parsed["credits"])
+        except (ValueError, TypeError):
+            pass
+    return out
 
 
 def _day_iso(day_number: int) -> str:
@@ -244,7 +275,7 @@ def build_admin_metrics_router(
             params.extend([size, start])
             rows = c.execute(  # noqa: S608 - `where` is a fixed string, never caller input
                 "SELECT i.reference, i.account_id, i.status, i.kind, i.provider, "
-                "i.amount_usd, i.currency, i.ts, a.email "
+                "i.amount_usd, i.currency, i.ts, i.meta, a.email "
                 f"FROM payment_intents i LEFT JOIN accounts a ON a.id = i.account_id {where} "
                 "ORDER BY i.ts DESC LIMIT ? OFFSET ?",
                 tuple(params),
@@ -267,6 +298,10 @@ def build_admin_metrics_router(
                     "amount_usd": float(r["amount_usd"] or 0.0),
                     "currency": r["currency"],
                     "ts": r["ts"],
+                    # WHAT THEY BOUGHT, not just what they paid. An amount alone cannot tell a
+                    # $5 pack from a $5 refund of a larger one, and "which pack was that?" is
+                    # the first question asked about any charge someone disputes.
+                    **_order_of(r["meta"]),
                 }
                 for r in rows
             ],

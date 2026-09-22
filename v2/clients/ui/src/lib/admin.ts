@@ -149,6 +149,9 @@ export type Txn = {
   amount_usd: number
   currency: string
   ts: number
+  /** From the order the rail signed back — absent on refunds raised in the rail's dashboard. */
+  product_id?: string
+  credits?: number
 }
 
 /** Window is clamped server-side to 90 days; asking for more is not an error, just capped. */

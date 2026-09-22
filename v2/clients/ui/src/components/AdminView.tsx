@@ -254,7 +254,8 @@ function TrendsPanel(): ReactNode {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>When</th><th>Account</th><th>Kind</th><th>Status</th><th>Rail</th><th className="num">Amount</th>
+              <th>When</th><th>Account</th><th>Bought</th><th>Status</th>
+              <th>Reference</th><th className="num">Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -263,9 +264,14 @@ function TrendsPanel(): ReactNode {
                 <td>{new Date(x.ts * 1000).toLocaleString()}</td>
                 {/* An intent whose account is gone still shows -- that is the row worth seeing. */}
                 <td>{x.email || x.account_id || <span className="dim">unknown</span>}</td>
-                <td>{x.kind}</td>
+                <td>
+                  {x.product_id || x.kind}
+                  {x.credits ? <span className="dim"> · {num(x.credits)} cr</span> : null}
+                </td>
                 <td>{x.status}</td>
-                <td>{x.provider}</td>
+                {/* THE ID YOU PASTE INTO THE RAIL'S DASHBOARD to find or refund this payment.
+                    Monospace and selectable, because it is copied far more often than read. */}
+                <td><code className="admin-ref">{x.reference || '—'}</code></td>
                 <td className="num">{usd(x.amount_usd)}</td>
               </tr>
             ))}
