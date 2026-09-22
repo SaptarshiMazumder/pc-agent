@@ -158,6 +158,8 @@ locals {
       # password form exactly as before — so this is inert until the Google client actually
       # exists. The client id/secret arrive separately, as secrets.
       AGENTD_OIDC_PROVIDERS = var.oidc_providers
+      # Whether the card may offer "Create an account" — see variable "password_signup".
+      AGENTD_PASSWORD_SIGNUP = var.password_signup ? "1" : "0"
       # Discovery, not endpoints: Google publishes its authorization/token/JWKS addresses behind
       # this one URL and rotates them there, so nothing here ages.
       AGENTD_OIDC_GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"

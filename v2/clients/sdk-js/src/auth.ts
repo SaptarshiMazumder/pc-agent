@@ -102,6 +102,27 @@ async function accountsBase(opts: AuthOptions): Promise<string> {
  * An empty list is the honest answer for a BYOK build with no accounts service, and callers
  * render nothing rather than a dead button.
  */
+/** May the card offer "Create an account"? False where the deployment has closed password
+ *  sign-up (production offers Google only, because a password sign-up verifies nothing). True
+ *  when the document does not say — an older accounts service, or none at all, is the world as
+ *  it was. */
+export async function authSignupOpen(opts: AuthOptions = {}): Promise<boolean> {
+  let base: string
+  try {
+    base = await accountsBase(opts)
+  } catch {
+    return true
+  }
+  try {
+    const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: 'no-store' })
+    if (!r.ok) return true
+    const d = (await r.json()) as { password_signup?: unknown }
+    return d.password_signup !== false
+  } catch {
+    return true
+  }
+}
+
 export async function authProviders(opts: AuthOptions = {}): Promise<AuthProvider[]> {
   let base: string
   try {
