@@ -57,6 +57,23 @@ function Root() {
    *  as its card's first frame; this is the same rule on the landing's path. */
   const [entering, setEntering] = useState(() => !!oauthCallbackParams())
 
+  /* NO WAY OUT WHILE THE CODE IS BEING SWAPPED FOR A SESSION.
+     A load carrying `?code=` is a sign-in mid-flight: the card hands that one-time code to the
+     server and gets a session back. SignIn clears the code from the address bar BEFORE it makes
+     that call, so closing the card in those seconds leaves the exchange unfinished AND the code
+     already spent — the visitor lands back on the landing page signed out, with nothing to
+     retry but the whole Google round trip. The same "sign in twice", through a narrower door.
+
+     RELEASED ON A TIMER, because the other failure is worse. If the exchange errors, SignIn
+     shows its message — and a card with no close button would trap the person on it. Twenty
+     seconds is far longer than a redemption and far shorter than a person's patience. */
+  const [redeeming, setRedeeming] = useState(() => !!oauthCallbackParams())
+  useEffect(() => {
+    if (!redeeming) return
+    const t = window.setTimeout(() => setRedeeming(false), 20_000)
+    return () => window.clearTimeout(t)
+  }, [redeeming])
+
   useEffect(() => {
     let live = true
     void authStatus()
@@ -76,10 +93,12 @@ function Root() {
   // Escape closes the card, like every other dialog. Bound only while it is open.
   useEffect(() => {
     if (!entering) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setEntering(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !redeeming) setEntering(false)
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [entering])
+  }, [entering, redeeming])
 
   if (knownUser === null) return null
 
@@ -107,17 +126,22 @@ function Root() {
       <LandingPage onStart={() => setEntering(true)} />
       {entering && (
         <div className="lp-auth" role="dialog" aria-modal="true" aria-label="Sign in">
-          <button
-            className="lp-auth-x"
-            aria-label="Close sign in"
-            onClick={() => setEntering(false)}
-          >
-            <X size={18} strokeWidth={2} />
-          </button>
+          {!redeeming && (
+            <button
+              className="lp-auth-x"
+              aria-label="Close sign in"
+              onClick={() => setEntering(false)}
+            >
+              <X size={18} strokeWidth={2} />
+            </button>
+          )}
           <SignIn
             product="Comfy Penguin"
             mark={<BrandMark size={42} />}
-            onDone={() => setKnownUser(true)}
+            onDone={() => {
+              setRedeeming(false)
+              setKnownUser(true)
+            }}
           />
         </div>
       )}
