@@ -30,7 +30,7 @@
  * nothing). Move `styles.css` above `theme.css` and every template's look dies quietly.
  */
 
-import { authStatus } from '@agentd/client'
+import { authStatus, oauthCallbackParams } from '@agentd/client'
 import { X } from 'lucide-react'
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -47,8 +47,15 @@ import './styles.css'
 function Root() {
   /** null = still asking. Never render the landing while this is unknown. */
   const [knownUser, setKnownUser] = useState<boolean | null>(null)
-  /** Set when the visitor asks for the door, which is what mounts the gate. */
-  const [entering, setEntering] = useState(false)
+  /** Set when the visitor asks for the door, which is what mounts the card.
+   *
+   *  OPEN FROM THE START ON THE WAY BACK FROM THE PROVIDER. A load carrying `?code=&state=` is
+   *  a sign-in finishing, and the card is the only thing that redeems the code. Starting closed
+   *  meant the probe above found no cookie (nothing had redeemed the code yet), the landing came
+   *  up with no card, and the code sat in the address bar until the person pressed Start a
+   *  second time — which looked like having to sign in twice. Gate already treats such a load
+   *  as its card's first frame; this is the same rule on the landing's path. */
+  const [entering, setEntering] = useState(() => !!oauthCallbackParams())
 
   useEffect(() => {
     let live = true
