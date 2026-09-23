@@ -29,7 +29,7 @@ RUN useradd -u 1000 -m app && mkdir -p /data && chown app:app /data
 # orgs_api.py and the container exited 1 on FileNotFoundError before serving a byte.)
 COPY accounts/app.py accounts/ledger.py accounts/accounts_post_processor.py \
      accounts/identity_bridge.py accounts/admin_api.py accounts/admin_metrics_api.py \
-     accounts/account_balance_reader.py accounts/orgs_api.py \
+     accounts/account_balance_reader.py accounts/sort_order_resolver.py accounts/orgs_api.py \
      accounts/app_secret_loader.py accounts/postgres_connection_pool.py \
      accounts/postgres_schema.py accounts/sqlite_dialect_connection.py /app/
 # The payment rail, as a package rather than a sibling (v2/payments/). Copied to /app/payments/

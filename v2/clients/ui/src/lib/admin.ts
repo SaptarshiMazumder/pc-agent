@@ -176,6 +176,11 @@ export type SignupHistory = {
   total: number
   limit: number
   offset: number
+  /** What the server SORTED BY, which is not always what was asked — an unknown column falls
+      back to the default rather than failing. The console's arrow follows this, not its own
+      intent, so it can never point at a column the rows are not ordered by. */
+  sort: string
+  dir: 'asc' | 'desc'
 }
 
 /** Window is clamped server-side to 90 days; asking for more is not an error, just capped. */
@@ -189,16 +194,31 @@ export const transactions = (
   limit = 50,
   offset = 0,
   status = '',
-): Promise<{ total: number; limit: number; offset: number; transactions: Txn[] }> =>
+  sort = 'ts',
+  dir: 'asc' | 'desc' = 'desc',
+): Promise<{
+  total: number
+  limit: number
+  offset: number
+  sort: string
+  dir: 'asc' | 'desc'
+  transactions: Txn[]
+}> =>
   call(
-    `/admin/metrics/transactions?limit=${limit}&offset=${offset}` +
+    `/admin/metrics/transactions?limit=${limit}&offset=${offset}&sort=${sort}&dir=${dir}` +
       (status ? `&status=${encodeURIComponent(status)}` : ''),
   )
 
 /** The sign-up list itself, newest first. `q` matches email or account id as a substring. */
-export const signupHistory = (limit = 50, offset = 0, q = ''): Promise<SignupHistory> =>
+export const signupHistory = (
+  limit = 50,
+  offset = 0,
+  q = '',
+  sort = 'created_at',
+  dir: 'asc' | 'desc' = 'desc',
+): Promise<SignupHistory> =>
   call(
-    `/admin/metrics/signup-history?limit=${limit}&offset=${offset}` +
+    `/admin/metrics/signup-history?limit=${limit}&offset=${offset}&sort=${sort}&dir=${dir}` +
       (q ? `&q=${encodeURIComponent(q)}` : ''),
   )
 
@@ -215,7 +235,14 @@ export type AccountRow = {
   admin_source: 'config' | 'roster' | ''
 }
 
-export type AccountList = { accounts: AccountRow[]; total: number; limit: number; offset: number }
+export type AccountList = {
+  accounts: AccountRow[]
+  total: number
+  limit: number
+  offset: number
+  sort: string
+  dir: 'asc' | 'desc'
+}
 
 export type Grant = {
   id: number
@@ -262,9 +289,16 @@ export type AccountDetail = AccountRow & {
   devices: Device[]
 }
 
-export const listAccounts = (q = '', limit = 50, offset = 0): Promise<AccountList> =>
+export const listAccounts = (
+  q = '',
+  limit = 50,
+  offset = 0,
+  sort = 'created_at',
+  dir: 'asc' | 'desc' = 'desc',
+): Promise<AccountList> =>
   call<AccountList>(
-    `/admin/accounts?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`
+    `/admin/accounts?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}` +
+      `&sort=${sort}&dir=${dir}`
   )
 
 export const accountDetail = (id: string): Promise<AccountDetail> =>
@@ -335,6 +369,9 @@ export type Product = {
   period_days: number
   active: boolean
   subscribers: number
+  /** When the product was first written. Already returned by the route; surfaced now so the
+      list can be ordered by it. */
+  created_at: number
 }
 
 export const listProducts = (): Promise<{ products: Product[] }> =>

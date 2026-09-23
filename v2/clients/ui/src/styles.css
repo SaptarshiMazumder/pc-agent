@@ -1637,6 +1637,34 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
 /* Why a payment failed, in the rail's words, under its status chip. */
 .admin-detail { margin-top: 4px; max-width: 260px; line-height: 1.5; }
 
+/* Sortable column headers. The whole header is the button rather than an icon beside it — a
+   4px arrow is a poor click target, and the label is what people aim at anyway.
+
+   The arrow is always rendered, faint until its column is the active one, so the columns that
+   CAN be sorted are visible before anything has been clicked. A control you have to discover by
+   clicking around is not a control. */
+.admin-sort {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  transition: color var(--dur-fast, .12s) ease;
+}
+.admin-sort:hover { color: var(--text); }
+.admin-sort.active { color: var(--text); }
+.admin-sort-arrow {
+  flex: none;
+  opacity: .25;
+  transition: opacity var(--dur-fast, .12s) ease, transform var(--dur-fast, .12s) ease;
+}
+.admin-sort:hover .admin-sort-arrow { opacity: .6; }
+.admin-sort.active .admin-sort-arrow { opacity: 1; }
+/* One arrow, rotated, rather than two icons: the flip then animates between the two states. */
+.admin-sort-arrow.down { transform: rotate(180deg); }
+
+/* Numeric columns line up on the right, header included. */
+.admin-table th.num, .admin-table td.num { text-align: right; }
+.admin-table th.num .admin-sort { flex-direction: row-reverse; }
+
 /* Paging. The range reads as text and the arrows sit beside it, because "next" on its own
    cannot say whether there is anything left to page to. */
 .admin-pager {

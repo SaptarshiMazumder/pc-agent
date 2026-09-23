@@ -38,6 +38,10 @@ if TYPE_CHECKING:  # pragma: no cover - types only; the host constructs and inje
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
+# Bare import for the same reason admin_metrics_api uses one: /app is on sys.path under uvicorn,
+# and app.py's by-path loader registers this module before it loads this one.
+from sort_order_resolver import SortOrderResolver
+
 try:
     from agentd_telemetry import count
 except ImportError:  # pragma: no cover - telemetry is never load-bearing
@@ -459,26 +463,57 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         q: str = "",
         limit: int = PAGE_DEFAULT,
         offset: int = 0,
+        sort: str = "created_at",
+        dir: str = "desc",  # noqa: A002 - the query-string name the console sends
         authorization: str | None = Header(default=None),
     ) -> dict:
-        """Every account, newest first. `q` matches email or id as a substring."""
+        """Every account, newest first by default. `q` matches email or id as a substring.
+
+        SORTED IN SQL, NOT IN THE CONSOLE, because the result is a PAGE. Ordering the fifty rows
+        the client happens to be holding and calling the table "sorted by credits" is wrong the
+        moment there is a second page: the largest balance on screen is merely the largest of
+        those fifty. The two aggregate columns cost a correlated subquery each to sort by, which
+        is why they are spelled out rather than reusing the per-page sums below.
+        """
         require_admin(authorization)
         cfg = deps.settings()
         size, start = _page(limit, offset)
         needle = f"%{q.strip().lower()}%" if q and q.strip() else ""
+        now = deps.now()
+        order, sort_key, sort_dir = SortOrderResolver(
+            {
+                "created_at": "a.created_at",
+                "email": "lower(a.email)",
+                "active": "a.active",
+                # NULLs last in both engines: an unlimited budget is not a small one, and left
+                # raw it would sort as the smallest or largest depending on the database.
+                "budget_usd": "COALESCE(a.budget_usd, -1)",
+                "spent_usd": (
+                    "COALESCE((SELECT SUM(u.cost_usd) FROM usage u "
+                    f"WHERE u.account_id = a.id AND u.month = {deps.month_key(now)!r}), 0)"
+                ),
+                "credits_remaining": (
+                    "COALESCE((SELECT SUM(g.credits - g.credits_used) FROM credit_grants g "
+                    f"WHERE g.account_id = a.id AND (g.expires_at = 0 OR g.expires_at > {float(now)!r})), 0)"
+                ),
+            },
+            default="created_at",
+            tiebreak="a.id",
+        ).resolve(sort, dir)
         with deps.db() as c:
             if needle:
-                where, args = "WHERE lower(email) LIKE ? OR lower(id) LIKE ?", (needle, needle)
+                where = "WHERE lower(a.email) LIKE ? OR lower(a.id) LIKE ?"
+                args: tuple = (needle, needle)
             else:
                 where, args = "", ()
             total = int(
-                c.execute(f"SELECT COUNT(*) n FROM accounts {where}", args).fetchone()[  # noqa: S608
+                c.execute(f"SELECT COUNT(*) n FROM accounts a {where}", args).fetchone()[  # noqa: S608
                     "n"
                 ]
             )
             rows = c.execute(
-                f"SELECT id, email, budget_usd, active, created_at FROM accounts {where} "  # noqa: S608
-                f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                f"SELECT a.id, a.email, a.budget_usd, a.active, a.created_at "  # noqa: S608
+                f"FROM accounts a {where} {order} LIMIT ? OFFSET ?",
                 (*args, size, start),
             ).fetchall()
             ids = [str(r["id"]) for r in rows]
@@ -504,7 +539,14 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
                 }
                 for r in rows
             ]
-        return {"accounts": accounts, "total": total, "limit": size, "offset": start}
+        return {
+            "accounts": accounts,
+            "total": total,
+            "limit": size,
+            "offset": start,
+            "sort": sort_key,
+            "dir": sort_dir,
+        }
 
     @router.get("/accounts/{account_id}")
     def account_detail(

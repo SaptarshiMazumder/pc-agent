@@ -164,6 +164,10 @@ except ModuleNotFoundError:  # pragma: no cover
         return module
 
     AccountBalanceReader = _sibling("account_balance_reader").AccountBalanceReader
+    # BEFORE the two admin routers, which import it by bare name. _sibling registers each module
+    # in sys.modules, so loading this one first is what makes those bare imports resolve under
+    # the by-path loader. Moving this line below them breaks both routers, in tests only.
+    _sibling("sort_order_resolver")
     admin_api = _sibling("admin_api")
     admin_metrics_api = _sibling("admin_metrics_api")
     ledger = _sibling("ledger")
