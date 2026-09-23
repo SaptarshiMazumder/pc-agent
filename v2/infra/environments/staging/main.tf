@@ -104,7 +104,7 @@ module "stack" {
   # did — so this is inert until the Google client actually exists and its redirect URI is
   # registered. The module already read these; nothing PASSED them, so setting the tfvar did
   # nothing at all and the buttons could never appear however the secret was filled in.
-  oidc_providers           = var.oidc_providers
+  oidc_providers = var.oidc_providers
   # GOOGLE ONLY, like production: the card offers Google and nothing else. Existing password
   # accounts keep their tokens but cannot sign in through the card any more.
   password_signup          = false
@@ -173,6 +173,8 @@ module "stack" {
   ec2_services = var.ec2_services
 
   accounts_external_database = true
+  signup_credits             = var.signup_credits
+  signup_credit_days         = var.signup_credit_days
   accounts_desired_count     = var.accounts_desired_count
 
   # TLS comes from root_domain above — the module mints this environment's OWN certificates.
@@ -445,6 +447,28 @@ variable "agent_hostnames" {
   default = {
     "platform.staging.thorgodofthunder.site" = "cloud-agent-builder"
   }
+}
+
+variable "signup_credits" {
+  description = <<-EOT
+    Credits handed to a brand-new account, once, at creation. 0 disables it.
+
+    A REAL BILL, not a discount: credits buy model calls we pay providers for. 10,000 is about
+    $0.20 of inference at the platform's own rate, so a thousand signups is roughly $200.
+
+    DECLARED HERE AS WELL AS IN THE MODULE, which is the whole reason the first attempt did
+    nothing: a value in production.auto.tfvars binds to a variable of THIS root module, and
+    without one terraform has nowhere to put it. The module kept its own default of 0 while the
+    tfvars plainly said 10000, and every new account started empty.
+  EOT
+  type        = number
+  default     = 0
+}
+
+variable "signup_credit_days" {
+  description = "How long the signup grant lasts. 0 = never expires."
+  type        = number
+  default     = 30
 }
 
 variable "extra_domains" {
