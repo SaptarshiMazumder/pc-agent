@@ -1616,6 +1616,50 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   user-select: all;
   word-break: break-all;
 }
+
+/* The same reference, wrapped in a copy button. The id is what gets pasted into Razorpay to
+   find or refund a charge, so the click target is the id itself rather than an icon beside it —
+   and the icon stays visible rather than appearing on hover, because a control that only exists
+   once you have guessed it is there is not a control. */
+.admin-ref-copy {
+  display: inline-flex; align-items: flex-start; gap: 6px;
+  background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 3px 6px; margin: -3px -6px; cursor: pointer; text-align: left;
+  color: var(--faint);
+  transition: background var(--dur-fast, .12s) ease, border-color var(--dur-fast, .12s) ease;
+}
+.admin-ref-copy:hover { background: var(--bg3); border-color: var(--border); }
+.admin-ref-copy:hover .admin-ref { color: var(--text); }
+.admin-ref-copy svg { flex: none; margin-top: 2px; }
+/* A clipboard the browser refused. Silence here would mean pasting whatever was there before. */
+.admin-ref-copy.failed { border-color: var(--danger); color: var(--danger); }
+
+/* Why a payment failed, in the rail's words, under its status chip. */
+.admin-detail { margin-top: 4px; max-width: 260px; line-height: 1.5; }
+
+/* Paging. The range reads as text and the arrows sit beside it, because "next" on its own
+   cannot say whether there is anything left to page to. */
+.admin-pager {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 10px 2px 0;
+  font-size: 12px;
+}
+.admin-pager .btn { padding: 5px 10px; }
+.admin-pager .btn:disabled { opacity: .35; cursor: default; }
+
+/* Search. A form, so Enter submits and the LIKE scan happens once per search rather than once
+   per keystroke against the table every sign-in touches. */
+.admin-search {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 4px 6px 4px 9px; margin-bottom: 9px;
+}
+.admin-search-icon { color: var(--faint); flex: none; }
+.admin-search-input {
+  background: none; border: none; outline: none; color: var(--text);
+  font-size: 12.5px; padding: 3px 0; width: 210px; max-width: 42vw;
+}
+.admin-search-input::placeholder { color: var(--faint); }
 .admin-stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 13px 15px; }
 .admin-stat-label { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); font-weight: var(--fw-semi); }
 .admin-stat-value { font-size: 21px; font-weight: var(--fw-semi); color: var(--text); margin-top: 5px; font-variant-numeric: tabular-nums; }

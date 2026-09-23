@@ -31,7 +31,10 @@ import urllib.request
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - types only; the host constructs and injects the reader
+    from account_balance_reader import AccountBalanceReader
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
@@ -145,6 +148,9 @@ class AdminDeps:
     now: Callable[[], float]
     month_key: Callable[[float], str]
     settings: Callable[[], AdminSettings]
+    #: Page-at-a-time credit balances and purchase totals. Shared with the metrics router so the
+    #: two consoles cannot disagree about what an account is worth — see account_balance_reader.
+    balances: "AccountBalanceReader"
 
 
 def _bearer(authorization: str | None) -> str:
@@ -444,16 +450,9 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
                 (deps.month_key(deps.now()), *ids),
             )
         }
-        credits = {
-            str(r["account_id"]): int(r["total"] or 0)
-            for r in c.execute(
-                f"SELECT account_id, SUM(credits - credits_used) total FROM credit_grants "  # noqa: S608
-                f"WHERE account_id IN ({marks}) AND (expires_at = 0 OR expires_at > ?) "
-                f"GROUP BY account_id",
-                (*ids, deps.now()),
-            )
-        }
-        return spent, credits
+        # The credit half lives in account_balance_reader, because the sign-up history needs the
+        # same number and two copies of "which grants still count" is one copy too many.
+        return spent, deps.balances.credits_for(c, ids)
 
     @router.get("/accounts")
     def list_accounts(

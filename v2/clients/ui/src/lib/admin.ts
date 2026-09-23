@@ -152,6 +152,30 @@ export type Txn = {
   /** From the order the rail signed back — absent on refunds raised in the rail's dashboard. */
   product_id?: string
   credits?: number
+  /** The rail's own reason for a failure. Empty on anything that did not fail. */
+  detail?: string
+}
+
+/** One person, as the sign-up list sees them: when they arrived and what they did after. */
+export type SignupRow = {
+  account_id: string
+  email: string
+  created_at: number
+  active: boolean
+  credits_remaining: number
+  /** Settled purchases only. Zero here on a days-old account is a tourist, not a customer. */
+  paid_usd: number
+  refunded_usd: number
+  purchases: number
+  /** 0 when they have never bought anything. */
+  last_purchase_ts: number
+}
+
+export type SignupHistory = {
+  signups: SignupRow[]
+  total: number
+  limit: number
+  offset: number
 }
 
 /** Window is clamped server-side to 90 days; asking for more is not an error, just capped. */
@@ -165,10 +189,17 @@ export const transactions = (
   limit = 50,
   offset = 0,
   status = '',
-): Promise<{ limit: number; offset: number; transactions: Txn[] }> =>
+): Promise<{ total: number; limit: number; offset: number; transactions: Txn[] }> =>
   call(
     `/admin/metrics/transactions?limit=${limit}&offset=${offset}` +
       (status ? `&status=${encodeURIComponent(status)}` : ''),
+  )
+
+/** The sign-up list itself, newest first. `q` matches email or account id as a substring. */
+export const signupHistory = (limit = 50, offset = 0, q = ''): Promise<SignupHistory> =>
+  call(
+    `/admin/metrics/signup-history?limit=${limit}&offset=${offset}` +
+      (q ? `&q=${encodeURIComponent(q)}` : ''),
   )
 
 // --------------------------------------------------------------------------- accounts
