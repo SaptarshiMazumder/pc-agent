@@ -196,6 +196,74 @@ def build_admin_metrics_router(
             "series": [{"day": p["day"], "count": p["count"]} for p in series],
         }
 
+    @router.get("/signup-history")
+    def signup_history(
+        q: str = "",
+        limit: int = PAGE_DEFAULT,
+        offset: int = 0,
+        authorization: str | None = Header(default=None),
+    ) -> dict:
+        """Who signed up, when, and what has happened to them since. Newest first.
+
+        THE CHART ABOVE THIS CANNOT ANSWER THE QUESTION PEOPLE ACTUALLY ASK. "Six sign-ups on
+        Tuesday" is not a fact anyone can act on; "these six addresses, and one of them has paid
+        us twice" is. The counts route stays because a shape over time is worth seeing at a
+        glance, but it is a header, not the content.
+
+        CREDITS ARE HERE FOR A REASON BEYOND CURIOSITY. The signup grant is written inside the
+        account-creation transaction, so a new account showing zero credits is the visible
+        symptom of the grant being misconfigured -- which is exactly the failure that ran
+        unnoticed in production until someone thought to check a single account by hand. With
+        this column that failure is obvious on the first screen of the console.
+
+        Rides ix_accounts_created for the unfiltered case. A `q` search does not use it and falls
+        back to a scan; that is acceptable because it is typed by hand, one page at a time, by
+        the one person holding an admin token -- and it is bounded by the same page ceiling as
+        everything else here.
+        """
+        require_admin(authorization)
+        size, start = _page(limit, offset)
+        needle = f"%{q.strip().lower()}%" if q and q.strip() else ""
+        with deps.db() as c:
+            if needle:
+                where, args = "WHERE lower(email) LIKE ? OR lower(id) LIKE ?", (needle, needle)
+            else:
+                where, args = "", ()
+            total = int(
+                c.execute(
+                    f"SELECT COUNT(*) n FROM accounts {where}", args  # noqa: S608 - fixed strings
+                ).fetchone()["n"]
+            )
+            rows = c.execute(
+                f"SELECT id, email, created_at, active FROM accounts {where} "  # noqa: S608
+                "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (*args, size, start),
+            ).fetchall()
+            ids = [str(r["id"]) for r in rows]
+            credits = deps.balances.credits_for(c, ids)
+            paid = deps.balances.purchases_for(c, ids)
+
+        count("admin_call_total", outcome="ok", _props={"route": "metrics/signup-history"})
+        return {
+            "total": total,
+            "limit": size,
+            "offset": start,
+            "signups": [
+                {
+                    "account_id": r["id"],
+                    "email": r["email"],
+                    "created_at": r["created_at"],
+                    "active": bool(r["active"]),
+                    "credits_remaining": credits.get(str(r["id"]), 0),
+                    **{
+                        k: paid.get(str(r["id"]), {}).get(k, 0)
+                        for k in ("paid_usd", "refunded_usd", "purchases", "last_purchase_ts")
+                    },
+                }
+                for r in rows
+            ],
+        }
+
     # -------------------------------------------------------------- revenue
 
     @router.get("/revenue")
@@ -272,16 +340,26 @@ def build_admin_metrics_router(
             if wanted:
                 where = "WHERE i.status = ?"
                 params.append(wanted)
+            # COUNTED BEFORE THE PAGE, under the same predicate. Without a total the console can
+            # only offer "next" and never says how many there are, which makes it impossible to
+            # tell an empty last page from a broken query.
+            total = int(
+                c.execute(
+                    f"SELECT COUNT(*) n FROM payment_intents i {where}",  # noqa: S608 - fixed
+                    tuple(params),
+                ).fetchone()["n"]
+            )
             params.extend([size, start])
             rows = c.execute(  # noqa: S608 - `where` is a fixed string, never caller input
                 "SELECT i.reference, i.account_id, i.status, i.kind, i.provider, "
-                "i.amount_usd, i.currency, i.ts, i.meta, a.email "
+                "i.amount_usd, i.currency, i.ts, i.meta, i.detail, a.email "
                 f"FROM payment_intents i LEFT JOIN accounts a ON a.id = i.account_id {where} "
                 "ORDER BY i.ts DESC LIMIT ? OFFSET ?",
                 tuple(params),
             ).fetchall()
         count("admin_call_total", outcome="ok", _props={"route": "metrics/transactions"})
         return {
+            "total": total,
             "limit": size,
             "offset": start,
             "transactions": [
@@ -298,6 +376,10 @@ def build_admin_metrics_router(
                     "amount_usd": float(r["amount_usd"] or 0.0),
                     "currency": r["currency"],
                     "ts": r["ts"],
+                    # WHY IT FAILED, in the rail's own words. A failed payment with no reason
+                    # beside it sends the operator to Razorpay's dashboard to find out, which is
+                    # the exact errand this console exists to save.
+                    "detail": r["detail"] or "",
                     # WHAT THEY BOUGHT, not just what they paid. An amount alone cannot tell a
                     # $5 pack from a $5 refund of a larger one, and "which pack was that?" is
                     # the first question asked about any charge someone disputes.

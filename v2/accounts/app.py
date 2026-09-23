@@ -131,6 +131,7 @@ from vast import ChargeOutcome
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
 # the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
 try:  # pragma: no cover - exercised by whichever path the runtime takes
+    from account_balance_reader import AccountBalanceReader
     import admin_api
     import admin_metrics_api
     import ledger
@@ -162,6 +163,7 @@ except ModuleNotFoundError:  # pragma: no cover
         spec.loader.exec_module(module)
         return module
 
+    AccountBalanceReader = _sibling("account_balance_reader").AccountBalanceReader
     admin_api = _sibling("admin_api")
     admin_metrics_api = _sibling("admin_metrics_api")
     ledger = _sibling("ledger")
@@ -2677,6 +2679,7 @@ _admin_deps = admin_api.AdminDeps(
     now=_now,
     month_key=_month_key,
     settings=admin_api.AdminSettings.from_env,
+    balances=AccountBalanceReader(now=_now),
 )
 
 # ONE DOOR OBJECT, handed to both surfaces. `is this account an admin` having a single

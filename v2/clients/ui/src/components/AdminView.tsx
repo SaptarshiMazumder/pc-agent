@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, CircleDollarSign, Cpu, KeyRound, Package, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, TrendingUp, Users, Wallet } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, ChevronLeft, ChevronRight, CircleDollarSign, Copy, Cpu, KeyRound, Package, Receipt, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react'
 
 import * as api from '../lib/admin'
 import DeploymentDefaults from './DeploymentDefaults'
@@ -8,7 +8,7 @@ import PageShell from './PageShell'
 /**
  * The platform control plane.
  *
- * ONE PAGE, SIX PANELS, and no route of its own: the app has a single `view` union and this is one
+ * ONE PAGE, A TAB PER QUESTION, and no route of its own: the app has a single `view` union and this is one
  * more member of it, so an admin lands here the same way they land on Settings. The nav entry that
  * points here is rendered only for admins (see ProfileMenu), and this component refuses on its own
  * as well — a hidden button is not access control, and the server refuses regardless.
@@ -22,11 +22,26 @@ import PageShell from './PageShell'
  * code — it already explains itself better than a client can from a 409.
  */
 
-type Tab = 'overview' | 'trends' | 'defaults' | 'users' | 'usage' | 'agents' | 'creators' | 'money' | 'keys'
+type Tab =
+  | 'overview'
+  | 'signups'
+  | 'transactions'
+  | 'defaults'
+  | 'users'
+  | 'usage'
+  | 'agents'
+  | 'creators'
+  | 'money'
+  | 'keys'
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <Activity size={16} /> },
-  { id: 'trends', label: 'Trends', icon: <TrendingUp size={16} /> },
+  // TWO TABS WHERE THERE WAS ONE "TRENDS", because the question behind each is different and a
+  // shared tab answered neither. "Who is signing up" is a list of people; "who paid us" is a list
+  // of payments. The charts stay, but as a header over the rows rather than instead of them — a
+  // bar saying six sign-ups on Tuesday is not something anyone can act on.
+  { id: 'signups', label: 'Sign-ups', icon: <UserPlus size={16} /> },
+  { id: 'transactions', label: 'Transactions', icon: <Receipt size={16} /> },
   // Second, deliberately: after "how is the platform doing", the next thing an operator wants is
   // "what does everyone get by default". It is the only tab that writes the DAEMON rather than
   // the accounts service.
@@ -140,7 +155,7 @@ function Empty({ children }: { children: ReactNode }): ReactNode {
 
 // --------------------------------------------------------------------------- overview
 
-// ============================================================== trends
+// ============================================================== charts and table furniture
 
 /** A day-by-day bar chart, in SVG, with no charting library.
  *
@@ -172,66 +187,336 @@ function Bars({ points, format }: { points: { day: string; value: number }[]; fo
   )
 }
 
-function TrendsPanel(): ReactNode {
-  const [days, setDays] = useState(30)
-  const signups = usePanel(() => api.signupsTrend(days), [days])
-  const revenue = usePanel(() => api.revenueTrend(days), [days])
-  const txns = usePanel(() => api.transactions(50, 0, ''), [])
+/** Prev/next over a server-side page, with the range spelled out.
 
-  const windowPicker = (
-    <>
-      {[7, 30, 90].map((d) => (
-        <button key={d} className={`btn ghost ${days === d ? 'active' : ''}`} onClick={() => setDays(d)}>
-          {d}d
-        </button>
-      ))}
-    </>
+    A bare "next" button cannot say whether you are near the end, so an operator paging through
+    looking for one payment has no idea whether to keep going. The count is the useful half. */
+function Pager({
+  total,
+  limit,
+  offset,
+  busy,
+  onMove,
+}: {
+  total: number
+  limit: number
+  offset: number
+  busy?: boolean
+  onMove: (next: number) => void
+}): ReactNode {
+  const from = total === 0 ? 0 : offset + 1
+  const to = Math.min(offset + limit, total)
+  return (
+    <div className="admin-pager">
+      <span className="admin-muted">
+        {total ? `${num(from)}–${num(to)} of ${num(total)}` : 'none'}
+      </span>
+      <button
+        className="btn ghost"
+        disabled={busy || offset <= 0}
+        onClick={() => onMove(Math.max(0, offset - limit))}
+        aria-label="Previous page"
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <button
+        className="btn ghost"
+        disabled={busy || to >= total}
+        onClick={() => onMove(offset + limit)}
+        aria-label="Next page"
+      >
+        <ChevronRight size={14} />
+      </button>
+    </div>
   )
+}
+
+/** A search box that submits on Enter rather than on every keystroke.
+
+    Per-keystroke search would put a LIKE scan on the accounts table -- the table every sign-in
+    touches -- once per letter typed. */
+function SearchBox({
+  placeholder,
+  onSearch,
+  busy,
+}: {
+  placeholder: string
+  onSearch: (term: string) => void
+  busy?: boolean
+}): ReactNode {
+  const [text, setText] = useState('')
+  return (
+    <form
+      className="admin-search"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSearch(text.trim())
+      }}
+    >
+      <Search size={14} className="admin-search-icon" />
+      <input
+        className="admin-search-input"
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => setText(e.target.value)}
+      />
+      {text && (
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={busy}
+          onClick={() => {
+            setText('')
+            onSearch('')
+          }}
+        >
+          Clear
+        </button>
+      )}
+    </form>
+  )
+}
+
+/** The rail's id for a payment, one click from the clipboard.
+
+    THIS IS THE MOST-COPIED STRING ON THE PAGE. It is what you paste into Razorpay's dashboard to
+    find a charge somebody is asking about, or to issue the refund -- so it is monospace,
+    selectable, and has a button rather than asking anyone to drag-select a 20-character id.
+
+    A CLIPBOARD REFUSAL IS SHOWN, NOT SWALLOWED. writeText rejects outright in a non-secure
+    context, and a copy button that silently does nothing is worse than no button: the operator
+    pastes whatever was in the clipboard before into a refund form. */
+function Ref({ value }: { value: string }): ReactNode {
+  const [state, setState] = useState<'' | 'ok' | 'fail'>('')
+  if (!value) return <span className="dim">—</span>
+  return (
+    <button
+      className={`admin-ref-copy ${state === 'fail' ? 'failed' : ''}`}
+      title={
+        state === 'fail'
+          ? 'Could not reach the clipboard — select the id and copy it by hand'
+          : 'Copy. Paste this into Razorpay to find or refund this payment.'
+      }
+      onClick={() => {
+        navigator.clipboard
+          .writeText(value)
+          .then(() => setState('ok'))
+          .catch(() => setState('fail'))
+        window.setTimeout(() => setState(''), 1400)
+      }}
+    >
+      <code className="admin-ref">{value}</code>
+      {state === 'ok' ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  )
+}
+
+/** The rail's status vocabulary, in words an operator would say out loud.
+
+    `succeeded` and `requires_action` are the payment rail's terms, and they are the wrong ones to
+    put in front of somebody trying to work out whether a customer's money arrived. */
+const STATUS_WORDS: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' }> = {
+  succeeded: { label: 'Paid', tone: 'ok' },
+  failed: { label: 'Failed', tone: 'bad' },
+  refunded: { label: 'Refunded', tone: 'warn' },
+  pending: { label: 'Started', tone: 'warn' },
+  requires_action: { label: 'Awaiting card approval', tone: 'warn' },
+}
+
+function Status({ value }: { value: string }): ReactNode {
+  // An unknown status keeps the rail's own word rather than being coerced into one of ours: the
+  // server refuses statuses it has no rule for, so anything arriving here that we cannot name is
+  // something worth seeing verbatim rather than flattened to "unknown".
+  const known = STATUS_WORDS[value]
+  return (
+    <span className={`admin-chip admin-chip-${known?.tone || 'warn'}`}>
+      {known?.label || value || '—'}
+    </span>
+  )
+}
+
+// ============================================================== sign-ups
+
+function SignupsPanel(): ReactNode {
+  const PAGE = 50
+  const [days, setDays] = useState(30)
+  const [term, setTerm] = useState('')
+  const [offset, setOffset] = useState(0)
+  const trend = usePanel(() => api.signupsTrend(days), [days])
+  const list = usePanel(() => api.signupHistory(PAGE, offset, term), [offset, term])
+
+  const search = (t: string) => {
+    // A new search must go back to page one, or an operator searching from page four gets an
+    // empty table and concludes there are no matches.
+    setOffset(0)
+    setTerm(t)
+  }
 
   return (
     <>
       <Panel
-        title="Sign-ups"
-        busy={signups.busy}
-        error={signups.error}
+        title="Sign-ups over time"
+        busy={trend.busy}
+        error={trend.error}
         actions={
           <>
-            {windowPicker}
-            <button className="btn ghost" onClick={signups.reload} title="Re-read">
+            {[7, 30, 90].map((d) => (
+              <button
+                key={d}
+                className={`btn ghost ${days === d ? 'active' : ''}`}
+                onClick={() => setDays(d)}
+              >
+                {d}d
+              </button>
+            ))}
+            <button className="btn ghost" onClick={trend.reload} title="Re-read">
               <RefreshCw size={14} />
             </button>
           </>
         }
       >
         <div className="admin-stats">
-          <Stat label="Accounts" value={num(signups.data?.accounts_total || 0)} />
-          <Stat label={`New · last ${days}d`} value={num(signups.data?.signups_in_window || 0)} />
+          <Stat label="Accounts, all time" value={num(trend.data?.accounts_total || 0)} />
+          <Stat label={`New · last ${days}d`} value={num(trend.data?.signups_in_window || 0)} />
         </div>
-        {signups.data && (
+        {trend.data && (
           <Bars
-            points={signups.data.series.map((p) => ({ day: p.day, value: p.count }))}
+            points={trend.data.series.map((p) => ({ day: p.day, value: p.count }))}
             format={(n) => `${n} sign-up${n === 1 ? '' : 's'}`}
           />
         )}
       </Panel>
 
       <Panel
-        title="Revenue"
+        title="Everyone who signed up"
+        busy={list.busy}
+        error={list.error}
+        actions={
+          <>
+            <SearchBox
+              placeholder="Search by email or account id"
+              onSearch={search}
+              busy={list.busy}
+            />
+            <button className="btn ghost" onClick={list.reload} title="Re-read">
+              <RefreshCw size={14} />
+            </button>
+          </>
+        }
+      >
+        <Table head={['Signed up', 'Who', 'Credits left', 'Paid us', 'State']}>
+          {(list.data?.signups || []).map((s) => (
+            <tr key={s.account_id}>
+              <td>
+                <div>{new Date(s.created_at * 1000).toLocaleDateString()}</div>
+                <div className="admin-muted">
+                  {new Date(s.created_at * 1000).toLocaleTimeString()}
+                </div>
+              </td>
+              <td>
+                <div className="admin-strong">{s.email}</div>
+                <div className="admin-mono admin-muted">{s.account_id}</div>
+              </td>
+              {/* ZERO ON A FRESH ACCOUNT IS A BUG, NOT A DETAIL. The sign-up grant is written in
+                  the same transaction that creates the account, so an empty balance here means
+                  the grant is misconfigured — which is precisely the failure that ran unseen in
+                  production until somebody checked one account by hand. */}
+              <td className="num">{num(s.credits_remaining)}</td>
+              <td className="num">
+                {s.paid_usd > 0 ? (
+                  <>
+                    <div className="admin-strong">{usd(s.paid_usd)}</div>
+                    <div className="admin-muted">
+                      {s.purchases} payment{s.purchases === 1 ? '' : 's'}
+                      {s.refunded_usd > 0 ? ` · ${usd(s.refunded_usd)} back` : ''}
+                    </div>
+                  </>
+                ) : (
+                  <span className="dim">—</span>
+                )}
+              </td>
+              <td>
+                {s.active ? (
+                  <span className="admin-muted">active</span>
+                ) : (
+                  <span className="admin-chip admin-chip-bad">suspended</span>
+                )}
+              </td>
+            </tr>
+          ))}
+          {!list.busy && !(list.data?.signups || []).length && (
+            <tr>
+              <td colSpan={5} className="dim">
+                {term ? `Nobody matches “${term}”.` : 'Nobody has signed up yet.'}
+              </td>
+            </tr>
+          )}
+        </Table>
+        <Pager
+          total={list.data?.total || 0}
+          limit={PAGE}
+          offset={offset}
+          busy={list.busy}
+          onMove={setOffset}
+        />
+      </Panel>
+    </>
+  )
+}
+
+// ============================================================== transactions
+
+const STATUS_FILTERS: { id: string; label: string }[] = [
+  { id: '', label: 'All' },
+  { id: 'succeeded', label: 'Paid' },
+  { id: 'failed', label: 'Failed' },
+  { id: 'refunded', label: 'Refunded' },
+  { id: 'pending', label: 'Started' },
+]
+
+function TransactionsPanel(): ReactNode {
+  const PAGE = 50
+  const [days, setDays] = useState(30)
+  const [status, setStatus] = useState('')
+  const [offset, setOffset] = useState(0)
+  const revenue = usePanel(() => api.revenueTrend(days), [days])
+  const txns = usePanel(() => api.transactions(PAGE, offset, status), [offset, status])
+
+  const filter = (id: string) => {
+    setOffset(0)
+    setStatus(id)
+  }
+
+  return (
+    <>
+      <Panel
+        title="Money taken"
         busy={revenue.busy}
         error={revenue.error}
         actions={
-          <button className="btn ghost" onClick={revenue.reload} title="Re-read">
-            <RefreshCw size={14} />
-          </button>
+          <>
+            {[7, 30, 90].map((d) => (
+              <button
+                key={d}
+                className={`btn ghost ${days === d ? 'active' : ''}`}
+                onClick={() => setDays(d)}
+              >
+                {d}d
+              </button>
+            ))}
+            <button className="btn ghost" onClick={revenue.reload} title="Re-read">
+              <RefreshCw size={14} />
+            </button>
+          </>
         }
       >
-        {/* FROM THE LEDGER, not from the payment rail -- a refund issued by hand in the rail's
-            own dashboard reaches the books through the webhook and would be invisible in a
-            list of the intents we created. */}
+        {/* FROM THE LEDGER, not from the payment rail — a refund issued by hand in the rail's own
+            dashboard reaches the books through the webhook and would be invisible in a list of
+            the intents we created. */}
         <div className="admin-stats">
-          <Stat label="Gross" value={usd(revenue.data?.gross_usd || 0)} />
+          <Stat label="Collected" value={usd(revenue.data?.gross_usd || 0)} sub={`last ${days} days`} />
           <Stat label="Refunded" value={usd(revenue.data?.refunds_usd || 0)} />
-          <Stat label="Net" value={usd(revenue.data?.net_usd || 0)} sub={`last ${days} days`} />
+          <Stat label="Kept" value={usd(revenue.data?.net_usd || 0)} />
         </div>
         {revenue.data && (
           <Bars
@@ -242,44 +527,78 @@ function TrendsPanel(): ReactNode {
       </Panel>
 
       <Panel
-        title="Transactions"
+        title="Every payment"
         busy={txns.busy}
         error={txns.error}
         actions={
-          <button className="btn ghost" onClick={txns.reload} title="Re-read">
-            <RefreshCw size={14} />
-          </button>
+          <>
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.id || 'all'}
+                className={`btn ghost ${status === f.id ? 'active' : ''}`}
+                onClick={() => filter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+            <button className="btn ghost" onClick={txns.reload} title="Re-read">
+              <RefreshCw size={14} />
+            </button>
+          </>
         }
       >
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>When</th><th>Account</th><th>Bought</th><th>Status</th>
-              <th>Reference</th><th className="num">Amount</th>
+        <Table head={['When', 'Who', 'What they bought', 'Amount', 'Status', 'Transaction id']}>
+          {(txns.data?.transactions || []).map((x) => (
+            <tr key={`${x.reference}:${x.ts}`}>
+              <td>
+                <div>{new Date(x.ts * 1000).toLocaleDateString()}</div>
+                <div className="admin-muted">{new Date(x.ts * 1000).toLocaleTimeString()}</div>
+              </td>
+              {/* An intent whose account is gone still shows — that is the row worth seeing. */}
+              <td>
+                <div className="admin-strong">{x.email || <span className="dim">unknown</span>}</div>
+                <div className="admin-mono admin-muted">{x.account_id}</div>
+              </td>
+              <td>
+                {/* WHAT THEY WERE SOLD, read back from the order the rail signed, not from
+                    today's catalogue — an amount alone cannot tell a $5 pack from a $5 refund of
+                    a larger one, and "which pack was that?" is the first question asked about any
+                    charge somebody disputes. */}
+                <div>{x.product_id || x.kind}</div>
+                {x.credits ? <div className="admin-muted">{num(x.credits)} credits</div> : null}
+              </td>
+              <td className="num">
+                <div className="admin-strong">{usd(x.amount_usd)}</div>
+                {/* What the CARD was charged, when that was not dollars. The books are kept in
+                    USD; the customer paid rupees, and that is the figure on their statement. */}
+                {x.currency && x.currency.toLowerCase() !== 'usd' && (
+                  <div className="admin-muted">charged in {x.currency.toUpperCase()}</div>
+                )}
+              </td>
+              <td>
+                <Status value={x.status} />
+                {x.detail && <div className="admin-muted admin-detail">{x.detail}</div>}
+              </td>
+              <td>
+                <Ref value={x.reference} />
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {(txns.data?.transactions || []).map((x) => (
-              <tr key={`${x.reference}:${x.ts}`}>
-                <td>{new Date(x.ts * 1000).toLocaleString()}</td>
-                {/* An intent whose account is gone still shows -- that is the row worth seeing. */}
-                <td>{x.email || x.account_id || <span className="dim">unknown</span>}</td>
-                <td>
-                  {x.product_id || x.kind}
-                  {x.credits ? <span className="dim"> · {num(x.credits)} cr</span> : null}
-                </td>
-                <td>{x.status}</td>
-                {/* THE ID YOU PASTE INTO THE RAIL'S DASHBOARD to find or refund this payment.
-                    Monospace and selectable, because it is copied far more often than read. */}
-                <td><code className="admin-ref">{x.reference || '—'}</code></td>
-                <td className="num">{usd(x.amount_usd)}</td>
-              </tr>
-            ))}
-            {!txns.busy && !(txns.data?.transactions || []).length && (
-              <tr><td colSpan={6} className="dim">No transactions yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+          ))}
+          {!txns.busy && !(txns.data?.transactions || []).length && (
+            <tr>
+              <td colSpan={6} className="dim">
+                {status ? 'No payments in that state.' : 'Nobody has paid yet.'}
+              </td>
+            </tr>
+          )}
+        </Table>
+        <Pager
+          total={txns.data?.total || 0}
+          limit={PAGE}
+          offset={offset}
+          busy={txns.busy}
+          onMove={setOffset}
+        />
       </Panel>
     </>
   )
@@ -1126,43 +1445,28 @@ function MoneyPanel(): ReactNode {
         )}
       </Panel>
 
-      <Panel title="Books" busy={books.busy} error={books.error}>
-        {books.data && (
-          <>
-            {!books.data.balanced && (
-              <div className="admin-error">
-                <AlertTriangle size={14} /> The books do not balance ({usd(books.data.residual_usd)} residual). A
-                posting bypassed the ledger — this is a correctness bug, not a display one.
-              </div>
-            )}
-            <div className="admin-stats">
-              <Stat label="Gross margin" value={usd(books.data.gross_margin_usd)} />
-              {Object.entries(books.data.accounts).map(([name, v]) => (
-                <Stat key={name} label={name.replace(/_/g, ' ')} value={usd(v)} />
-              ))}
-            </div>
-          </>
-        )}
-      </Panel>
+      {/* THE BOOKS, AS A HEALTH LIGHT RATHER THAN AS A LEDGER.
 
-      <Panel title="Recent postings" busy={books.busy}>
-        {books.data?.entries?.length ? (
-          <Table head={['When', 'Type', 'Account', 'Dir', 'Amount', 'Ref']}>
-            {books.data.entries.map((e) => (
-              <tr key={e.id}>
-                <td>{new Date(e.ts * 1000).toLocaleString()}</td>
-                <td>{e.txn_type}</td>
-                <td>{e.account}</td>
-                <td>{e.direction}</td>
-                <td>{usd(e.amount_usd)}</td>
-                <td className="admin-mono admin-muted">{e.ref || '—'}</td>
-              </tr>
-            ))}
-          </Table>
-        ) : (
-          <Empty>No money has moved yet.</Empty>
-        )}
-      </Panel>
+          What stood here was the chart of accounts and a feed of raw double-entry postings --
+          `cash`, `user_credit_liability`, `promotional_cost`, debit, credit. Those are the right
+          names inside the ledger and the wrong ones on a screen somebody opens to find out
+          whether a customer's payment arrived: the numbers are correct and answer no question
+          anybody has. Money taken now lives on the Transactions tab beside the payments that
+          produced it, and per-account balances on Sign-ups.
+
+          The one thing worth keeping is the alarm. If the books do not balance, a posting went
+          around the ledger, and that is a correctness bug in the money -- so it is loud, and it
+          is invisible the rest of the time rather than being one more number to ignore. */}
+      {books.data && !books.data.balanced && (
+        <Panel title="The books do not balance" error="">
+          <div className="admin-error">
+            <AlertTriangle size={14} /> {usd(books.data.residual_usd)} is unaccounted for. A
+            posting bypassed the ledger — this is a correctness bug in the money, not a display
+            problem. Every figure on the other tabs should be treated as suspect until it is
+            found.
+          </div>
+        </Panel>
+      )}
     </>
   )
 }
@@ -1408,7 +1712,8 @@ export default function AdminView(): ReactNode {
     >
       {who.error && <div className="admin-error">{who.error}</div>}
       {tab === 'overview' && <OverviewPanel />}
-      {tab === 'trends' && <TrendsPanel />}
+      {tab === 'signups' && <SignupsPanel />}
+      {tab === 'transactions' && <TransactionsPanel />}
       {tab === 'defaults' && <DeploymentDefaults />}
       {tab === 'users' && <UsersPanel />}
       {tab === 'usage' && <UsagePanel />}
