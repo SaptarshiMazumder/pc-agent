@@ -1,0 +1,331 @@
+/* The landing page's own rules. Co-located and imported by LandingPage.tsx, like studio.css and
+ * creations.css — this is a marketing page, not app chrome, and it is the one surface in this
+ * build allowed to be decorative.
+ *
+ * NO PHOTOGRAPHS, BY CONSTRAINT. There are no shippable renders in this repo, so the page is
+ * carried by a drawn ComfyUI graph, typography and gradient. `.shot-empty` is the frame a real
+ * render drops into later — see LandingShot.tsx.
+ *
+ * IT SCROLLS, unlike every other screen here: `html, body, #root` are height:100% and the shell
+ * is a fixed grid, so this opts back into ordinary document flow with its own height/overflow.
+ */
+
+.lp {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  scroll-behavior: smooth;
+}
+
+/* ── chrome ───────────────────────────────────────────────────────────────── */
+.lp-top {
+  position: sticky; top: 0; z-index: 5;
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 24px 14px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.lp-brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 15px;
+  letter-spacing: var(--tracking-tight);
+}
+.lp-mark { display: inline-flex; color: var(--accent); }
+.lp-top-right { display: flex; align-items: center; gap: 10px; }
+.lp-free {
+  padding: 5px 11px; border-radius: var(--r-pill);
+  background: var(--accent-soft); color: var(--accent-text);
+  font-size: 12px; font-weight: var(--fw-semi); white-space: nowrap;
+}
+.lp-signin {
+  flex: none; min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: transparent; color: var(--dim);
+  font: inherit; font-size: 13px; font-weight: var(--fw-medium); cursor: pointer;
+  transition: color var(--dur-base) ease, border-color var(--dur-base) ease;
+}
+.lp-signin:hover { color: var(--text); border-color: var(--accent); }
+
+.lp-main { flex: 1; width: 100%; }
+
+/* ── hero ─────────────────────────────────────────────────────────────────── */
+.lp-hero {
+  position: relative;
+  max-width: 880px; margin: 0 auto;
+  padding: 72px 24px 24px;
+  text-align: center;
+}
+/* The light the page sits in: two soft radials. No image, no request, no wait. */
+.lp-aurora {
+  position: absolute; inset: -20% -10% auto; height: 520px; z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 52% at 28% 32%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+    radial-gradient(38% 48% at 74% 22%, color-mix(in srgb, var(--accent-deep, var(--accent)) 18%, transparent), transparent 72%);
+  filter: blur(26px);
+}
+.lp-hero > *:not(.lp-aurora) { position: relative; z-index: 1; }
+
+/* THE AD'S TYPE, NOT A WEBSITE'S. The campaign is heavy uppercase set tight — "WANT AI IMAGES
+   BUT COMFYUI SCARES YOU?" — and somebody arriving from that ad should land on the same voice
+   rather than on a softer corporate version of it. Caps, heavier weight, tighter tracking. */
+.lp-h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(2.1rem, 6.4vw, 3.9rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  font-weight: var(--fw-heavy, 800);
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+/* The line under the hook, in the ad's own rhythm: short, flat, three facts. */
+.lp-kicker {
+  margin: 18px auto 0; max-width: 46ch;
+  font-size: clamp(0.95rem, 2.2vw, 1.08rem);
+  font-weight: var(--fw-semi);
+  color: var(--text);
+}
+/* "Don't be a chicken. Be a penguin." — the sign-off of every ad in the set, so it closes the
+   hero the way it closes them. */
+.lp-punch {
+  margin: 22px 0 0;
+  font-family: var(--display);
+  font-size: clamp(1rem, 2.6vw, 1.25rem);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+.lp-h1-accent {
+  background: linear-gradient(96deg, var(--accent), var(--accent-text));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lp-sub {
+  margin: 14px auto 0; max-width: 58ch;
+  font-size: clamp(0.98rem, 2.1vw, 1.12rem); line-height: 1.6;
+  color: var(--dim); text-wrap: pretty;
+}
+.lp-sub em { color: var(--text); font-style: normal; font-weight: var(--fw-semi); }
+
+/* The real composer's twin, inert. Styled here rather than reusing `.composer`, which carries
+   behaviour — focus-within, textarea growth, the send button's ready state — that should not
+   half-work on a mock. */
+.lp-composer {
+  margin: 34px auto 0; max-width: 720px;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg2);
+  border: 1px solid var(--border2); border-radius: var(--r-panel);
+  box-shadow: var(--shadow);
+  cursor: text; text-align: left;
+  transition: border-color var(--dur-base) ease, transform var(--dur-base) var(--ease-smooth);
+}
+.lp-composer:hover { border-color: var(--accent); transform: translateY(-1px); }
+.lp-composer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lp-composer-ph { font-size: 15px; color: var(--faint); line-height: 1.5; }
+.lp-composer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lp-composer-ico {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: var(--dim);
+}
+.lp-composer-send {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 15px; border-radius: var(--r-pill);
+  background: var(--prim-bg); color: var(--prim-ink);
+  font-size: 13px; font-weight: var(--fw-semi); white-space: nowrap;
+}
+.lp-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  font-size: 12.5px; color: var(--dim); white-space: nowrap;
+}
+.lp-cta-note { margin: 16px 0 0; font-size: 12.5px; color: var(--faint); }
+
+/* ── what it drives ───────────────────────────────────────────────────────── */
+.lp-marquee {
+  margin-top: 46px; padding: 18px 0;
+  border-block: 1px solid var(--border);
+  overflow: hidden;
+  /* Faded at both ends, so the loop reads as continuous rather than as a cut. */
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.lp-marquee-track { display: flex; width: max-content; animation: lp-slide 42s linear infinite; }
+.lp-marquee-run { display: flex; }
+.lp-marquee-item {
+  padding: 0 26px; font-size: 14px; font-weight: var(--fw-medium);
+  color: var(--faint); white-space: nowrap;
+}
+@keyframes lp-slide { to { transform: translateX(-50%); } }
+
+/* ── sections ─────────────────────────────────────────────────────────────── */
+.lp-sec { max-width: 1080px; margin: 0 auto; padding: 76px 24px 0; }
+.lp-sec-head { max-width: 62ch; margin: 0 auto 34px; text-align: center; }
+.lp-h2 {
+  margin: 0; font-family: var(--display);
+  font-size: clamp(1.45rem, 3.4vw, 2.1rem); line-height: 1.06;
+  letter-spacing: -0.03em; font-weight: var(--fw-heavy, 800);
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+.lp-sec-sub {
+  margin: 14px auto 0; font-size: 14.5px; line-height: 1.65;
+  color: var(--dim); text-wrap: pretty;
+}
+
+/* ── the graph ────────────────────────────────────────────────────────────── */
+.lp-graph-box {
+  padding: 26px 18px;
+  border: 1px solid var(--border); border-radius: var(--r-panel);
+  background: linear-gradient(180deg, var(--bg2), var(--bg));
+  overflow: hidden;
+}
+.wfd { display: block; width: 100%; height: auto; }
+.wfd-edge { fill: none; stroke: var(--border2); stroke-width: 1.5; }
+/* One run, moving through the graph. Dash + offset needs no JavaScript. */
+.wfd-flow {
+  fill: none; stroke: var(--accent); stroke-width: 2;
+  stroke-dasharray: 10 150; stroke-linecap: round;
+  animation: wfd-run 3.4s linear infinite;
+}
+@keyframes wfd-run { to { stroke-dashoffset: -160; } }
+.wfd-box { fill: var(--bg3); stroke: var(--border2); stroke-width: 1; }
+.wfd-port { fill: var(--accent); }
+.wfd-label { fill: var(--text); font: var(--fw-semi) 13px var(--sans); }
+.wfd-sub { fill: var(--faint); font: 10.5px var(--mono); }
+.wfd-node { opacity: 0; animation: wfd-pop .5s var(--ease-smooth) forwards; }
+@keyframes wfd-pop {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.lp-ticks {
+  list-style: none; margin: 24px 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 10px 28px; justify-content: center;
+}
+.lp-ticks li { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--dim); }
+.lp-ticks svg { color: var(--accent); flex: none; }
+
+/* ── cards ────────────────────────────────────────────────────────────────── */
+/* ONE ROW THAT SCROLLS, not a grid. Six cards stacked is a scroll nobody finishes on a phone;
+   six across is a wall on a desktop. A shelf shows there is more without spending the page on
+   it. The scroller is native -- overflow + scroll-snap -- so swipe, trackpad, shift-wheel and
+   keyboard all work before either arrow is involved. */
+.lp-carousel { position: relative; }
+.lp-carousel-track {
+  display: flex; gap: 18px;
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  /* Bleeds to the viewport edge so a card is visibly cut off, which is what says "swipe me".
+     The padding puts the first card back on the section's own margin. */
+  margin-inline: calc(var(--sp-panel, 20px) * -1);
+  padding-inline: var(--sp-panel, 20px);
+  padding-block: 4px 6px;
+  scrollbar-width: none;
+}
+.lp-carousel-track::-webkit-scrollbar { display: none; }
+.lp-carousel-track > .lp-card {
+  flex: 0 0 min(320px, 78vw);
+  scroll-snap-align: start;
+}
+
+.lp-carousel-nav { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+.lp-carousel-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border2); background: var(--bg2); color: var(--dim);
+  cursor: pointer;
+  transition: color var(--dur-base) ease, border-color var(--dur-base) ease, opacity var(--dur-base) ease;
+}
+.lp-carousel-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+/* Dimmed rather than removed: a control that vanishes at the end makes the row jump. */
+.lp-carousel-btn:disabled { opacity: .35; cursor: default; }
+
+.lp-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border: 1px solid var(--border); border-radius: var(--r-panel);
+  background: var(--bg2);
+  transition: border-color var(--dur-base) ease, transform var(--dur-base) var(--ease-smooth);
+}
+.lp-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.lp-card-t { margin: 0; font-size: 15px; font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.lp-card-b { margin: 0; font-size: 13px; line-height: 1.55; color: var(--dim); text-wrap: pretty; }
+
+/* A render, or the frame one goes in. 16:9 either way, so filling them in never reflows. */
+.shot {
+  display: block; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: var(--radius); object-fit: cover;
+  background: var(--bg3);
+}
+.shot-empty { display: flex; align-items: flex-end; padding: 10px; border: 1px dashed var(--border2); }
+.shot-cap { font-size: 11px; color: var(--faint); }
+.tone-0 { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--bg3)), var(--bg3)); }
+.tone-1 { background: linear-gradient(135deg, color-mix(in srgb, #7c5cff 18%, var(--bg3)), var(--bg3)); }
+.tone-2 { background: linear-gradient(135deg, color-mix(in srgb, #f0a35e 14%, var(--bg3)), var(--bg3)); }
+.tone-3 { background: linear-gradient(135deg, color-mix(in srgb, #5ec8f0 14%, var(--bg3)), var(--bg3)); }
+
+/* ── steps & features ─────────────────────────────────────────────────────── */
+.lp-steps { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.lp-step { display: flex; flex-direction: column; gap: 7px; }
+.lp-step-n { font: var(--fw-semi) 12px var(--mono); color: var(--accent-text); letter-spacing: .08em; }
+.lp-step-t { margin: 0; font-size: 15px; font-weight: var(--fw-semi); }
+.lp-step-b { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); }
+
+.lp-feats { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.lp-feat { padding: 20px; border: 1px solid var(--border); border-radius: var(--r-panel); background: var(--bg2); }
+.lp-feat-t { margin: 0 0 8px; font-size: 15px; font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.lp-feat-b { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); text-wrap: pretty; }
+
+/* ── close & footer ───────────────────────────────────────────────────────── */
+.lp-close { text-align: center; padding-bottom: 20px; }
+.lp-cta {
+  margin-top: 26px; min-height: 48px; padding: 0 28px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--prim-bg); color: var(--prim-ink);
+  font: inherit; font-size: 15px; font-weight: var(--fw-semi); cursor: pointer;
+  transition: background var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth);
+}
+.lp-cta:hover { background: var(--prim-bg-h); }
+.lp-cta:active { transform: translateY(1px); }
+
+.lp-foot {
+  flex: none;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px;
+  width: 100%; max-width: 1080px; margin: 76px auto 0;
+  padding: 22px 24px calc(30px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.lp-foot-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font-weight: var(--fw-medium); }
+.lp-foot-brand svg { color: var(--accent); }
+.lp-foot-links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.lp-foot-links a { color: var(--faint); text-decoration: none; }
+.lp-foot-links a:hover { color: var(--text); text-decoration: underline; }
+
+/* ── reveal ───────────────────────────────────────────────────────────────── */
+/* One class, added by an IntersectionObserver. `--d` staggers a grid without a library. */
+[data-reveal] {
+  opacity: 0; transform: translateY(14px);
+  transition: opacity .5s var(--ease-smooth), transform .5s var(--ease-smooth);
+  transition-delay: var(--d, 0ms);
+}
+[data-reveal].is-in { opacity: 1; transform: none; }
+
+@media (max-width: 640px) {
+  .lp-hero { padding-top: 46px; }
+  .lp-sec { padding-top: 54px; }
+  .lp-cta, .lp-composer-send { width: 100%; justify-content: center; }
+  .lp-free { display: none; }
+}
+
+/* Decoration is the first thing to go. Everything still reads, just still. */
+@media (prefers-reduced-motion: reduce) {
+  .lp { scroll-behavior: auto; }
+  .lp-marquee-track, .wfd-flow, .wfd-node { animation: none; }
+  .lp-carousel-track { scroll-behavior: auto; }
+  .wfd-node { opacity: 1; }
+  [data-reveal] { opacity: 1; transform: none; transition: none; }
+}
