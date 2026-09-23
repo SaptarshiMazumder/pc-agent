@@ -61,5 +61,23 @@ contextBridge.exposeInMainWorld('agentdHost', {
    */
   openAppWindow(url: string, title?: string): Promise<{ ok: boolean; error?: string }> {
     return ipcRenderer.invoke('app:openWindow', url, title)
+  },
+
+  /**
+   * "Continue with Google" from inside an agent window — the SAME flow the launcher uses
+   * (`authOAuth` in src/preload/index.ts): main opens the system browser, takes the code on a
+   * loopback listener and hands the session to the daemon, which then tells every window.
+   *
+   * WHY THIS IS HERE. Without it the shared sign-in card in an agent window did the hosted
+   * thing: navigated the window itself to Google and came back to a page with no machine token
+   * and a browser cookie the desktop runtime never reads — signed out, forever, until the
+   * person signed in from the launcher instead. Nothing crosses this bridge but the provider
+   * name and the accounts address; the credential stays in main, exactly as for the launcher.
+   */
+  authOAuth(
+    provider: string,
+    accountsUrl: string
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    return ipcRenderer.invoke('auth:oauth', provider, accountsUrl)
   }
 })

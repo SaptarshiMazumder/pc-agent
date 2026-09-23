@@ -261,6 +261,9 @@
   background: var(--bg3);
 }
 .shot-empty { display: flex; align-items: flex-end; padding: 10px; border: 1px dashed var(--border2); }
+/* The source is portrait (720x1280) in a 16:9 frame, so `cover` takes a band from the middle.
+   Deliberate: a letterboxed thumbnail with bars reads as broken, a crop reads as a crop. */
+video.shot { background: #000; }
 .shot-cap { font-size: 11px; color: var(--faint); }
 .tone-0 { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--bg3)), var(--bg3)); }
 .tone-1 { background: linear-gradient(135deg, color-mix(in srgb, #7c5cff 18%, var(--bg3)), var(--bg3)); }

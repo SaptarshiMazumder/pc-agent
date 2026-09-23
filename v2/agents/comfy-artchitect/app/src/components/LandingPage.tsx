@@ -57,7 +57,7 @@ const USE_CASES: { title: string; body: string; shot: string }[] = [
   {
     title: 'Product ad video',
     body: 'A still of your product becomes a moving shot with camera motion and a look.',
-    shot: 'marketing/product-ad.webp',
+    shot: 'marketing/product-ad.mp4',
   },
   {
     title: 'Same person, new angles',

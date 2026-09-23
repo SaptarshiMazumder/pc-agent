@@ -34,7 +34,9 @@ import {
   authLogin,
   authProviders,
   authSignupOpen,
+  forgetIdentityCache,
   oauthCallbackParams,
+  platformStatus,
   type AuthProvider,
 } from '@agentd/client'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
@@ -136,13 +138,37 @@ export default function SignIn({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Start an external sign-in. The URL is visited by ASSIGNING location rather than opening a
-   *  window: a popup is blocked by default when the click is one await deep, and the provider's
-   *  page is a full sign-in screen, not a dialog. */
+  /** Start an external sign-in.
+   *
+   *  ON THE DESKTOP, THE SHELL DOES IT. The runtime is the one holder of the machine's session,
+   *  and it learns of a sign-in only from the shell's own flow — the system browser, a loopback
+   *  listener, the refresh token handed to the daemon — never from a browser cookie. So when the
+   *  window has that bridge (`agentdHost.authOAuth`, the app-window preload), the card asks it
+   *  and waits; the daemon then tells every window, and the identity cache is dropped so this
+   *  one re-reads. Doing the hosted thing here instead navigated the window to Google and back
+   *  to a page with no machine token, which read as signed out until the person tried again
+   *  from the launcher.
+   *
+   *  EVERYWHERE ELSE the URL is visited by ASSIGNING location rather than opening a window: a
+   *  popup is blocked by default when the click is one await deep, and the provider's page is a
+   *  full sign-in screen, not a dialog. */
   async function useProvider(id: string): Promise<void> {
     setError('')
     setGoing(id)
     try {
+      const host = desktopHost()
+      if (host) {
+        const accounts = String((await platformStatus({})).accountsUrl || '')
+        const r = await host.authOAuth(id, accounts)
+        const state = String((r?.body as { state?: unknown })?.state || '')
+        if (state !== 'ok') {
+          throw new Error(String((r?.body as { error?: unknown })?.error || 'sign-in failed'))
+        }
+        forgetIdentityCache()
+        setGoing('')
+        onDone?.()
+        return
+      }
       const url = await authAuthorize({ provider: id, redirectUri: redirectUri() })
       location.assign(url)
     } catch (err) {
@@ -211,7 +237,11 @@ export default function SignIn({
                   disabled={busy || !!going}
                   onClick={() => void useProvider(p.id)}
                 >
-                  {going === p.id ? 'Redirecting…' : `Continue with ${p.label}`}
+                  {going === p.id
+                    ? desktopHost()
+                      ? 'Finish in your browser…'
+                      : 'Redirecting…'
+                    : `Continue with ${p.label}`}
                 </button>
               ))}
             </div>
@@ -289,6 +319,18 @@ function redirectUri(): string {
   u.search = ''
   u.hash = ''
   return u.toString()
+}
+
+/** The desktop shell's bridge into an agent window, when this IS one. Absent on the web and in
+ *  a plain browser tab, where the redirect flow above is the only door. */
+function desktopHost(): {
+  authOAuth: (
+    provider: string,
+    accountsUrl: string,
+  ) => Promise<{ status: number; body: Record<string, unknown> }>
+} | null {
+  const h = (globalThis as { agentdHost?: { authOAuth?: unknown } }).agentdHost
+  return h && typeof h.authOAuth === 'function' ? (h as ReturnType<typeof desktopHost>) : null
 }
 
 /** Drop `?code=&state=` from the address bar without reloading. A spent authorization code in
