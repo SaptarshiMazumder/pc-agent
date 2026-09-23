@@ -91,15 +91,6 @@ const OPENING_BLURB =
 
 
 export default function App() {
-  /* THE SIGN-IN SCREEN KEEPS THE POLICY FOOTER; the app does not -- About and Contact are rail
-     rows once there is a rail. Gate renders its card instead of this component when the
-     deployment demands an account, so "App has mounted" is exactly "the visitor is past the
-     gate", and index.html's strip hides on that attribute. */
-  useEffect(() => {
-    document.documentElement.setAttribute('data-app-ready', '')
-    return () => document.documentElement.removeAttribute('data-app-ready')
-  }, [])
-
   const { client, status } = useClient()
   const connected = status === 'open'
 
