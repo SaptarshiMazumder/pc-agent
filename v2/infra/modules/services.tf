@@ -134,7 +134,11 @@ locals {
       # turning silent data loss into a failed deploy. Derived from the same variable that
       # removes the mount, so the two cannot disagree.
       AGENTD_REQUIRE_POSTGRES = var.accounts_external_database ? "1" : ""
-      AGENTD_AUTH_ISSUER      = local.publish_product_accounts_url
+      # THE WELCOME GRANT. Read once, at account creation, inside the same transaction
+      # that writes the account — see variable "signup_credits" for what it costs.
+      AGENTD_SIGNUP_CREDITS     = tostring(var.signup_credits)
+      AGENTD_SIGNUP_CREDIT_DAYS = tostring(var.signup_credit_days)
+      AGENTD_AUTH_ISSUER        = local.publish_product_accounts_url
       # What the discovery document (/.well-known/agentd-platform) hands a browser. These are
       # PUBLIC addresses; the internal *.agentd.local names other services use would produce a
       # document that works inside the VPC and fails for every real user.

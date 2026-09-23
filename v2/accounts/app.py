@@ -926,6 +926,11 @@ def signup(request: Request, payload: dict = Body(...)) -> dict:
         SqliteIdentityLinkStore(c).link(
             provider=LOCAL_PROVIDER, subject=account_id, account_id=account_id, email=email
         )
+        # THE SAME WELCOME AS EVERY OTHER NEW ACCOUNT. This route writes the row itself rather
+        # than going through SqliteAccountDirectory, so the hook wired onto that class does not
+        # fire here -- and an account created by password would otherwise start empty while an
+        # identical one created through Google started with credits.
+        _grant_signup_credits(c, account_id)
     return {"account_id": account_id, "email": email, "budget_usd": budget_val}
 
 
@@ -1003,13 +1008,13 @@ def _auth_service(conn: sqlite3.Connection | None = None):
     """
     if conn is not None:
         yield identity_factory.build_auth_service(
-            conn, SqliteAccountDirectory(conn), org_resolver=_org_resolver(conn)
+            conn, SqliteAccountDirectory(conn, on_created=lambda aid: _grant_signup_credits(conn, aid)), org_resolver=_org_resolver(conn)
         )
         return
     with _db() as c:
         try:
             yield identity_factory.build_auth_service(
-                c, SqliteAccountDirectory(c), org_resolver=_org_resolver(c)
+                c, SqliteAccountDirectory(c, on_created=lambda aid: _grant_signup_credits(c, aid)), org_resolver=_org_resolver(c)
             )
         except RefreshReuseDetected:
             # THE ONE FAILURE THAT MUST STILL COMMIT. _db() commits only on a clean exit, so a
@@ -1523,6 +1528,90 @@ def debit(
     return {"ok": shortfall == 0, "drained": drained, "shortfall": shortfall, **view}
 
 
+def _write_grant(
+    c: sqlite3.Connection,
+    *,
+    account_id: str,
+    credits: int,
+    org_id: str = "",
+    scope: str = "platform",
+    credit_class: str = "paid",
+    tier_max: str = "",
+    expires_at: float = 0.0,
+) -> int:
+    """The grant row and its ledger posting, on a connection the CALLER owns.
+
+    EXTRACTED SO IT CAN JOIN SOMEBODY ELSE'S TRANSACTION. `_apply_grant` opens its own; the
+    signup grant must commit with the INSERT that created the account, or a crash between the
+    two leaves a real account holding nothing, which nobody would notice until the person
+    complained. Same money semantics, one implementation -- the fork this module's docstring
+    already warns about.
+
+    Returns the grant id, which is also the posting's idempotency key.
+    """
+    ts = _now()
+    # RETURNING rather than `cur.lastrowid`: psycopg cursors have no such attribute, and the
+    # grant id is not cosmetic — it becomes this posting's idempotency key, so losing it
+    # would let a replayed grant post the same credits twice. SQLite has supported RETURNING
+    # since 3.35 (2021), so one statement serves both backends.
+    grant_row = c.execute(
+        "INSERT INTO credit_grants (account_id, org_id, scope, credits, credits_used, "
+        "credit_class, model_tier_max, expires_at, created_at) "
+        "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?) RETURNING id",
+        (account_id, org_id, scope, credits, credit_class, tier_max, expires_at, ts),
+    ).fetchone()
+    grant_id = grant_row["id"] if hasattr(grant_row, "keys") else grant_row[0]
+    # NO CASH CAME IN, but a liability was still created: we now owe this account service.
+    # Posted as a promotional grant whatever the credit_class says, because that is what
+    # actually happened -- credits conjured without a payment. /purchase is the only path
+    # that books cash, and the only one where a creator accrues anything.
+    ledger.post_promotional_grant(
+        c, ts, account_id=account_id, credits=credits,
+        ref=f"grant:{grant_id}", idempotency_key=f"grant:{grant_id}",
+    )
+    return int(grant_id)
+
+
+def _signup_credits() -> tuple[int, float]:
+    """(credits, expires_at) for a brand-new account. 0 credits = the feature is off.
+
+    OFF BY DEFAULT so dev and staging do not quietly hand out inference on every test account;
+    production opts in through terraform. 10,000 credits is $0.20 of model calls at the
+    platform's own rate, which is the number to weigh against a signup.
+    """
+    try:
+        credits = max(0, int((os.environ.get("AGENTD_SIGNUP_CREDITS") or "0").strip() or 0))
+    except ValueError:
+        credits = 0
+    try:
+        days = float((os.environ.get("AGENTD_SIGNUP_CREDIT_DAYS") or "30").strip() or 30)
+    except ValueError:
+        days = 30.0
+    # Same expiry semantics as every other grant: 0 = never, positive = N days from now.
+    return credits, (_now() + days * 86_400) if days else 0.0
+
+
+def _grant_signup_credits(c: sqlite3.Connection, account_id: str) -> None:
+    """The welcome grant, inside the transaction that created the account.
+
+    CALLED ONCE BECAUSE CREATION HAPPENS ONCE -- there is no "has this account had its free
+    credits" check anywhere, and there must not need to be: the only caller is the INSERT that
+    mints the id. A second call for the same account would be a second grant, so this must never
+    be wired to sign-IN.
+
+    PROMOTIONAL, not paid. The ledger keeps free credits out of revenue and out of creator
+    payouts, and that distinction is the reason the class exists.
+    """
+    credits, expires_at = _signup_credits()
+    if credits <= 0:
+        return
+    _write_grant(
+        c, account_id=account_id, credits=credits,
+        credit_class="promotional", expires_at=expires_at,
+    )
+    count("signup_credits_granted_total", credits, _props={"account_id": account_id})
+
+
 def _apply_grant(payload: dict) -> dict:
     """Add credits to an account, and post the matching ledger entry. THE MOCKED PURCHASE.
 
@@ -1564,25 +1653,9 @@ def _apply_grant(payload: dict) -> dict:
             account_id = account_id or str(org["primary_owner"])
         if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="unknown account")
-        ts = _now()
-        # RETURNING rather than `cur.lastrowid`: psycopg cursors have no such attribute, and the
-        # grant id is not cosmetic — it becomes this posting's idempotency key, so losing it
-        # would let a replayed grant post the same credits twice. SQLite has supported RETURNING
-        # since 3.35 (2021), so one statement serves both backends.
-        grant_row = c.execute(
-            "INSERT INTO credit_grants (account_id, org_id, scope, credits, credits_used, "
-            "credit_class, model_tier_max, expires_at, created_at) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?) RETURNING id",
-            (account_id, org_id, scope, credits, credit_class, tier_max, expires_at, ts),
-        ).fetchone()
-        grant_id = grant_row["id"] if hasattr(grant_row, "keys") else grant_row[0]
-        # NO CASH CAME IN, but a liability was still created: we now owe this account service.
-        # Posted as a promotional grant whatever the credit_class says, because that is what
-        # actually happened -- credits conjured without a payment. /purchase is the only path
-        # that books cash, and the only one where a creator accrues anything.
-        ledger.post_promotional_grant(
-            c, ts, account_id=account_id, credits=credits,
-            ref=f"grant:{grant_id}", idempotency_key=f"grant:{grant_id}",
+        _write_grant(
+            c, account_id=account_id, org_id=org_id, credits=credits, scope=scope,
+            credit_class=credit_class, tier_max=tier_max, expires_at=expires_at,
         )
         view = _funding_view(c, account_id, "", org_id)
     count("credits_granted_total", credits, credit_class=credit_class, _props={"account_id": account_id})

@@ -1652,3 +1652,183 @@ a.milestone-detail:hover { text-decoration: underline; }
 }
 .bj-cancel:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .bj-cancel:disabled { opacity: .5; cursor: default; }
+
+/* ── the landing page ─────────────────────────────────────────────────────────────────────────
+   The screen a stranger meets before the sign-in card. Type and CSS only, no images: the one
+   thing this page must do is appear instantly, and a landing page waiting on a hero render has
+   already lost the visitor it exists for.
+
+   SCROLLS, unlike every other screen in this app. `html, body, #root` are height:100% and the
+   shell is a fixed grid, so this has to opt back into ordinary document flow -- hence its own
+   height and overflow rather than inheriting the app's. */
+.lp {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-top {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 24px 16px;
+  max-width: 1080px; width: 100%; margin: 0 auto;
+}
+.lp-brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 15px;
+  letter-spacing: var(--tracking-tight);
+}
+.lp-mark { display: inline-flex; color: var(--accent); }
+.lp-signin {
+  flex: none; min-height: 38px; padding: 0 14px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  background: transparent; color: var(--dim);
+  font: inherit; font-size: 13px; font-weight: var(--fw-medium); cursor: pointer;
+  transition: color var(--dur-base) ease, border-color var(--dur-base) ease;
+}
+.lp-signin:hover { color: var(--text); border-color: var(--accent); }
+
+.lp-main {
+  flex: 1;
+  width: 100%; max-width: 1080px; margin: 0 auto;
+  padding: 0 24px 56px;
+  display: flex; flex-direction: column; gap: 56px;
+}
+
+.lp-hero { padding-top: 56px; max-width: 720px; }
+.lp-h1 {
+  margin: 0;
+  font-family: var(--display);
+  /* Fluid, so the two lines hold their shape from a phone to a wide window without a stack of
+     breakpoints deciding it. */
+  font-size: clamp(2.1rem, 6.5vw, 3.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  font-weight: var(--fw-bold);
+}
+.lp-sub {
+  margin: 20px 0 0;
+  font-size: clamp(0.98rem, 2.2vw, 1.12rem);
+  line-height: 1.6;
+  color: var(--dim);
+  text-wrap: pretty;
+  max-width: 58ch;
+}
+.lp-sub em { color: var(--text); font-style: normal; font-weight: var(--fw-semi); }
+
+.lp-cta {
+  margin-top: 30px;
+  min-height: 48px; padding: 0 26px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--prim-bg); color: var(--prim-ink);
+  font: inherit; font-size: 15px; font-weight: var(--fw-semi); cursor: pointer;
+  transition: background var(--dur-base) ease, transform var(--dur-fast) var(--ease-smooth);
+}
+.lp-cta:hover { background: var(--prim-bg-h); }
+.lp-cta:active { transform: translateY(1px); }
+/* THE PRICE IS ON THE BUTTON'S DOORSTEP, deliberately. Hiding it wins sign-ups and loses them
+   again at the paywall, having spent the person's goodwill on the way. */
+.lp-cta-note { margin: 12px 0 0; font-size: 12.5px; color: var(--faint); }
+
+/* ── the landing's composer ───────────────────────────────────────────────────────────────
+   A replica of the real one, inert. It is the most useful thing on the page: it shows what the
+   product IS in a glance, and makes the first click the first step rather than a detour through
+   an account form. Styled here rather than reusing `.composer` because that class carries real
+   behaviour -- focus-within, the textarea's growth, the send button's ready state -- none of
+   which should half-work on a mock. */
+.lp-composer {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: var(--sp-gap) var(--sp-card);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-panel);
+  cursor: text;
+  transition: border-color var(--dur-base) ease;
+}
+.lp-composer:hover,
+.lp-composer:focus-visible { border-color: var(--accent); outline: none; }
+.lp-composer-ph { font-size: 15px; color: var(--faint); }
+.lp-composer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lp-composer-ico {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--dim);
+}
+.lp-composer-send {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--prim-bg); color: var(--prim-ink);
+}
+.lp-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill);
+  font-size: 12.5px; color: var(--dim); white-space: nowrap;
+}
+
+/* ── the sign-in card, as a modal over the landing ────────────────────────────────────────
+   `.signin-wrap` (src/common/auth/auth.css, not ours to edit) is `position: fixed; inset: 0`
+   with an OPAQUE background -- a full-screen takeover. Two overrides turn it into a dialog:
+   the scrim below shows the page through it, and the wrap stops painting over everything.
+   Higher specificity rather than source order, because auth.css arrives through SignIn's own
+   import and its position in the bundle is a property of the import graph. */
+.lp-auth {
+  position: fixed; inset: 0; z-index: 80;
+  background: color-mix(in srgb, var(--bg4) 76%, transparent);
+  backdrop-filter: blur(3px);
+  animation: lp-fade var(--dur-base) ease-out;
+}
+@keyframes lp-fade { from { opacity: 0; } }
+.lp-auth .signin-wrap { background: transparent; }
+/* Above the card (which carries --shadow), and far enough in to miss its rounded corner. */
+.lp-auth-x {
+  position: fixed; top: 16px; right: 16px; z-index: 81;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border2); background: var(--bg2); color: var(--dim);
+  cursor: pointer;
+  transition: color var(--dur-base) ease, border-color var(--dur-base) ease;
+}
+.lp-auth-x:hover { color: var(--text); border-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) { .lp-auth { animation: none; } }
+
+.lp-steps {
+  display: grid; gap: 22px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.lp-step { display: flex; flex-direction: column; gap: 8px; }
+.lp-step-n {
+  font: var(--fw-semi) 12px var(--mono);
+  color: var(--accent-text);
+  letter-spacing: 0.08em;
+}
+.lp-step-t { margin: 0; font-size: 15px; font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.lp-step-b { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); text-wrap: pretty; }
+
+.lp-note {
+  padding: 18px 20px;
+  border: 1px solid var(--border); border-radius: var(--r-panel);
+  background: var(--bg2);
+}
+.lp-note p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); text-wrap: pretty; }
+.lp-note strong { color: var(--text); font-weight: var(--fw-semi); }
+
+.lp-foot {
+  flex: none;
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  width: 100%; max-width: 1080px; margin: 0 auto;
+  padding: 20px 24px calc(28px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.lp-foot a { color: var(--faint); text-decoration: none; }
+.lp-foot a:hover { color: var(--text); text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .lp-hero { padding-top: 34px; }
+  .lp-main { gap: 40px; padding-bottom: 40px; }
+  .lp-cta { width: 100%; }
+}
