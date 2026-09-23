@@ -37,9 +37,19 @@ def new_account_id() -> str:
 class SqliteAccountDirectory:
     """Reads and writes the ``accounts`` table on a live connection."""
 
-    def __init__(self, conn: sqlite3.Connection, *, clock=time.time):
+    def __init__(self, conn: sqlite3.Connection, *, clock=time.time, on_created=None):
+        """:param on_created: called with a new account's id, on the SAME connection and inside
+        the same transaction, immediately after the row is written.
+
+        A HOOK RATHER THAN A LEDGER CALL. This class is identity's adapter onto the accounts
+        table; what a brand-new account is WORTH is a money question, and money lives in
+        accounts/app.py. Importing the ledger here would put a decision about free credits
+        inside the object whose job is looking people up, and would drag the whole money module
+        into every test that needs a directory.
+        """
         self._conn = conn
         self._clock = clock
+        self._on_created = on_created
 
     def find_by_id(self, account_id: str) -> AccountRecord | None:
         row = self._conn.execute(
@@ -70,6 +80,11 @@ class SqliteAccountDirectory:
             "VALUES (?, ?, ?, ?, NULL, 1, ?)",
             (account_id, clean, password_salt, password_hash, float(self._clock())),
         )
+        # BEFORE THE RETURN AND ON THIS CONNECTION, so whatever the host attaches to a new
+        # account commits with the account or not at all. An account that exists while its
+        # welcome credits do not is the kind of gap nobody finds until somebody complains.
+        if self._on_created is not None:
+            self._on_created(account_id)
         return AccountRecord(
             account_id=account_id,
             email=clean,

@@ -1468,3 +1468,32 @@ variable "oidc_google_redirect_uri" {
   type        = string
   default     = ""
 }
+
+variable "signup_credits" {
+  description = <<-EOT
+    Credits handed to a brand-new account, once, at creation. 0 disables it.
+
+    THIS IS A REAL BILL, not a discount: credits are spent on model calls we pay providers for.
+    At the platform's own rate 10,000 credits is about $0.20 of inference, so a thousand
+    signups is roughly $200 — cheap for acquisition, and worth watching on the admin dashboard
+    rather than assuming.
+
+    ONE PER ACCOUNT, and an account is a verified Google address, so the floor on farming it is
+    making Google accounts. That is a slow drain rather than a hole, but it is not zero.
+
+    Off by default so dev and staging do not quietly hand out inference on every test account.
+  EOT
+  type        = number
+  default     = 0
+}
+
+variable "signup_credit_days" {
+  description = <<-EOT
+    How long the signup grant lasts. 0 = never expires.
+
+    Same expiry semantics as every other grant (accounts/app.py). A short window caps the
+    liability sitting on the books and gives somebody a reason to come back this week.
+  EOT
+  type        = number
+  default     = 30
+}

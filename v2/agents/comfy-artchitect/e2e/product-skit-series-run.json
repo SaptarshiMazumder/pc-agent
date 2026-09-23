@@ -1,0 +1,83 @@
+{
+  "id": "product-skit-series-run",
+  "agent_id": "comfy-artchitect",
+  "goal": "The first go-to-market brief: sell one garment with one AI influencer, as a short series — three identity-locked stills that show the exact garment, plus one vertical skit clip where she says a line about it. A casual brief with the job's details and nothing else: no model, node, paid-or-free hint. What this reads: does the agent, unprompted, reach for the best hosted multi-reference identity editor for the stills and a reference-to-video model with native dialogue for the clip, wire BOTH references (person and garment) into the graphs, price it in credits, and stop at the ask. The second turn approves and the run goes all the way: GPU, both references uploaded, validate, run, three stills and one clip delivered.",
+  "turns": [
+    {
+      "text": "I sell jackets and want to try an AI influencer for one of them. I've attached the product photo of the jacket and a photo of the person I want as the influencer. Make me a little 3-post series: three photos of her wearing that exact jacket — one out on the street, one mirror selfie, one close-up that shows the jacket's details — same face and same jacket in all three. Then one 8-second vertical clip for reels where she's wearing it and says a quick line about it to a friend off camera, like a tiny skit. It should look real, not cartoony. Tell me what it'll cost before you make anything.",
+      "reference_media": [
+        {
+          "role": "person",
+          "path": "assets/influencer-reference.png"
+        },
+        {
+          "role": "garment",
+          "path": "assets/jacket-reference.png"
+        }
+      ]
+    },
+    "Approved, all of it. Build it and run it."
+  ],
+  "_comment_checks": "Two comfy_emit calls minimum: one role for the stills, one for the clip. produced_artifact file catches the emitted workflows. The judgement of WHICH models is done by reading the trace and the emitted graphs after the run, not by regex — a pattern that names models would be the nudge this scenario exists to avoid.",
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "no_unrecovered_error"
+    },
+    {
+      "name": "tool_called",
+      "tool": "comfy_price"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "message_says",
+      "pattern": "\\d[\\d,]*\\s*credits"
+    },
+    {
+      "name": "call_order",
+      "first": "ask_user",
+      "then": "comfy_emit"
+    },
+    {
+      "name": "tool_called",
+      "tool": "comfy_emit",
+      "min": 2
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "no_blocking_stall"
+    },
+    {
+      "name": "tool_called",
+      "tool": "gpu_ensure"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_validate"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_run"
+    },
+    {
+      "name": "produced_artifact",
+      "kind": "image"
+    },
+    {
+      "name": "produced_artifact",
+      "kind": "video"
+    },
+    {
+      "name": "max_turns",
+      "n": 40
+    }
+  ],
+  "max_turns": 40
+}
