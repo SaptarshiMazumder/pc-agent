@@ -40,6 +40,12 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Header
 
+# A PLAIN IMPORT, not the try/_sibling dance app.py does. Under uvicorn WORKDIR /app is on
+# sys.path so this resolves directly; under the by-path loader app.py registers this module in
+# sys.modules BEFORE it loads this one, so the name is already there. That ordering is load
+# bearing and is commented at the call site.
+from sort_order_resolver import SortOrderResolver
+
 try:  # pragma: no cover - the package is absent in unit tests
     from agentd_telemetry import count
 except Exception:  # noqa: BLE001
@@ -64,6 +70,47 @@ PAGE_DEFAULT = 50
 PAGE_MAX = 200
 
 SECONDS_PER_DAY = 86400.0
+
+#: What the sign-up list may be ordered by. The aggregates are correlated subqueries rather than
+#: joins so the row set stays exactly "one row per account" -- a join against credit_grants would
+#: multiply an account by its number of grants and page wrongly.
+#:
+#: COALESCE IS LOAD-BEARING on both. An account with no grants and an account with no payments
+#: produce NULL, and NULL sorts to one end regardless of direction in Postgres while SQLite puts
+#: it at the other -- so without it "sort by credits" would disagree between a local database and
+#: production. Zero is also the honest value: no grants IS no credits.
+def signup_sorts(now: float) -> dict[str, str]:
+    """The sign-up list's sortable columns, with `now` baked into the expiry test.
+
+    A LITERAL RATHER THAN A BOUND PARAMETER, and only because of where it sits. ORDER BY is
+    assembled as text, so a `?` inside it would have to be bound in a position that depends on how
+    many parameters the WHERE clause happens to carry -- a rule that silently breaks the first
+    time a filter is added. `now` is a float this process computed; it is not caller input, and
+    formatting a float we own into SQL introduces nothing to inject.
+    """
+    return {
+        "created_at": "a.created_at",
+        "email": "lower(a.email)",
+        "active": "a.active",
+        "credits_remaining": (
+            "COALESCE((SELECT SUM(g.credits - g.credits_used) FROM credit_grants g "
+            f"WHERE g.account_id = a.id AND (g.expires_at = 0 OR g.expires_at > {float(now)!r})), 0)"
+        ),
+        "paid_usd": (
+            "COALESCE((SELECT SUM(p.amount_usd) FROM payment_intents p "
+            "WHERE p.account_id = a.id AND p.kind = 'purchase' AND p.status = 'succeeded'), 0)"
+        ),
+    }
+
+#: What the payments list may be ordered by. All plain columns -- the product name lives inside a
+#: JSON blob and is deliberately not sortable, because sorting by a value the database cannot see
+#: would mean reading every row to order them.
+TRANSACTION_SORTS = {
+    "ts": "i.ts",
+    "email": "lower(COALESCE(a.email, ''))",
+    "amount_usd": "i.amount_usd",
+    "status": "i.status",
+}
 
 #: Ledger accounts that mean "money arrived" and "money went back". Named here rather than
 #: inlined so the revenue query and anyone reading it agree on what revenue IS: cash in, cash
@@ -201,6 +248,8 @@ def build_admin_metrics_router(
         q: str = "",
         limit: int = PAGE_DEFAULT,
         offset: int = 0,
+        sort: str = "created_at",
+        dir: str = "desc",  # noqa: A002 - the query-string name the console sends
         authorization: str | None = Header(default=None),
     ) -> dict:
         """Who signed up, when, and what has happened to them since. Newest first.
@@ -224,19 +273,23 @@ def build_admin_metrics_router(
         require_admin(authorization)
         size, start = _page(limit, offset)
         needle = f"%{q.strip().lower()}%" if q and q.strip() else ""
+        order, sort_key, sort_dir = SortOrderResolver(
+            signup_sorts(deps.now()), default="created_at", tiebreak="a.id"
+        ).resolve(sort, dir)
         with deps.db() as c:
             if needle:
-                where, args = "WHERE lower(email) LIKE ? OR lower(id) LIKE ?", (needle, needle)
+                where = "WHERE lower(a.email) LIKE ? OR lower(a.id) LIKE ?"
+                args: tuple = (needle, needle)
             else:
                 where, args = "", ()
             total = int(
                 c.execute(
-                    f"SELECT COUNT(*) n FROM accounts {where}", args  # noqa: S608 - fixed strings
+                    f"SELECT COUNT(*) n FROM accounts a {where}", args  # noqa: S608 - fixed
                 ).fetchone()["n"]
             )
             rows = c.execute(
-                f"SELECT id, email, created_at, active FROM accounts {where} "  # noqa: S608
-                "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                f"SELECT a.id, a.email, a.created_at, a.active FROM accounts a {where} "  # noqa: S608
+                f"{order} LIMIT ? OFFSET ?",
                 (*args, size, start),
             ).fetchall()
             ids = [str(r["id"]) for r in rows]
@@ -248,6 +301,10 @@ def build_admin_metrics_router(
             "total": total,
             "limit": size,
             "offset": start,
+            # WHAT THE SERVER DID, not what was asked. The console draws its sort arrow from
+            # these, so an ignored or unknown column shows the order actually applied.
+            "sort": sort_key,
+            "dir": sort_dir,
             "signups": [
                 {
                     "account_id": r["id"],
@@ -322,6 +379,8 @@ def build_admin_metrics_router(
         limit: int = PAGE_DEFAULT,
         offset: int = 0,
         status: str = "",
+        sort: str = "ts",
+        dir: str = "desc",  # noqa: A002 - the query-string name the console sends
         authorization: str | None = Header(default=None),
     ) -> dict:
         """The rail's own attempts, newest first, with the buyer's email beside each.
@@ -335,6 +394,11 @@ def build_admin_metrics_router(
         require_admin(authorization)
         size, start = _page(limit, offset)
         wanted = (status or "").strip().lower()
+        # i.id is the autoincrement primary key — unique, so paging cannot repeat a row when a
+        # hundred payments share a timestamp or an amount.
+        order, sort_key, sort_dir = SortOrderResolver(
+            TRANSACTION_SORTS, default="ts", tiebreak="i.id"
+        ).resolve(sort, dir)
         with deps.db() as c:
             where, params = "", []
             if wanted:
@@ -354,7 +418,7 @@ def build_admin_metrics_router(
                 "SELECT i.reference, i.account_id, i.status, i.kind, i.provider, "
                 "i.amount_usd, i.currency, i.ts, i.meta, i.detail, a.email "
                 f"FROM payment_intents i LEFT JOIN accounts a ON a.id = i.account_id {where} "
-                "ORDER BY i.ts DESC LIMIT ? OFFSET ?",
+                f"{order} LIMIT ? OFFSET ?",
                 tuple(params),
             ).fetchall()
         count("admin_call_total", outcome="ok", _props={"route": "metrics/transactions"})
@@ -362,6 +426,8 @@ def build_admin_metrics_router(
             "total": total,
             "limit": size,
             "offset": start,
+            "sort": sort_key,
+            "dir": sort_dir,
             "transactions": [
                 {
                     "reference": r["reference"],

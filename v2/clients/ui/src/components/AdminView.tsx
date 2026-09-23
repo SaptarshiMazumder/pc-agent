@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Activity, AlertTriangle, ArrowLeft, BadgeCheck, Ban, BarChart3, Check, ChevronLeft, ChevronRight, CircleDollarSign, Copy, Cpu, KeyRound, Package, Receipt, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, ArrowUp, BadgeCheck, Ban, BarChart3, Check, ChevronLeft, ChevronRight, CircleDollarSign, Copy, Cpu, KeyRound, Package, Receipt, RefreshCw, RotateCw, Search, ShieldCheck, Trash2, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react'
 
 import * as api from '../lib/admin'
 import DeploymentDefaults from './DeploymentDefaults'
@@ -151,6 +151,98 @@ function Table({ head, children }: { head: string[]; children: ReactNode }): Rea
 
 function Empty({ children }: { children: ReactNode }): ReactNode {
   return <div className="admin-empty">{children}</div>
+}
+
+/** A column in a sortable table. `sort` absent means the column cannot be ordered by. */
+type Col = {
+  label: string
+  /** The key the server knows this column by. Omitted for columns with nothing to order. */
+  sort?: string
+  /** Numbers and dates read newest/largest first, so their first click goes descending. */
+  firstDir?: 'asc' | 'desc'
+  /** Right-aligns the header to sit over a numeric column. */
+  num?: boolean
+}
+
+/** The same table as above, with headers that sort.
+ *
+ * THE ARROW IS DRAWN FROM WHAT THE SERVER APPLIED, never from what was requested. The routes
+ * return the sort they actually used — an unknown column falls back to the default rather than
+ * failing — so a console drawing its own intent would point at a column the rows are not in the
+ * order of, which is worse than no arrow at all.
+ *
+ * SORTING IS A SERVER CONCERN HERE because these tables are pages. Reordering the fifty rows in
+ * hand and calling the result "sorted by credits" is a lie the moment there is a second page:
+ * the largest value on screen is only the largest of those fifty. The one exception is the
+ * product list, which is not paged — everything is already in hand, so it sorts locally.
+ */
+function SortTable({
+  cols,
+  sort,
+  dir,
+  onSort,
+  children,
+}: {
+  cols: Col[]
+  sort: string
+  dir: 'asc' | 'desc'
+  onSort: (key: string, dir: 'asc' | 'desc') => void
+  children: ReactNode
+}): ReactNode {
+  return (
+    <div className="admin-table-wrap">
+      <table className="admin-table">
+        <thead>
+          <tr>
+            {cols.map((c) => {
+              if (!c.sort) return <th key={c.label} className={c.num ? 'num' : ''} />
+              const active = sort === c.sort
+              return (
+                <th key={c.label} className={c.num ? 'num' : ''}>
+                  <button
+                    className={`admin-sort ${active ? 'active' : ''}`}
+                    // Clicking the column already sorted flips it; a new column starts in the
+                    // direction that column is usually read in.
+                    onClick={() =>
+                      onSort(
+                        c.sort as string,
+                        active ? (dir === 'asc' ? 'desc' : 'asc') : c.firstDir || 'asc',
+                      )
+                    }
+                    title={`Sort by ${c.label.toLowerCase()}`}
+                  >
+                    {c.label}
+                    <ArrowUp
+                      size={11}
+                      className={`admin-sort-arrow ${active && dir === 'desc' ? 'down' : ''}`}
+                    />
+                  </button>
+                </th>
+              )
+            })}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Date AND time, on two lines.
+ *
+ * A DATE ALONE CANNOT SETTLE THE QUESTIONS THIS CONSOLE IS OPENED FOR: which of two payments came
+ * first, whether a sign-up preceded a charge, which attempt out of four on the same afternoon a
+ * customer is asking about. "9/23/2026" answers none of them.
+ */
+function When({ ts }: { ts: number }): ReactNode {
+  if (!ts) return <span className="dim">—</span>
+  const d = new Date(ts * 1000)
+  return (
+    <>
+      <div>{d.toLocaleDateString()}</div>
+      <div className="admin-muted">{d.toLocaleTimeString()}</div>
+    </>
+  )
 }
 
 // --------------------------------------------------------------------------- overview
@@ -335,6 +427,42 @@ function Status({ value }: { value: string }): ReactNode {
   )
 }
 
+/** Sorting for a list the client already holds in full.
+ *
+ * ONLY SAFE BECAUSE THE PRODUCT LIST IS NOT PAGED. Everything the server has is in hand, so
+ * ordering it here orders all of it -- the objection that makes every other table sort in SQL
+ * does not apply. If products ever grow a page, this has to move to the server with the rest.
+ */
+function useLocalSort<T>(
+  rows: T[],
+  pick: Record<string, (row: T) => string | number>,
+  initial: string,
+  initialDir: 'asc' | 'desc' = 'asc',
+): { rows: T[]; sort: string; dir: 'asc' | 'desc'; onSort: (k: string, d: 'asc' | 'desc') => void } {
+  const [sort, setSort] = useState(initial)
+  const [dir, setDir] = useState<'asc' | 'desc'>(initialDir)
+  const get = pick[sort] || pick[initial]
+  const sorted = [...rows].sort((a, b) => {
+    const x = get(a)
+    const y = get(b)
+    // localeCompare for text so "10 seats" and "5 seats" do not order by their first character,
+    // and a plain subtraction for numbers.
+    const c = typeof x === 'string' || typeof y === 'string'
+      ? String(x).localeCompare(String(y), undefined, { numeric: true })
+      : (x as number) - (y as number)
+    return dir === 'asc' ? c : -c
+  })
+  return {
+    rows: sorted,
+    sort,
+    dir,
+    onSort: (k, d) => {
+      setSort(k)
+      setDir(d)
+    },
+  }
+}
+
 // ============================================================== sign-ups
 
 function SignupsPanel(): ReactNode {
@@ -342,14 +470,26 @@ function SignupsPanel(): ReactNode {
   const [days, setDays] = useState(30)
   const [term, setTerm] = useState('')
   const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState('created_at')
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const trend = usePanel(() => api.signupsTrend(days), [days])
-  const list = usePanel(() => api.signupHistory(PAGE, offset, term), [offset, term])
+  const list = usePanel(
+    () => api.signupHistory(PAGE, offset, term, sort, dir),
+    [offset, term, sort, dir],
+  )
 
   const search = (t: string) => {
     // A new search must go back to page one, or an operator searching from page four gets an
     // empty table and concludes there are no matches.
     setOffset(0)
     setTerm(t)
+  }
+
+  // Re-sorting is a new ordering of the whole set, so the page you were on means nothing in it.
+  const order = (k: string, d: 'asc' | 'desc') => {
+    setOffset(0)
+    setSort(k)
+    setDir(d)
   }
 
   return (
@@ -404,14 +544,22 @@ function SignupsPanel(): ReactNode {
           </>
         }
       >
-        <Table head={['Signed up', 'Who', 'Credits left', 'Paid us', 'State']}>
+        <SortTable
+          cols={[
+            { label: 'Signed up', sort: 'created_at', firstDir: 'desc' },
+            { label: 'Who', sort: 'email' },
+            { label: 'Credits left', sort: 'credits_remaining', firstDir: 'desc', num: true },
+            { label: 'Paid us', sort: 'paid_usd', firstDir: 'desc', num: true },
+            { label: 'State', sort: 'active' },
+          ]}
+          sort={list.data?.sort || sort}
+          dir={list.data?.dir || dir}
+          onSort={order}
+        >
           {(list.data?.signups || []).map((s) => (
             <tr key={s.account_id}>
               <td>
-                <div>{new Date(s.created_at * 1000).toLocaleDateString()}</div>
-                <div className="admin-muted">
-                  {new Date(s.created_at * 1000).toLocaleTimeString()}
-                </div>
+                <When ts={s.created_at} />
               </td>
               <td>
                 <div className="admin-strong">{s.email}</div>
@@ -451,7 +599,7 @@ function SignupsPanel(): ReactNode {
               </td>
             </tr>
           )}
-        </Table>
+        </SortTable>
         <Pager
           total={list.data?.total || 0}
           limit={PAGE}
@@ -479,12 +627,23 @@ function TransactionsPanel(): ReactNode {
   const [days, setDays] = useState(30)
   const [status, setStatus] = useState('')
   const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState('ts')
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const revenue = usePanel(() => api.revenueTrend(days), [days])
-  const txns = usePanel(() => api.transactions(PAGE, offset, status), [offset, status])
+  const txns = usePanel(
+    () => api.transactions(PAGE, offset, status, sort, dir),
+    [offset, status, sort, dir],
+  )
 
   const filter = (id: string) => {
     setOffset(0)
     setStatus(id)
+  }
+
+  const order = (k: string, d: 'asc' | 'desc') => {
+    setOffset(0)
+    setSort(k)
+    setDir(d)
   }
 
   return (
@@ -547,12 +706,25 @@ function TransactionsPanel(): ReactNode {
           </>
         }
       >
-        <Table head={['When', 'Who', 'What they bought', 'Amount', 'Status', 'Transaction id']}>
+        <SortTable
+          cols={[
+            { label: 'When', sort: 'ts', firstDir: 'desc' },
+            { label: 'Who', sort: 'email' },
+            // The product name lives inside the order's JSON blob, which the database cannot
+            // order by without reading every row. Left unsortable rather than made slow.
+            { label: 'What they bought' },
+            { label: 'Amount', sort: 'amount_usd', firstDir: 'desc', num: true },
+            { label: 'Status', sort: 'status' },
+            { label: 'Transaction id' },
+          ]}
+          sort={txns.data?.sort || sort}
+          dir={txns.data?.dir || dir}
+          onSort={order}
+        >
           {(txns.data?.transactions || []).map((x) => (
             <tr key={`${x.reference}:${x.ts}`}>
               <td>
-                <div>{new Date(x.ts * 1000).toLocaleDateString()}</div>
-                <div className="admin-muted">{new Date(x.ts * 1000).toLocaleTimeString()}</div>
+                <When ts={x.ts} />
               </td>
               {/* An intent whose account is gone still shows — that is the row worth seeing. */}
               <td>
@@ -591,7 +763,7 @@ function TransactionsPanel(): ReactNode {
               </td>
             </tr>
           )}
-        </Table>
+        </SortTable>
         <Pager
           total={txns.data?.total || 0}
           limit={PAGE}
@@ -692,7 +864,12 @@ function UserList({
   onOpen: (id: string) => void
 }): ReactNode {
   const [applied, setApplied] = useState('')
-  const { data, error, busy, reload } = usePanel(() => api.listAccounts(applied), [applied])
+  const [sort, setSort] = useState('created_at')
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc')
+  const { data, error, busy, reload } = usePanel(
+    () => api.listAccounts(applied, 50, 0, sort, dir),
+    [applied, sort, dir],
+  )
 
   return (
     <Panel
@@ -721,7 +898,23 @@ function UserList({
       }
     >
       {data?.accounts?.length ? (
-        <Table head={['Email', 'Created', 'Status', 'Budget', 'Spent', 'Credits', '']}>
+        <SortTable
+          cols={[
+            { label: 'Email', sort: 'email' },
+            { label: 'Created', sort: 'created_at', firstDir: 'desc' },
+            { label: 'Status', sort: 'active' },
+            { label: 'Budget', sort: 'budget_usd', firstDir: 'desc' },
+            { label: 'Spent', sort: 'spent_usd', firstDir: 'desc' },
+            { label: 'Credits', sort: 'credits_remaining', firstDir: 'desc' },
+            { label: '' },
+          ]}
+          sort={data.sort}
+          dir={data.dir}
+          onSort={(k, d) => {
+            setSort(k)
+            setDir(d)
+          }}
+        >
           {data.accounts.map((a) => (
             <tr key={a.account_id}>
               <td className="admin-strong">
@@ -732,7 +925,9 @@ function UserList({
                   </span>
                 )}
               </td>
-              <td>{day(a.created_at)}</td>
+              <td>
+                <When ts={a.created_at} />
+              </td>
               <td>
                 {a.active ? (
                   <span className="admin-chip admin-chip-ok">active</span>
@@ -750,7 +945,7 @@ function UserList({
               </td>
             </tr>
           ))}
-        </Table>
+        </SortTable>
       ) : (
         <Empty>No accounts match.</Empty>
       )}
@@ -1400,6 +1595,21 @@ function MoneyPanel(): ReactNode {
   const products = usePanel(() => api.listProducts(), [])
   const books = usePanel(() => api.ledger(), [])
   const [note, setNote] = useState('')
+  const rows = products.data?.products || []
+  const table = useLocalSort<api.Product>(
+    rows,
+    {
+      title: (p) => (p.title || p.id).toLowerCase(),
+      kind: (p) => p.kind,
+      price_usd: (p) => p.price_usd,
+      credits: (p) => p.credits,
+      agent_id: (p) => p.agent_id || '',
+      subscribers: (p) => p.subscribers,
+      created_at: (p) => p.created_at || 0,
+      active: (p) => (p.active ? 1 : 0),
+    },
+    'price_usd',
+  )
 
   async function toggle(p: api.Product): Promise<void> {
     setNote('')
@@ -1415,9 +1625,24 @@ function MoneyPanel(): ReactNode {
     <>
       <Panel title="On sale" busy={products.busy} error={products.error}>
         {note && <div className="admin-note">{note}</div>}
-        {products.data?.products?.length ? (
-          <Table head={['Product', 'Kind', 'Price', 'Credits', 'Agent', 'Subscribers', '']}>
-            {products.data.products.map((p) => (
+        {rows.length ? (
+          <SortTable
+            cols={[
+              { label: 'Product', sort: 'title' },
+              { label: 'Kind', sort: 'kind' },
+              { label: 'Price', sort: 'price_usd', firstDir: 'desc', num: true },
+              { label: 'Credits', sort: 'credits', firstDir: 'desc', num: true },
+              { label: 'Agent', sort: 'agent_id' },
+              { label: 'Subscribers', sort: 'subscribers', firstDir: 'desc', num: true },
+              { label: 'Added', sort: 'created_at', firstDir: 'desc' },
+              { label: 'On sale', sort: 'active', firstDir: 'desc' },
+              { label: '' },
+            ]}
+            sort={table.sort}
+            dir={table.dir}
+            onSort={table.onSort}
+          >
+            {table.rows.map((p) => (
               <tr key={p.id}>
                 <td>
                   <div className="admin-strong">{p.title || p.id}</div>
@@ -1429,17 +1654,32 @@ function MoneyPanel(): ReactNode {
                 <td>{p.agent_id || '—'}</td>
                 <td>{num(p.subscribers)}</td>
                 <td>
+                  <When ts={p.created_at} />
+                </td>
+                {/* THE STATE, BESIDE THE BUTTON THAT CHANGES IT. The button alone reads as the
+                    ACTION -- "Withdraw" on something currently on sale, "List" on something that
+                    is not -- so a row saying "List" means the product is NOT selling, which is
+                    precisely backwards from how it scans. Nobody should have to invert a verb to
+                    find out what is on sale. */}
+                <td>
+                  {p.active ? (
+                    <span className="admin-chip admin-chip-ok">on sale</span>
+                  ) : (
+                    <span className="admin-chip admin-chip-warn">withdrawn</span>
+                  )}
+                </td>
+                <td>
                   <button
                     className="btn ghost"
                     title={p.active ? 'Stop selling this' : 'Put this back on sale'}
                     onClick={() => void toggle(p)}
                   >
-                    {p.active ? 'Withdraw' : 'List'}
+                    {p.active ? 'Withdraw' : 'Put on sale'}
                   </button>
                 </td>
               </tr>
             ))}
-          </Table>
+          </SortTable>
         ) : (
           <Empty>Nothing is for sale.</Empty>
         )}
