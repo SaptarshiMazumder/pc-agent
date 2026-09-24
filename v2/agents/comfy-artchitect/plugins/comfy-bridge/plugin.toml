@@ -38,4 +38,14 @@ secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY", "AGENTD_PLATFORM_TOKEN"
 # daemon. These tools read the job's gate records and THIS chat's three folders (chat_paths),
 # nothing else — a reference upload's bytes are read on the HOST by the fetch broker, and a
 # download is written there too.
-workspace = [".studio", "workflows/{session}", "references/{session}", "outputs/{session}"]
+# THE LIBRARY'S TEXT PARTS TRAVEL, ITS MEDIA DOES NOT. The catalogue, the saved workflows and
+# the uploaded files are what library_find/read/use read; a saved face or product video is
+# never opened by the agent (it sees no pixels), so it stays on the daemon and the WINDOW copies
+# it into a slot on library_use's instruction (details.copy). Shipping library/references here
+# would put every kept render on every node search.
+workspace = [
+  ".studio", "workflows/{session}", "references/{session}", "outputs/{session}",
+  "library/index.json",
+  "library/uploaded/workflows", "library/saved/workflows",
+  "library/uploaded/files", "library/saved/files",
+]

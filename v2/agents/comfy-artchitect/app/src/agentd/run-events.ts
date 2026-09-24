@@ -19,6 +19,7 @@ import type { AgentdClient } from '@agentd/client'
 
 import { closeThinking, resultText, type SubagentItem, type ThreadItem } from './chat'
 import { freshArtifacts, readArtifacts, type Artifact } from './artifacts'
+import { applyLibraryCopies, libraryCopies } from './library'
 import { applyApprovedDeletions, approvedDeletions } from './workspace-files'
 import { useApp, type AppState, type BackgroundJob, type ChatSession } from '../state/store'
 
@@ -338,6 +339,17 @@ function fold(
         const approved = approvedDeletions(ev.details)
         if (approved.length && client) {
           void applyApprovedDeletions(client, approved).finally(() => get().bumpWorkspace())
+        } else {
+          get().bumpWorkspace()
+        }
+      }
+      /* A LIBRARY REFERENCE INTO A SLOT — the same split. The sandbox is handed the Library's
+         catalogue and workflows but not its media, so library_use has no bytes to copy; it says
+         what it wants moved and this side does it through workspace.copy, then re-reads. */
+      if (String(ev.toolName || '') === 'library_use') {
+        const copies = libraryCopies(ev.details)
+        if (copies.length && client) {
+          void applyLibraryCopies(client, copies).finally(() => get().bumpWorkspace())
         } else {
           get().bumpWorkspace()
         }

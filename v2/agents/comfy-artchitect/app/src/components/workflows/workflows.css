@@ -98,3 +98,12 @@
   cursor: pointer;
 }
 .wf-card-del:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+
+
+/* Save to Library — the bookmark beside the trash. Same box, a keep-coloured hover. */
+.wf-card-save {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm, 6px);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.wf-card-save:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }

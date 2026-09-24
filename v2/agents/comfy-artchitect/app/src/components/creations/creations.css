@@ -136,3 +136,11 @@
      140px keeps two, which is what makes a library of thumbnails worth scrolling. */
   .cr-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
+
+/* Save to Library on a render tile — the bookmark beside the trash. */
+.cr-tile-save {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px;
+  border: 1px solid transparent; border-radius: var(--r-sm, 6px);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.cr-tile-save:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }

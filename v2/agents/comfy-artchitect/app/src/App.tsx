@@ -62,10 +62,17 @@ import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
+import { SaveToLibraryChips } from './components/library/SaveToLibraryChips'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 import { referencesReadyInstruction, useReferenceSlots } from './agentd/reference-slots'
-import { mergeFiles, useChatWorkspaceFiles } from './agentd/workspace-files'
+import { readIndex, saveFromChat, useWorkflowMessage, type LibraryItem } from './agentd/library'
+import {
+  applyApprovedDeletions,
+  mergeFiles,
+  relOfChatFile,
+  useChatWorkspaceFiles,
+} from './agentd/workspace-files'
 
 import Credits from './common/credits/Credits'
 import LiveReload from './common/dev/LiveReload'
@@ -157,8 +164,7 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile, addReference, flushReferences, requestDeletion } =
-    useRun(client)
+  const { send, abort, addFiles, removeFile, addReference, flushReferences } = useRun(client)
 
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
@@ -252,6 +258,56 @@ export default function App() {
     },
     [addReference, slots],
   )
+
+  /* THE RAIL'S TWO ACTIONS ON A SELECTION, and the Library's two doors into a chat.
+     Delete goes straight to the daemon after the one warning the rail shows (the agent's
+     comfy_delete stays for the case where the person asks in the conversation). Add to Library
+     copies on the daemon's disk into the shared folder, with this chat's title as the caption.
+     Use hands a workflow to the agent, which brings it in with library_use so its slots are
+     recorded; Run again starts a fresh conversation seeded with the same ask. */
+  const chatTitleOf = useCallback((key: string): string => {
+    const row = useApp.getState().chats.find((c) => c.sessionId === key)
+    return row?.title || 'a conversation'
+  }, [])
+  const onDeleteFiles = useCallback(
+    async (paths: string[]) => {
+      if (!client) throw new Error('not connected')
+      const rels = paths.map((p) => relOfChatFile(p, currentKey)).filter((r): r is string => !!r)
+      await applyApprovedDeletions(client, rels)
+      useApp.getState().bumpWorkspace()
+    },
+    [client, currentKey],
+  )
+  const onAddToLibrary = useCallback(
+    async (paths: string[]): Promise<string> => {
+      if (!client) throw new Error('not connected')
+      const chosen = files
+        .filter((a) => paths.includes(a.path))
+        .map((a) => ({ rel: relOfChatFile(a.path, currentKey) || '', name: a.name, kind: a.kind, path: a.path }))
+        .filter((f) => f.rel)
+      const added = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
+      useApp.getState().bumpWorkspace()
+      return added.length === 1
+        ? `Added ${added[0].name} to the Library`
+        : `Added ${added.length} items to the Library`
+    },
+    [client, files, currentKey, chatTitleOf],
+  )
+  const onUseWorkflow = useCallback(
+    (item: LibraryItem) => {
+      void send(useWorkflowMessage(item))
+    },
+    [send],
+  )
+  const onRunAgain = useCallback((item: LibraryItem) => {
+    const { newSession, seedComposer } = useApp.getState()
+    newSession(true)
+    setView('chat')
+    seedComposer(
+      `Run my Library workflow "${item.name}" (id ${item.id}) again: bring it in with library_use, ` +
+        `keep its settings, then validate it, price it and ask. I'll fill the slots.`,
+    )
+  }, [setView])
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */
   const latestWorkflow = useMemo(() => {
@@ -770,6 +826,14 @@ export default function App() {
                     /* A ticked-boxes verdict SENDS. The user already made the deliberate choice
                        in the checkboxes; asking them to press Enter afterwards asks twice. */
                     onDecide={(reply) => void send(reply)}
+                    after={
+                      <SaveToLibraryChips
+                        client={client ?? undefined}
+                        files={files}
+                        sessionKey={currentKey}
+                        chatTitle={chatTitleOf(currentKey)}
+                      />
+                    }
                   />
                 )}
               </div>
@@ -782,6 +846,7 @@ export default function App() {
                   onSend={(text) => void send(text)}
                   onAbort={() => void abort()}
                   onFiles={(files) => void addFiles(files)}
+                  library={client ? () => readIndex(client).then((i) => i.items) : undefined}
                   onRemoveFile={removeFile}
                   credits={credits}
                   onCredits={() => setView('credits')}
@@ -827,9 +892,14 @@ export default function App() {
                   freeReferences={free}
                   onAddReference={onAddReference}
                   referencesDisabled={!connected}
-                  onRequestDeletion={(paths) => void requestDeletion(paths)}
-                  /* Not mid-run: a delete request landing between an emit and its run is the
-                     one case worth refusing outright, so it waits rather than queues. */
+                  onDeleteFiles={onDeleteFiles}
+                  onAddToLibrary={onAddToLibrary}
+                  sessionKey={currentKey}
+                  workspaceVersion={workspaceVersion}
+                  onUseWorkflow={onUseWorkflow}
+                  onRunAgain={onRunAgain}
+                  /* Not mid-run: a delete landing between an emit and its run is the one case
+                     worth refusing outright, so it waits rather than queues. */
                   deletionDisabled={
                     !connected
                       ? 'Not connected to the daemon'

@@ -16,20 +16,22 @@
  * reach files the rail already lists, and it cost a whole mode switch to offer it.
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
 import type { GpuWarmup } from './useGpuWarmup'
 
 import type { Artifact } from '../../agentd/artifacts'
+import type { LibraryItem } from '../../agentd/library'
 import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
+import { LibraryPanel } from '../library/LibraryPanel'
 import { ReferenceSlots } from './ReferenceSlots'
 import { FileViewer } from './FileViewer'
-import { StudioTopBar } from './StudioTopBar'
+import { StudioTopBar, type StudioPanel } from './StudioTopBar'
 import { useStudioState } from './useStudioState'
 
 import './studio.css'
@@ -45,8 +47,13 @@ export function StudioDashboard({
   referencesDisabled,
   credits,
   onCredits,
-  onRequestDeletion,
+  onDeleteFiles,
+  onAddToLibrary,
   deletionDisabled,
+  sessionKey,
+  workspaceVersion,
+  onUseWorkflow,
+  onRunAgain,
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
@@ -61,15 +68,31 @@ export function StudioDashboard({
   referencesDisabled: boolean
   credits: number | null
   onCredits: () => void
-  /** The rail's "Request deletion" — forwarded to the conversation, see FileExplorer. */
-  onRequestDeletion?: (paths: string[]) => void
+  /** The rail's Delete: the daemon removes the files, after the one warning (FileExplorer). */
+  onDeleteFiles?: (paths: string[]) => Promise<void>
+  /** The rail's Add to Library: copies into the shared Library; answers a sentence to show. */
+  onAddToLibrary?: (paths: string[]) => Promise<string>
   deletionDisabled?: string
+  /** The chat the Library's "Use" lands in. */
+  sessionKey: string
+  /** Bumped whenever the workspace changes, so the Library re-reads its catalogue. */
+  workspaceVersion: number
+  /** Hand a Library workflow to the agent in this chat. */
+  onUseWorkflow: (item: LibraryItem) => void
+  /** Start a new conversation around a Library workflow. */
+  onRunAgain: (item: LibraryItem) => void
 }) {
   const state = useStudioState(client, running)
   // Selection is STORE state, not local: the rail is not the only thing that picks. A thumbnail in
   // the transcript lands here too — see the note on `selectedArtifactPath`.
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
+  /* WHICH SHELF: this chat's files, or the shared Library. Local, not store, state: switching
+     chats should land on the workspace again, and nothing outside this column reads it. */
+  const [panel, setPanel] = useState<StudioPanel>('workspace')
+  /* A slot that asked for a Library reference (the From Library door on a slot): the Library
+     opens with that role preselected and a line saying what it is waiting for. */
+  const [targetRole, setTargetRole] = useState('')
 
   // `artifacts` is the chat's ONE merged list — what the thread declared plus what the chat's
   // folders hold on disk (App.tsx, agentd/workspace-files.ts). This pane only shows it.
@@ -108,10 +131,32 @@ export function StudioDashboard({
         gpu={gpu}
         credits={credits}
         onCredits={onCredits}
+        panel={panel}
+        onPanel={(p) => {
+          setPanel(p)
+          if (p === 'workspace') setTargetRole('')
+        }}
       />
       <ActiveRunStrip state={state} client={client} />
 
       <div className="st-body">
+        {panel === 'library' ? (
+          <LibraryPanel
+            client={client}
+            sessionKey={sessionKey}
+            slots={slots}
+            running={running}
+            workspaceVersion={workspaceVersion}
+            targetRole={targetRole}
+            onClearTarget={() => {
+              setTargetRole('')
+              setPanel('workspace')
+            }}
+            onUseWorkflow={onUseWorkflow}
+            onRunAgain={onRunAgain}
+          />
+        ) : (
+          <>
         <aside className="st-rail">
           <ReferenceSlots
             slots={slots}
@@ -119,6 +164,10 @@ export function StudioDashboard({
             disabled={referencesDisabled}
             onAdd={onAddReference}
             onOpen={(a) => setSelectedPath(a.path)}
+            onFromLibrary={(role) => {
+              setTargetRole(role)
+              setPanel('library')
+            }}
           />
           {/* The references are shown above as slots, so the tree lists what the agent MADE:
               workflows and outputs. The record file beside the references is bookkeeping. */}
@@ -126,7 +175,8 @@ export function StudioDashboard({
             artifacts={artifacts.filter((a) => !/[\\/]references[\\/]/.test(a.path))}
             selected={selected}
             onSelect={(a) => setSelectedPath(a.path)}
-            onRequestDeletion={onRequestDeletion}
+            onDelete={onDeleteFiles}
+            onAddToLibrary={onAddToLibrary}
             deletionDisabled={deletionDisabled}
           />
         </aside>
@@ -146,6 +196,8 @@ export function StudioDashboard({
                 copied tick) by construction, rather than by an effect that has to remember to. */}
             <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
           </main>
+        )}
+          </>
         )}
       </div>
     </div>

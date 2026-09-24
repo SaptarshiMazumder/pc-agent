@@ -133,6 +133,7 @@ APP_SCOPED_METHODS = frozenset(
         "workspace.mkdir",
         "workspace.upload",
         "workspace.delete",
+        "workspace.copy",
         "notifications.list",
         "notifications.ack",
         # An APP-AGENT product (its own exe/window) is a first-party desktop client: it signs
@@ -3253,6 +3254,8 @@ class Gateway:
                 payload = self._workspace_upload(req.params)
             elif req.method == "workspace.delete":
                 payload = self._workspace_delete(req.params)
+            elif req.method == "workspace.copy":
+                payload = self._workspace_copy(req.params)
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "tools.invoke":
@@ -4609,7 +4612,10 @@ class Gateway:
 
     def _workspace_upload(self, params: dict) -> dict:
         """Save ONE user-chosen file into the workspace dir `path` (default the root),
-        keeping its real name (deduped with ' (n)' on collision — never silently overwrite)."""
+        keeping its real name (deduped with ' (n)' on collision — never silently overwrite).
+
+        `overwrite: true` replaces a file of that name instead: for a file the WINDOW owns and
+        rewrites — the Library's index.json — where a deduped copy would be the bug."""
         import base64
         import binascii
 
@@ -4635,13 +4641,61 @@ class Gateway:
             target = d / name
             stem, suffix = target.stem, target.suffix
             n = 2
-            while target.exists():  # dedupe: report.png -> report (2).png
+            overwrite = bool(params.get("overwrite"))
+            while not overwrite and target.exists():  # dedupe: report.png -> report (2).png
                 target = d / f"{stem} ({n}){suffix}"
                 n += 1
             target.write_bytes(raw)
         except (OSError, binascii.Error, ValueError) as e:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "name": target.name, "path": str(target)}
+
+    def _workspace_copy(self, params: dict) -> dict:
+        """Copy ONE file or folder (recursive) from `from` to `to`, both inside the workspace.
+
+        WHY THE DAEMON COPIES. A render going into the Library, or a Library reference going
+        into a chat's slot, is megabytes that are already on this disk; the alternative was the
+        browser downloading it through /file and uploading it back. And a sandboxed plugin
+        cannot do it either: it is handed a copy of the workspace without the Library's media
+        (comfy-bridge plugin.toml), so it says what it wants copied and this performs it — the
+        same split as delete.
+
+        Never overwrites unless asked (`overwrite: true`), never the root, and both ends are
+        resolved and containment-checked like every other workspace op."""
+        import shutil
+
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"ok": False, "error": err}
+        src_rel = (params.get("from") or "").strip().strip("/")
+        dst_rel = (params.get("to") or "").strip().strip("/")
+        if not src_rel or not dst_rel:
+            return {"ok": False, "error": "from and to required"}
+        src = self._ws_resolve(root, src_rel)
+        dst = self._ws_resolve(root, dst_rel)
+        top = Path(root).resolve()
+        if src is None or dst is None or src == top or dst == top:
+            return {"ok": False, "error": "invalid path"}
+        if (params.get("root") or "").strip() == "definition":
+            refusal = self._definition_write_refusal((params.get("agentId") or "main").strip(), dst)
+            if refusal:
+                return {"ok": False, "error": refusal}
+        if not src.exists():
+            return {"ok": False, "error": "not found"}
+        overwrite = bool(params.get("overwrite"))
+        if dst.exists() and not overwrite:
+            return {"ok": False, "error": "exists"}
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "rel": dst_rel, "path": str(dst)}
 
     def _workspace_delete(self, params: dict) -> dict:
         """Delete ONE file or folder (recursive) inside the workspace. The root itself is

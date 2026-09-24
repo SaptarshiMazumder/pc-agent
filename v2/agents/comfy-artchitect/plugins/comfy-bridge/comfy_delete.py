@@ -25,10 +25,11 @@ that. The agent can, and the user talking to the agent is how the intent gets re
 place the rest of the job reads — the conversation. So the window SELECTS and ASKS; this tool
 DELETES, and refuses when it should.
 
-REFUSE-UNLESS-FORCE IS THE SAFETY NET, and it is grounded in checks rather than in the model's
-judgement: bound slot, armed validation, recorded download. A refusal names the reason so the
-agent can relay it in one line; an explicit "yes, delete it" comes back as `force=true`. There is
-no trash and no undo behind this — the refusal is the whole margin.
+ONE WARNING, THEN GONE. This used to refuse a file that was load-bearing — a reference in a slot, a
+validated workflow, a render — until the user said yes a second time. That was a negotiation in
+place of a delete: select, ask, get refused, say yes, get it deleted. The window now warns once
+("deleting files can break workflows that use them") and deletes; this tool, for the case where
+the person asks in the conversation, does the same. `force` is accepted and means nothing.
 
 FENCED BY CONSTRUCTION. Only `references/<chat>`, `workflows/<chat>` and `outputs/<chat>` under the
 run's workspace — the same three folders the window lists — resolved and checked for containment
@@ -95,28 +96,6 @@ def _resolve(ws: Path, raw: str) -> tuple[Path | None, str]:
     )
 
 
-def _load_bearing(ws: Path, target: Path) -> str:
-    """Why deleting `target` would break something in progress — '' when it would not."""
-    kind = target.parent.parent.name
-    if kind == chat_paths.REFERENCES:
-        role = target.stem
-        entry = reference_slots.declared(ws).get(role)
-        if entry is not None:
-            wfs = ", ".join(entry.get("workflows") or []) or "a workflow"
-            return f"@{role} is a reference slot that {wfs} reads on every run — the next comfy_run would refuse until it is filled again"
-        return ""
-    if kind == chat_paths.WORKFLOWS:
-        name = _workflow_name(target)
-        if name in studio_state.validated_names():
-            return f"{name} was validated in this conversation and its install gate is armed — deleting it orphans that authorisation"
-        return ""
-    if kind == chat_paths.OUTPUTS:
-        rel = target.relative_to(ws.resolve()).as_posix()
-        if rel in studio_state.downloaded_in_session():
-            return f"{rel} was rendered in this conversation and may be a later workflow's input"
-        return ""
-    return ""
-
 
 def _forget(ws: Path, target: Path) -> None:
     """Keep the job's records honest about a file that is no longer there."""
@@ -136,11 +115,8 @@ class ComfyDeleteTool(Tool):
         "— ONLY when the user has asked for it (the window sends 'Please delete …' naming the "
         "paths). Pass the paths as given. The window removes what this approves, within a "
         "second, so tell the user the files are gone — never that they are queued or pending. "
-        "If a file is load-bearing for the job — a reference bound to a slot, a workflow whose "
-        "validation is armed, a render this conversation produced — the tool REFUSES it and says "
-        "why; relay that reason in one line and ask once. Only an explicit yes from the user is "
-        "`force=true`. Never name a file the user did not, never call this to tidy up on your "
-        "own, and never reach outside those three folders (it will not let you). No undo."
+        "The only refusal is a path outside those three folders; relay it in one line. Never "
+        "name a file the user did not, never call this to tidy up on your own. No undo."
     )
     parameters = {
         "type": "object",
@@ -153,14 +129,13 @@ class ComfyDeleteTool(Tool):
             },
             "force": {
                 "type": "boolean",
-                "description": "True ONLY after the user has been told a file is load-bearing and has said to delete it anyway.",
+                "description": "Accepted for compatibility; nothing needs it any more.",
             },
         },
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         raw_paths = params.get("paths") or []
-        force = bool(params.get("force"))
         if not isinstance(raw_paths, list) or not raw_paths:
             return ToolResult.text("comfy_delete: no paths given", is_error=True)
         try:
@@ -176,10 +151,6 @@ class ComfyDeleteTool(Tool):
                 if not target.is_file():
                     missing.append(str(raw))
                     continue
-                reason = "" if force else _load_bearing(ws, target)
-                if reason:
-                    refused.append({"path": str(raw), "reason": reason})
-                    continue
                 # NO unlink — see the header. This side's copy is discarded, so removing the
                 # file here would hide it from the rest of THIS run while the real one stayed.
                 # The records do move now, because writes, unlike deletions, sync back.
@@ -194,8 +165,8 @@ class ComfyDeleteTool(Tool):
                 lines.append(f"already gone ({len(missing)}): " + ", ".join(missing))
             if refused:
                 lines.append(
-                    f"NOT deleted ({len(refused)}) — tell the user why, in one line each, and ask "
-                    "once; delete only on an explicit yes, with force=true:"
+                    f"NOT deleted ({len(refused)}) — outside this chat's folders; tell the user "
+                    "why, in one line each:"
                 )
                 lines += [f"  {r['path']}: {r['reason']}" for r in refused]
             if not lines:

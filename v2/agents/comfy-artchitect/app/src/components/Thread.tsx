@@ -13,7 +13,7 @@
  * owns that branch — the same split agentd makes in ChatView.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ThreadItem } from '../agentd/chat'
 import { dayLabel, sameDay } from '../lib/timefmt'
@@ -25,9 +25,13 @@ export function Thread({
   running,
   onSuggest,
   onDecide,
+  after,
 }: {
   items: ThreadItem[]
   running: boolean
+  /** Drawn after the last item while nothing runs — the window's own offer under a finished
+   *  turn (the Save to Library chips). The thread stays ignorant of what it is. */
+  after?: ReactNode
   /** Send a suggested next action. Passed to every bot message so its chips can fire. */
   onSuggest?: (prompt: string) => void
   /** Sends a paid-service verdict — see MessageItem. */
@@ -157,6 +161,7 @@ export function Thread({
         <div className="thread-inner" ref={innerRef}>
           {rendered}
           {working && <Thinking />}
+          {!running && items.length > 0 && after}
         </div>
       </div>
 

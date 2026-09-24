@@ -1,0 +1,31 @@
+{
+  "id": "library-run-again",
+  "agent_id": "comfy-artchitect",
+  "goal": "The reuse story in one brief: a workflow saved from an earlier chat plus two references kept in the Library, and a new chat that says 'run it again with these'. What must hold: the agent brings the workflow into this chat with library_use (not a redesign, not a paste), fills the two slots FROM THE LIBRARY with library_use(as=model / as=garment) rather than asking for uploads, prices it in credits and stops at the ask. The window is not present in this harness, so the reference copies it would perform do not happen here; what is judged is that the agent asked for them and did not ask the user to upload anything it already had.",
+
+  "workspace_files": [
+    { "path": "assets/library-refs/index.json", "to": "library" },
+    { "path": "assets/library/jacket-reel.api.json", "to": "library/saved/workflows/jacket-reel/v1" },
+    { "path": "assets/influencer-reference.png", "to": "library/uploaded/references" },
+    { "path": "assets/jacket-reference.png", "to": "library/uploaded/references" }
+  ],
+
+  "turns": [
+    "Run my Library workflow jacket-reel again, same settings. Use my saved references: 'face' is the person and 'jacket' is the garment. Tell me the cost before you run anything."
+  ],
+
+  "_comment_checks": "tool_says on library_use with as=model / as=garment is the point: the slots are filled from the Library, not requested as uploads. no_punt_to_user catches 'please upload the images'. The run stops at the ask (one turn), so nothing is rendered and no GPU is needed.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_succeeded", "tool": "library_use" },
+    { "name": "tool_says", "tool": "library_use", "pattern": "\"as\": \"@?model\"" },
+    { "name": "tool_says", "tool": "library_use", "pattern": "\"as\": \"@?garment\"" },
+    { "name": "tool_called", "tool": "comfy_price" },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "tool_says", "tool": "ask_user", "pattern": "\"credits\": [1-9]" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 20 }
+  ],
+  "max_turns": 20
+}

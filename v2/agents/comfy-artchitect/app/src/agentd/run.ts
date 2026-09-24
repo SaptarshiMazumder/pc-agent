@@ -14,6 +14,7 @@ import { useCallback } from 'react'
 
 import { MAX_CHAT_IMAGE_BYTES, MAX_FILES, readFile } from './chat'
 import { AGENT_ID } from './client'
+import { uploadToLibrary } from './library'
 import { chatDirFor } from './workspace-files'
 import { useApp } from '../state/store'
 
@@ -126,11 +127,47 @@ export function useRun(client: AgentdClient | null) {
 
   /** Stage files for the next send. Read into attachments now, so the composer can show them. */
   const addFiles = useCallback(async (list: FileList | File[]): Promise<void> => {
-    const all = Array.from(list || [])
-    if (!all.length) return
+    const dropped = Array.from(list || [])
+    if (!dropped.length) return
     const { currentSessionKey: key, sessions, patch, append } = useApp.getState()
     const session = sessions[key]
     if (!session) return
+    /* NOT AN IMAGE => THE LIBRARY, AND SAY SO. A chat attachment is something for the model to
+       look at; a workflow JSON or a text file pasted here used to become a path nobody could
+       open, and the agent asked for the contents to be pasted again. The file goes where the
+       agent CAN read it — the shared Library, under Uploaded — and the thread says where it went
+       and how to refer to it. Images keep the old door. */
+    const others = dropped.filter((f) => !f.type.startsWith('image/'))
+    if (others.length) {
+      if (client) {
+        try {
+          const added = await uploadToLibrary(client, others)
+          useApp.getState().bumpWorkspace()
+          append(key, [
+            {
+              kind: 'system',
+              tone: 'info',
+              text:
+                `${added.map((i) => `${i.name} (${i.kind})`).join(', ')} went to your Library — ` +
+                `chat attachments are only looked at, and the agent reads files from the Library. ` +
+                `Just mention ${added.length > 1 ? 'them' : 'it'} by name, or type @ to pick.`,
+              ts: Date.now(),
+            },
+          ])
+        } catch (e) {
+          append(key, [
+            {
+              kind: 'system',
+              tone: 'error',
+              text: `Could not add ${others.map((f) => f.name).join(', ')} to the Library: ${String((e as Error)?.message || e)}`,
+              ts: Date.now(),
+            },
+          ])
+        }
+      }
+    }
+    const all = dropped.filter((f) => f.type.startsWith('image/'))
+    if (!all.length) return
     // THE HARD CAP ON A CHAT IMAGE, said in the thread rather than silently dropped: a paste that
     // vanishes reads as "the paste failed", and the one thing the person needs to hear is that
     // this is the wrong door for a big image — the reference button is the right one.
@@ -157,7 +194,7 @@ export function useRun(client: AgentdClient | null) {
     if (!accepted.length) return
     const read = await Promise.all(accepted.map((file) => readFile(file)))
     patch(key, { pending: [...session.pending, ...read].slice(0, MAX_FILES) })
-  }, [])
+  }, [client])
 
   const removeFile = useCallback((index: number): void => {
     const { currentSessionKey: key, sessions, patch } = useApp.getState()

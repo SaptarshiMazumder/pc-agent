@@ -2610,6 +2610,9 @@ def register(api, ctx):
     from comfy_emit import ComfyEmitTool
     from comfy_research import ComfyResearchTool
     from comfy_delete import ComfyDeleteTool
+    from library_find_tool import LibraryFindTool
+    from library_read_tool import LibraryReadTool
+    from library_use_tool import LibraryUseTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2629,3 +2632,7 @@ def register(api, ctx):
     api.register_tool(ComfyStudioStateTool())
     api.register_tool(ComfyInterruptTool())
     api.register_tool(ComfyDeleteTool())
+    # THE LIBRARY — the one folder chats share, read-only for the agent. See library_paths.
+    api.register_tool(LibraryFindTool())
+    api.register_tool(LibraryReadTool())
+    api.register_tool(LibraryUseTool())

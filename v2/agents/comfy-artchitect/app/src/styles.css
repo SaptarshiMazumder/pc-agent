@@ -1717,3 +1717,25 @@ a.milestone-detail:hover { text-decoration: underline; }
   .lp-main { gap: 40px; padding-bottom: 40px; }
   .lp-cta { width: 100%; }
 }
+
+/* ── the composer's @ picker: the Library's catalogue over the box ───────────────────────── */
+.mention {
+  position: absolute; left: 0; right: 0; bottom: 100%; z-index: 20;
+  margin-bottom: 6px; max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--border2); border-radius: var(--r-bubble); background: var(--pop);
+  box-shadow: var(--shadow-pop, 0 8px 24px rgba(0, 0, 0, .35));
+  display: flex; flex-direction: column; padding: 4px;
+}
+.mention-note { padding: 8px 10px; font-size: var(--fs-small); color: var(--faint); }
+.mention-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left;
+  border: 0; border-radius: var(--r-sm, 6px); background: transparent; color: var(--text);
+  font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.mention-row:hover, .mention-row.on { background: var(--accent-soft); }
+.mention-name { font-family: var(--mono); }
+.mention-kind { font-size: var(--fs-tiny); color: var(--dim); }
+.mention-from { margin-left: auto; font-size: var(--fs-tiny); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+
+/* The @ picker anchors to the composer box. */
+.composer { position: relative; }

@@ -21,7 +21,7 @@
 
 import './creations.css'
 
-import { FileJson, Image as ImageIcon, MessageSquare, Play, Trash2 } from 'lucide-react'
+import { BookmarkPlus, FileJson, Image as ImageIcon, MessageSquare, Play, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -37,6 +37,8 @@ import type { ChatRow } from '../../agentd/sessions'
 import { ImageLightbox } from '../studio/ImageLightbox'
 import { collectWorkflows, WorkflowCard, workflowFiles } from '../workflows/WorkflowCard'
 import { DeleteFilePrompt } from './DeleteFilePrompt'
+import { saveFromChat } from '../../agentd/library'
+import { useApp } from '../../state/store'
 
 type Shelf = 'workflows' | 'outputs'
 
@@ -91,10 +93,13 @@ function RenderTile({
   file,
   onOpen,
   onDelete,
+  onSave,
 }: {
   file: LibraryFile
   onOpen: () => void
   onDelete: () => void
+  /** Copy this render into the Library, where every chat can reach it. */
+  onSave: () => void
 }) {
   const src = fileUrl(file.path)
   return (
@@ -118,6 +123,14 @@ function RenderTile({
       <figcaption className="cr-tile-cap">
         <span className="cr-tile-name st-mono">{file.name}</span>
         <span className="cr-tile-size">{humanSize(file.size || 0)}</span>
+        <button
+          className="cr-tile-save"
+          onClick={onSave}
+          title="Save to Library"
+          aria-label={`Save ${file.name} to the Library`}
+        >
+          <BookmarkPlus size={13} strokeWidth={1.8} />
+        </button>
         <button
           className="cr-tile-del"
           onClick={onDelete}
@@ -154,6 +167,28 @@ export default function MyCreations({
     setDeleteError('')
     setDoomed(files)
   }, [])
+  /* SAVE TO LIBRARY, from the card or the tile: a copy on the daemon's disk into the shared
+     folder, captioned with the chat that made it. The sentence it answers shows under the title
+     for a moment — a save is a fact, not a state to dismiss. */
+  const [notice, setNotice] = useState('')
+  const saveToLibrary = useCallback(
+    async (files: LibraryFile[], g: ChatGroup) => {
+      if (!client) return
+      try {
+        const added = await saveFromChat(
+          client,
+          files.map((f) => ({ rel: f.rel, name: f.name, kind: f.kind, path: f.path })),
+          { chat: g.sessionId || g.folder, title: g.title },
+        )
+        setNotice(added.length === 1 ? `Saved ${added[0].name} to the Library` : `Saved ${added.length} items to the Library`)
+        useApp.getState().bumpWorkspace()
+      } catch (e) {
+        setNotice(`Could not save: ${String((e as Error)?.message || e)}`)
+      }
+      setTimeout(() => setNotice(''), 4000)
+    },
+    [client],
+  )
   const doDelete = useCallback(async () => {
     if (!client || !doomed) return
     setDeleting(true)
@@ -182,7 +217,7 @@ export default function MyCreations({
       <header className="page-head">
         <div className="page-head-text">
           <h1 className="page-title">My creations</h1>
-          <p className="page-sub">{sub}</p>
+          <p className="page-sub">{notice || sub}</p>
         </div>
         {/* TWO SHELVES, ONE SCREEN. Workflows and renders are made by the same chats and are
             wanted for the same reason — "which chat made that?" — so they share the sections
@@ -229,7 +264,12 @@ export default function MyCreations({
                 {shelf === 'workflows' ? (
                   <div className="wf-shelf">
                     {collectWorkflows(g.files).map((wf) => (
-                      <WorkflowCard key={wf.name} wf={wf} onDelete={(w) => askDelete(workflowFiles(w))} />
+                      <WorkflowCard
+                        key={wf.name}
+                        wf={wf}
+                        onSave={(w) => void saveToLibrary(workflowFiles(w), g)}
+                        onDelete={(w) => askDelete(workflowFiles(w))}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -240,6 +280,7 @@ export default function MyCreations({
                         file={f}
                         onOpen={() => setViewing(f)}
                         onDelete={() => askDelete([f])}
+                        onSave={() => void saveToLibrary([f], g)}
                       />
                     ))}
                   </div>

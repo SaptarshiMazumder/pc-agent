@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { BookmarkPlus, Trash2 } from 'lucide-react'
 import {
   ChevronDown,
   ChevronRight,
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
+import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { CHAT_DIRS } from '../../agentd/workspace-files'
 import { isCanvasImportable, setDragPayload } from './dragOut'
 
@@ -217,16 +218,18 @@ export function FileExplorer({
   artifacts,
   selected,
   onSelect,
-  onRequestDeletion,
+  onDelete,
+  onAddToLibrary,
   deletionDisabled = '',
 }: {
   artifacts: Artifact[]
   selected?: Artifact | null
   onSelect: (a: Artifact) => void
-  /** Ask the AGENT to delete these paths. The rail never deletes anything itself — see
-   *  agentd/run.ts deletionRequest for why the request goes through the conversation. */
-  onRequestDeletion?: (paths: string[]) => void
-  /** Why the request cannot be sent right now (a run in flight) — shown on the button. */
+  /** Delete these files (absolute paths, as listed) — the daemon does it, after one warning. */
+  onDelete?: (paths: string[]) => Promise<void>
+  /** Copy these files into the Library. Answers a sentence for the bar to show. */
+  onAddToLibrary?: (paths: string[]) => Promise<string>
+  /** Why a delete cannot happen right now (a run in flight) — shown on the button. */
   deletionDisabled?: string
 }) {
   const tree = useMemo(() => buildTree(artifacts), [artifacts])
@@ -244,10 +247,37 @@ export function FileExplorer({
       if (!next.delete(path)) next.add(path)
       return next
     })
-  const request = (): void => {
-    if (!chosen.length || !onRequestDeletion) return
-    onRequestDeletion(chosen)
-    setPicked(new Set())
+  const [doomed, setDoomed] = useState<string[] | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const doDelete = async (): Promise<void> => {
+    if (!doomed || !onDelete) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await onDelete(doomed)
+      setDoomed(null)
+      setPicked(new Set())
+    } catch (e) {
+      setDeleteError(String((e as Error)?.message || e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+  const save = async (): Promise<void> => {
+    if (!chosen.length || !onAddToLibrary) return
+    setSaving(true)
+    try {
+      setNotice(await onAddToLibrary(chosen))
+      setPicked(new Set())
+      setTimeout(() => setNotice(''), 4000)
+    } catch (e) {
+      setNotice(`Could not add to the Library: ${String((e as Error)?.message || e)}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -256,26 +286,51 @@ export function FileExplorer({
         <span className="fx-title">Files</span>
         <span className="fx-count">{total}</span>
       </div>
-      {/* THE ASK. Appears only once something is ticked, so the rail carries no destructive
-          control at rest. It sends a message, not a delete: the agent decides, and refuses what
-          is load-bearing (comfy_delete). Disabled mid-run with the reason on it. */}
-      {chosen.length > 0 && onRequestDeletion && (
+      {/* THE BAR. Appears only once something is ticked, so the rail carries no control at rest.
+          Two things a selection can become: gone (one warning, then the daemon deletes), or kept
+          (copied into the Library, where every chat can reach it). Delete waits out a run — a
+          file that vanishes between an emit and its run is the one case worth refusing. */}
+      {chosen.length > 0 && (
         <div className="fx-delete">
           <span className="fx-delete-count">{chosen.length} selected</span>
-          <button
-            type="button"
-            className="fx-delete-btn"
-            disabled={!!deletionDisabled}
-            title={deletionDisabled || 'Ask the agent to delete the selected files'}
-            onClick={request}
-          >
-            <Trash2 size={13} strokeWidth={1.8} />
-            Request deletion
-          </button>
+          {onAddToLibrary && (
+            <button
+              type="button"
+              className="fx-bar-btn"
+              disabled={saving}
+              title="Copy the selected files into your Library, shared by every conversation"
+              onClick={() => void save()}
+            >
+              <BookmarkPlus size={13} strokeWidth={1.8} />
+              {saving ? 'Adding…' : 'Add to Library'}
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              className="fx-delete-btn"
+              disabled={!!deletionDisabled}
+              title={deletionDisabled || 'Delete the selected files'}
+              onClick={() => setDoomed(chosen)}
+            >
+              <Trash2 size={13} strokeWidth={1.8} />
+              Delete
+            </button>
+          )}
           <button type="button" className="fx-delete-clear" onClick={() => setPicked(new Set())}>
             Clear
           </button>
         </div>
+      )}
+      {notice && <p className="fx-note">{notice}</p>}
+      {doomed && (
+        <DeleteFilePrompt
+          names={doomed.map((p) => p.split('/').pop() || p)}
+          busy={deleting}
+          error={deleteError}
+          onDelete={() => void doDelete()}
+          onClose={() => setDoomed(null)}
+        />
       )}
       {total === 0 ? (
         <p className="fx-empty">

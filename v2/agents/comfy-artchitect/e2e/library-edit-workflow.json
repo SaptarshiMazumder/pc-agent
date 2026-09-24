@@ -1,0 +1,35 @@
+{
+  "id": "library-edit-workflow",
+  "agent_id": "comfy-artchitect",
+  "goal": "Reuse, the thing the app is sold on: a workflow the user kept in their Library is edited in a new chat without anyone pasting JSON. The Library holds 'jacket-reel' (Seedance 2.5, two reference slots). The user asks for it on Kling instead. What must hold: the agent finds and READS it from the Library (library_read), brings it into this chat (library_use) rather than designing from scratch, changes only the video node, prices Kling in credits, stops at the ask, and after approval emits the edited graph under the same role. What this catches: 'please paste both JSON files here' (the punt this replaces), a redesign that ignores the saved graph, and a silent model swap without a price.",
+
+  "workspace_files": [
+    { "path": "assets/library/index.json", "to": "library" },
+    { "path": "assets/library/jacket-reel.api.json", "to": "library/uploaded/workflows/jacket-reel/v1" }
+  ],
+
+  "turns": [
+    "I kept my jacket reel workflow in the Library, it's called jacket-reel. Switch it to Kling instead of Seedance, keep everything else the same, and tell me what you'd change and what it costs before you build anything.",
+    "Approved, all of it. Just give me the workflow files, don't start a machine."
+  ],
+
+  "_comment_checks": "library_read before comfy_emit is the point: the edit starts from the saved graph. tool_succeeded on library_use proves it became this chat's workflow (the recorded slots come with it). tool_says on ask_user asserts the ask panel priced a Kling row in credits, and on comfy_emit that the emitted graph carries a Kling node while keeping both slots. No no_unrecovered_error: node lookups fail while no GPU exists on staging and that is environment, not agent.",
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_succeeded", "tool": "library_read" },
+    { "name": "tool_succeeded", "tool": "library_use" },
+    { "name": "call_order", "first": "library_read", "then": "comfy_emit" },
+    { "name": "tool_called", "tool": "comfy_price" },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "tool_says", "tool": "ask_user", "pattern": "\"credits\": [1-9][0-9]*,\\s*\"name\": \"[^\"]*kling" },
+    { "name": "tool_says", "tool": "comfy_emit", "pattern": "\"class_type\": \"Kling" },
+    { "name": "tool_says", "tool": "comfy_emit", "pattern": "@model" },
+    { "name": "tool_says", "tool": "comfy_emit", "pattern": "@garment" },
+    { "name": "tool_called", "tool": "comfy_emit" },
+    { "name": "produced_artifact", "kind": "file" },
+    { "name": "no_punt_to_user" },
+    { "name": "no_blocking_stall" },
+    { "name": "max_turns", "n": 30 }
+  ],
+  "max_turns": 30
+}

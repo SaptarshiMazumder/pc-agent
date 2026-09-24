@@ -26,7 +26,7 @@
  * → comfy_reference_assign), or the user drops it on the slot.
  */
 
-import { RefreshCw, Upload } from 'lucide-react'
+import { Library, RefreshCw, Upload } from 'lucide-react'
 import { useRef, useState, type DragEvent } from 'react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
@@ -38,6 +38,7 @@ export function ReferenceSlots({
   disabled,
   onAdd,
   onOpen,
+  onFromLibrary,
 }: {
   slots: Slot[]
   free: Artifact[]
@@ -46,6 +47,8 @@ export function ReferenceSlots({
   /** Put `file` in `role` (null = keep its own name, under Other). */
   onAdd: (file: File, role: string | null) => Promise<void>
   onOpen: (a: Artifact) => void
+  /** The second door on a slot: pick the file from the Library instead of this computer. */
+  onFromLibrary?: (role: string) => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
@@ -162,6 +165,17 @@ export function ReferenceSlots({
               </>
             )}
           </button>
+          {onFromLibrary && (
+            <button
+              type="button"
+              className="refs-slot-btn refs-slot-lib"
+              disabled={disabled || !!busy}
+              title="Fill this slot from your Library"
+              onClick={() => onFromLibrary(s.role)}
+            >
+              <Library size={15} strokeWidth={2} />
+            </button>
+          )}
         </div>
       ))}
 

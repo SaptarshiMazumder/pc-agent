@@ -487,3 +487,25 @@
   }
   .st-rail:only-child { max-height: none; }
 }
+
+/* ── the Workspace | Library switch in the top bar ────────────────────────────────────────── */
+.sb-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--bg2); }
+.sb-seg-btn {
+  padding: 3px 10px; border: 0; border-radius: var(--r-pill); background: transparent;
+  color: var(--dim); font: inherit; font-size: var(--fs-meta); font-weight: var(--fw-semi); cursor: pointer;
+}
+.sb-seg-btn:hover { color: var(--text); }
+.sb-seg-btn.on { background: var(--accent-soft); color: var(--accent-text); }
+
+/* ── the rail's second action: Add to Library ────────────────────────────────────────────── */
+.fx-bar-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--border2); border-radius: var(--r-pill); background: transparent;
+  color: var(--accent-text); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.fx-bar-btn:hover:not(:disabled) { border-color: var(--accent); }
+.fx-bar-btn:disabled { opacity: .45; cursor: default; }
+.fx-note { margin: 0 12px 8px; font-size: var(--fs-small); color: var(--accent-text); }
+
+/* ── a slot's From Library door, beside Add file / Replace ───────────────────────────────── */
+.refs-slot-lib { padding-inline: 8px; }

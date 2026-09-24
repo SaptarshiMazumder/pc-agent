@@ -185,22 +185,51 @@ function InstanceChip({
   )
 }
 
+export type StudioPanel = 'workspace' | 'library'
+
 export function StudioTopBar({
   state,
   client,
   gpu,
   credits,
   onCredits,
+  panel,
+  onPanel,
 }: {
   state: StudioState
   client?: AgentdClient
   gpu: GpuWarmup
   credits: number | null
   onCredits: () => void
+  /** Which of the studio's two panels is showing: this chat's files, or the shared Library. */
+  panel: StudioPanel
+  onPanel: (p: StudioPanel) => void
 }) {
   return (
     <header className="sb">
-      <span className="sb-name">Workspace</span>
+      {/* TWO PANELS, ONE NAME SLOT. The Workspace is this chat's; the Library is everyone's —
+          what the person chose to keep, reachable from any conversation. A switch where the
+          title was, because it is the same column showing a different shelf. */}
+      <div className="sb-seg" role="tablist" aria-label="Studio panel">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === 'workspace'}
+          className={`sb-seg-btn${panel === 'workspace' ? ' on' : ''}`}
+          onClick={() => onPanel('workspace')}
+        >
+          Workspace
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === 'library'}
+          className={`sb-seg-btn${panel === 'library' ? ' on' : ''}`}
+          onClick={() => onPanel('library')}
+        >
+          Library
+        </button>
+      </div>
 
       <span className="sb-spacer" />
 

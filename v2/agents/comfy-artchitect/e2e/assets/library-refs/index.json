@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "wf_jacket_reel",
+      "kind": "workflow",
+      "origin": "saved",
+      "name": "jacket-reel",
+      "note": "8 s vertical reel of the influencer in the jacket, Seedance 2.5, person + garment refs",
+      "path": "saved/workflows/jacket-reel",
+      "versions": [
+        {
+          "v": 1,
+          "at": "2026-09-24T00:00:00Z",
+          "slots": [
+            "model",
+            "garment"
+          ]
+        }
+      ],
+      "from": {
+        "chat": "chat-earlier",
+        "title": "AI Influencer Jacket Content"
+      },
+      "created": "2026-09-24T00:00:00Z"
+    },
+    {
+      "id": "ref_face",
+      "kind": "reference",
+      "origin": "uploaded",
+      "name": "face",
+      "note": "the influencer",
+      "path": "uploaded/references/influencer-reference.png",
+      "versions": [],
+      "created": "2026-09-24T00:00:00Z"
+    },
+    {
+      "id": "ref_jacket",
+      "kind": "reference",
+      "origin": "uploaded",
+      "name": "jacket",
+      "note": "the product photo",
+      "path": "uploaded/references/jacket-reference.png",
+      "versions": [],
+      "created": "2026-09-24T00:00:00Z"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import { ArrowUp, Loader2, Paperclip, Plus, Square, Upload } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { PendingAttachment } from '../agentd/chat'
+import type { LibraryItem } from '../agentd/library'
 import { useApp } from '../state/store'
 
 /** `dragover` fires continuously while a drag is live, so "no dragover recently" reliably means
@@ -22,6 +23,7 @@ export function Composer({
   running,
   pending,
   onSend,
+  library,
   onAbort,
   onFiles,
   onRemoveFile,
@@ -38,6 +40,8 @@ export function Composer({
   running: boolean
   pending: PendingAttachment[]
   onSend: (text: string) => void
+  /** The Library's catalogue, for the @ picker. Absent when there is no daemon to ask. */
+  library?: () => Promise<LibraryItem[]>
   onAbort: () => void
   onFiles: (files: FileList | File[]) => void
   onRemoveFile: (index: number) => void
@@ -63,6 +67,48 @@ export function Composer({
   maxFiles: number
 }) {
   const [text, setText] = useState('')
+  /* THE @ PICKER. Typing `@` opens the Library's catalogue over the box; picking an item writes
+     it into the message in words — `the Library workflow "jacket-reel"` — because that is what
+     the agent acts on (its library_* tools find the item by name). No token to resolve, no
+     hidden id in the text, and a message that reads as a sentence if it is ever seen raw. */
+  const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null)
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[] | null>(null)
+  const [highlight, setHighlight] = useState(0)
+  const onChange = (value: string, caret: number): void => {
+    setText(value)
+    if (!library) return
+    const before = value.slice(0, caret)
+    const m = before.match(/(?:^|\s)@([\w-]*)$/)
+    if (!m) {
+      if (mention) setMention(null)
+      return
+    }
+    setMention({ start: before.length - m[1].length - 1, end: caret, query: m[1] })
+    setHighlight(0)
+    if (libraryItems === null) {
+      library()
+        .then((items) => setLibraryItems(items))
+        .catch(() => setLibraryItems([]))
+    }
+  }
+  const mentionMatches = mention
+    ? (libraryItems || []).filter((i) => i.name.toLowerCase().includes(mention.query.toLowerCase()))
+    : []
+  const pickMention = (item: LibraryItem): void => {
+    if (!mention) return
+    const words = `the Library ${item.kind} "${item.name}" `
+    const next = text.slice(0, mention.start) + words + text.slice(mention.end)
+    setText(next)
+    setMention(null)
+    const el = areaRef.current
+    if (el) {
+      const at = mention.start + words.length
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(at, at)
+      })
+    }
+  }
   const [dragging, setDragging] = useState(false)
   /* STOP WAS PRESSED, AND THE RUN HAS NOT ENDED YET.
    *
@@ -204,6 +250,35 @@ export function Composer({
           </div>
         )}
 
+        {mention && (
+          <div className="mention" role="listbox" aria-label="Library items">
+            {libraryItems === null ? (
+              <div className="mention-note">Reading your Library…</div>
+            ) : mentionMatches.length === 0 ? (
+              <div className="mention-note">
+                {libraryItems.length === 0 ? 'Your Library is empty' : `Nothing in the Library matches "${mention.query}"`}
+              </div>
+            ) : (
+              mentionMatches.slice(0, 8).map((item, i) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === highlight}
+                  className={`mention-row${i === highlight ? ' on' : ''}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    pickMention(item)
+                  }}
+                >
+                  <span className="mention-name">{item.name}</span>
+                  <span className="mention-kind">{item.kind}</span>
+                  {item.from?.title && <span className="mention-from">{item.from.title}</span>}
+                </button>
+              ))
+            )}
+          </div>
+        )}
         <textarea
           ref={areaRef}
           rows={1}
@@ -213,8 +288,26 @@ export function Composer({
              was lifted from the window that builds agents — so every agent made from it invited
              its user to describe an agent. Say what THIS one is for. */
           placeholder={connected ? placeholder : 'connecting…'}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => onChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
           onKeyDown={(e) => {
+            if (mention) {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setMention(null)
+                return
+              }
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                const n = Math.min(mentionMatches.length, 8)
+                if (n) setHighlight((h) => (h + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+                return
+              }
+              if ((e.key === 'Enter' || e.key === 'Tab') && mentionMatches.length) {
+                e.preventDefault()
+                pickMention(mentionMatches[Math.min(highlight, mentionMatches.length - 1)])
+                return
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               submit()
