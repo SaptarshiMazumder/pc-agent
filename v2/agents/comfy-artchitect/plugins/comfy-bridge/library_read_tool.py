@@ -79,8 +79,11 @@ class LibraryReadTool(Tool):
             return self._workflow(idx, item, files, int(version or item.latest_version or 0))
         if item.kind == "reference":
             p = files[0]
+            # The size only when the file is on this side's disk — on a hosted daemon the
+            # media stays with the window (library_index.files_of), and the name is enough.
+            size = f", {p.stat().st_size} bytes" if p.is_file() else ""
             return ToolResult.text(
-                f"{item.name}: a {item.kind} — {p.name}, {p.stat().st_size} bytes"
+                f"{item.name}: a {item.kind} — {p.name}{size}"
                 + (f", note: {item.note}" if item.note else "")
                 + ". You do not receive its pixels. To use it as workflow input: "
                 f"library_use(item='{item.id}', as='<role>') fills that slot."

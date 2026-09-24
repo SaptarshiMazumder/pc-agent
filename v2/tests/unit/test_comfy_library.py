@@ -248,10 +248,21 @@ def test_use_plain_file_has_nothing_to_bring(ws):
     assert not list((ws / "workflows").glob("**/*")) if (ws / "workflows").exists() else True
 
 
-def test_use_missing_files_is_reported(ws):
+def test_use_missing_file_is_reported(ws):
+    (ws / "library" / "uploaded" / "files" / "notes.txt").unlink()
+    r = run(library_use_tool.LibraryUseTool(), item="notes")
+    assert r.is_error and "not on disk" in r.text
+
+
+def test_reference_media_is_never_required_on_this_side(ws):
+    # HOSTED: the sandbox gets the catalogue and the workflows, never the media. A reference
+    # that is not on this disk is still a slot to fill — the window holds the bytes.
     (ws / "library" / "uploaded" / "references" / "face.png").unlink()
     r = run(library_use_tool.LibraryUseTool(), item="face", **{"as": "model"})
-    assert r.is_error and "not on disk" in r.text
+    assert not r.is_error, r.text
+    assert r.details["copy"][0]["from"] == "library/uploaded/references/face.png"
+    r = run(library_read_tool.LibraryReadTool(), item="face")
+    assert not r.is_error and "face.png" in r.text and "bytes" not in r.text
 
 
 def test_use_reference_must_name_a_declared_slot_once_any_exist(ws):

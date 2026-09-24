@@ -140,8 +140,15 @@ class LibraryIndex:
 
     def files_of(self, item: LibraryItem, version: int | None = None) -> tuple[list[Path], str]:
         """The files behind an item (a workflow's chosen version, else the one file), and a
-        problem string when they are not on disk."""
+        problem string when they are not on disk.
+
+        A REFERENCE IS NEVER CHECKED. The sandbox is handed the catalogue, the workflows and
+        the files (plugin.toml) and deliberately not the media — so on a hosted daemon a saved
+        face is not on this side's disk even though it exists. The catalogue is the truth for a
+        reference; the window, which has the real workspace, does the copy."""
         base = library_paths.item_path(self.root, item.path)
+        if item.kind == "reference":
+            return [base], ""
         if item.kind == "workflow":
             v = int(version or item.latest_version or 0)
             folder = base / f"v{v}" if v else base
