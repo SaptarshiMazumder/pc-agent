@@ -833,6 +833,7 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5"},
     {"value": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5"},
     {"value": "anthropic/claude-3-5-sonnet-latest", "label": "Claude 3.5 Sonnet"},
+    {"value": "openai/gpt-6-luna", "label": "GPT-6 Luna"},
     {"value": "openai/gpt-5.6-sol", "label": "GPT-5.6 Sol"},
     {"value": "openai/gpt-5.6-luna", "label": "GPT-5.6 Luna"},
     {"value": "openai/gpt-5.6-terra", "label": "GPT-5.6 Terra"},
