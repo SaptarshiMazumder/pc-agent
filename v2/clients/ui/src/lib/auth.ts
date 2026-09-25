@@ -433,11 +433,22 @@ export function signOut(): void {
   }
   // Revokes server-side too, not just locally. Forgetting a 30-day refresh token without telling
   // the server leaves a live credential on a machine the user may have just stopped trusting.
-  void clearTokens()
-  // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps treating
-  // this client as the old account until the socket is rebuilt without it.
-  gateway.reconnect()
-  hardRefresh()
+  //
+  // AND THE RELOAD WAITS FOR IT. clearTokens forgets the local copy, then POSTs /auth/logout —
+  // and in cookie mode that POST is the only thing that clears the refresh cookie. Reloading
+  // without awaiting it cut the request off, the cookie survived, and the fresh page restored
+  // the session from it: Sign out appeared to do nothing. The SDK's own sign-out (identity.ts,
+  // what every agent window uses) reloads only once the sign-out resolves; this is the same rule.
+  void (async () => {
+    try {
+      await clearTokens()
+    } finally {
+      // Same reason as sign-in: the credential lives in the socket url, so the daemon keeps
+      // treating this client as the old account until the socket is rebuilt without it.
+      gateway.reconnect()
+      hardRefresh()
+    }
+  })()
 }
 
 /**
