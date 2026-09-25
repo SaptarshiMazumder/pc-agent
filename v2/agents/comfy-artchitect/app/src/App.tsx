@@ -45,6 +45,7 @@ import {
   renameSession,
 } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
+import { useLibraryFlash } from './state/use-library-flash'
 
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
 import { ContextRing } from './components/ContextRing'
@@ -290,6 +291,7 @@ export default function App() {
         .filter((f) => f.rel)
       const added = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
       useApp.getState().bumpWorkspace()
+      useApp.getState().flashLibrary()
       return added.length === 1
         ? `Added ${added[0].name} to the Library`
         : `Added ${added.length} items to the Library`
@@ -324,6 +326,7 @@ export default function App() {
   }, [files])
 
   const chatSide = useApp((s) => s.chatSide)
+  const libraryFlash = useLibraryFlash()
   const chatWidth = useApp((s) => s.chatWidth)
   const setChatSide = useApp((s) => s.setChatSide)
 
@@ -722,7 +725,7 @@ export default function App() {
            and files are the one thing a conversation is a bad container for. */
         extraDestinations={[
           { id: 'creations', label: 'Gallery', icon: <Images size={15} /> },
-          { id: 'library', label: 'Library', icon: <Library size={15} /> },
+          { id: 'library', label: 'Library', icon: <Library size={15} />, flash: libraryFlash },
         ]}
         /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
            from the shipped HTML files (components/policies), which stay readable with no

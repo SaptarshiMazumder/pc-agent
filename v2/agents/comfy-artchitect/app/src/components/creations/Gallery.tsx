@@ -200,6 +200,7 @@ export default function Gallery({
         )
         setNotice(added.length === 1 ? `Saved ${added[0].name} to the Library` : `Saved ${added.length} items to the Library`)
         useApp.getState().bumpWorkspace()
+        useApp.getState().flashLibrary()
       } catch (e) {
         setNotice(`Could not save: ${String((e as Error)?.message || e)}`)
       }

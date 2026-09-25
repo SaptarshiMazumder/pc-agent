@@ -19,6 +19,7 @@ import { ChevronDown, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
+import { useLibraryFlash } from '../../state/use-library-flash'
 import type { StudioState } from './useStudioState'
 import type { GpuWarmup } from './useGpuWarmup'
 import { OpenComfyButton, type EngineReadiness } from './OpenComfyButton'
@@ -212,6 +213,7 @@ export function StudioTopBar({
   /** The Workspace holds an input the agent is waiting on. */
   attention?: boolean
 }) {
+  const flash = useLibraryFlash()
   return (
     <header className="sb">
       {/* TWO TABS, TWO SCOPES. Workspace is this chat's — its inputs, renders, workflow and
@@ -231,7 +233,7 @@ export function StudioTopBar({
           type="button"
           role="tab"
           aria-selected={panel === 'library'}
-          className={`sb-tab${panel === 'library' ? ' on' : ''}`}
+          className={`sb-tab${panel === 'library' ? ' on' : ''}${flash ? ' is-flash' : ''}`}
           onClick={() => onPanel('library')}
           title="What you kept — shared by every chat"
         >

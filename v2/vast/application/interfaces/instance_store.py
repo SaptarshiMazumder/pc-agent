@@ -78,10 +78,6 @@ class InstanceStore(Protocol):
         """How many machines are live across every account — the platform-wide cap's input."""
         ...
 
-    def spend_since(self, c: Any, account_id: str, since: float, now: float) -> float:
-        """Dollars this account has run up since `since`, counting machines still running."""
-        ...
-
     def failed_machines_since(self, c: Any, since: float) -> set[int]:
         """Machine ids of hosts that FAILED TO START since `since`, across every account — the
         ones the next rental must skip however cheap they are."""

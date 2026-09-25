@@ -57,7 +57,6 @@ def settings_from_env() -> InstanceSettings:
         require_verified=(os.environ.get("VAST_REQUIRE_VERIFIED", "").strip().lower()
                           in ("1", "true", "yes")),
         idle_seconds=float(os.environ.get("VAST_IDLE_SECONDS", "") or 600),
-        monthly_cap_usd=float(os.environ.get("VAST_MONTHLY_CAP_USD", "") or 20.0),
         max_live_instances=int(os.environ.get("VAST_MAX_LIVE_INSTANCES", "") or 10),
         credit_markup=float(
             os.environ.get("VAST_CREDIT_MARKUP", "") or InstanceSettings.credit_markup

@@ -14,6 +14,7 @@ import signal
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
@@ -23,7 +24,17 @@ from agent_runtime.application.run_context import (
     current_workspace,
 )
 from agent_runtime.application.tool_models import tool_config
+from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
+from agent_runtime.domain.agentd_ignore import AgentdIgnore
+from agent_runtime.infrastructure import accounts, user_state
 from agent_runtime.infrastructure.tools.sandbox.confined_command import ConfinedCommand
+from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
+    AUTHORING_SKIP_DIRS,
+    WORKSPACE_SKIP_DIRS,
+    ExecutorError,
+    OversizeError,
+    run_shell,
+)
 from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
     LandlockConfinement,
     LandlockUnavailable,
@@ -328,17 +339,12 @@ class ExecTool(Tool):
         Only foreground commands arrive here: a microVM lives exactly as long as one call, so
         shell_route sends background ones to the confined shell instead.
         """
-        from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
-            ExecutorError,
-            OversizeError,
-            run_shell,
-        )
-
-        sync_root, skip_dirs = self._sync_tree(cwd)
+        sync_root, skip_dirs, ignore = self._sync_tree(cwd)
         try:
             ok, output, meta = await run_shell(
                 self.config, command, cwd, timeout,
                 env=command_env(params), sync_root=sync_root, skip_dirs=skip_dirs,
+                ignore=ignore,
             )
         except (ExecutorError, OversizeError) as e:
             return ToolResult.text(
@@ -393,33 +399,38 @@ class ExecTool(Tool):
             f"Started background session {session_id}. Use the process tool to poll it."
         )
 
-    def _sync_tree(self, cwd: str) -> tuple[str, frozenset]:
-        """WHICH tree travels into the box, and what it leaves behind: WHAT THE COMMAND MAY CHANGE.
+    def _sync_tree(self, cwd: str) -> tuple[str, frozenset, AgentdIgnore]:
+        """WHICH tree travels into the box, what it leaves behind, and what the agent declared
+        must never travel: WHAT THE COMMAND MAY CHANGE.
 
         An agent that DECLARES a write scope beyond its own folder (`[tools.fs] write_roots` —
         in practice the builder, whose job is editing other agents) gets the account's whole
         agents tree, minus every agent's workspace and build output: the file it just wrote with
-        `write` is the one its next compile check must open. Every other agent gets its own
-        working directory, whole — that is where its files, its state and its project live, and
-        the authoring skip set would drop exactly those (it leaves out every `workspace/`).
+        `write` is the one its next compile check must open. Each agent folder's own
+        `.agentdignore` applies inside that folder, the way nested .gitignore files do. Every
+        other agent gets its own working directory, whole, with its definition's `.agentdignore`
+        applied to it — that is where its files, state and project live, and where its commands
+        leave their downloads and caches.
 
         Read from the account the run is pinned to, so it is the same tenancy every other write
         on this run resolves against - never a wider root."""
-        from pathlib import Path
-
-        from agent_runtime.infrastructure import accounts, user_state
-        from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
-            AUTHORING_SKIP_DIRS,
-            WORKSPACE_SKIP_DIRS,
-        )
-
         ctx = current_run_context()
         acct = accounts.account_id()
         if ctx is not None and getattr(ctx, "write_roots", ()) and acct:
-            root = user_state.account_agents_dir(self.config.state_dir, acct)
-            if Path(root).is_dir():
-                return str(root), AUTHORING_SKIP_DIRS
-        return cwd, WORKSPACE_SKIP_DIRS
+            root = Path(user_state.account_agents_dir(self.config.state_dir, acct))
+            if root.is_dir():
+                files = [
+                    (f.parent.name, f.read_text(encoding="utf-8", errors="replace"))
+                    for f in sorted(root.glob(f"*/{IGNORE_FILENAME}"))
+                ]
+                return str(root), AUTHORING_SKIP_DIRS, AgentdIgnore.from_files(files)
+        own = Path(str(getattr(ctx, "agent_dir", "") or "")) / IGNORE_FILENAME if ctx else None
+        files = (
+            [("", own.read_text(encoding="utf-8", errors="replace"))]
+            if own is not None and own.is_file()
+            else []
+        )
+        return cwd, WORKSPACE_SKIP_DIRS, AgentdIgnore.from_files(files)
 
 
 class ProcessTool(Tool):

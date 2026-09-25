@@ -25,12 +25,14 @@ import type { AgentdClient } from '@agentd/client'
 import {
   deleteItem,
   readIndex,
+  referenceFiles,
   updateNote,
   uploadToLibrary,
   useReferenceInChat,
   type LibraryItem,
   type LibraryOrigin,
 } from '../../agentd/library'
+import type { Artifact } from '../../agentd/artifacts'
 import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
@@ -69,6 +71,8 @@ export function LibraryPanel({
   onRunAgain: (item: LibraryItem) => void
 }) {
   const [items, setItems] = useState<LibraryItem[]>([])
+  /** The reference cards' own files, for their thumbnails. */
+  const [media, setMedia] = useState<Map<string, Artifact>>(() => new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -84,7 +88,9 @@ export function LibraryPanel({
     setLoading(true)
     setError('')
     try {
-      setItems((await readIndex(client)).items)
+      const [index, files] = await Promise.all([readIndex(client), referenceFiles(client)])
+      setItems(index.items)
+      setMedia(files)
     } catch (e) {
       setError(String((e as Error)?.message || e))
     } finally {
@@ -193,6 +199,7 @@ export function LibraryPanel({
     <LibraryItemRow
       key={item.id}
       item={item}
+      media={item.kind === 'reference' ? media.get(item.path) : undefined}
       client={client}
       slots={slots}
       targetRole={targetRole}

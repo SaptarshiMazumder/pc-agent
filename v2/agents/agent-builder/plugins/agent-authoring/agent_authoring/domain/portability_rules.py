@@ -13,7 +13,11 @@ the pack/publish gates is the RULEBOOK's decision (domain/rulebook.py), not this
 
 from __future__ import annotations
 
+from .exec_grant import ExecGrant
 from .finding import WARN, Finding
+
+#: The file an agent lists what its commands leave behind in (the runtime's AgentdIgnore).
+IGNORE_FILE = ".agentdignore"
 
 
 class PortabilityRules:
@@ -27,6 +31,7 @@ class PortabilityRules:
         out += self._write_roots(raw)
         out += self._web_delivery(raw)
         out += self._heartbeat(raw)
+        out += self._ignore_file(raw, files)
         return out
 
     # ------------------------------------------------------------- write scope
@@ -89,5 +94,31 @@ class PortabilityRules:
                 "the heartbeat never fires, and nothing else says so",
                 path="agent.toml",
                 fix="add [capabilities] with autonomy = true, or remove `heartbeat`",
+            )
+        ]
+
+    # ------------------------------------------------------------- what commands leave behind
+    def _ignore_file(self, raw: dict, files: list[str]) -> list[Finding]:
+        """An agent that runs commands, with no `.agentdignore`.
+
+        Hosted, the workspace is copied into the command sandbox before every `exec` and the
+        changes are copied back after; packaged, the whole folder ships. What a command leaves
+        behind (a virtualenv, `node_modules/`, a provider cache) is dead weight on both trips
+        and can carry the author's own state into a buyer's install. Only the author knows what
+        their commands produce, so the file is theirs to keep — this check makes sure it exists."""
+        if not ExecGrant.granted(raw) or IGNORE_FILE in files:
+            return []
+        return [
+            Finding(
+                level=WARN,
+                code="EXEC_WITHOUT_IGNORE_FILE",
+                message="this agent can run commands (`exec`) but has no `.agentdignore` — "
+                "whatever its commands download or build (virtualenvs, node_modules, tool "
+                "caches, state files) is copied through the sandbox on every command and "
+                "would ship in its package",
+                path=IGNORE_FILE,
+                fix="write `.agentdignore` beside agent.toml (gitignore syntax: `name/` for a "
+                "folder at any depth, `*.ext` for a file name) listing what the agent's "
+                "commands create that must never travel",
             )
         ]

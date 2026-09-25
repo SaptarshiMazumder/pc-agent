@@ -223,6 +223,10 @@ RULEBOOK: dict[str, Rule] = {
     "HEARTBEAT_WITHOUT_AUTONOMY": Rule(
         note="heartbeat never fires unless [capabilities] autonomy = true"
     ),
+    "EXEC_WITHOUT_IGNORE_FILE": Rule(
+        blocks=(PACK, PUBLISH),
+        note="an exec agent must list what its commands leave behind, or it ships and syncs it",
+    ),
     # ---- ui (ui_rules) ---------------------------------------------------------------
     "EVENT_PAYLOAD_NOT_NESTED": Rule(note="payload.event.type, not payload.type; error"),
     "UNKNOWN_EVENT": Rule(note="listening for an event nobody emits; error"),

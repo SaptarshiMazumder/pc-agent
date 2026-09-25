@@ -83,31 +83,6 @@ class SqlInstanceStore:
         ).fetchone()
         return int(r["n"] or 0)
 
-    def spend_since(self, c: Any, account_id: str, since: float, now: float) -> float:
-        """Dollars this account has run up since `since`.
-
-        COMPUTED FROM THE ROWS, not from a running total, because a counter can drift and these
-        rows are the record anyway. A dead row costs its rate times the time it existed; a LIVE
-        row is charged up to `now`, so an instance running right this second already counts
-        against the cap rather than becoming visible only once it dies.
-
-        `created_at` is used as the start — the row is written just before the rental — so the
-        slow first boot is billed, which is correct: the marketplace charges for it too.
-        """
-        rows = c.execute(
-            "SELECT hourly_usd, created_at, dead_at, state FROM vast_instances "
-            "WHERE account_id=? AND created_at>=?",
-            (account_id, since),
-        ).fetchall()
-        total = 0.0
-        for r in rows:
-            rate = float(r["hourly_usd"] or 0.0)
-            if not rate:
-                continue
-            end = float(r["dead_at"]) if r["dead_at"] is not None else now
-            total += rate * max(0.0, end - float(r["created_at"])) / 3600.0
-        return total
-
     def failed_machines_since(self, c: Any, since: float) -> set[int]:
         """Hosts that failed to start since `since`, by machine id, across EVERY account.
 

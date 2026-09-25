@@ -15,14 +15,28 @@ import { useEffect, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
-import { fileUrl } from '../../agentd/artifacts'
+import { fileUrl, thumbnailUrl, type Artifact } from '../../agentd/artifacts'
 import { latestVersion, libraryFiles, type LibraryItem } from '../../agentd/library'
 import type { Slot } from '../../agentd/reference-slots'
 
 const OTHER = '__other__'
 
+/** A reference drawn as itself: an image's bounded thumbnail, a video's first frame. Anything
+ *  else — audio, or a file the listing did not return — keeps the kind's icon. */
+function LibraryThumb({ file, fallback }: { file?: Artifact; fallback: JSX.Element }) {
+  const [failed, setFailed] = useState(false)
+  if (file?.kind === 'image' && !failed) {
+    return <img className="lib-thumb" src={thumbnailUrl(file.path)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+  }
+  if (file?.kind === 'video') {
+    return <video className="lib-thumb" src={fileUrl(file.path)} muted preload="metadata" playsInline />
+  }
+  return fallback
+}
+
 export function LibraryItemRow({
   item,
+  media,
   client,
   slots,
   targetRole,
@@ -35,6 +49,8 @@ export function LibraryItemRow({
   onNote,
 }: {
   item: LibraryItem
+  /** A reference's file on disk, for its thumbnail. */
+  media?: Artifact
   client: AgentdClient | undefined
   slots: Slot[]
   /** A slot waiting for a reference: preselected here so Use is one click. */
@@ -78,9 +94,14 @@ export function LibraryItemRow({
 
   return (
     <div className={`lib-row lib-row-${item.kind}`}>
-      <span className="lib-ico">
-        <Icon size={15} strokeWidth={1.7} />
-      </span>
+      <LibraryThumb
+        file={media}
+        fallback={
+          <span className="lib-ico">
+            <Icon size={15} strokeWidth={1.7} />
+          </span>
+        }
+      />
       <div className="lib-main">
         <span className="lib-name">{item.name}</span>
         <span className="lib-meta">{meta.join(' · ')}</span>

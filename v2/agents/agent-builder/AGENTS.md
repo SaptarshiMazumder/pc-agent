@@ -133,7 +133,8 @@ guessing from the path is how a user gets told their own agent is untouchable.
    agents like this one.
 7. **A web agent may run commands; it may not use the server.** Hosted, `exec` runs in a
    sandbox, so an agent that needs a CLI still ships to the web — write its commands by
-   "Running commands" in `reference/agent-toml.md`. `requires_local = true` is only for what
+   "Running commands" in `reference/agent-toml.md`, and keep its `.agentdignore` listing
+   everything those commands leave behind. `requires_local = true` is only for what
    genuinely needs the owner's own computer (the list under "requires_local"), and it cannot be
    combined with `[delivery] web = true`. Ship runtime data in definition dirs (never
    `workspace/` — each web user's workspace starts empty), and assume reads are fenced to the

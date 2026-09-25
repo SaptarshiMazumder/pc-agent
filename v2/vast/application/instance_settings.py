@@ -177,14 +177,6 @@ class InstanceSettings:
     #: has to clear the slow case comfortably or the reaper kills machines that were fine.
     starting_grace_seconds: float = 900.0
 
-    #: WHAT ONE ACCOUNT MAY SPEND PER CALENDAR MONTH, in dollars. 0 = uncapped.
-    #:
-    #: THE HOURLY CEILING DOES NOT DO THIS JOB. `max_hourly_usd` limits how fast money burns;
-    #: it says nothing about how long. One person leaving sessions open all month stays under
-    #: every per-rental limit and still runs up a bill, because the publisher's card pays for
-    #: everyone. This is the limit that actually bounds that.
-    monthly_cap_usd: float = 20.0
-
     #: WHAT THE PERSON PAYS PER DOLLAR THE MARKETPLACE CHARGES. 1.0 — the rate is known to the
     #: cent at rental time and shown to them as such; there is nothing to estimate and so
     #: nothing to pad, unlike a partner node priced per call. Env: VAST_CREDIT_MARKUP.
@@ -192,7 +184,7 @@ class InstanceSettings:
 
     #: HOW MANY MACHINES MAY BE RUNNING AT ONCE, across every account. 0 = unlimited.
     #:
-    #: The per-account cap bounds one user; this bounds the PLATFORM, including the case the
-    #: per-account cap cannot see — a hundred new accounts renting one machine each. Worst-case
+    #: An account's credits bound one user; this bounds the PLATFORM, including the case credits
+    #: cannot see — a hundred new accounts renting one machine each. Worst-case
     #: burn is this times max_hourly_usd, which is a number worth being able to state out loud.
     max_live_instances: int = 10

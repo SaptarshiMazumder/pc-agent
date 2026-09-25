@@ -60,10 +60,10 @@ class SlotLost(VastError):
 
 
 class BudgetExhausted(VastError):
-    """This account has spent its allowance for the month.
+    """This account has no credits left to pay for a machine.
 
-    A REFUSAL, NOT A FAULT. Nothing is broken and retrying will not help until the month turns
-    or someone raises the cap, so it must not read to the agent as a transient error to loop on.
+    A REFUSAL, NOT A FAULT. Nothing is broken and retrying will not help until the account is
+    topped up, so it must not read to the agent as a transient error to loop on.
     """
 
 
