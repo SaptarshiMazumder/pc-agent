@@ -1,8 +1,8 @@
 """PortabilityRules — will this agent still behave the moment it leaves your machine?
 
 Pure rules, no I/O. Everything here is fine ON THE AUTHOR'S DESKTOP and wrong somewhere the
-agent is going: a hosted daemon (where the tenant fence scopes reads, exec is refused, and
-every user's workspace starts empty) or a buyer's install (where the runtime clamps an
+agent is going: a hosted daemon (where the tenant fence scopes reads and every user's
+workspace starts empty) or a buyer's install (where the runtime clamps an
 installed agent's write scope to its own folder). Each check names the exact deployment
 fact it mirrors rather than inventing policy — the runtime refusal exists either way; the
 finding exists so the author hears about it while it is still a one-line fix.
@@ -59,26 +59,6 @@ class PortabilityRules:
         if not (isinstance(delivery, dict) and bool(delivery.get("web"))):
             return []
         out: list[Finding] = []
-        tools = raw.get("tools")
-        allow = tools.get("allow") if isinstance(tools, dict) else None
-        granted = (
-            {str(t).strip() for t in allow if str(t).strip()} if isinstance(allow, list) else set()
-        )
-        shell = sorted(granted & {"exec", "process"})
-        if shell:
-            out.append(
-                Finding(
-                    level=WARN,
-                    code="EXEC_ON_WEB",
-                    message=f"[delivery] web = true, but [tools] allow grants {', '.join(shell)} — "
-                    f"every hosted run refuses the shell (a subprocess cannot be confined to "
-                    f"one tenant's files), so the web users this delivery is FOR get an agent "
-                    f"whose granted tools error",
-                    path="agent.toml",
-                    fix="design the agent around read/write/edit/ls/find + plugin tools; if it "
-                    "genuinely needs a shell, set requires_local = true and drop web = true",
-                )
-            )
         if bool(raw.get("requires_local")):
             out.append(
                 Finding(

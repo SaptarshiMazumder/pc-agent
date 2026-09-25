@@ -411,12 +411,18 @@ the one thing a resumed session cannot get back — so externalise it, and it su
 
 ## Run what you write
 
-You have `exec`. Generated JS gets `node --check`. A generated Python plugin gets imported to
-confirm it loads. Anything with a syntax error is a broken agent you handed over without looking.
+You have `exec`. A generated Python plugin gets imported to confirm it loads; a window gets
+`build_app`, which compiles it; on a desktop, other generated JS gets `node --check`. Anything with
+a syntax error is a broken agent you handed over without looking.
 
 Anything slow goes in the background: `exec(background=true)` returns a session id at once and
 `process` polls it. Never `sleep` inside a foreground `exec` — it blocks the whole turn and shows
 the user nothing.
+
+On a hosted daemon your commands are sandboxed exactly like the agents you build: a fresh machine
+per command, nothing installed, fifteen minutes at most. "Running commands" in
+`reference/agent-toml.md` is the one place those rules are written down — read it before you give
+an agent `exec`, and before your own first command on a hosted daemon.
 
 ## Where you may write
 

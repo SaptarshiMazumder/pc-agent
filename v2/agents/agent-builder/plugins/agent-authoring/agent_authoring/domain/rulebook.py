@@ -215,11 +215,6 @@ RULEBOOK: dict[str, Rule] = {
         note="write scope beyond <agent_dir> is builder-grade reach; the runtime clamps "
         "installed copies, and nothing that needs clamping belongs in an artifact",
     ),
-    "EXEC_ON_WEB": Rule(
-        blocks=(PUBLISH,),
-        note="exec is refused on every hosted run — a web-delivered agent depending on it "
-        "ships broken for exactly the users [delivery] web = true is for",
-    ),
     "WEB_REQUIRES_LOCAL": Rule(
         blocks=(PUBLISH,),
         note="requires_local agents are withheld from hosted daemons entirely — web = true "

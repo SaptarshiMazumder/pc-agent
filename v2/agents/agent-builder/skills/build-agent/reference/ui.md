@@ -132,8 +132,10 @@ job — and one where a mistake shows up when you build, not when somebody else 
 `build_app`, reload, look at it.
 
 It is the shape the user PICKED at creation — `chat` (a thread and a composer) or `dashboard`
-(a panel grid over the agent's own tools, chat still in the rail). Templates live in
-`templates/_variants/`, each holding only the files that differ from the one base skeleton. Reshaping it into a dashboard or a workbench is
+(a panel grid over the agent's own tools, chat still in the rail). The templates live under this
+skill, in `skills/build-agent/templates/_variants/<shape>/src/`, each holding only the files that
+differ from the one base skeleton — but you rarely need them: the agent you are editing already
+has its shape's files in its own `app/src/`. Reshaping it into a dashboard or a workbench is
 ordinary work: the chat view is one branch in `App.tsx` and one component tree under
 `components/`. Read the shape table above, then change that branch. What you must not do is
 delete the four shared screens along with it — see below.
