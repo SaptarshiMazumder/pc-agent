@@ -641,10 +641,18 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
         raise ExecutorError(f"nothing to sync: {root!r} is not a directory")
     root_path = Path(root).resolve()
 
-    tree = backend._zip_dir(str(root_path), skip_dirs)
+    # THROUGH DISK, THE SAME WAY A PLUGIN RUN SENDS ITS WORKSPACE (MicrovmPluginSandbox.run):
+    # zipped to a temp file off the event loop, streamed to the presigned PUT with its length,
+    # and the dir removed by the `with` whatever happens. This call site was left passing two
+    # arguments when _zip_dir learned to write to a file, so every hosted command failed with a
+    # TypeError before it reached the box.
     before = _tree_manifest(root_path, skip_dirs)          # to detect a daemon-side write underneath us
-    slots = await backend._ask({"op": "presign", "workspace": True, "broker": False})
-    await backend._upload(slots, b"", tree)
+    async with backend._transfer_gate():
+        with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
+            ws_path = Path(tmp) / "workspace.zip"
+            await asyncio.to_thread(backend._zip_dir, str(root_path), skip_dirs, ws_path)
+            slots = await backend._ask({"op": "presign", "workspace": True, "broker": False})
+            await backend._upload(slots, b"", ws_path)
 
     answer = await backend._ask({
         "op": "shell",
