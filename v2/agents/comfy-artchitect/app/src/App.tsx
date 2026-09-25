@@ -296,12 +296,17 @@ export default function App() {
     },
     [client, files, currentKey, chatTitleOf],
   )
-  const onUseWorkflow = useCallback(
-    (item: LibraryItem) => {
-      void send(useWorkflowMessage(item))
-    },
-    [send],
-  )
+  /* USING A WORKFLOW FILLS THE BOX, IT DOES NOT SEND. The person may want to add to the ask
+     (which slots, what to change) before the agent brings it in. */
+  const onUseWorkflow = useCallback((item: LibraryItem) => {
+    useApp.getState().seedComposer(useWorkflowMessage(item))
+  }, [])
+  const onUseWorkflowInNewChat = useCallback((item: LibraryItem) => {
+    const { newSession, seedComposer } = useApp.getState()
+    newSession(true)
+    setView('chat')
+    seedComposer(useWorkflowMessage(item))
+  }, [setView])
   const onRunAgain = useCallback((item: LibraryItem) => {
     const { newSession, seedComposer } = useApp.getState()
     newSession(true)
@@ -758,18 +763,15 @@ export default function App() {
             }}
           />
         ) : view === 'library' ? (
-          /* THE LIBRARY, full page. The same panel the stage's Library tab shows; "Use in this
-             chat" hands the workflow to the open chat and goes back to it. */
+          /* THE LIBRARY, full page. The same panel the stage's Library tab shows; "Use in new
+             chat" opens a fresh conversation with the workflow's ask in the box, unsent. */
           <LibraryPage
             client={client ?? undefined}
             sessionKey={currentKey}
             slots={slots}
             running={session.running}
             workspaceVersion={workspaceVersion}
-            onUseWorkflow={(item) => {
-              setView('chat')
-              onUseWorkflow(item)
-            }}
+            onUseWorkflow={onUseWorkflowInNewChat}
             onRunAgain={onRunAgain}
           />
         ) : view === 'about' ? (

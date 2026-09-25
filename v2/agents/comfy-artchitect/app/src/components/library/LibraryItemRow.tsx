@@ -1,7 +1,7 @@
 /* One Library item as a row: what it is, where it came from, and what can be done with it.
  *
- * A WORKFLOW IS USED THROUGH THE AGENT. "Use in this chat" sends the conversation one sentence
- * and the agent calls library_use, which copies the graph in and records its slots — so the
+ * A WORKFLOW IS USED THROUGH THE AGENT. "Use in this chat" puts one sentence in the chat box
+ * (never sends it) and, once sent, the agent calls library_use, which copies the graph in and records its slots — so the
  * design exists the way an emitted one does. The window could copy two files itself, but the
  * agent would then never know they arrived. "Run again" does the same in a fresh conversation.
  *
@@ -27,6 +27,7 @@ export function LibraryItemRow({
   slots,
   targetRole,
   busy,
+  useLabel,
   onUseWorkflow,
   onRunAgain,
   onUseReference,
@@ -39,6 +40,8 @@ export function LibraryItemRow({
   /** A slot waiting for a reference: preselected here so Use is one click. */
   targetRole: string
   busy: boolean
+  /** The workflow Use button: "Use in this chat" in the stage, "Use in new chat" on the page. */
+  useLabel: string
   onUseWorkflow: (item: LibraryItem) => void
   onRunAgain: (item: LibraryItem) => void
   onUseReference: (item: LibraryItem, role: string) => void
@@ -113,10 +116,10 @@ export function LibraryItemRow({
               type="button"
               className="lib-btn lib-btn-use"
               disabled={busy}
-              title={busy ? 'Wait for the current turn to finish' : 'Hand this workflow to the agent in this chat'}
+              title={busy ? 'Wait for the current turn to finish' : 'Put this workflow in the chat box — you send it'}
               onClick={() => onUseWorkflow(item)}
             >
-              Use in this chat
+              {useLabel}
             </button>
             <button
               type="button"

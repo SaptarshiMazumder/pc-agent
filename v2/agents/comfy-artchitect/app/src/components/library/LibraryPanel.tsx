@@ -46,6 +46,7 @@ export function LibraryPanel({
   workspaceVersion,
   targetRole,
   onClearTarget,
+  useLabel = 'Use in this chat',
   onUseWorkflow,
   onRunAgain,
 }: {
@@ -62,6 +63,8 @@ export function LibraryPanel({
   targetRole: string
   /** The waiting slot was filled, or the person gave up: back to the workspace. */
   onClearTarget: () => void
+  /** The workflow Use button's words — the page says "Use in new chat". */
+  useLabel?: string
   onUseWorkflow: (item: LibraryItem) => void
   onRunAgain: (item: LibraryItem) => void
 }) {
@@ -194,6 +197,7 @@ export function LibraryPanel({
       slots={slots}
       targetRole={targetRole}
       busy={busy || running}
+      useLabel={useLabel}
       onUseWorkflow={onUseWorkflow}
       onRunAgain={onRunAgain}
       onUseReference={useReference}
