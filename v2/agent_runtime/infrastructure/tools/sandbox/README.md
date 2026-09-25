@@ -41,6 +41,8 @@ instead of dialing out.**
 |---|---|
 | `local.py` | `LocalPluginSandbox`: in-process passthrough. **No isolation.** The fallback when a host can't spawn, and for first-party dev. |
 | `subprocess_backend.py` | `SubprocessPluginSandbox`: **the real one.** Host side — spawns the child, strips env, sets `deny_paths`, rlimits/uid-drop, serves model+fetch, enforces the deadline. |
+| `landlock_confinement.py` | `LandlockConfinement`: an unprivileged process locks ITSELF (and everything it later runs) to named folders. No fallback — a host without Landlock refuses rather than running unconfined. |
+| `confined_command.py` | `ConfinedCommand`: a hosted daemon's **background shell** (`exec background=true` / `process`). Runs on the daemon's box, so it gets three locks: Landlock to the run's own roots, no capabilities (setpriv), a clean environment. Foreground commands go to the executor's microVM instead (`microvm_backend.run_shell`). |
 
 ### Ch. 4 — the child (what runs inside the box)
 | File | What it is |

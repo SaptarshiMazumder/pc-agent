@@ -2,7 +2,8 @@
 
 Foreground: asyncio.create_subprocess_shell, stdout+stderr merged, timeout,
 middle-truncated output. Background: ProcessRegistry hands out session ids the
-`process` tool can poll/kill.
+`process` tool can poll/kill. On a hosted daemon, where each runs is decided by
+shell_route below.
 """
 
 from __future__ import annotations
@@ -11,48 +12,62 @@ import asyncio
 import os
 import signal
 import sys
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 from agent_runtime.application.tool_models import tool_config
+from agent_runtime.infrastructure.tools.sandbox.confined_command import ConfinedCommand
+from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
+    LandlockConfinement,
+    LandlockUnavailable,
+)
 
 OUTPUT_CAP = 50_000
 
 
-def shell_route(config, what: str) -> tuple[str, ToolResult | None]:
-    """WHERE this shell call may run: ("local", None), ("microvm", None), or ("", refusal).
+def _is_under(path: str, root: str) -> bool:
+    """Is `path` inside `root`, after resolving both? The same containment the fs tools use."""
+    try:
+        p, r = os.path.realpath(path), os.path.realpath(root)
+        return os.path.commonpath([p, r]) == r
+    except ValueError:  # different drives on Windows
+        return False
 
-    No fence (desktop) -> local, unchanged. A run that carries a tenant fence (read_roots) NEVER
-    gets a local shell — a subprocess sees whatever the daemon's OS user sees, so every fs fence
-    would be decorative the moment it ran, and on a hosted daemon the rule is stricter still:
-    nothing the user directs executes on the box that holds every tenant's data.
 
-    Agents named in `plugins.shell.exec.trusted_agents` (default: agent-builder — which only
-    reaches a hosted daemon through the operator's own `hosted_agents_allow` opt-in, and whose
-    run identity a built agent cannot inherit) get the MICROVM shell instead: the command runs
-    in the executor service's Firecracker microVM with the run's workspace synced through
-    (sandbox/microvm_backend.run_shell). Everyone else — and a trusted agent on a daemon with no
-    executor configured — is refused."""
+def shell_route(config, what: str, background: bool = False) -> tuple[str, ToolResult | None]:
+    """WHERE this shell call runs: ("local"|"microvm"|"confined", None), or ("", refusal).
+
+    No fence (desktop) -> "local", unchanged: one person, their own machine.
+
+    A run that carries a tenant fence (read_roots — every run on a hosted daemon) never gets an
+    unconfined shell, because a plain subprocess sees whatever the daemon sees: every account's
+    files. There is no list of agents allowed a shell; WHERE a command runs is what makes it
+    safe, so every agent gets the same answer:
+
+      * FOREGROUND -> "microvm". The executor's Firecracker microVM, with the account's own
+        files synced through (sandbox/microvm_backend.run_shell). Nothing runs on the daemon.
+      * BACKGROUND -> "confined". A microVM lives exactly as long as one call, so a command
+        meant to keep running cannot live there. It runs on the daemon instead, locked to the
+        run's own roots (sandbox/confined_command.py) — the same boundary the fs tools hold.
+
+    A foreground command on a daemon with no executor configured is refused: there is nowhere
+    safe to put it."""
     from agent_runtime.application.run_context import current_run_context
 
     ctx = current_run_context()
     if ctx is None or not getattr(ctx, "read_roots", ()):
         return "local", None
-    trusted = tool_config(config, "shell", "exec", "trusted_agents", default=("agent-builder",))
-    if str(getattr(ctx, "agent_id", "") or "") in tuple(trusted or ()):
-        if str(getattr(config, "executor_url", "") or "").strip():
-            return "microvm", None
-        return "", ToolResult.text(
-            f"{what} cannot run here yet: this agent is shell-trusted, but the daemon has no "
-            "executor service configured (AGENTD_EXECUTOR_URL) to run commands in a microVM — "
-            "and on this server a shell never runs on the daemon's own box.",
-            is_error=True,
-        )
+    if background:
+        return "confined", None
+    if str(getattr(config, "executor_url", "") or "").strip():
+        return "microvm", None
     return "", ToolResult.text(
-        f"{what} is not available on this server: a shell cannot be confined to your "
-        "own files. Use the read/write/edit/ls/find tools instead.",
+        f"{what} cannot run here: this server has no executor service configured "
+        "(AGENTD_EXECUTOR_URL), and a foreground command never runs on the daemon's own box. "
+        "Run it with background=true to use the confined shell instead.",
         is_error=True,
     )
 
@@ -96,6 +111,10 @@ class BackgroundProcess:
     session_id: str
     command: str
     proc: asyncio.subprocess.Process
+    #: WHO started it — the account id on a hosted daemon, "" on desktop. The registry is one
+    #: per daemon, and a hosted daemon serves many accounts: without this, `process list` would
+    #: print every account's commands and `poll` would read anyone's output.
+    owner: str = ""
     output: list[bytes] = field(default_factory=list)
     reader_task: asyncio.Task | None = None
     read_cursor: int = 0
@@ -115,16 +134,28 @@ class ProcessRegistry:
     def __init__(self):
         self.sessions: dict[str, BackgroundProcess] = {}
 
-    async def start(self, command: str, cwd: str, env: dict) -> str:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=cwd,
-            env=env,
-        )
+    async def start(self, command: str, cwd: str, env: dict, owner: str = "",
+                    confined: ConfinedCommand | None = None) -> str:
+        """Start a background command. `confined` given -> it runs inside that confinement
+        (hosted); absent -> a plain shell (desktop)."""
+        if confined is None:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+                env=env,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *confined.argv(command),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+                env=env,
+            )
         session_id = uuid.uuid4().hex[:8]
-        bp = BackgroundProcess(session_id=session_id, command=command, proc=proc)
+        bp = BackgroundProcess(session_id=session_id, command=command, proc=proc, owner=owner)
 
         async def pump():
             assert proc.stdout is not None
@@ -134,10 +165,21 @@ class ProcessRegistry:
                     break
                 bp.output.append(chunk)
             await proc.wait()
+            if confined is not None:
+                confined.discard_scratch()
 
         bp.reader_task = asyncio.create_task(pump())
         self.sessions[session_id] = bp
         return session_id
+
+    def owned_by(self, owner: str) -> list[BackgroundProcess]:
+        return [bp for bp in self.sessions.values() if bp.owner == owner]
+
+    def get(self, session_id: str, owner: str) -> BackgroundProcess | None:
+        """A session, only if `owner` started it. Another account's id answers exactly like a
+        made-up one, so the reply does not confirm that someone else's session exists."""
+        bp = self.sessions.get(session_id)
+        return bp if bp is not None and bp.owner == owner else None
 
 
 _REGISTRY = ProcessRegistry()
@@ -187,7 +229,7 @@ class ExecTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         # WHERE may this run — see shell_route. Not a mode branch: the same rule as check_read,
         # decided by the values the run carries. Desktop runs carry none and stay local.
-        route, refusal = shell_route(self.config, "exec")
+        route, refusal = shell_route(self.config, "exec", background=bool(params.get("background")))
         if refusal is not None:
             return refusal
         command = params["command"]
@@ -199,6 +241,8 @@ class ExecTool(Tool):
 
         if route == "microvm":
             return await self._execute_microvm(command, cwd, params, float(timeout))
+        if route == "confined":
+            return await self._start_confined(command, cwd, params)
 
         if params.get("background"):
             session_id = await _REGISTRY.start(command, cwd, env)
@@ -250,25 +294,20 @@ class ExecTool(Tool):
         Everything derived is left behind (ui/, sessions/, workspace/, node_modules) - measured
         on staging, that is 37 MB down to 1.7 MB.
 
-        Background sessions do not exist here: the microVM lives exactly as long as one call.
+        Only foreground commands arrive here: a microVM lives exactly as long as one call, so
+        shell_route sends background ones to the confined shell instead.
         """
-        if params.get("background"):
-            return ToolResult.text(
-                "background sessions are not available on this server - the microVM lives "
-                "exactly as long as one command. Run it in the foreground (raise timeout_sec "
-                "if it is long).",
-                is_error=True,
-            )
         from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
             ExecutorError,
             OversizeError,
             run_shell,
         )
 
+        sync_root, skip_dirs = self._sync_tree(cwd)
         try:
             ok, output, meta = await run_shell(
                 self.config, command, cwd, timeout,
-                env=params.get("env") or {}, sync_root=self._sync_root(cwd),
+                env=params.get("env") or {}, sync_root=sync_root, skip_dirs=skip_dirs,
             )
         except (ExecutorError, OversizeError) as e:
             return ToolResult.text(
@@ -288,22 +327,70 @@ class ExecTool(Tool):
             is_error=not ok,
         )
 
-    def _sync_root(self, cwd: str) -> str:
-        """WHICH tree travels into the box: the caller's own agents directory when there is one,
-        else the working directory. Read from the account the run is pinned to, so it is the
-        same tenancy every other write on this run resolves against - never a wider root."""
+    async def _start_confined(self, command: str, cwd: str, params: dict) -> ToolResult:
+        """The hosted background branch: a command on the daemon's own box, locked to the run's
+        own roots (sandbox/confined_command.py). Refused — never run unconfined — when the lock
+        cannot form."""
+        from agent_runtime.application.run_context import current_run_context
+
+        ctx = current_run_context()
+        write_roots = tuple(getattr(ctx, "write_clamp", ()) or ())
+        if not any(_is_under(cwd, root) for root in write_roots):
+            return ToolResult.text(
+                f"cannot start a background command in {cwd}: it is outside your own files.",
+                is_error=True,
+            )
+        try:
+            LandlockConfinement.abi_version()
+        except LandlockUnavailable as e:
+            return ToolResult.text(
+                f"background commands are unavailable on this server: {e}. (This is the "
+                "environment, not your command.)",
+                is_error=True,
+            )
+        confined = ConfinedCommand(
+            read_roots=tuple(getattr(ctx, "read_roots", ()) or ()),
+            write_roots=write_roots,
+            scratch_dir=tempfile.mkdtemp(prefix="agentd-bg-"),
+        )
+        session_id = await _REGISTRY.start(
+            command, cwd,
+            confined.environment(home=cwd, extra=params.get("env") or {}),
+            owner=str(getattr(ctx, "account_id", "") or ""),
+            confined=confined,
+        )
+        return ToolResult.text(
+            f"Started background session {session_id}. Use the process tool to poll it."
+        )
+
+    def _sync_tree(self, cwd: str) -> tuple[str, frozenset]:
+        """WHICH tree travels into the box, and what it leaves behind: WHAT THE COMMAND MAY CHANGE.
+
+        An agent that DECLARES a write scope beyond its own folder (`[tools.fs] write_roots` —
+        in practice the builder, whose job is editing other agents) gets the account's whole
+        agents tree, minus every agent's workspace and build output: the file it just wrote with
+        `write` is the one its next compile check must open. Every other agent gets its own
+        working directory, whole — that is where its files, its state and its project live, and
+        the authoring skip set would drop exactly those (it leaves out every `workspace/`).
+
+        Read from the account the run is pinned to, so it is the same tenancy every other write
+        on this run resolves against - never a wider root."""
         from pathlib import Path
 
+        from agent_runtime.application.run_context import current_run_context
         from agent_runtime.infrastructure import accounts, user_state
+        from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
+            AUTHORING_SKIP_DIRS,
+            WORKSPACE_SKIP_DIRS,
+        )
 
+        ctx = current_run_context()
         acct = accounts.account_id()
-        if not acct:
-            return cwd
-        try:
+        if ctx is not None and getattr(ctx, "write_roots", ()) and acct:
             root = user_state.account_agents_dir(self.config.state_dir, acct)
-        except Exception:  # noqa: BLE001 - an unresolvable root is not a reason to fail the call
-            return cwd
-        return str(root) if Path(root).is_dir() else cwd
+            if Path(root).is_dir():
+                return str(root), AUTHORING_SKIP_DIRS
+        return cwd, WORKSPACE_SKIP_DIRS
 
 
 class ProcessTool(Tool):
@@ -331,31 +418,26 @@ class ProcessTool(Tool):
         self.config = config
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        # Same routing as ExecTool, and for the same reason: _REGISTRY is process-GLOBAL, so on
-        # a shared daemon action=list would spill every tenant's command strings and output.
-        # There is no microvm branch to take here — background sessions do not exist off-box
-        # (the microVM lives exactly as long as one command) — so a fenced-but-trusted agent
-        # gets the honest answer instead of an empty registry pretending to be one.
-        route, refusal = shell_route(self.config, "process")
-        if refusal is not None:
-            return refusal
-        if route == "microvm":
-            return ToolResult.text(
-                "No background sessions: on this server the shell runs in a per-command microVM, "
-                "which lives exactly as long as the command — nothing persists to manage."
-            )
+        # _REGISTRY is one per daemon, so every read here is filtered to the caller's own
+        # sessions: on a hosted daemon, list/poll/kill must never reach another account's
+        # command, output or process. Desktop sessions are all owned by "" — one person.
+        from agent_runtime.application.run_context import current_run_context
+
+        ctx = current_run_context()
+        owner = str(getattr(ctx, "account_id", "") or "") if ctx is not None else ""
         action = params["action"]
         if action == "list":
-            if not _REGISTRY.sessions:
+            mine = _REGISTRY.owned_by(owner)
+            if not mine:
                 return ToolResult.text("No background sessions.")
             lines = [
                 f"{bp.session_id}  {'running' if bp.running else f'exited({bp.proc.returncode})'}  {bp.command}"
-                for bp in _REGISTRY.sessions.values()
+                for bp in mine
             ]
             return ToolResult.text("\n".join(lines))
 
         session_id = params.get("session_id", "")
-        bp = _REGISTRY.sessions.get(session_id)
+        bp = _REGISTRY.get(session_id, owner)
         if bp is None:
             return ToolResult.text(f"Unknown session: {session_id}", is_error=True)
 

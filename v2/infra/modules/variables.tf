@@ -984,9 +984,10 @@ variable "services" {
         AGENTD_SANDBOX_TRUSTED_AGENTS = "cloud-agent-builder,agent-builder"
         # SERVE regular Agent Builder on this hosted daemon. It ships in the image withheld
         # (requires_local); this is the operator opt-in that lifts the withholding — listed,
-        # resolvable, app served, private tools discovered. Its shell rides the same consent
-        # (plugins.shell.exec.trusted_agents defaults to agent-builder), and run_agent/e2e_run
-        # drive child runs in-process, so the full desktop authoring loop works here. The web
+        # resolvable, app served, private tools discovered. Its shell is every agent's shell on a
+        # hosted daemon — foreground commands in the executor's microVM, background ones confined
+        # to the account's own files on this box (plugins/shell/exec_tool.py shell_route) — and
+        # run_agent/e2e_run drive child runs in-process, so the full authoring loop works here. The web
         # shell's nav still opens cabbie for the agent-builder surface; AB answers at
         # /apps/agent-builder/ directly.
         AGENTD_HOSTED_AGENTS_ALLOW = "agent-builder"
