@@ -26,7 +26,8 @@ import {
   Menu,
   PanelLeft,
   PanelRight,
-  Workflow as WorkflowIcon,
+  Images,
+  Library,
   Info,
   Mail,
 } from 'lucide-react'
@@ -51,12 +52,14 @@ import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
 import { StarterPrompts } from './components/StarterPrompts'
+import { StarterWorkflows } from './components/StarterWorkflows'
 import { Thread } from './components/Thread'
 
 /* THIS AGENT'S OWN SCREEN, in place of the scaffold's sample widgets. It reads the artifacts the
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
-import MyCreations from './components/creations/MyCreations'
+import Gallery from './components/creations/Gallery'
+import { LibraryPage } from './components/library/LibraryPage'
 import PolicyPage from './components/policies/PolicyPage'
 import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
@@ -84,17 +87,17 @@ import OrgView from './common/orgs/OrgView'
    Edit these four lines and the four cards below; they are the first thing anyone reads, and the
    default text says nothing because only you know what this agent is for. */
 const AGENT_NAME = 'Comfy Penguin'
-const OPENING_HEADLINE = 'What should we build?'
+const OPENING_HEADLINE = 'What are we making?'
 /* NO EYEBROW ABOVE THE HEADLINE. It read "Point me at your ComfyUI", which asked the visitor for
    a setup step before it had told them what they were setting up.
 
-   THE BLURB SAYS WHOSE HARDWARE RUNS THE GRAPH, because that is the first thing a visitor wants
-   to know and the policy pages say the same: the platform rents the GPU, the visitor brings
-   nothing. It used to say "your instance" and "your box", which was the opposite of true. */
+   THE BLURB SELLS THE OUTCOME, then the keeper (creative-studio redesign): an image or a video,
+   made by whichever model suits it, and a workflow that runs it again. It still says nothing is
+   needed from the person — the platform rents the GPU — without leading with the plumbing. */
 const OPENING_BLURB =
-  'Tell me what to make. I rent a GPU for you, set ComfyUI up on it, design the graph, run it, ' +
-  'and repair whatever the server rejects until the result is right. You get the images, the ' +
-  'workflow file, and an installer to run it on a ComfyUI of your own.'
+  'An image, a video, a whole shoot. Describe it and add a photo if you have one — I pick the ' +
+  'model, set it up on a cloud GPU, and fix whatever breaks. You keep the results and the ' +
+  'workflow, to run again in one click or in your own ComfyUI.'
 
 
 export default function App() {
@@ -127,7 +130,7 @@ export default function App() {
   /* NO 'settings'. The page is gone (see the rail), so the view it named renders nothing --
      and leaving it here would have made `main` fall through to an empty screen rather than to
      the studio if anything ever set it. */
-  const isStudio = !['credits', 'orgs', 'creations', 'about', 'contact'].includes(view)
+  const isStudio = !['credits', 'orgs', 'creations', 'library', 'about', 'contact'].includes(view)
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -682,7 +685,7 @@ export default function App() {
         {isStudio && !solo && (
           <button
             className="st-drawer-btn mobile-bar-end"
-            aria-label="Open workspace"
+            aria-label="Open outputs, workflow and files"
             aria-expanded={drawer === 'workspace'}
             onClick={(e) => openDrawer('workspace', e)}
           >
@@ -713,7 +716,8 @@ export default function App() {
         /* A SCREEN OF THIS AGENT'S OWN, above the shared three. What this agent makes is FILES,
            and files are the one thing a conversation is a bad container for. */
         extraDestinations={[
-          { id: 'creations', label: 'My creations', icon: <WorkflowIcon size={15} /> },
+          { id: 'creations', label: 'Gallery', icon: <Images size={15} /> },
+          { id: 'library', label: 'Library', icon: <Library size={15} /> },
         ]}
         /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
            from the shipped HTML files (components/policies), which stay readable with no
@@ -744,7 +748,7 @@ export default function App() {
              (agentd/chat-library.ts) and needs the chat list only for the section titles.
              Opening a section switches to that conversation — the studio branch below then
              loads its transcript, the same as a click in the rail. */
-          <MyCreations
+          <Gallery
             client={client ?? undefined}
             chats={chats}
             workspaceVersion={workspaceVersion}
@@ -752,6 +756,21 @@ export default function App() {
               useApp.getState().openSession(key)
               setView('chat')
             }}
+          />
+        ) : view === 'library' ? (
+          /* THE LIBRARY, full page. The same panel the stage's Library tab shows; "Use in this
+             chat" hands the workflow to the open chat and goes back to it. */
+          <LibraryPage
+            client={client ?? undefined}
+            sessionKey={currentKey}
+            slots={slots}
+            running={session.running}
+            workspaceVersion={workspaceVersion}
+            onUseWorkflow={(item) => {
+              setView('chat')
+              onUseWorkflow(item)
+            }}
+            onRunAgain={onRunAgain}
           />
         ) : view === 'about' ? (
           <PolicyPage key="about" start="about.html" />
@@ -865,6 +884,15 @@ export default function App() {
                 {/* UNDER THE BOX, and only while there is nothing to read. Once a conversation
                     exists these are noise competing with the agent's own `suggest` chips. */}
                 {empty && !loadingHistory && <StarterPrompts onPick={seedComposer} />}
+                {/* THE SAVED WORKFLOWS, on an empty chat only — "run it again" at the moment a
+                    person is about to start something. Renders nothing when none are kept. */}
+                {empty && !loadingHistory && (
+                  <StarterWorkflows
+                    client={client ?? undefined}
+                    workspaceVersion={workspaceVersion}
+                    onRunAgain={onRunAgain}
+                  />
+                )}
               </div>
             </div>
 
@@ -881,7 +909,7 @@ export default function App() {
                   tabIndex={-1}
                   role={drawer === 'workspace' ? 'dialog' : undefined}
                   aria-modal={drawer === 'workspace' ? true : undefined}
-                  aria-label={drawer === 'workspace' ? 'Workspace' : undefined}
+                  aria-label={drawer === 'workspace' ? 'Studio panel' : undefined}
                 >
                 <StudioDashboard
                   client={client ?? undefined}

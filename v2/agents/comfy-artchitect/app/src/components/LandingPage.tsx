@@ -1,122 +1,64 @@
 /* The page somebody sees before they have an account.
  *
- * WHAT THIS REPLACED: the sign-in card, as the first thing on the domain. A visitor arrived at
- * comfypenguin.com and was asked for a Google account before anything had told them what the
- * product was or what it cost — the highest-friction opening available, and it loses everybody
- * who was merely curious, which before launch is everybody.
+ * WHAT IT SELLS (the creative-studio redesign, Sep 2026). Not "a ComfyUI agent" — an AI image
+ * and video studio whose results come with the workflow that made them. People arrive wanting a
+ * picture or a clip; the thing nobody else hands them is the reusable setup, runnable again here
+ * in one click or in their own ComfyUI. The saving argued is time and effort, never price per
+ * render. ComfyUI is named once, in "Under the hood", for the people who already know it.
  *
  * IT SITS IN FRONT OF THE GATE, NOT INSTEAD OF IT. `Gate` (src/common/auth/) still decides
  * whether an account is required and the daemon still refuses to run without one — a run
- * provisions a GPU that costs money. Nothing here weakens that. The ask simply arrives after
- * the pitch instead of before it.
+ * provisions a GPU that costs money. EVERY CONTROL HERE CALLS `onStart`, which opens sign-in:
+ * the top bar's two buttons, the inert composer, each workflow card, and the closing CTA. The
+ * in-page links (Workflows, How it works, Pricing) only scroll.
  *
- * NO PHOTOGRAPHS, AND THAT IS A CONSTRAINT RATHER THAN A STYLE. There are no shippable renders
- * in this repo; the only images are e2e reference photos of people, which are test fixtures.
- * So the page is carried by a drawn ComfyUI graph (WorkflowDiagram) — which for a product that
- * BUILDS workflows says more than a photograph would — plus typography and gradient. Every
- * place a real render belongs is a `LandingShot`, which shows a labelled frame until a file
- * exists at its path and the render itself the moment one does.
+ * REAL RENDERS ONLY, from public/marketing/. Every picture goes through `LandingShot`, which shows
+ * a labelled frame when a file is missing rather than a broken image.
  *
  * EVERYTHING ANIMATES ON SCROLL, CHEAPLY. One IntersectionObserver adds a class; CSS does the
- * rest, and `prefers-reduced-motion` turns it all off. No animation library on a page whose
- * entire job is to appear instantly.
+ * rest, and `prefers-reduced-motion` turns it all off.
  */
 
-import { ArrowUp, Check, Plus } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  Clapperboard,
+  Image as ImageIcon,
+  IndianRupee,
+  MessageSquareText,
+  Plus,
+  Repeat,
+  UserRound,
+} from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { BrandMark } from './BrandMark'
-import { UseCaseCarousel } from './landing/UseCaseCarousel'
-import { WorkflowDiagram } from './landing/WorkflowDiagram'
+import { LandingHeroShowcase } from './landing/LandingHeroShowcase'
+import { LandingHowItWorks } from './landing/LandingHowItWorks'
+import { LandingRenderReel } from './landing/LandingRenderReel'
+import { LandingWorkflowCard } from './landing/LandingWorkflowCard'
+import { LandingModelMix } from './landing/LandingModelMix'
+import { LandingPipelines } from './landing/LandingPipelines'
+import { LandingStyleReuse } from './landing/LandingStyleReuse'
+import { LandingCompare } from './landing/LandingCompare'
+import { LandingPricing } from './landing/LandingPricing'
+import {
+  COMPARE_ROWS,
+  CREDIT_PACKS,
+  LOOP_STEPS,
+  MIX_EXAMPLE,
+  MODEL_TIERS,
+  PACK_PERKS,
+  PIPELINES,
+  RENDER_REEL,
+  SIGNUP_CREDITS,
+  SIGNUP_WORKFLOWS,
+  STARTER_WORKFLOWS,
+  STYLE_RUNS,
+  VALUE_POINTS,
+} from './landing/landing-content'
 
 import './landing/landing.css'
-
-/** What it drives. Named rather than logo'd: we ship no marks we have licence to. */
-const DRIVES = [
-  'ComfyUI',
-  'FLUX',
-  'SDXL',
-  'WAN 2.2',
-  'Qwen-Image',
-  'LTX-Video',
-  'ControlNet',
-  'IP-Adapter',
-  'AnimateDiff',
-  'Vast.ai',
-  'RunPod',
-  'Modal',
-]
-
-/** The shelf of things to make. Each has a render slot for when there is one to show. */
-const USE_CASES: { title: string; body: string; shot: string }[] = [
-  {
-    title: 'Realistic AI influencer',
-    body: 'One face, held consistent across a whole shoot — poses, outfits, lighting.',
-    shot: 'marketing/influencer.webp',
-  },
-  {
-    title: 'Product ad video',
-    body: 'A still of your product becomes a moving shot with camera motion and a look.',
-    shot: 'marketing/product-ad.mp4',
-  },
-  {
-    title: 'Same person, new angles',
-    body: 'Give it one reference photo. Get the same subject from angles you never shot.',
-    shot: 'marketing/angles.webp',
-  },
-  {
-    title: 'Animate a still',
-    body: 'Image-to-video, with the motion described in words rather than keyframed.',
-    shot: 'marketing/animate.webp',
-  },
-  {
-    title: 'Style transfer at scale',
-    body: 'One look, applied across a batch, with the graph reused rather than rebuilt.',
-    shot: 'marketing/style.webp',
-  },
-  {
-    title: 'Upscale and restore',
-    body: 'Detail recovered and resolution raised, with the nodes your instance actually has.',
-    shot: 'marketing/upscale.webp',
-  },
-]
-
-const FEATURES: { title: string; body: string }[] = [
-  {
-    title: 'It reads your instance first',
-    body: 'Never a model or node from memory. It asks the server what is installed and builds against that, which is why the graphs it writes actually run.',
-  },
-  {
-    title: 'It repairs what the server rejects',
-    body: 'A red node is not the end of the job. It reads the error, fixes the wiring or the parameter, and runs again until the result is right.',
-  },
-  {
-    title: 'Reusable pipelines, not one-offs',
-    body: 'Every run hands back an importable .json workflow. Change the prompt, keep the pipeline — or hand it to somebody else and they get your setup exactly.',
-  },
-  {
-    title: 'It installs what is missing',
-    body: 'Missing custom node or checkpoint? It fetches and installs it through ComfyUI-Manager rather than sending you a shopping list.',
-  },
-  {
-    title: 'The GPU is rented by the minute',
-    body: 'No card in your machine, no CUDA afternoon. A box is provisioned for the job and shut down after, and you are charged for the work, not the idling.',
-  },
-  {
-    title: 'Or point it at your own box',
-    body: 'Already running ComfyUI? Give it the URL. It reads your models, builds against them, and the workflow files are yours either way.',
-  },
-]
-
-/* The four beats of the ad, in the same order and the same words. A landing page that argues
-   differently from the thing that brought somebody here makes them wonder if they clicked the
-   right link. */
-const STEPS: { n: string; title: string; body: string }[] = [
-  { n: '01', title: 'Describe it', body: 'Tell it what you want. In plain English.' },
-  { n: '02', title: 'It creates the workflow', body: 'Picks the models. Wires the nodes.' },
-  { n: '03', title: 'It tests and runs it', body: 'On our cloud. It fixes what the server rejects.' },
-  { n: '04', title: 'You keep it', body: 'The images, the video, and the workflow file itself.' },
-]
 
 /** Adds `is-in` to anything with `data-reveal` once it has been scrolled to. */
 function useReveal() {
@@ -151,19 +93,34 @@ function useReveal() {
 export function LandingPage({ onStart }: { onStart: () => void }): JSX.Element {
   const root = useReveal()
 
+  /* In-page links scroll the page's own scroller (`.lp`), not the window — the shell pins
+     html/body to the viewport, so a plain #hash would jump nowhere. */
+  const jump = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    root.current?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <div className="lp" ref={root}>
       <header className="lp-top">
         <span className="lp-brand">
           <span className="lp-mark">
-            <BrandMark size={22} />
+            <BrandMark size={20} />
           </span>
           Comfy Penguin
         </span>
+        <nav className="lp-nav" aria-label="Sections">
+          <a href="#lp-how" onClick={jump('lp-how')}>How it works</a>
+          <a href="#lp-examples" onClick={jump('lp-examples')}>Examples</a>
+          <a href="#lp-models" onClick={jump('lp-models')}>Models</a>
+          <a href="#lp-pricing" onClick={jump('lp-pricing')}>Pricing</a>
+        </nav>
         <span className="lp-top-right">
-          <span className="lp-free">10,000 free credits</span>
           <button className="lp-signin" onClick={onStart}>
             Sign in
+          </button>
+          <button className="lp-btn lp-btn-primary lp-btn-pill lp-btn-sm" onClick={onStart}>
+            Start free
           </button>
         </span>
       </header>
@@ -171,155 +128,177 @@ export function LandingPage({ onStart }: { onStart: () => void }): JSX.Element {
       <main className="lp-main">
         {/* ── hero ─────────────────────────────────────────────────────────── */}
         <section className="lp-hero">
-          <div className="lp-aurora" aria-hidden="true" />
-          <h1 className="lp-h1">
-            <span className="lp-h1-accent">Want AI images</span>
-            <br />
-            but ComfyUI scares you?
-          </h1>
-          <p className="lp-kicker">Too many nodes. Too many models. Too many missing files.</p>
-          <p className="lp-sub">
-            Describe what you want. Comfy Penguin <em>creates, tests and runs</em> the workflow on
-            our cloud — and you keep it.
-          </p>
-
-          {/* THE COMPOSER, ON THE LANDING PAGE AND DELIBERATELY INERT. Showing the thing you
-              will type into says what this is in one glance, and makes the first click the
-              first step rather than a detour through an account form. No session, no socket —
-              touching any of it opens sign-in, because the daemon would refuse an anonymous run
-              anyway and faking it would only move the refusal somewhere more confusing. */}
-          <div
-            className="lp-composer"
-            role="button"
-            tabIndex={0}
-            onClick={onStart}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onStart()
-              }
-            }}
-          >
-            <span className="lp-composer-ph">
-              Make a 6-second product shot of this bottle, cinematic, shallow depth of field…
+          <div className="lp-hero-copy">
+            {/* TWO LINES, TWO JOBS: what it is, then why it is the one to pick in India. */}
+            <span className="lp-india">
+              <IndianRupee size={13} strokeWidth={2.4} aria-hidden="true" />
+              India&rsquo;s most cost-effective AI image &amp; video tool
             </span>
-            <div className="lp-composer-row">
-              <span className="lp-composer-ico" aria-hidden="true">
-                <Plus size={18} strokeWidth={1.9} />
+            <span className="lp-eyebrow">
+              <i aria-hidden="true" />
+              AI agent for image &amp; video creation
+            </span>
+            <h1 className="lp-h1">
+              Make it once.
+              <br />
+              <span className="lp-h1-accent">Reuse it forever.</span>
+            </h1>
+            <p className="lp-sub">
+              Describe any image or video. Penguin makes it with the <em>best model for each
+              step</em> — free or premium — and saves it as a <em>workflow</em> you can reuse
+              anytime.
+            </p>
+
+            {/* THE COMPOSER, ON THE LANDING PAGE AND DELIBERATELY INERT. Showing the thing you
+                will type into says what this is in one glance, and makes the first click the
+                first step rather than a detour through an account form. No session, no socket —
+                touching any of it opens sign-in, because the daemon would refuse an anonymous run
+                anyway and faking it would only move the refusal somewhere more confusing. */}
+            <div
+              className="lp-composer"
+              role="button"
+              tabIndex={0}
+              onClick={onStart}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onStart()
+                }
+              }}
+            >
+              <span className="lp-composer-ph">
+                An 8-second clip of my model talking to camera in a satin bomber…
               </span>
-              <span className="lp-chip">Image</span>
-              <span className="lp-chip">Video</span>
-              <span className="lp-chip">Upscale</span>
-              <span className="grow" />
-              <span className="lp-composer-send">
-                Start free <ArrowUp size={15} strokeWidth={2.4} />
-              </span>
+              <div className="lp-composer-row">
+                <span className="lp-composer-ico" aria-hidden="true">
+                  <Plus size={16} strokeWidth={2} />
+                </span>
+                <span className="lp-chip"><ImageIcon size={14} strokeWidth={1.9} /> Image</span>
+                <span className="lp-chip is-on"><Clapperboard size={14} strokeWidth={1.9} /> Video</span>
+                <span className="lp-chip"><UserRound size={14} strokeWidth={1.9} /> Consistent character</span>
+                <span className="grow" />
+                <span className="lp-composer-send">
+                  Start free <ArrowRight size={15} strokeWidth={2.4} />
+                </span>
+              </div>
             </div>
-          </div>
 
-          <p className="lp-cta-note">
-            10,000 credits free · no card to start · packs from $1 after that
-          </p>
-          <p className="lp-punch">Don&rsquo;t be a chicken. Be a penguin.</p>
+            <ul className="lp-cta-note">
+              <li><Check size={13} strokeWidth={2.6} /> {SIGNUP_CREDITS.toLocaleString('en-IN')} free credits</li>
+              <li><Check size={13} strokeWidth={2.6} /> Pay as you go, in ₹</li>
+              <li><Check size={13} strokeWidth={2.6} /> No subscription</li>
+            </ul>
+          </div>
+          <LandingHeroShowcase />
         </section>
 
-        {/* ── what it drives ───────────────────────────────────────────────── */}
-        <section className="lp-marquee" aria-label="Works with">
-          <div className="lp-marquee-track">
-            {/* Twice, so the loop has no seam. The copy is hidden from screen readers. */}
-            {[0, 1].map((pass) => (
-              <span key={pass} className="lp-marquee-run" aria-hidden={pass === 1}>
-                {DRIVES.map((d) => (
-                  <span key={d} className="lp-marquee-item">
-                    {d}
+        <LandingRenderReel shots={RENDER_REEL} />
+
+        {/* ── why Penguin: the whole pitch in three cards ─────────────────────── */}
+        <section className="lp-sec" id="lp-why" data-reveal>
+          <div className="lp-sec-head is-center">
+            <span className="lp-label">Why Penguin</span>
+            <h2 className="lp-h2">Better results. A fraction of the cost.</h2>
+            <p className="lp-sec-sub">Made for creators in India — no dollar subscriptions, pay only for what you make.</p>
+          </div>
+          <div className="lp-why">
+            {VALUE_POINTS.map((v, i) => {
+              const Icon = [MessageSquareText, IndianRupee, Repeat][i] || Check
+              return (
+                <article key={v.title} className="lp-why-card">
+                  <span className="lp-why-ico" aria-hidden="true">
+                    <Icon size={18} strokeWidth={2} />
                   </span>
-                ))}
-              </span>
-            ))}
+                  <h3>{v.title}</h3>
+                  <p>{v.body}</p>
+                </article>
+              )
+            })}
           </div>
         </section>
 
-        {/* ── the graph ────────────────────────────────────────────────────── */}
-        <section className="lp-sec lp-graph" data-reveal>
+        {/* ── how it works ─────────────────────────────────────────────────── */}
+        <section className="lp-sec" id="lp-how" data-reveal>
+          <div className="lp-sec-head is-center">
+            <span className="lp-label">How it works</span>
+            <h2 className="lp-h2">Describe. Pick. Keep.</h2>
+          </div>
+          <LandingHowItWorks steps={LOOP_STEPS} />
+        </section>
+
+        {/* ── real pipelines, inputs to outputs ──────────────────────────────── */}
+        <section className="lp-sec" id="lp-examples" data-reveal>
           <div className="lp-sec-head">
-            <h2 className="lp-h2">It creates the workflow.</h2>
-            <p className="lp-sec-sub">
-              Picks the models. Wires the nodes. Runs it, reads what the server rejects, and
-              fixes it — then hands you the graph as a file you can import.
-            </p>
+            <span className="lp-label">Real examples</span>
+            <h2 className="lp-h2">What goes in. What comes out.</h2>
           </div>
-          <div className="lp-graph-box">
-            <WorkflowDiagram />
-          </div>
-          <ul className="lp-ticks">
-            {[
-              'Never names a model it has not seen on the box',
-              'Re-runs and repairs until the graph completes',
-              'Hands back an importable .json and an installer',
-            ].map((t) => (
-              <li key={t}>
-                <Check size={15} strokeWidth={2.4} /> {t}
-              </li>
-            ))}
-          </ul>
+          <LandingPipelines pipelines={PIPELINES} />
         </section>
 
-        {/* ── use cases ────────────────────────────────────────────────────── */}
+        {/* ── free + premium: the price and quality argument ──────────────────── */}
+        <section className="lp-sec" id="lp-models" data-reveal>
+          <div className="lp-sec-head is-center">
+            <span className="lp-label">Every model</span>
+            <h2 className="lp-h2">Open source or premium. Your call.</h2>
+            <p className="lp-sec-sub">Choose free or paid models for any job — Penguin builds it your way.</p>
+          </div>
+          <LandingModelMix example={MIX_EXAMPLE} tiers={MODEL_TIERS} />
+        </section>
+
+        {/* ── reuse: one workflow, four pets ──────────────────────────────────── */}
         <section className="lp-sec" data-reveal>
           <div className="lp-sec-head">
-            <h2 className="lp-h2">What people build with it</h2>
-            <p className="lp-sec-sub">
-              Every one of these is a pipeline you keep — not a one-off render. Change the
-              prompt, reuse the graph.
-            </p>
+            <span className="lp-label">Reusable workflows</span>
+            <h2 className="lp-h2">Run it as many times as you need.</h2>
+            <p className="lp-sec-sub">Swap the photo, change the style, run it again.</p>
           </div>
-          <UseCaseCarousel items={USE_CASES} />
+          <LandingStyleReuse workflow={STARTER_WORKFLOWS[3]} runs={STYLE_RUNS} onStart={onStart} />
         </section>
 
-        {/* ── how ──────────────────────────────────────────────────────────── */}
-        <section className="lp-sec" data-reveal>
-          <div className="lp-sec-head">
-            <h2 className="lp-h2">Describe it. Let the agent build it.</h2>
+        {/* ── vs other AI video apps ──────────────────────────────────────────── */}
+        <section className="lp-sec" id="lp-compare" data-reveal>
+          <div className="lp-sec-head is-center">
+            <span className="lp-label">Why switch</span>
+            <h2 className="lp-h2">Cheaper. Simpler. Yours to keep.</h2>
           </div>
-          <div className="lp-steps">
-            {STEPS.map((s) => (
-              <article key={s.n} className="lp-step">
-                <span className="lp-step-n">{s.n}</span>
-                <h3 className="lp-step-t">{s.title}</h3>
-                <p className="lp-step-b">{s.body}</p>
-              </article>
+          <LandingCompare rows={COMPARE_ROWS} />
+        </section>
+
+        {/* ── starter workflows ────────────────────────────────────────────── */}
+        <section className="lp-sec" id="lp-workflows" data-reveal>
+          <div className="lp-sec-head">
+            <span className="lp-label">Start from a workflow</span>
+            <h2 className="lp-h2">Ready-made. Make them yours.</h2>
+          </div>
+          <div className="lp-wf-grid">
+            {STARTER_WORKFLOWS.map((w) => (
+              <LandingWorkflowCard key={w.title} workflow={w} action="Use this workflow" onAction={onStart} />
             ))}
           </div>
         </section>
 
-        {/* ── features ─────────────────────────────────────────────────────── */}
-        <section className="lp-sec" data-reveal>
-          <div className="lp-sec-head">
-            <h2 className="lp-h2">Why its workflows actually run</h2>
-            <p className="lp-sec-sub">
-              Most tools emit JSON and stop. Everything after that is the difference.
-            </p>
-          </div>
-          <div className="lp-feats">
-            {FEATURES.map((f, i) => (
-              <article key={f.title} className="lp-feat" data-reveal style={{ '--d': `${i * 50}ms` } as React.CSSProperties}>
-                <h3 className="lp-feat-t">{f.title}</h3>
-                <p className="lp-feat-b">{f.body}</p>
-              </article>
-            ))}
+        {/* ── under the hood ───────────────────────────────────────────────── */}
+        <section className="lp-hood" data-reveal>
+          <span className="lp-label">Under the hood</span>
+          <div className="lp-hood-copy">
+            <b>Built on open ComfyUI.</b>
+            <p>Download any workflow and run it on your own GPU. No lock-in.</p>
           </div>
         </section>
 
-        {/* ── close ────────────────────────────────────────────────────────── */}
-        <section className="lp-sec lp-close" data-reveal>
-          <h2 className="lp-h2">Meet Comfy Penguin.</h2>
-          <p className="lp-sec-sub">
-            An agent trained to create, test and run any ComfyUI workflow for you. Start with
-            10,000 free credits — no card, packs from $1 when you want more.
-          </p>
-          <button className="lp-cta" onClick={onStart}>
-            Get started
-          </button>
+        {/* ── pricing ──────────────────────────────────────────────────────────
+            Every button opens sign-in: nothing is bought without an account, and the Credits page
+            is where a pack is actually purchased. Figures mirror the accounts catalogue — see
+            CREDIT_PACKS in landing-content.ts. */}
+        <section className="lp-sec" id="lp-pricing" data-reveal>
+          <div className="lp-sec-head is-center">
+            <span className="lp-label">Pricing</span>
+            <h2 className="lp-h2">Pay in rupees. Only for what you make.</h2>
+            <p className="lp-sec-sub">
+              {SIGNUP_CREDITS.toLocaleString('en-IN')} free credits on signup. No subscription — top up when you need more.
+            </p>
+          </div>
+          <LandingPricing signupCredits={SIGNUP_CREDITS} signupWorkflows={SIGNUP_WORKFLOWS} packs={CREDIT_PACKS} perks={PACK_PERKS} onStart={onStart} />
         </section>
       </main>
 
