@@ -833,7 +833,10 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5"},
     {"value": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5"},
     {"value": "anthropic/claude-3-5-sonnet-latest", "label": "Claude 3.5 Sonnet"},
-    {"value": "openai/gpt-6-luna", "label": "GPT-6 Luna"},
+    # THE `responses/` ROUTE IS REQUIRED, not decoration: GPT-6 refuses tools + reasoning on
+    # /v1/chat/completions, and litellm only bridges GPT-5.4+ names to /v1/responses on its own.
+    # Same model, same price (the proxy strips the prefix before costing).
+    {"value": "openai/responses/gpt-6-luna", "label": "GPT-6 Luna"},
     {"value": "openai/gpt-5.6-sol", "label": "GPT-5.6 Sol"},
     {"value": "openai/gpt-5.6-luna", "label": "GPT-5.6 Luna"},
     {"value": "openai/gpt-5.6-terra", "label": "GPT-5.6 Terra"},

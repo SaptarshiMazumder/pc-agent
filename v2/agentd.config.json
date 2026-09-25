@@ -109,7 +109,7 @@
       "label": "Claude Haiku 4.5"
     },
     {
-      "value": "openai/gpt-6-luna",
+      "value": "openai/responses/gpt-6-luna",
       "label": "GPT-6 Luna"
     },
     {
