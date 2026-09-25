@@ -433,13 +433,18 @@ for it also works on a Linux or macOS desktop, so nothing you author needs a mod
    Anything bulky and re-creatable — downloaded tools, dependency folders, caches — goes in
    scratch space: the workspace travels on every call, and a folder of dependencies in it makes
    every command slow, or too big to copy at all.
-3. **Fifteen minutes, then it is killed.** A hosted foreground command has a hard 15-minute
+3. **The agent's own settings are already in the environment.** Every `[[settings]]` key it
+   declares is set in each command's environment under its own name — declare
+   `AWS_ACCESS_KEY_ID` and `terraform` or `aws` finds `$AWS_ACCESS_KEY_ID` with the signed-in
+   user's value. Never pass a credential in `env`, and never print one: a command's output goes
+   back to the model. A setting the user has not filled in is simply absent.
+4. **Fifteen minutes, then it is killed.** A hosted foreground command has a hard 15-minute
    limit. Anything that can run longer goes in the background.
-4. **Background commands run somewhere else.** They run on the server, not on the throwaway
+5. **Background commands run somewhere else.** They run on the server, not on the throwaway
    machine, so a tool a foreground command installed is not there: a background command
    installs its own, the same way. They have no time limit and keep running between turns.
    Their scratch space is `$TMPDIR`; `/tmp` is not writable there.
-5. **Grant `exec` and `process` together.** An agent has no timer and does not run between
+6. **Grant `exec` and `process` together.** An agent has no timer and does not run between
    turns — nothing can wake it up. So something slow has exactly one good shape:
 
    ```
@@ -461,6 +466,7 @@ you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Somethi
 
 > Commands: each `exec` starts on a blank machine — install pinned tools at the top of the
 > command and use them in the same call; keep anything that must persist in the workspace.
+> Credentials from your settings are already in the environment; never print them.
 > Long jobs: start them with `exec(background=true)` and poll with `process`; a background
 > command installs its own tools. Never `sleep` inside a foreground `exec`.
 

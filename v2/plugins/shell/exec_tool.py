@@ -17,7 +17,11 @@ import uuid
 from dataclasses import dataclass, field
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
-from agent_runtime.application.run_context import current_workspace
+from agent_runtime.application.run_context import (
+    current_run_context,
+    current_setting_value,
+    current_workspace,
+)
 from agent_runtime.application.tool_models import tool_config
 from agent_runtime.infrastructure.tools.sandbox.confined_command import ConfinedCommand
 from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
@@ -26,6 +30,31 @@ from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
 )
 
 OUTPUT_CAP = 50_000
+
+
+def command_env(params: dict) -> dict[str, str]:
+    """What a command gets on top of its base environment: THIS AGENT'S OWN declared settings,
+    then the `env` the model passed.
+
+    WHY SETTINGS ARE INJECTED. A CLI reads its credentials from the environment (`terraform` and
+    `aws` look for AWS_ACCESS_KEY_ID), and the model never sees a secret's value, so it cannot
+    pass one. Without this a hosted command ran with no credentials at all, and a desktop one
+    found nothing either: settings are stored under the agent-prefixed name, not the bare one the
+    CLI reads. So each declared setting goes in under its own name, resolved through
+    current_setting_value — the same single door `fetch`, the plugin sandbox and MCP use, so the
+    account's own value wins, an unset one stays unset rather than falling back to the server's
+    credential, and a name the agent never declared is never injected.
+
+    `${NAME}` in the model's env values resolves the same way, so `"${AWS_REGION}"` works; an
+    unknown name is left as literal text rather than blanked."""
+    from agent_runtime.domain.sandbox_net import substitute
+
+    ctx = current_run_context()
+    declared = tuple(getattr(ctx, "settings", ()) or ()) if ctx is not None else ()
+    settings = {name: current_setting_value(name) for name in declared}
+    settings = {k: v for k, v in settings.items() if v}
+    extra = {str(k): substitute(str(v), settings) for k, v in (params.get("env") or {}).items()}
+    return {**settings, **extra}
 
 
 def _is_under(path: str, root: str) -> bool:
@@ -55,7 +84,6 @@ def shell_route(config, what: str, background: bool = False) -> tuple[str, ToolR
 
     A foreground command on a daemon with no executor configured is refused: there is nowhere
     safe to put it."""
-    from agent_runtime.application.run_context import current_run_context
 
     ctx = current_run_context()
     if ctx is None or not getattr(ctx, "read_roots", ()):
@@ -234,7 +262,10 @@ class ExecTool(Tool):
             return refusal
         command = params["command"]
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
-        env = {**os.environ, **(params.get("env") or {})}
+        # The machine's environment, minus the names this agent declared: an unset setting
+        # must stay unset, never quietly pick up whatever the machine exports under that name.
+        declared = set(getattr(current_run_context(), "settings", ()) or ())
+        env = {**{k: v for k, v in os.environ.items() if k not in declared}, **command_env(params)}
         timeout = params.get("timeout_sec") or tool_config(
             self.config, "shell", "exec", "timeout_sec", default=1800
         )
@@ -307,7 +338,7 @@ class ExecTool(Tool):
         try:
             ok, output, meta = await run_shell(
                 self.config, command, cwd, timeout,
-                env=params.get("env") or {}, sync_root=sync_root, skip_dirs=skip_dirs,
+                env=command_env(params), sync_root=sync_root, skip_dirs=skip_dirs,
             )
         except (ExecutorError, OversizeError) as e:
             return ToolResult.text(
@@ -331,7 +362,6 @@ class ExecTool(Tool):
         """The hosted background branch: a command on the daemon's own box, locked to the run's
         own roots (sandbox/confined_command.py). Refused — never run unconfined — when the lock
         cannot form."""
-        from agent_runtime.application.run_context import current_run_context
 
         ctx = current_run_context()
         write_roots = tuple(getattr(ctx, "write_clamp", ()) or ())
@@ -355,7 +385,7 @@ class ExecTool(Tool):
         )
         session_id = await _REGISTRY.start(
             command, cwd,
-            confined.environment(home=cwd, extra=params.get("env") or {}),
+            confined.environment(home=cwd, extra=command_env(params)),
             owner=str(getattr(ctx, "account_id", "") or ""),
             confined=confined,
         )
@@ -377,7 +407,6 @@ class ExecTool(Tool):
         on this run resolves against - never a wider root."""
         from pathlib import Path
 
-        from agent_runtime.application.run_context import current_run_context
         from agent_runtime.infrastructure import accounts, user_state
         from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
             AUTHORING_SKIP_DIRS,
@@ -421,7 +450,6 @@ class ProcessTool(Tool):
         # _REGISTRY is one per daemon, so every read here is filtered to the caller's own
         # sessions: on a hosted daemon, list/poll/kill must never reach another account's
         # command, output or process. Desktop sessions are all owned by "" — one person.
-        from agent_runtime.application.run_context import current_run_context
 
         ctx = current_run_context()
         owner = str(getattr(ctx, "account_id", "") or "") if ctx is not None else ""

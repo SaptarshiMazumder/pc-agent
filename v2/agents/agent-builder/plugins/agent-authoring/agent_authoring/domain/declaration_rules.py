@@ -47,6 +47,20 @@ _SECRET_SHAPES = re.compile(
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z0-9_:-]+)\}")
 
 
+def _grants_exec(raw: dict) -> bool:
+    """Does this agent's shell exist? Every declared setting is in each `exec` command's
+    environment under its own name, so an agent that can run commands READS every setting it
+    declares — no `${NAME}` reference needed, and "nothing references it" would be false.
+
+    Granted when [tools] allow names `exec`, or when there is no allow list at all (the full
+    catalog), unless [tools] deny takes it away."""
+    tools = raw.get("tools") if isinstance(raw.get("tools"), dict) else {}
+    allow, deny = tools.get("allow"), tools.get("deny") or ()
+    if "exec" in {str(t).strip() for t in deny}:
+        return False
+    return allow is None or "exec" in {str(t).strip() for t in allow}
+
+
 class DeclarationRules:
     """Do this agent's `[[settings]]`, `[[mcp]]` and `[[oauth]]` blocks hang together?
 
@@ -73,7 +87,8 @@ class DeclarationRules:
         out: list[Finding] = []
         out += self._inlined_credentials(raw)
         out += self._reserved_names(settings)
-        out += self._unused_settings(settings, servers, logins, sources or {})
+        if not _grants_exec(raw):
+            out += self._unused_settings(settings, servers, logins, sources or {})
         out += self._mcp_servers(servers, declared, logins)
         out += self._oauth(logins, declared)
         out += self._shipping(raw, settings, servers, logins)
