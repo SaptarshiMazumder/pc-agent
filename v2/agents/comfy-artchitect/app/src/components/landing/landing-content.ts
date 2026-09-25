@@ -97,13 +97,15 @@ export const PIPELINES: Pipeline[] = [
 
 /* ── premium where it matters, free where it does not ─────────────────────────────────────── */
 
-/** An EXAMPLE of how one workflow mixes the two. Every workflow gets the same step-by-step
- *  choice; this is not a claim about which model made the renders on this page. */
-export const MIX_EXAMPLE: { step: string; tier: 'open' | 'premium' }[] = [
-  { step: 'Build the scene', tier: 'open' },
-  { step: 'Render the stills', tier: 'open' },
-  { step: 'Animate it', tier: 'premium' },
-  { step: 'Upscale', tier: 'open' },
+/** An EXAMPLE of how one workflow mixes the two: a real job (one product photo in, an ad reel
+ *  out) with the model each step would use. Every workflow gets the same step-by-step choice;
+ *  this is not a claim about which model made the renders on this page. */
+export const MIX_TITLE = 'Example · one jacket photo → a vertical ad reel'
+export const MIX_EXAMPLE: { step: string; model: string; tier: 'open' | 'premium' }[] = [
+  { step: 'Put the jacket on a model', model: 'Qwen-Image-Edit', tier: 'open' },
+  { step: 'Shoot 3 angles, same face', model: 'FLUX.2 klein', tier: 'open' },
+  { step: '8 s walk-and-turn clip', model: 'Kling 3.0', tier: 'premium' },
+  { step: 'Upscale to 4K', model: 'SeedVR2', tier: 'open' },
 ]
 
 export const MODEL_TIERS: {
@@ -115,7 +117,7 @@ export const MODEL_TIERS: {
   {
     tier: 'open',
     title: 'Open source',
-    sub: 'Free models, run on your studio GPU.',
+    sub: 'Free models — no credits used.',
     groups: [
       { kind: 'video', names: ['Wan 2.2', 'LTX-2.5', 'MiniMax H3 (open)', 'SeedVR2'] },
       { kind: 'image', names: ['Qwen-Image', 'Qwen-Image-Edit', 'FLUX.2 klein', 'Z-Image Turbo', 'HiDream-O1', 'Krea 2', 'Real-ESRGAN'] },

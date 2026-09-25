@@ -47,6 +47,7 @@ import {
   CREDIT_PACKS,
   LOOP_STEPS,
   MIX_EXAMPLE,
+  MIX_TITLE,
   MODEL_TIERS,
   PACK_PERKS,
   PIPELINES,
@@ -242,7 +243,7 @@ export function LandingPage({ onStart }: { onStart: () => void }): JSX.Element {
             <h2 className="lp-h2">Open source or premium. Your call.</h2>
             <p className="lp-sec-sub">Choose free or paid models for any job — Penguin builds it your way.</p>
           </div>
-          <LandingModelMix example={MIX_EXAMPLE} tiers={MODEL_TIERS} />
+          <LandingModelMix title={MIX_TITLE} example={MIX_EXAMPLE} tiers={MODEL_TIERS} />
         </section>
 
         {/* ── reuse: one workflow, four pets ──────────────────────────────────── */}

@@ -20,21 +20,24 @@ function Tier({ tier, long = false }: { tier: 'open' | 'premium'; long?: boolean
 }
 
 export function LandingModelMix({
+  title,
   example,
   tiers,
 }: {
+  title: string
   example: typeof MIX_EXAMPLE
   tiers: typeof MODEL_TIERS
 }): JSX.Element {
   return (
     <>
       <div className="lp-mix" aria-label="Example: one workflow, step by step">
-        <span className="lp-mix-label">Example · an image-to-video workflow</span>
+        <span className="lp-mix-label">{title}</span>
         <ol className="lp-mix-steps">
           {example.map((s, i) => (
             <li key={s.step} className={`lp-mix-step is-${s.tier}`}>
               <span className="lp-mix-n">{String(i + 1).padStart(2, '0')}</span>
               <b>{s.step}</b>
+              <span className="lp-mix-model">{s.model}</span>
               <Tier tier={s.tier} long />
             </li>
           ))}

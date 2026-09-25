@@ -376,6 +376,7 @@ video.shot { background: #000; }
 .lp-mix-step.is-premium { border-color: color-mix(in srgb, var(--vid) 40%, transparent); background: linear-gradient(160deg, var(--vid-soft), transparent 70%), var(--bg2); }
 .lp-mix-n { font: 500 11.5px var(--mono); color: var(--faint); }
 .lp-mix-step b { font-family: var(--display); font-size: 17px; font-weight: 800; }
+.lp-mix-model { font: 500 12px var(--mono); color: var(--dim); }
 .lp-tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .lp-tier-card { display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border-radius: 22px; background: var(--bg2); border: 1px solid var(--border); }
 .lp-tier-card.is-premium { border-color: color-mix(in srgb, var(--vid) 30%, transparent); }
