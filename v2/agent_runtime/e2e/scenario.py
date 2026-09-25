@@ -57,6 +57,10 @@ class Scenario:
     #: Declared settings for the agent (per-account values: a ComfyUI URL, tokens). Applied
     #: before the first turn. An opaque map — the runner writes it to the agent's settings store.
     settings: dict[str, str] = field(default_factory=dict)
+    #: (scenario-relative path, workspace-relative folder) pairs placed in the agent's workspace
+    #: BEFORE the first turn — a Library item, a fixture the agent is expected to find. Not a
+    #: turn's attachment: the file is simply there, as if the user had put it there earlier.
+    workspace_files: list[tuple[str, str]] = field(default_factory=list)
     #: Ordered user messages. The runner sends turn N only after turn N-1's run has ended, so the
     #: trace's turn boundaries line up with these.
     turns: list[Turn] = field(default_factory=list)
@@ -89,6 +93,11 @@ class Scenario:
             agent_id=str(data["agent_id"]),
             goal=str(data.get("goal") or ""),
             settings={str(k): str(v) for k, v in (data.get("settings") or {}).items()},
+            workspace_files=[
+                (str(w.get("path") or ""), str(w.get("to") or ""))
+                for w in (data.get("workspace_files") or [])
+                if isinstance(w, dict) and w.get("path")
+            ],
             turns=turns,
             checks=[
                 Check(name=str(c["name"]), args={k: v for k, v in c.items() if k != "name"})

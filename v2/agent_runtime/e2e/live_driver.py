@@ -92,6 +92,23 @@ async def drive(
                 },
             )
 
+        # FILES THE SCENARIO PLACES IN THE WORKSPACE before the first turn — a Library item,
+        # a fixture the agent is expected to find. Overwritten on a re-run, so the second run
+        # sees the same file rather than an "index (2).json" beside it.
+        for rel, to in scenario.workspace_files:
+            fp = _resolve(scenario, rel)
+            res = await transport.call("workspace.upload", {
+                "agentId": scenario.agent_id,
+                "path": to,
+                "name": fp.name,
+                "overwrite": True,
+                "dataBase64": base64.b64encode(fp.read_bytes()).decode("ascii"),
+            })
+            if not (res or {}).get("ok", True):
+                raise RuntimeError(
+                    f"workspace file upload failed for {fp.name}: {res.get('error')}"
+                )
+
         for i, turn in enumerate(scenario.turns):
             if i >= scenario.max_turns:
                 break

@@ -14,7 +14,7 @@
 
 import './workflows.css'
 
-import { Download, FileJson, Play, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Download, FileJson, Play, Trash2 } from 'lucide-react'
 
 import { fileUrl, humanSize, type Artifact } from '../../agentd/artifacts'
 
@@ -64,10 +64,13 @@ export function workflowFiles<A extends Artifact>(wf: Workflow<A>): A[] {
 export function WorkflowCard<A extends Artifact>({
   wf,
   onDelete,
+  onSave,
 }: {
   wf: Workflow<A>
   /** Drawn as a trash button when given. The card asks; the screen decides what asking means. */
   onDelete?: (wf: Workflow<A>) => void
+  /** Drawn as a bookmark when given: keep this workflow in the Library, for every chat. */
+  onSave?: (wf: Workflow<A>) => void
 }) {
   const bytes = (wf.api?.size || 0) + (wf.ui?.size || 0)
   return (
@@ -84,6 +87,16 @@ export function WorkflowCard<A extends Artifact>({
               .join(' · ')}
           </span>
         </div>
+        {onSave && (
+          <button
+            className="wf-card-save"
+            onClick={() => onSave(wf)}
+            title="Save to Library"
+            aria-label={`Save ${wf.name} to the Library`}
+          >
+            <BookmarkPlus size={14} strokeWidth={1.8} />
+          </button>
+        )}
         {onDelete && (
           <button
             className="wf-card-del"

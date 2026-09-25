@@ -15,13 +15,13 @@
  * rest of the KPI row.
  */
 
-import { RefreshCw } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import type { StudioState } from './useStudioState'
 import type { GpuWarmup } from './useGpuWarmup'
-import { OpenComfyButton } from './OpenComfyButton'
+import { OpenComfyButton, type EngineReadiness } from './OpenComfyButton'
 import { useInstanceProbe } from './useInstanceProbe'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
@@ -69,36 +69,40 @@ function InstanceChip({
       ? `${((inst.vram_total - (inst.vram_free ?? 0)) / 1e9).toFixed(1)} / ${(inst.vram_total / 1e9).toFixed(1)} GB`
       : null
 
+  /* ONE CONTROL FOR THE ENGINE: the left of it opens ComfyUI (loud once it answers, disabled
+     and saying why before), the caret on the right opens the details that used to be the chip's.
+     A GPU still coming up is NOT "offline" — it is the honest label for the first minutes of
+     every session now that the machine is pre-warmed. */
+  const ready = probe.state === 'live' || gpu.state === 'ready'
+  const engine: EngineReadiness = ready
+    ? { ready: true, label: 'Engine ready', pending: false }
+    : gpu.state === 'starting'
+      ? { ready: false, label: 'Engine starting…', pending: true }
+      : gpu.state === 'waiting'
+        ? { ready: false, label: 'Waiting for a GPU…', pending: true }
+        : probe.state === 'probing'
+          ? { ready: false, label: 'Checking engine…', pending: true }
+          : { ready: false, label: 'Engine offline', pending: false }
+
   return (
     <div className="sb-inst" ref={wrap}>
-      <button
-        className={`sb-chip is-${probe.state}`}
-        onClick={() => setOpen((v) => !v)}
-        title="ComfyUI instance"
-      >
-        <span className="sb-dot" />
-        <span>
-          {probe.state === 'probing'
-            ? 'testing…'
-            : probe.state === 'live'
-              ? 'instance'
-              : // A GPU still coming up is NOT "no instance" — saying so invites the user to go
-                // looking for a problem that is a boot in progress. It is the honest label for
-                // the first few minutes of every session now that the machine is pre-warmed.
-                gpu.state === 'starting'
-                ? 'starting GPU…'
-                : gpu.state === 'waiting'
-                  ? 'waiting for a GPU…'
-                  : probe.state === 'down'
-                  ? 'no instance'
-                  : 'instance'}
-        </span>
-      </button>
+      <div className={`eng${ready ? ' is-live' : ''}`}>
+        <OpenComfyButton client={client} engine={engine} />
+        <button
+          className="eng-more"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label="Engine details"
+          title="Engine details: GPU, VRAM, installed models, test the connection"
+        >
+          <ChevronDown size={14} strokeWidth={2.2} />
+        </button>
+      </div>
 
       {open && (
         <div className="sb-pop" role="dialog">
           <div className="sb-pop-head">
-            <span className="sb-pop-title">ComfyUI</span>
+            <span className="sb-pop-title">Engine · ComfyUI</span>
             <button
               className="sb-test"
               onClick={probe.test}
@@ -185,34 +189,62 @@ function InstanceChip({
   )
 }
 
+/** The stage's two tabs: this chat's own files, and the Library every chat shares. */
+export type StudioPanel = 'workspace' | 'library'
+
 export function StudioTopBar({
   state,
   client,
   gpu,
   credits,
   onCredits,
+  panel,
+  onPanel,
+  attention = false,
 }: {
   state: StudioState
   client?: AgentdClient
   gpu: GpuWarmup
   credits: number | null
   onCredits: () => void
+  panel: StudioPanel
+  onPanel: (p: StudioPanel) => void
+  /** The Workspace holds an input the agent is waiting on. */
+  attention?: boolean
 }) {
   return (
     <header className="sb">
-      <span className="sb-name">Workspace</span>
+      {/* TWO TABS, TWO SCOPES. Workspace is this chat's — its inputs, renders, workflow and
+          files. Library is everyone's — what the person chose to keep, reachable from any chat. */}
+      <div className="sb-tabs" role="tablist" aria-label="Studio panel">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === 'workspace'}
+          className={`sb-tab${panel === 'workspace' ? ' on' : ''}${attention ? ' is-attention' : ''}`}
+          onClick={() => onPanel('workspace')}
+          title="This chat's inputs, renders, workflow and files"
+        >
+          Workspace
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === 'library'}
+          className={`sb-tab${panel === 'library' ? ' on' : ''}`}
+          onClick={() => onPanel('library')}
+          title="What you kept — shared by every chat"
+        >
+          Library
+        </button>
+      </div>
 
       <span className="sb-spacer" />
-
-      {/* THE DOOR TO THE MACHINE, asked of the platform on every click (OpenComfyButton). Not
-          the popover's link: that one depends on the window's own GPU poll, which can fail
-          silently and take the link with it. */}
-      <OpenComfyButton client={client} />
 
       <InstanceChip state={state} client={client} gpu={gpu} />
 
       <button className="sb-credits" onClick={onCredits} title="Credits">
-        {credits != null ? credits.toLocaleString() : '—'}
+        {credits != null ? `${credits.toLocaleString()} cr` : '—'}
       </button>
     </header>
   )

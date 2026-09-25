@@ -64,7 +64,7 @@ export function DeleteFilePrompt({
         )}
         <p className={`cr-prompt-note${error ? ' is-error' : ''}`}>
           {error ||
-            'If a running workflow is still using this file, that run may fail with an error.'}
+            'Deleting files can break workflows that use them.'}
         </p>
         <div className="cr-prompt-actions">
           <button className="cr-btn-danger" onClick={onDelete} disabled={busy}>

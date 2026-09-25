@@ -131,6 +131,8 @@ What the `problem` string tells you:
 - **which fields they still have to fill in, and where.** An agent whose settings are empty has
   no tools and cannot do the thing it was built for. Handing that over without saying so is
   handing over something broken.
-- nothing about being local-only. Settings are stored **per account** — each person who uses the
-  agent fills in their own, and a hosted daemon keeps them apart. An agent with `[[settings]]` or
-  `[[mcp]]` ships to the web like any other.
+- whether it can go to the web. Settings are stored **per account** — each person who uses the
+  agent fills in their own, and a hosted daemon keeps them apart — so `[[settings]]` and a URL
+  server never make an agent local. A **stdio** server does: it launches a program on the
+  daemon's own machine, so the agent needs `requires_local = true`. Prefer the URL form when the
+  service offers one.

@@ -295,6 +295,13 @@ resource "aws_autoscaling_group" "ecs" {
   # mid-request during a scale-in.
   protect_from_scale_in = true
 
+  # NO CAPACITY WAIT. With no `desired_capacity` here, terraform's default wait holds the apply
+  # until the group has EXACTLY `min_size` healthy instances — and ECS managed scaling, which
+  # owns that number (see `lifecycle` below), routinely holds it higher. Seen on staging: an
+  # unpause sat at "want exactly 1 healthy instance(s), have 2" for the full ten minutes, then
+  # failed, and no service after the ASG was applied. The count is not terraform's to wait for.
+  wait_for_capacity_timeout = "0"
+
   # Roll instances when the launch template changes — which is how a new AMI actually reaches
   # the fleet. `min_healthy_percentage = 100` keeps capacity while it happens.
   instance_refresh {

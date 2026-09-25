@@ -1,38 +1,48 @@
-/* The studio: what the agent made, beside the conversation that made it.
+/* The stage: what the agent made, beside the conversation that made it.
  *
- * ONE PRIMARY OBJECT PER COLUMN. A rail that lists the workspace, a pane that shows the one thing
- * you picked, and the chat (a sibling column, owned by App). That is the whole screen.
+ * TWO TABS, TWO SCOPES (creative-studio redesign, Sep 2026):
  *
- * WHAT WAS HERE BEFORE, and why it is gone. Fifteen surfaces: a search box, a status chip, a "new
- * run" button, an avatar, a title, a paragraph, a Today/7d/30d switcher, four KPI cards carrying
- * meters and sparklines, a render gallery, an active-run panel, a workflow shelf, a file tree, an
- * instance panel and a run-history table — every one of them boxed in its own card, none of them
- * the file you wanted to read. The dashboard described the work instead of showing it.
+ *   Workspace   THIS chat's files, on one scroll of sections —
+ *                 Inputs     the reference slots the agent asked for (ReferenceSlots, unchanged)
+ *                 Outputs    the renders, as a grid of thumbnails (OutputsGrid)
+ *                 Workflow   the reusable setup: the workflow pair, its installer, Save to Library
+ *                 All files  the full folder tree, tick-to-delete, Add to Library (FileExplorer,
+ *                            unchanged), folded by default
+ *   Library     what the person kept, shared by EVERY chat (LibraryPanel, unchanged), including
+ *               a slot's From Library door.
  *
- * Nothing that MATTERED was dropped, it moved into the thing it belongs to: the instance (and its
- * GPU/VRAM/model list) is a chip in the top bar, the active run is a strip that exists only while
- * something runs, and workflows and renders alike are simply files in the tree. The KPI figures,
- * the history table and the render grid are gone outright — a grid of renders is a second way to
- * reach files the rail already lists, and it cost a whole mode switch to offer it.
+ * ONE VIEWER. Opening anything — a render, a reference, the graph, a file in the tree, or a
+ * thumbnail clicked in the conversation — shows it in the same FileViewer on the right, and the
+ * sections narrow to a column beside it, exactly as the old rail did. Nothing opens by itself
+ * (the thumbnail rule, agentd/artifacts.ts): the original bytes load only on a click.
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
 import type { GpuWarmup } from './useGpuWarmup'
 
 import type { Artifact } from '../../agentd/artifacts'
+import type { LibraryItem } from '../../agentd/library'
 import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
+import { LibraryPanel } from '../library/LibraryPanel'
 import { ReferenceSlots } from './ReferenceSlots'
 import { FileViewer } from './FileViewer'
-import { StudioTopBar } from './StudioTopBar'
+import { OutputsGrid } from './OutputsGrid'
+import { WorkflowPanel } from './WorkflowPanel'
+import { WorkspaceSection } from './WorkspaceSection'
+import { StudioTopBar, type StudioPanel } from './StudioTopBar'
 import { useStudioState } from './useStudioState'
+import { collectWorkflows } from '../workflows/WorkflowCard'
 
 import './studio.css'
+
+const MEDIA = new Set(['image', 'video', 'audio'])
+const inReferences = (a: Artifact): boolean => /[\\/]references[\\/]/.test(a.path)
 
 export function StudioDashboard({
   client,
@@ -45,13 +55,18 @@ export function StudioDashboard({
   referencesDisabled,
   credits,
   onCredits,
-  onRequestDeletion,
+  onDeleteFiles,
+  onAddToLibrary,
   deletionDisabled,
+  sessionKey,
+  workspaceVersion,
+  onUseWorkflow,
+  onRunAgain,
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
   running: boolean
-  /** Everything the agent wrote this session — the rail's whole content. */
+  /** Everything the agent wrote this session — the Workspace's whole content. */
   artifacts: Artifact[]
   /** The reference slots the agent asked for, with the file filling each (agentd/reference-slots). */
   slots: Slot[]
@@ -61,44 +76,80 @@ export function StudioDashboard({
   referencesDisabled: boolean
   credits: number | null
   onCredits: () => void
-  /** The rail's "Request deletion" — forwarded to the conversation, see FileExplorer. */
-  onRequestDeletion?: (paths: string[]) => void
+  /** Delete: the daemon removes the files, after the one warning each section shows. */
+  onDeleteFiles?: (paths: string[]) => Promise<void>
+  /** Add to Library: copies into the shared Library; answers a sentence to show. */
+  onAddToLibrary?: (paths: string[]) => Promise<string>
   deletionDisabled?: string
+  /** The chat the Library's "Use" lands in. */
+  sessionKey: string
+  /** Bumped whenever the workspace changes, so the Library re-reads its catalogue. */
+  workspaceVersion: number
+  /** Hand a Library workflow to the agent in this chat. */
+  onUseWorkflow: (item: LibraryItem) => void
+  /** Start a new conversation around a Library workflow. */
+  onRunAgain: (item: LibraryItem) => void
 }) {
   const state = useStudioState(client, running)
-  // Selection is STORE state, not local: the rail is not the only thing that picks. A thumbnail in
-  // the transcript lands here too — see the note on `selectedArtifactPath`.
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
+  const selectionSeq = useApp((s) => s.selectionSeq)
+  /* WHICH TAB. Local, not store, state: nothing outside this column reads it. */
+  const [panel, setPanel] = useState<StudioPanel>('workspace')
+  /* A slot that asked for a Library reference (the From Library door on a slot): the Library
+     opens with that role preselected and a line saying what it is waiting for. */
+  const [targetRole, setTargetRole] = useState('')
 
-  // `artifacts` is the chat's ONE merged list — what the thread declared plus what the chat's
-  // folders hold on disk (App.tsx, agentd/workspace-files.ts). This pane only shows it.
+  const made = useMemo(() => artifacts.filter((a) => !inReferences(a)), [artifacts])
+  const outputs = useMemo(() => made.filter((a) => MEDIA.has(a.kind)), [made])
+  const workflowSide = useMemo(() => made.filter((a) => !MEDIA.has(a.kind)), [made])
+  const workflowCount = useMemo(
+    () => collectWorkflows(workflowSide.filter((a) => !/^install_/i.test(a.name))).length,
+    [workflowSide],
+  )
 
-  // SELECT BY PATH, RESOLVE BY LOOKUP. Holding the Artifact object itself would pin a stale copy:
-  // the same file is re-declared as later turns touch it (a size arrives, a render finishes), and
-  // the pane would keep showing the first version it was handed.
+  // SELECT BY PATH, RESOLVE BY LOOKUP: the same file is re-declared as later turns touch it, and
+  // holding the object would pin whichever copy was clicked.
   const selected = useMemo(
     () => artifacts.find((a) => a.path === selectedPath) || null,
     [artifacts, selectedPath],
   )
 
-  // NOTHING OPENS BY ITSELF. The pane is a response to a click and only that — no auto-open, no
-  // "helpfully" showing the newest file. Two reasons it must not:
-  //
-  //   It would make the pane permanent, and a pane that is always there is a second place to look
-  //   whether or not you asked for one. The rail plus the conversation is the resting state.
-  //
-  //   It would break the thumbnail rule. The gallery and the transcript render bounded
-  //   `thumbnailUrl` previews precisely so the ORIGINAL bytes are not fetched "until somebody
-  //   explicitly opens the file" (agentd/artifacts.ts). This pane shows the original, so opening a
-  //   render on the user's behalf would pull a multi-MB image on every finished run.
-  //
-  // The one thing this DOES do is drop a selection that no longer applies: `artifacts` is this
-  // chat's files, so switching conversations can leave a path selected that belongs to another —
-  // and the pane would then show a file the rail beside it does not list.
+  // A selection from another chat does not apply here.
   useEffect(() => {
     if (selectedPath && !artifacts.some((a) => a.path === selectedPath)) setSelectedPath('')
   }, [artifacts, selectedPath, setSelectedPath])
+
+  /* EVERY PICK SHOWS THE PICKED FILE — from the conversation, a slot, a tile or the tree. It is
+     always a Workspace file, so the Workspace comes forward. Keyed to the pick itself
+     (selectionSeq), so a second click on the same file still works from the Library tab. */
+  useEffect(() => {
+    if (selectedPath) setPanel('workspace')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionSeq])
+
+  /* THE AGENT ASKED FOR A PHOTO: the Workspace (where the slot is) comes forward, once, when an
+     empty slot appears. A saved chat's slots arriving with its history are its opening state,
+     not a new ask — `settled` marks the first time this chat had anything to show. */
+  const emptySlots = slots.filter((s) => !s.file).length
+  const seenEmpty = useRef(emptySlots)
+  const settled = useRef(false)
+  useEffect(() => {
+    settled.current = false
+    setTargetRole('')
+    setPanel('workspace')
+  }, [sessionKey])
+  useEffect(() => {
+    if (!settled.current) {
+      if (artifacts.length || slots.length) settled.current = true
+    } else if (emptySlots > seenEmpty.current) {
+      setPanel('workspace')
+    }
+    seenEmpty.current = emptySlots
+  }, [emptySlots, artifacts.length, slots.length, sessionKey])
+
+  const hasInputs = slots.length > 0 || freeReferences.length > 0
+  const filled = slots.length - emptySlots
 
   return (
     <div className="st-dash">
@@ -108,44 +159,110 @@ export function StudioDashboard({
         gpu={gpu}
         credits={credits}
         onCredits={onCredits}
+        panel={panel}
+        attention={emptySlots > 0}
+        onPanel={(p) => {
+          setPanel(p)
+          if (p !== 'library') setTargetRole('')
+        }}
       />
       <ActiveRunStrip state={state} client={client} />
 
       <div className="st-body">
-        <aside className="st-rail">
-          <ReferenceSlots
+        {panel === 'library' ? (
+          <LibraryPanel
+            client={client}
+            sessionKey={sessionKey}
             slots={slots}
-            free={freeReferences}
-            disabled={referencesDisabled}
-            onAdd={onAddReference}
-            onOpen={(a) => setSelectedPath(a.path)}
+            running={running}
+            workspaceVersion={workspaceVersion}
+            targetRole={targetRole}
+            onClearTarget={() => {
+              setTargetRole('')
+              setPanel('workspace')
+            }}
+            onUseWorkflow={onUseWorkflow}
+            onRunAgain={onRunAgain}
           />
-          {/* The references are shown above as slots, so the tree lists what the agent MADE:
-              workflows and outputs. The record file beside the references is bookkeeping. */}
-          <FileExplorer
-            artifacts={artifacts.filter((a) => !/[\\/]references[\\/]/.test(a.path))}
-            selected={selected}
-            onSelect={(a) => setSelectedPath(a.path)}
-            onRequestDeletion={onRequestDeletion}
-            deletionDisabled={deletionDisabled}
-          />
-        </aside>
+        ) : (
+          <>
+            <div className={`ws${selected ? ' is-narrow' : ''}`}>
+              {!artifacts.length && !hasInputs ? (
+                <div className="op-empty">
+                  <b>Nothing here yet</b>
+                  <p>
+                    This chat&rsquo;s photos, renders and workflow collect here as Penguin works. When
+                    it needs a photo — a face, a product, a first frame — it asks for it here.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* INPUTS FIRST, because a run cannot start while one is missing — and only
+                      once the agent has asked for something, never as an empty upload box. */}
+                  {hasInputs && (
+                    <WorkspaceSection
+                      title="Inputs"
+                      count={slots.length ? `${filled} of ${slots.length}` : String(freeReferences.length)}
+                      attention={emptySlots > 0}
+                    >
+                      <ReferenceSlots
+                        slots={slots}
+                        free={freeReferences}
+                        disabled={referencesDisabled}
+                        onAdd={onAddReference}
+                        onOpen={(a) => setSelectedPath(a.path)}
+                        onFromLibrary={(role) => {
+                          setTargetRole(role)
+                          setPanel('library')
+                        }}
+                      />
+                    </WorkspaceSection>
+                  )}
+                  <WorkspaceSection title="Outputs" count={outputs.length ? String(outputs.length) : undefined}>
+                    <OutputsGrid
+                      outputs={outputs}
+                      selectedPath={selectedPath}
+                      onOpen={(a) => setSelectedPath(a.path)}
+                      onDelete={onDeleteFiles}
+                      onAddToLibrary={onAddToLibrary}
+                      deletionDisabled={deletionDisabled}
+                    />
+                  </WorkspaceSection>
+                  <WorkspaceSection title="Workflow" count={workflowCount ? String(workflowCount) : undefined}>
+                    <WorkflowPanel
+                      files={workflowSide}
+                      onDelete={onDeleteFiles}
+                      onAddToLibrary={onAddToLibrary}
+                      onOpen={(a) => setSelectedPath(a.path)}
+                      deletionDisabled={deletionDisabled}
+                    />
+                  </WorkspaceSection>
+                  {/* The references are Inputs above, so the tree lists what the agent MADE:
+                      workflows, renders, installers. Unchanged from the old rail. */}
+                  <WorkspaceSection title="All files" count={made.length ? String(made.length) : undefined} defaultOpen={false}>
+                    <FileExplorer
+                      artifacts={made}
+                      selected={selected}
+                      onSelect={(a) => setSelectedPath(a.path)}
+                      onDelete={onDeleteFiles}
+                      onAddToLibrary={onAddToLibrary}
+                      deletionDisabled={deletionDisabled}
+                    />
+                  </WorkspaceSection>
+                </>
+              )}
+            </div>
 
-        {/* THE PANE IS NOT RENDERED WHEN NOTHING IS SELECTED — not rendered empty, absent. An
-            empty-state panel still occupies the column and still has to be explained; the rail
-            and the conversation simply take the room back until there is something to show. */}
-        {selected && (
-          <main className="st-view">
-            {/* KEYED BY PATH, so picking a different file MOUNTS A NEW VIEWER instead of handing
-                the old one new props. Without it React kept the same <img> element and only
-                swapped its `src` — and an <img> goes on painting the picture it already has until
-                the replacement finishes downloading, which for a multi-megabyte render off /file
-                is long enough to read as "clicking another image does nothing". Closing the pane
-                and reopening it worked precisely because that DID remount.
-                It also resets the viewer's own per-file state (fetched text, Raw/Readable, the
-                copied tick) by construction, rather than by an effect that has to remember to. */}
-            <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
-          </main>
+            {/* THE PANE IS NOT RENDERED WHEN NOTHING IS SELECTED — the sections take the room. */}
+            {selected && (
+              <main className="st-view">
+                {/* KEYED BY PATH, so picking a different file MOUNTS A NEW VIEWER instead of
+                    handing the old one new props — an <img> otherwise goes on painting the
+                    previous render until the new bytes land. */}
+                <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
+              </main>
+            )}
+          </>
         )}
       </div>
     </div>

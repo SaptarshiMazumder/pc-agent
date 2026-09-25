@@ -19,25 +19,31 @@
  * cards seeded, kept deliberately.
  */
 
-const STARTERS: { label: string; prompt: string }[] = [
+import { Clapperboard, Film, UserRound, Users, type LucideIcon } from 'lucide-react'
+
+const STARTERS: { label: string; prompt: string; icon: LucideIcon }[] = [
   {
     label: 'Realistic AI influencer',
+    icon: UserRound,
     prompt:
       'Build a workflow for a photorealistic AI influencer — the same face in every shot. ' +
       "I'll give you a reference photo.",
   },
   {
     label: 'Product ad video',
+    icon: Clapperboard,
     prompt: 'Turn a product photo into a short vertical ad video for social.',
   },
   {
     label: 'Same person, new angles',
+    icon: Users,
     prompt:
       'Take one reference photo and give me the same person from four angles, ' +
       'keeping the face and the outfit consistent.',
   },
   {
     label: 'Animate a still',
+    icon: Film,
     prompt: "Build an image-to-video workflow and animate a still I'll give you.",
   },
 ]
@@ -55,6 +61,7 @@ export function StarterPrompts({ onPick }: { onPick: (prompt: string) => void })
           title={s.prompt}
           onClick={() => onPick(s.prompt)}
         >
+          <s.icon size={14} strokeWidth={1.9} />
           {s.label}
         </button>
       ))}

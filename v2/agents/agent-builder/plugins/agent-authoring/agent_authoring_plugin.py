@@ -121,8 +121,8 @@ def register(api, ctx):
         # background job, so it blocks a turn on a sleep instead. Caught here rather than
         # discovered during a 20GB download.
         ToolGrantRules(),
-        # Declarations that contradict where the agent is GOING: hosted (no shell, fenced
-        # reads, empty per-user workspace) and buyers' installs (clamped write scope).
+        # Declarations that contradict where the agent is GOING: hosted (fenced reads, empty
+        # per-user workspace, requires_local withheld) and buyers' installs (clamped write scope).
         PortabilityRules(),
         # [[settings]] / [[mcp]] / [[oauth]]: the three blocks whose mistakes are invisible
         # until SOMEBODY ELSE has installed the agent — a field nothing reads, a server whose

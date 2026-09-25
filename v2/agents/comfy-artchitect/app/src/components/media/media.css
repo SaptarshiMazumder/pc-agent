@@ -1,0 +1,11 @@
+/* The media-kind tag, shared by the landing page and the studio. Word + glyph + colour, always. */
+.mk-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 8px; border-radius: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap;
+}
+.mk-image { background: var(--img-soft); color: var(--img); }
+.mk-video { background: var(--vid-soft); color: var(--vid); }
+.mk-workflow { background: var(--accent-soft); color: var(--accent-text); }
+/* On top of a picture the tinted grounds vanish, so the tag carries its own dark ground. */
+.mk-tag.mk-over { background: rgba(6, 4, 10, .74); backdrop-filter: blur(6px); }

@@ -22,7 +22,7 @@ import {
   CreditCard,
   Loader2,
   RefreshCw,
-  MessageSquareText,
+  Sparkles,
   SquarePen,
 } from 'lucide-react'
 
@@ -197,7 +197,7 @@ export function Sidebar({
             <span className="nav-ico">
               <SquarePen size={15} strokeWidth={1.7} />
             </span>
-            <span className="nav-item-label">New conversation</span>
+            <span className="nav-item-label">New creation</span>
           </button>
         )}
 
@@ -207,9 +207,9 @@ export function Sidebar({
             onClick={() => onView('chat')}
           >
             <span className="nav-ico">
-              <MessageSquareText size={15} strokeWidth={1.7} />
+              <Sparkles size={15} strokeWidth={1.7} />
             </span>
-            <span className="nav-item-label">Conversation</span>
+            <span className="nav-item-label">Create</span>
           </button>
         )}
 
@@ -269,7 +269,7 @@ export function Sidebar({
                 onClick={() => setRecentOpen((v) => !v)}
                 title={`${recentOpen ? 'collapse' : 'expand'} recent conversations`}
               >
-                <span className="section-title">Recent</span>
+                <span className="section-title">Recent creations</span>
                 {onRefreshChats && (
                   <button
                     type="button"
@@ -331,7 +331,7 @@ export function Sidebar({
                     />
                   ))}
                   {chats.length === 0 && (
-                    <div className="row-sub list-empty">no conversations yet</div>
+                    <div className="row-sub list-empty">nothing made yet</div>
                   )}
                 </div>
               </>

@@ -133,6 +133,7 @@ APP_SCOPED_METHODS = frozenset(
         "workspace.mkdir",
         "workspace.upload",
         "workspace.delete",
+        "workspace.copy",
         "notifications.list",
         "notifications.ack",
         # An APP-AGENT product (its own exe/window) is a first-party desktop client: it signs
@@ -808,10 +809,11 @@ EXPOSED_KEY_ENV = {
     "app_host_suffix": "AGENTD_APP_HOST_SUFFIX",
 }
 
-# Curated model options offered as a dropdown in the settings UI (display name -> litellm id),
-# so a user picks a model by name instead of typing an id. The config's own `model_catalog`
-# extends this, and whatever models are actually in use are always merged in (below), so a
-# custom/uncommon model never disappears from the picker.
+# THE MODELS THE PLATFORM SHIPS, offered as a dropdown (display name -> litellm id) so a user picks
+# a model by name instead of typing an id. A release that adds a line here puts that model in front
+# of every deployment on its next redeploy — no per-environment edit. Each deployment's own
+# `model_catalog` is layered on top (see _catalog_for): it may add models, relabel or reorder them,
+# and hide any of these with `{"value": ..., "hidden": true}`.
 DEFAULT_MODEL_CATALOG = (
     {"value": "gemini/gemini-pro-latest", "label": "Gemini Pro (latest)"},
     {"value": "gemini/gemini-flash-latest", "label": "Gemini Flash (latest)"},
@@ -831,7 +833,10 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "anthropic/claude-opus-4-8", "label": "Claude Opus 4.8"},
     {"value": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5"},
     {"value": "anthropic/claude-haiku-4-5", "label": "Claude Haiku 4.5"},
-    {"value": "anthropic/claude-3-5-sonnet-latest", "label": "Claude 3.5 Sonnet"},
+    # THE `responses/` ROUTE IS REQUIRED, not decoration: GPT-6 refuses tools + reasoning on
+    # /v1/chat/completions, and litellm only bridges GPT-5.4+ names to /v1/responses on its own.
+    # Same model, same price (the proxy strips the prefix before costing).
+    {"value": "openai/responses/gpt-6-luna", "label": "GPT-6 Luna"},
     {"value": "openai/gpt-5.6-sol", "label": "GPT-5.6 Sol"},
     {"value": "openai/gpt-5.6-luna", "label": "GPT-5.6 Luna"},
     {"value": "openai/gpt-5.6-terra", "label": "GPT-5.6 Terra"},
@@ -847,19 +852,24 @@ DEFAULT_MODEL_CATALOG = (
     {"value": "openai/gpt-5-pro", "label": "GPT-5 Pro"},
     {"value": "openai/gpt-5", "label": "GPT-5"},
     {"value": "openai/gpt-5-mini", "label": "GPT-5 mini"},
+    {"value": "openai/gpt-5-nano", "label": "GPT-5 nano"},
     {"value": "openai/gpt-4.1", "label": "GPT-4.1"},
+    {"value": "openai/gpt-4.1-mini", "label": "GPT-4.1 mini"},
     {"value": "openai/gpt-4o", "label": "GPT-4o"},
+    {"value": "openai/gpt-4o-mini", "label": "GPT-4o mini"},
     {"value": "openai/o3", "label": "o3"},
+    {"value": "openai/o4-mini", "label": "o4-mini"},
+    {"value": "deepseek/deepseek-v4-pro", "label": "DeepSeek V4 Pro"},
     {"value": "deepseek/deepseek-chat", "label": "DeepSeek V3"},
     {"value": "deepseek/deepseek-reasoner", "label": "DeepSeek R1"},
     # Moonshot (Kimi). The reason to reach for these is a 262k window that also takes
     # IMAGES — DeepSeek is cheaper per token but text-only, so this is the cheap option for
     # a turn carrying a screenshot or a scanned page.
+    {"value": "moonshot/kimi-k3", "label": "Kimi K3 (vision, 1M)"},
     {"value": "moonshot/kimi-k2.5", "label": "Kimi K2.5 (vision, 262k)"},
     {"value": "moonshot/kimi-k2-0905-preview", "label": "Kimi K2 (262k)"},
     {"value": "moonshot/kimi-thinking-preview", "label": "Kimi Thinking (vision)"},
     {"value": "xai/grok-4", "label": "Grok 4"},
-    {"value": "xai/grok-3", "label": "Grok 3"},
     {"value": "groq/llama-3.3-70b-versatile", "label": "Llama 3.3 70B · Groq"},
     {"value": "mistral/mistral-large-latest", "label": "Mistral Large"},
 )
@@ -965,9 +975,10 @@ def _provider_has_key(model_id: str) -> bool:
     return any(os.environ.get(e) for e in envs)
 
 
-# Built-in per-KIND option SEEDS. These are ONLY a fresh-install fallback — `config.model_catalog`
-# is the source of truth. To add/remove a model in ANY picker, edit config (tag an entry with `kind`),
-# NEVER this code. Kinds: text | vision | image | embedding.
+# What the platform ships, per KIND. The BASE of every picker, not a fresh-install fallback: each
+# deployment's `config.model_catalog` is layered on top (see _catalog_for). Ship a model to every
+# environment by adding it here; add, relabel or hide one for a single deployment in its config.
+# Kinds: text | vision | image-gen | embedding.
 _SEED_CATALOGS = {
     "text": DEFAULT_MODEL_CATALOG,
     "vision": DEFAULT_MODEL_CATALOG,  # multimodal text models double as vision
@@ -984,12 +995,23 @@ def _has_kind(cfg, kind: str) -> bool:
 
 
 def _catalog_for(cfg, kind: str, forced=()) -> list:
-    """The dropdown options for one model KIND — CONFIG-FIRST. The menu is ``config.model_catalog``
-    (the single source of truth): entries whose ``kind`` matches (a bare string, or a dict with no
-    ``kind``, counts as ``text``). If the config declares none for this kind, the built-in seed is
-    used (fresh-install fallback only). Menu models are filtered to providers whose key is present;
-    ``forced`` values (models actually in use) are always kept; result is deduped + provider-grouped.
-    Adding a model to any picker is therefore a CONFIG edit, never a code edit."""
+    """The dropdown options for one model KIND: what the platform ships, with this deployment's
+    config layered on top.
+
+    WHY A MERGE AND NOT "CONFIG WINS OUTRIGHT". It used to be config-only whenever the config
+    listed anything for the kind, which every long-lived deployment does — so a model added in a
+    release reached fresh installs and nowhere else, and every environment needed a hand edit to
+    see it. Now:
+
+      * the config's entries come first, in its order, with its labels — the operator's word wins;
+      * every shipped model the config does not mention is added, placed after the shipped model
+        before it, so a new release's model lands beside its family rather than at the bottom;
+      * a config entry `{"value": ..., "hidden": true}` removes a model, shipped or not — which is
+        how a deployment turns off something the platform still ships.
+
+    Menu models are filtered to providers whose key is present; ``forced`` values (models actually
+    in use) are always kept, hidden or not, so a configured model never vanishes from its own
+    picker. A bare string entry, or a dict with no ``kind``, counts as ``text``."""
     seen: dict = {}
 
     def add(value, label=None, group=None, provider=None, force=False):
@@ -1005,18 +1027,40 @@ def _catalog_for(cfg, kind: str, forced=()) -> list:
             **({"provider": provider} if provider else {}),
         }
 
-    menu = getattr(cfg, "model_catalog", None) or []
-    tagged = []
-    for e in menu:
+    configured: list[dict] = []
+    for e in getattr(cfg, "model_catalog", None) or []:
         if isinstance(e, dict) and str(e.get("kind") or "text").lower() == kind:
-            tagged.append(e)
+            configured.append(e)
         elif isinstance(e, str) and kind == "text":
-            tagged.append({"value": e})
-    for e in tagged or _SEED_CATALOGS.get(kind, ()):
+            configured.append({"value": e})
+    hidden = {str(e.get("value") or e.get("id") or "") for e in configured if e.get("hidden")}
+    ordered = _layer_catalog([e for e in configured if not e.get("hidden")],
+                             _SEED_CATALOGS.get(kind, ()), hidden)
+    for e in ordered:
         add(e.get("value") or e.get("id"), e.get("label"), e.get("group"), e.get("provider"))
     for v in forced:
         add(v, force=True)
     return list(seen.values())
+
+
+def _layer_catalog(configured: list, shipped, hidden: set) -> list:
+    """The deployment's entries, with every shipped model it does not mention slotted in after the
+    shipped model that precedes it (or at the front when none does). Pure; see _catalog_for."""
+    key = lambda e: str(e.get("value") or e.get("id") or "")  # noqa: E731
+    out = list(configured)
+    present = {key(e) for e in out}
+    anchor = -1  # index in `out` of the last shipped model placed or found, in shipped order
+    for e in shipped:
+        k = key(e)
+        if k in present:
+            anchor = next(i for i, x in enumerate(out) if key(x) == k)
+            continue
+        if not k or k in hidden:
+            continue
+        anchor += 1
+        out.insert(anchor, e)
+        present.add(k)
+    return out
 
 
 def _build_model_catalog(cfg) -> list:
@@ -3253,6 +3297,8 @@ class Gateway:
                 payload = self._workspace_upload(req.params)
             elif req.method == "workspace.delete":
                 payload = self._workspace_delete(req.params)
+            elif req.method == "workspace.copy":
+                payload = self._workspace_copy(req.params)
             elif req.method == "tools.list":
                 payload = self._tools_list(req.params)
             elif req.method == "tools.invoke":
@@ -4609,7 +4655,10 @@ class Gateway:
 
     def _workspace_upload(self, params: dict) -> dict:
         """Save ONE user-chosen file into the workspace dir `path` (default the root),
-        keeping its real name (deduped with ' (n)' on collision — never silently overwrite)."""
+        keeping its real name (deduped with ' (n)' on collision — never silently overwrite).
+
+        `overwrite: true` replaces a file of that name instead: for a file the WINDOW owns and
+        rewrites — the Library's index.json — where a deduped copy would be the bug."""
         import base64
         import binascii
 
@@ -4635,13 +4684,61 @@ class Gateway:
             target = d / name
             stem, suffix = target.stem, target.suffix
             n = 2
-            while target.exists():  # dedupe: report.png -> report (2).png
+            overwrite = bool(params.get("overwrite"))
+            while not overwrite and target.exists():  # dedupe: report.png -> report (2).png
                 target = d / f"{stem} ({n}){suffix}"
                 n += 1
             target.write_bytes(raw)
         except (OSError, binascii.Error, ValueError) as e:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "name": target.name, "path": str(target)}
+
+    def _workspace_copy(self, params: dict) -> dict:
+        """Copy ONE file or folder (recursive) from `from` to `to`, both inside the workspace.
+
+        WHY THE DAEMON COPIES. A render going into the Library, or a Library reference going
+        into a chat's slot, is megabytes that are already on this disk; the alternative was the
+        browser downloading it through /file and uploading it back. And a sandboxed plugin
+        cannot do it either: it is handed a copy of the workspace without the Library's media
+        (comfy-bridge plugin.toml), so it says what it wants copied and this performs it — the
+        same split as delete.
+
+        Never overwrites unless asked (`overwrite: true`), never the root, and both ends are
+        resolved and containment-checked like every other workspace op."""
+        import shutil
+
+        root, err = self._workspace_root(params)
+        if root is None:
+            return {"ok": False, "error": err}
+        src_rel = (params.get("from") or "").strip().strip("/")
+        dst_rel = (params.get("to") or "").strip().strip("/")
+        if not src_rel or not dst_rel:
+            return {"ok": False, "error": "from and to required"}
+        src = self._ws_resolve(root, src_rel)
+        dst = self._ws_resolve(root, dst_rel)
+        top = Path(root).resolve()
+        if src is None or dst is None or src == top or dst == top:
+            return {"ok": False, "error": "invalid path"}
+        if (params.get("root") or "").strip() == "definition":
+            refusal = self._definition_write_refusal((params.get("agentId") or "main").strip(), dst)
+            if refusal:
+                return {"ok": False, "error": refusal}
+        if not src.exists():
+            return {"ok": False, "error": "not found"}
+        overwrite = bool(params.get("overwrite"))
+        if dst.exists() and not overwrite:
+            return {"ok": False, "error": "exists"}
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "rel": dst_rel, "path": str(dst)}
 
     def _workspace_delete(self, params: dict) -> dict:
         """Delete ONE file or folder (recursive) inside the workspace. The root itself is

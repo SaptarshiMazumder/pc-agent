@@ -196,6 +196,44 @@ def _message_says(trace: Trace, args: dict) -> CheckResult:
     )
 
 
+@_check("tool_says")
+def _tool_says(trace: Trace, args: dict) -> CheckResult:
+    """A call to `tool` carried arguments matching a pattern — what the agent PUT IN a call.
+
+    The message check sees prose; this sees the structured half of the conversation. A price
+    quoted in an ask panel, a model named in an emitted graph, a plan step worded a required
+    way — none of those are text the agent said, all of them are arguments it sent, and a
+    scenario that could only assert prose would pass an agent that quoted nothing in the panel
+    and fail one that put the number exactly where the window shows it.
+
+    `tool` (required) names the call; `pattern` (required) is a regex, case-insensitive, run
+    over the call's arguments serialised as JSON.
+    """
+    import json as _json
+    import re as _re
+
+    name = str(args.get("tool") or "")
+    pattern = str(args.get("pattern") or "")
+    if not name or not pattern:
+        return CheckResult("tool_says", False, "tool and pattern required")
+    try:
+        rx = _re.compile(pattern, _re.I | _re.S)
+    except _re.error as e:
+        return CheckResult("tool_says", False, f"bad pattern: {e}")
+    calls = trace.tool_calls(name)
+    hits = [
+        i for i, c in enumerate(calls, 1)
+        if rx.search(_json.dumps(c.args, ensure_ascii=False, sort_keys=True, default=str))
+    ]
+    if not calls:
+        return CheckResult("tool_says", False, f"{name} never ran")
+    return CheckResult(
+        "tool_says", bool(hits),
+        f"{name} call(s) {hits} matched" if hits
+        else f"none of {len(calls)} {name} call(s) matched {pattern!r}",
+    )
+
+
 @_check("no_unrecovered_error")
 def _no_unrecovered_error(trace: Trace, args: dict) -> CheckResult:
     bad = [f for f in signals.holes(trace) if f.code == "tool_error" and f.severity == signals.PROBLEM]
@@ -225,6 +263,8 @@ _ARGS: dict[str, dict[str, str]] = {
     "call_order": {"first": "tool that must run first (required)",
                    "then": "tool that must not run before it (required)"},
     "tool_succeeded": {"tool": "tool name (required)"},
+    "tool_says": {"tool": "tool name (required)",
+                  "pattern": "regex the call's arguments (as JSON) must match (required)"},
     "produced_artifact": {"kind": "artifact kind: image / video / file (default: any)",
                           "file": "regex the artifact's file name must match (default: any)"},
     "max_turns": {"n": "maximum turn count (required)"},

@@ -45,6 +45,19 @@ export const chatFolder = (sessionKey: string): string =>
 export const chatDirFor = (kind: ChatDirKind, sessionKey: string): string =>
   `${kind}/${chatFolder(sessionKey)}`
 
+/** A chat file's WORKSPACE-RELATIVE path from the absolute one the daemon listed — the form
+ *  every workspace op takes. Null when the path is not inside one of this chat's three folders,
+ *  which is the fence: nothing outside them is ever named to delete or copy. */
+export function relOfChatFile(path: string, sessionKey: string): string | null {
+  const p = path.replace(/\\/g, '/')
+  for (const kind of CHAT_DIRS) {
+    const dir = `/${chatDirFor(kind, sessionKey)}/`
+    const at = p.indexOf(dir)
+    if (at >= 0) return p.slice(at + 1)
+  }
+  return null
+}
+
 const MEDIA: ArtifactKind[] = ['image', 'video', 'audio']
 
 /** One folder's files as artifacts. "not a directory" is the daemon's word for "nothing there

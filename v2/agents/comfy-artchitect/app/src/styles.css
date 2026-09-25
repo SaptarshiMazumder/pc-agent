@@ -715,10 +715,15 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* Image thumbnails open the full file on demand. Other media keeps its native player; documents
    are cards that open in a new tab. */
 .artifacts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
-.artifact-media { display: block; max-width: 100%; padding: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg3); cursor: zoom-in; }
+.artifact-media { position: relative; display: block; max-width: 100%; padding: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); background: var(--bg3); cursor: zoom-in; }
 .artifact-media:hover { border-color: var(--accent); }
 .artifact-media:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .artifact-media img, .artifact-media video { display: block; max-width: 100%; max-height: 340px; }
+/* SEVERAL RENDERS FROM ONE TURN SIT SIDE BY SIDE as a contact sheet, not a column of full-width
+   pictures: the stage's Outputs tab is where a render is looked at properly. A lone render keeps
+   its full size. */
+.artifacts:has(> .artifact-media + .artifact-media) > .artifact-media { width: calc((100% - 16px) / 3); max-width: 220px; }
+.artifacts:has(> .artifact-media + .artifact-media) > .artifact-media img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; max-height: none; }
 .artifact-media-fallback {
   display: flex; min-width: 180px; min-height: 120px; padding: 18px; align-items: center;
   justify-content: center; flex-direction: column; gap: 8px; color: var(--faint);
@@ -1439,30 +1444,49 @@ a.milestone-detail:hover { text-decoration: underline; }
 /* Deliberately heavier than a suggestion chip. Chips are an offer the user can ignore; this is a
    question the agent is WAITING on, and it decides what their run costs — so it reads as a card
    with a border and a warning-tinted edge, not as more prose. */
+/* THE PLAN CARD (creative-studio redesign): the same ask in a card of sections — a label and the
+   title in the head, one section per kind of question, and a foot with the running total and the
+   one button. Opaque (#130e1b, the ground lifted) so it reads as an object in the thread rather
+   than as more prose. */
 .approve {
-  display: flex; flex-direction: column; gap: 2px;
-  margin-top: 10px; padding: 12px 13px;
-  background: var(--bg2); border: 1px solid var(--border2);
-  border-left: 2px solid var(--warn); border-radius: var(--r-panel);
+  display: flex; flex-direction: column;
+  margin-top: 10px; padding: 0; overflow: hidden;
+  background: #130e1b; border: 1px solid var(--border2); border-radius: var(--r-card);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, .8);
 }
+.plan-card-head { padding: 14px 16px 10px; }
+.plan-card-label {
+  font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--accent-text); font-weight: 700;
+}
+.plan-card-sec { padding: 10px 16px 12px; border-top: 1px solid var(--row-line); }
+.plan-card-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-top: 1px solid var(--row-line); background: rgba(255, 255, 255, .03);
+}
+.plan-card-total { margin-right: auto; font-size: var(--fs-small); color: var(--faint); }
+.plan-card-total b { color: var(--accent-text); font-family: var(--mono); font-weight: 500; }
 .approve-head {
   margin: 0 0 8px; font-size: var(--fs-meta); line-height: 1.5;
   color: var(--dim); text-wrap: pretty;
 }
 .approve-row {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 8px 9px; border-radius: var(--r-control); cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 10px; border-radius: var(--r-control); cursor: pointer;
   border: 1px solid transparent; transition: background .12s, border-color .12s;
 }
+.approve-row + .approve-row { margin-top: 2px; }
 .approve-row:hover { background: var(--bg3); }
 .approve-row.is-on { background: var(--accent-soft); border-color: var(--accent-edge, var(--accent-soft)); }
-.approve-row input { flex: none; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
-.approve-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.approve-row input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.approve-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .approve-name { font-weight: var(--fw-semi); font-size: var(--fs-row); color: var(--text); }
-.approve-for { font-size: var(--fs-tiny); color: var(--faint); line-height: 1.45; text-wrap: pretty; }
+.approve-for { font-size: var(--fs-small); color: var(--dim); line-height: 1.45; text-wrap: pretty; }
+.approve-price { flex: none; font: 500 12px var(--mono); color: var(--accent-text); white-space: nowrap; }
+.approve-price.is-free { font-family: var(--sans); font-weight: var(--fw-semi); color: var(--ok); white-space: normal; text-align: right; max-width: 140px; }
 .approve-go {
-  align-self: flex-start; display: inline-flex; align-items: center; gap: 7px;
-  margin-top: 9px; padding: 7px 13px;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px;
   background: var(--prim-bg); color: var(--prim-ink);
   border: 0; border-radius: var(--r-control); cursor: pointer;
   font: inherit; font-size: var(--fs-control); font-weight: var(--fw-on-accent);
@@ -1502,10 +1526,13 @@ a.milestone-detail:hover { text-decoration: underline; }
 
 /* The ask (AskPanel) — `ask_user` drawn as checkboxes, answer boxes and a list, in the approve
    panel's clothes: `.approve-row`/`.approve-go` above are shared with it. */
-.ask-title { margin: 0 0 8px; font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); text-wrap: pretty; }
+.ask-title {
+  margin: 5px 0 0; font-family: var(--display); font-size: 19px; font-weight: 700;
+  letter-spacing: -0.01em; line-height: 1.25; color: var(--text); text-wrap: pretty;
+}
 .ask-section {
-  margin: 10px 0 4px; font-size: var(--fs-tiny); letter-spacing: .04em; text-transform: uppercase;
-  color: var(--faint);
+  margin: 0 0 6px; font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
 }
 .ask-q { display: flex; flex-direction: column; gap: 4px; padding: 6px 9px; }
 .ask-q-label { font-size: var(--fs-row); color: var(--text); text-wrap: pretty; }
@@ -1552,6 +1579,7 @@ a.milestone-detail:hover { text-decoration: underline; }
   justify-content: center;
 }
 .starter {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   /* FLUSH WITH THE COMPOSER ON BOTH EDGES. Centring the cluster was mathematically correct and
      read as indented: the chips floated in the middle of a box whose own left and right edges
      were 80px further out, so nothing lined up with anything.
@@ -1680,40 +1708,90 @@ a.milestone-detail:hover { text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) { .lp-auth { animation: none; } }
 
-.lp-steps {
-  display: grid; gap: 22px;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+/* ── the composer's @ picker: the Library's catalogue over the box ───────────────────────── */
+.mention {
+  position: absolute; left: 0; right: 0; bottom: 100%; z-index: 20;
+  margin-bottom: 6px; max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--border2); border-radius: var(--r-bubble); background: var(--pop);
+  box-shadow: var(--shadow-pop, 0 8px 24px rgba(0, 0, 0, .35));
+  display: flex; flex-direction: column; padding: 4px;
 }
-.lp-step { display: flex; flex-direction: column; gap: 8px; }
-.lp-step-n {
-  font: var(--fw-semi) 12px var(--mono);
-  color: var(--accent-text);
-  letter-spacing: 0.08em;
+.mention-note { padding: 8px 10px; font-size: var(--fs-small); color: var(--faint); }
+.mention-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left;
+  border: 0; border-radius: var(--r-sm, 6px); background: transparent; color: var(--text);
+  font: inherit; font-size: var(--fs-small); cursor: pointer;
 }
-.lp-step-t { margin: 0; font-size: 15px; font-weight: var(--fw-semi); letter-spacing: -0.01em; }
-.lp-step-b { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); text-wrap: pretty; }
+.mention-row:hover, .mention-row.on { background: var(--accent-soft); }
+.mention-name { font-family: var(--mono); }
+.mention-kind { font-size: var(--fs-tiny); color: var(--dim); }
+.mention-from { margin-left: auto; font-size: var(--fs-tiny); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
 
-.lp-note {
-  padding: 18px 20px;
-  border: 1px solid var(--border); border-radius: var(--r-panel);
-  background: var(--bg2);
-}
-.lp-note p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--dim); text-wrap: pretty; }
-.lp-note strong { color: var(--text); font-weight: var(--fw-semi); }
+/* The @ picker anchors to the composer box. */
+.composer { position: relative; }
 
-.lp-foot {
-  flex: none;
-  display: flex; flex-wrap: wrap; gap: 8px 18px;
-  width: 100%; max-width: 1080px; margin: 0 auto;
-  padding: 20px 24px calc(28px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--border);
-  font-size: 12.5px;
-}
-.lp-foot a { color: var(--faint); text-decoration: none; }
-.lp-foot a:hover { color: var(--text); text-decoration: underline; }
+/* ══ CREATIVE-STUDIO REDESIGN (Sep 2026) — the pieces it adds to the conversation ════════════ */
 
-@media (max-width: 640px) {
-  .lp-hero { padding-top: 34px; }
-  .lp-main { gap: 40px; padding-bottom: 40px; }
-  .lp-cta { width: 100%; }
+/* ── a run of tool calls, folded (StepsGroup) ─────────────────────────────────────────────── */
+.steps { margin: 6px 0; border: 1px solid var(--border); border-radius: var(--r-control); background: var(--bg2); overflow: hidden; }
+.steps.is-busy { border-color: var(--accent-edge); }
+.steps.is-error { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.steps-head {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 11px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: var(--fs-small); color: var(--dim); text-align: left;
 }
+.steps-head:hover { background: var(--bg3); }
+.steps-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.steps-ico { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--bg3); color: var(--ok); }
+.steps.is-busy .steps-ico { color: var(--accent); }
+.steps.is-error .steps-ico { color: var(--danger); }
+.steps-ico .spin { animation: st-spin 1s linear infinite; }
+.steps-label { flex: none; font-weight: var(--fw-semi); color: var(--text); }
+.steps-tool { flex: none; font-size: 11px; color: var(--faint); }
+.steps-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
+.steps-caret { flex: none; margin-left: auto; color: var(--faint); display: flex; }
+.steps-body { padding: 4px 8px 8px; border-top: 1px solid var(--row-line); display: flex; flex-direction: column; gap: 4px; }
+@keyframes st-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .steps-ico .spin { animation: none; } }
+
+/* ── the kind tag on a render in the thread ───────────────────────────────────────────────── */
+.artifact-kind { position: absolute; top: 8px; left: 8px; pointer-events: none; }
+
+/* ── the empty chat: prompt first ─────────────────────────────────────────────────────────── */
+/* NOTHING SAID YET, so the question, the box and the ways in sit together in the middle of the
+   window instead of the question floating at the top and the box pinned to the bottom edge. The
+   same elements as before; only where they sit changes. */
+.st-cols.is-solo .st-convo-body { flex: 0 0 auto; margin-top: auto; }
+.st-cols.is-solo .opening { flex: none; padding-bottom: 6px; }
+.st-cols.is-solo .st-convo-foot { border-top: 0; margin-bottom: auto; padding-bottom: 40px; }
+.st-cols.is-solo .opening-headline { max-width: none; }
+.st-cols.is-solo .composer {
+  border-color: var(--border-strong);
+  box-shadow: 0 30px 90px -30px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 0 6px color-mix(in srgb, var(--glow-1) 30%, transparent);
+}
+.st-cols.is-solo .composer:focus-within { border-color: var(--accent); }
+
+/* ── Start from your Library (StarterWorkflows) ───────────────────────────────────────────── */
+.sw { width: 100%; max-width: 720px; margin: 28px auto 0; }
+.sw-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.sw-title { font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--faint); font-weight: 700; }
+.sw-sub { font-size: var(--fs-small); color: var(--faint); }
+.sw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.sw-card {
+  display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-card); background: var(--bg2);
+  transition: border-color var(--dur-base) ease;
+}
+.sw-card:hover { border-color: var(--accent-edge); }
+.sw-ico { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
+.sw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sw-name { font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-meta { font-size: var(--fs-small); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-run {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px;
+  border: 0; border-radius: 9px; background: var(--prim-bg); color: var(--prim-ink);
+  font: inherit; font-size: var(--fs-small); font-weight: var(--fw-on-accent); cursor: pointer;
+}
+.sw-run:hover { background: var(--prim-bg-h); }
+.sw-run:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

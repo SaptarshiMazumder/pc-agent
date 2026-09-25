@@ -87,7 +87,7 @@ exe = true                         # false = skip the standalone Windows install
 [tools]
 allow = ["read", "write", "exec", "process", "report_outcome"]
 deny  = ["computer_use"]           # deny always wins
-# `exec` and `process` are a PAIR — see "Long-running work" below. validate_agent reports it
+# `exec` and `process` are a PAIR — see "Running commands" below. validate_agent reports it
 # if you grant one without the other.
 
 # ---- write scope (omit for almost every agent — the default is right) ----
@@ -236,11 +236,9 @@ Reading the value in a private tool: it is an ordinary environment variable, so
 `[sandbox] secrets = ["COINBASE_API_KEY"]` in that plugin's `plugin.toml` and the
 `${COINBASE_API_KEY}` placeholder — see "Calling an external API from a private tool".
 
-**Custom settings still make an agent local-only for now.** The values are per-agent rather than
-per-account, and a hosted daemon runs one copy of an agent for everybody — so one user's key would
-still become everyone's. Moving them out of the shared `.env` fixed the collision BETWEEN agents,
-not the one between accounts. Until per-account secrets exist, an agent with `[[settings]]` is for
-a local install. Say so when you build one.
+**Settings are per account.** On a hosted daemon each signed-in user fills in their own values and
+the daemon keeps them apart — one user's key never reaches another's run. An agent with
+`[[settings]]` ships to the web like any other.
 
 ### `agent.config.json` — the config that ships WITH your agent
 
@@ -350,18 +348,24 @@ Two reasons this matters more than it sounds:
 ### `requires_local` — when an agent must not run on a shared server
 
 The same daemon runs on a desktop (one owner, their own machine) and hosted (many strangers, one
-container). An agent that runs a shell, writes outside its workspace, or loads code into the
-process is the owner exercising their own computer in the first case and a visitor reaching into
-everyone else's files in the second.
+server). A few things are the owner exercising their own computer on a desktop and a visitor
+reaching into everyone else's files on a server — those, and only those, make an agent local:
+
+- writing outside its own folder (`[tools.fs] write_roots` beyond `<agent_dir>`)
+- loading its own code into the daemon's process
+- a stdio `[[mcp]]` server, which launches a program on the daemon's machine (a URL server is fine)
+- an OAuth callback to a loopback URL, which only resolves on a desktop
+- the owner's own local files, apps or hardware
 
 Set `requires_local = true` when the agent needs any of that. A hosted daemon then does not offer
 it **at all** — absent from the roster, unresolvable, no app served, its private tools never
 discovered. Nothing to bypass, because there is nothing there.
 
-Use it for an agent that needs `exec`, unsandboxed `write`, or its own code-loading tools. Do NOT
-use it as a general precaution: an agent that only chats, reads its workspace, and calls models is
-fine hosted, and marking it local-only just hides it from half your users. Agent Builder itself
-declares it, for exactly the reason above.
+**Running commands is NOT on that list.** A hosted daemon runs every agent's commands in a sandbox
+(see "Running commands" below), so an agent that needs `terraform`, `git` or a script ships to the
+web. Do NOT use `requires_local` as a general precaution either: marking an agent local-only just
+hides it from everyone on the web. Agent Builder itself declares it, because it writes other
+agents' folders.
 
 ### Design for hosted — the four facts that shape a shippable agent
 
@@ -373,10 +377,9 @@ you may design around:
    agent's definition dirs (`templates/`, `skills/`, `plugins/`, `ui/`, data dirs), and the
    shared catalog. Nothing else — no other agents' folders, no absolute machine paths, no
    other users' files, never any `sessions/`. Design every file access inside that set.
-2. **There is no shell.** Every hosted run refuses `exec` (a subprocess cannot be confined
-   to one tenant's files). Everything must be expressible with read/write/edit/ls/find +
-   plugin tools. If the job truly needs a shell, it is a `requires_local` agent — and then
-   `web = true` is a contradiction (validate_agent flags both).
+2. **Commands run in a sandbox, never on the server itself.** `exec` works hosted, but a
+   foreground command runs on a fresh throwaway machine and a background one is locked to the
+   user's own files. That changes how commands must be written — see "Running commands".
 3. **`workspace/` is per-user and starts EMPTY.** Every signed-in user gets their own,
    blank. Anything the agent NEEDS at runtime ships in a definition dir and is read from
    there in place; seed a user's workspace by copying on first use, in-turn, if you must.
@@ -388,32 +391,78 @@ you may design around:
 None of this needs a mode check in anything you author — the same agent runs on desktop
 with no fence at all. Design within the fence and the agent behaves identically everywhere.
 
-### Long-running work — grant `exec` and `process` together
+### Running commands — `exec` and `process`
 
-An agent has no timer and does not run between turns. Nothing can wake it up. So there are
-exactly two ways to handle something slow — a download, a render, a training run:
+An agent that needs a command-line tool — a CLI, `git`, a build, a script — gets `exec`, and it
+works on the web. Where the command runs depends on where the agent runs:
 
-```
-BAD    exec("sleep 90; check")     blocks the whole turn, shows no output for 90s,
-                                    and dies at the exec timeout
-GOOD   exec(command=..., background=true)   -> returns a session id, immediately
-       process(action="poll", session_id=...) -> "[running] …new output" | "[exited(0)]"
-```
+| | desktop | hosted |
+|---|---|---|
+| `exec` | the owner's own machine and shell | a **fresh, throwaway Linux machine** made for that one command. The agent's own files are copied in and its changes copied back |
+| `exec(background=true)` + `process` | the owner's own machine | the server, **locked to this user's own files** — nothing else on the server can be opened |
 
-`exec`'s own description points the model at `process`. **If you grant `exec`, grant
-`process`** — otherwise `background=true` hands back a session id that nothing can read, and
-the agent's only remaining option is to block a turn on a sleep.
+Write for the hosted column — that is where a web agent's commands run, and a command written
+for it also works on a Linux or macOS desktop, so nothing you author needs a mode check:
 
-This is not theoretical. An agent built here was given `exec` without `process`, then had to
-babysit a 20GB download: it ran `Start-Sleep -Seconds 90; ssh …` over and over, showed the
-user nothing for 90 seconds at a time, and tripped the runtime's "you are repeating yourself"
-nudge. It was reasoning correctly about a toolbox missing half a pair.
+1. **Almost nothing is installed.** A hosted command starts on a blank Linux machine with `sh`,
+   `bash`, `tar`, `gzip`, Python 3 and `pip` — and nothing else: no `curl`, `wget`, `unzip`,
+   `git` or `node`. The command installs what it needs at its own top, pinned to an exact
+   version, into scratch space, and uses it in the SAME command. Python does the fetching:
 
-**And write the rule into the agent's own `AGENTS.md`**, not just here. This skill is read
-while you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Something like:
+   ```
+   set -e
+   T="${TMPDIR:-/tmp}/tools"; mkdir -p "$T"
+   python3 - "$T" <<'PY'
+   import io, sys, urllib.request, zipfile
+   zipfile.ZipFile(io.BytesIO(urllib.request.urlopen("<pinned release url>").read())).extractall(sys.argv[1])
+   PY
+   chmod +x "$T/<tool>"
+   "$T/<tool>" <args>
+   ```
 
-> Long jobs: start them with `exec(background=true)` and poll with `process`. Never `sleep`
-> inside a foreground `exec` — it blocks the turn and shows the user nothing.
+   A tool published as a Python package is shorter still:
+   `pip install --quiet --target "$T" <package>==<version>`, then run it as
+   `PYTHONPATH="$T" "$T/bin/<tool>" <args>` — without `PYTHONPATH` it cannot find its own code.
+
+   Never ask the user to install anything, and never assume a tool exists because it did on
+   your machine. Write the command for Linux `sh`: a Windows desktop runs `cmd`, so test a web
+   agent's commands against the hosted column, not against your own box.
+2. **Every `exec` is its own machine.** The agent's workspace is copied in before the command
+   and its changes are copied back after; nothing else survives between two calls. So anything
+   that must persist — a state file, a lockfile, a generated config — lives in the workspace.
+   Anything bulky and re-creatable — downloaded tools, dependency folders, caches — goes in
+   scratch space: the workspace travels on every call, and a folder of dependencies in it makes
+   every command slow, or too big to copy at all.
+3. **Fifteen minutes, then it is killed.** A hosted foreground command has a hard 15-minute
+   limit. Anything that can run longer goes in the background.
+4. **Background commands run somewhere else.** They run on the server, not on the throwaway
+   machine, so a tool a foreground command installed is not there: a background command
+   installs its own, the same way. They have no time limit and keep running between turns.
+   Their scratch space is `$TMPDIR`; `/tmp` is not writable there.
+5. **Grant `exec` and `process` together.** An agent has no timer and does not run between
+   turns — nothing can wake it up. So something slow has exactly one good shape:
+
+   ```
+   BAD    exec("sleep 90; check")     blocks the whole turn, shows no output for 90s,
+                                       and dies at the exec timeout
+   GOOD   exec(command=..., background=true)   -> returns a session id, immediately
+          process(action="poll", session_id=...) -> "[running] …new output" | "[exited(0)]"
+   ```
+
+   Without `process`, `background=true` hands back a session id that nothing can read, and the
+   agent's only remaining option is to block a turn on a sleep. That is not theoretical: an
+   agent built here was given `exec` without `process`, then babysat a 20GB download with
+   `Start-Sleep -Seconds 90; ssh …` over and over, showing the user nothing, until the runtime's
+   "you are repeating yourself" nudge fired. It was reasoning correctly about a toolbox missing
+   half a pair.
+
+**Write these rules into the agent's own `AGENTS.md`**, not just here. This file is read while
+you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Something like:
+
+> Commands: each `exec` starts on a blank machine — install pinned tools at the top of the
+> command and use them in the same call; keep anything that must persist in the workspace.
+> Long jobs: start them with `exec(background=true)` and poll with `process`; a background
+> command installs its own tools. Never `sleep` inside a foreground `exec`.
 
 **Polling still costs a turn.** Nothing arrives on its own, so between polls the agent should
 do useful work, not spin. If a job runs for hours, the right shape is usually a `cron` or

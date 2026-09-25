@@ -145,13 +145,6 @@ def test_wide_write_roots_is_flagged_and_self_scope_is_not():
     assert _portability({}) == set()
 
 
-def test_exec_on_a_web_delivery_is_flagged():
-    raw = {"delivery": {"web": True}, "tools": {"allow": ["read", "exec", "process"]}}
-    assert "EXEC_ON_WEB" in _portability(raw)
-    assert "EXEC_ON_WEB" not in _portability({"tools": {"allow": ["exec"]}})  # no web delivery
-    assert "EXEC_ON_WEB" not in _portability({"delivery": {"web": True}})  # no shell granted
-
-
 def test_web_plus_requires_local_is_a_contradiction():
     assert "WEB_REQUIRES_LOCAL" in _portability(
         {"delivery": {"web": True}, "requires_local": True}
@@ -190,7 +183,7 @@ def test_the_policy_rows_that_guard_something():
     # builder-grade reach ships nowhere, side-loads included
     assert "WIDE_WRITE_ROOTS" in pack and "WIDE_WRITE_ROOTS" in publish
     # web deliveries that cannot work refuse at the listing gate
-    assert {"EXEC_ON_WEB", "WEB_REQUIRES_LOCAL"} <= publish
+    assert "WEB_REQUIRES_LOCAL" in publish
     # the four sandbox certainties still block both, as before the table existed
     for code in (
         "UNTRUSTED_WANTS_SECRETS",

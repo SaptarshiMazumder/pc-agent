@@ -13,11 +13,12 @@
  * owns that branch — the same split agentd makes in ChatView.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ThreadItem } from '../agentd/chat'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import MessageItem from './MessageItem'
+import { isFoldableStep, StepsGroup } from './StepsGroup'
 import { Thinking } from './Thinking'
 
 export function Thread({
@@ -25,9 +26,13 @@ export function Thread({
   running,
   onSuggest,
   onDecide,
+  after,
 }: {
   items: ThreadItem[]
   running: boolean
+  /** Drawn after the last item while nothing runs — the window's own offer under a finished
+   *  turn (the Save to Library chips). The thread stays ignorant of what it is. */
+  after?: ReactNode
   /** Send a suggested next action. Passed to every bot message so its chips can fire. */
   onSuggest?: (prompt: string) => void
   /** Sends a paid-service verdict — see MessageItem. */
@@ -105,15 +110,33 @@ export function Thread({
    */
   const rendered: ReactElement[] = []
   let lastTs: number | undefined
-  items.forEach((item, i) => {
-    if (item.ts && (!lastTs || !sameDay(item.ts, lastTs))) {
+  const dayMark = (ts: number | undefined, key: string): void => {
+    if (ts && (!lastTs || !sameDay(ts, lastTs))) {
       rendered.push(
-        <div key={`day-${i}`} className="msg-system">
-          {dayLabel(item.ts)}
+        <div key={key} className="msg-system">
+          {dayLabel(ts)}
         </div>,
       )
     }
-    if (item.ts) lastTs = item.ts
+    if (ts) lastTs = ts
+  }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    /* A RUN OF PLAIN TOOL CALLS IS ONE BLOCK (StepsGroup): folded, with the live step on its
+       header, every call drawn exactly as before once opened. */
+    if (isFoldableStep(item)) {
+      let j = i
+      while (j < items.length && isFoldableStep(items[j])) j++
+      const run = items.slice(i, j) as Parameters<typeof StepsGroup>[0]['items']
+      dayMark(run[0].ts, `day-${i}`)
+      for (const t of run) if (t.ts) lastTs = t.ts
+      rendered.push(
+        <StepsGroup key={`steps-${i}`} items={run} running={running} onSuggest={onSuggest} onDecide={onDecide} />,
+      )
+      i = j - 1
+      continue
+    }
+    dayMark(item.ts, `day-${i}`)
     rendered.push(<MessageItem
         key={i}
         item={item}
@@ -129,14 +152,16 @@ export function Thread({
             : undefined
         }
       />)
-  })
+  }
 
   // Shown while the run has nothing to say YET — before the first token, and through every tool
   // call. Once prose is streaming the caret is already proof of life, and a second indicator under
   // it would just be noise.
   const last = items[items.length - 1]
   const streamingProse = last?.kind === 'bot' && last.streaming
-  const working = running && !streamingProse
+  /* A FOLDED STEP THAT IS RUNNING already says so on its own header, with the live line; the
+     three dots under it would be a second spinner for the same fact. */
+  const working = running && !streamingProse && !(last?.kind === "tool" && isFoldableStep(last) && !last.done)
 
   return (
     <div className="thread-wrap">
@@ -157,6 +182,7 @@ export function Thread({
         <div className="thread-inner" ref={innerRef}>
           {rendered}
           {working && <Thinking />}
+          {!running && items.length > 0 && after}
         </div>
       </div>
 

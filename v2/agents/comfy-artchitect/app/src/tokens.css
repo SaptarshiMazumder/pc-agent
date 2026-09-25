@@ -81,6 +81,16 @@
      because this palette's accent already reads as "live". */
   --ok: var(--accent);
 
+  /* ── media kinds. An output is told apart by kind — a still, a clip, a reusable workflow —
+     wherever it is shown, and always by word as well as colour. Workflows reuse the accent. */
+  --img: var(--warn);
+  --img-soft: color-mix(in srgb, var(--img) 14%, transparent);
+  --vid: #b9a4ff;
+  --vid-soft: color-mix(in srgb, var(--vid) 14%, transparent);
+  /* A control's boundary that has to be SEEN (a drop target, the composer) — louder than the
+     decorative --border2 that separates cards. */
+  --border-strong: color-mix(in srgb, var(--text) 22%, transparent);
+
   /* ── ambient light. Off by default: a glow is a theme's decision, and one that is always on
      costs paint time on every scroll for nothing. ────────────────────────────────────────── */
   --glow-1: transparent;

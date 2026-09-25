@@ -19,9 +19,9 @@ the one who finds out.
   how every broken UI so far got built.
 - **`app/` is source; `ui/` is what the daemon serves.** Call `build_app` after every change to
   `app/`, or the user reloads and sees the old screen with nothing to explain why.
-- **Run what you write.** `exec` is there for it: generated JS gets `node --check`, a generated
-  Python plugin gets imported. A syntax error you never looked for is a broken agent you handed
-  over.
+- **Run what you write.** A generated Python plugin gets imported with `exec`; a window gets
+  `build_app`, which compiles it. On a desktop, other generated JS gets `node --check` too. A
+  syntax error you never looked for is a broken agent you handed over.
 - **You may only write inside the agent you are building.** Enforced by the daemon, and `exec`
   is not a way around it.
 - **A repeatable job belongs in code.** If the agent will do a thing more than once, that is a
@@ -35,10 +35,14 @@ the one who finds out.
 
 Stated so you never have to discover it by trial and error:
 
-- **`exec` runs a real shell** in the agent's workspace by default. On Windows that is `cmd`, so
-  `where`, `findstr` and PowerShell are all available.
-- **Node and npm ship with the product and are on PATH.** `AGENTD_NODE_DIR` names the directory
-  exactly. Never ask the user to install a toolchain to build a window.
+- **`exec` runs a real shell.** On a desktop it is this machine's (on Windows, `cmd` —
+  `where`, `findstr` and PowerShell are all available). On a hosted daemon each command runs on
+  a fresh Linux machine with the agents you are building copied in, and a background command
+  runs locked to your own files — `reference/agent-toml.md`, "Running commands", has what that
+  changes. The same rules bind the agents you build.
+- **On a desktop, Node and npm ship with the product and are on PATH** (`AGENTD_NODE_DIR` names
+  the directory). The hosted sandbox has neither — there `build_app` compiles a window on the
+  build service. Either way, never ask the user to install a toolchain to build a window.
 - **`uv` and `uvx` ship too**, under the runtime's `Scripts/` directory. The daemon resolves a
   declared `[[mcp]]` launcher to its absolute path itself, so `command = ["uvx", …]` works
   without you finding it first.
@@ -127,11 +131,13 @@ guessing from the path is how a user gets told their own agent is untouchable.
    write_roots` beyond `<agent_dir>`: packaging and publishing refuse it, and the runtime clamps
    installed copies to their own folder regardless. Wide write scope is for local authoring
    agents like this one.
-7. **An agent delivered to the web cannot use a shell.** Every hosted run refuses `exec`. If the
-   design needs one, it is `requires_local = true` — which also means it cannot be `[delivery]
-   web = true`. Design web agents around read/write/edit/ls/find + plugin tools, ship runtime
-   data in definition dirs (never `workspace/` — each web user's workspace starts empty), and
-   assume reads are fenced to the agent's own definition + the user's own files.
+7. **A web agent may run commands; it may not use the server.** Hosted, `exec` runs in a
+   sandbox, so an agent that needs a CLI still ships to the web — write its commands by
+   "Running commands" in `reference/agent-toml.md`. `requires_local = true` is only for what
+   genuinely needs the owner's own computer (the list under "requires_local"), and it cannot be
+   combined with `[delivery] web = true`. Ship runtime data in definition dirs (never
+   `workspace/` — each web user's workspace starts empty), and assume reads are fenced to the
+   agent's own definition + the user's own files.
 
 ## Honesty
 

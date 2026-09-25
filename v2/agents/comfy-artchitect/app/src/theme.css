@@ -34,6 +34,9 @@
 @import '@fontsource/plus-jakarta-sans/latin-700.css';
 @import '@fontsource/plus-jakarta-sans/latin-800.css';
 @import '@fontsource/jetbrains-mono/latin-400.css';
+/* The headline face (creative-studio redesign): titles and marketing only, never body copy. */
+@import '@fontsource/bricolage-grotesque/latin-700.css';
+@import '@fontsource/bricolage-grotesque/latin-800.css';
 
 :root {
   color-scheme: dark;
@@ -77,6 +80,13 @@
   --danger-soft: rgba(240, 150, 190, 0.13);
   --warn: #f0c98b;
 
+  /* ── media kinds: images take the theme's warm gold, video a lavender drawn from the glow. */
+  --img: #f0c98b;
+  --img-soft: rgba(240, 201, 139, 0.13);
+  --vid: #c9b6ff;
+  --vid-soft: rgba(201, 182, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
   /* ── ambient light. The two glows the window sits in; off in the defaults. ─────────────── */
   --glow-1: rgba(140, 64, 205, 0.30);   /* corner */
   --glow-2: rgba(226, 248, 78, 0.10);   /* inside a panel */
@@ -104,7 +114,7 @@
      they are, the fallbacks carry it. ───────────────────────────────────────────────────── */
   --sans: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --display: var(--sans);
+  --display: 'Bricolage Grotesque', 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
 
   --fs-hero: 52px;        /* the opening screen's headline */
   --fs-display: 25px;     /* page title */

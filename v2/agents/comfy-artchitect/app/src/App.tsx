@@ -26,7 +26,8 @@ import {
   Menu,
   PanelLeft,
   PanelRight,
-  Workflow as WorkflowIcon,
+  Images,
+  Library,
   Info,
   Mail,
 } from 'lucide-react'
@@ -51,21 +52,30 @@ import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
 import { StarterPrompts } from './components/StarterPrompts'
+import { StarterWorkflows } from './components/StarterWorkflows'
 import { Thread } from './components/Thread'
 
 /* THIS AGENT'S OWN SCREEN, in place of the scaffold's sample widgets. It reads the artifacts the
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
-import MyCreations from './components/creations/MyCreations'
+import Gallery from './components/creations/Gallery'
+import { LibraryPage } from './components/library/LibraryPage'
 import PolicyPage from './components/policies/PolicyPage'
 import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
+import { SaveToLibraryChips } from './components/library/SaveToLibraryChips'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 import { referencesReadyInstruction, useReferenceSlots } from './agentd/reference-slots'
-import { mergeFiles, useChatWorkspaceFiles } from './agentd/workspace-files'
+import { readIndex, saveFromChat, useWorkflowMessage, type LibraryItem } from './agentd/library'
+import {
+  applyApprovedDeletions,
+  mergeFiles,
+  relOfChatFile,
+  useChatWorkspaceFiles,
+} from './agentd/workspace-files'
 
 import Credits from './common/credits/Credits'
 import LiveReload from './common/dev/LiveReload'
@@ -77,17 +87,17 @@ import OrgView from './common/orgs/OrgView'
    Edit these four lines and the four cards below; they are the first thing anyone reads, and the
    default text says nothing because only you know what this agent is for. */
 const AGENT_NAME = 'Comfy Penguin'
-const OPENING_HEADLINE = 'What should we build?'
+const OPENING_HEADLINE = 'What are we making?'
 /* NO EYEBROW ABOVE THE HEADLINE. It read "Point me at your ComfyUI", which asked the visitor for
    a setup step before it had told them what they were setting up.
 
-   THE BLURB SAYS WHOSE HARDWARE RUNS THE GRAPH, because that is the first thing a visitor wants
-   to know and the policy pages say the same: the platform rents the GPU, the visitor brings
-   nothing. It used to say "your instance" and "your box", which was the opposite of true. */
+   THE BLURB SELLS THE OUTCOME, then the keeper (creative-studio redesign): an image or a video,
+   made by whichever model suits it, and a workflow that runs it again. It still says nothing is
+   needed from the person — the platform rents the GPU — without leading with the plumbing. */
 const OPENING_BLURB =
-  'Tell me what to make. I rent a GPU for you, set ComfyUI up on it, design the graph, run it, ' +
-  'and repair whatever the server rejects until the result is right. You get the images, the ' +
-  'workflow file, and an installer to run it on a ComfyUI of your own.'
+  'An image, a video, a whole shoot. Describe it and add a photo if you have one — I pick the ' +
+  'model, set it up on a cloud GPU, and fix whatever breaks. You keep the results and the ' +
+  'workflow, to run again in one click or in your own ComfyUI.'
 
 
 export default function App() {
@@ -120,7 +130,7 @@ export default function App() {
   /* NO 'settings'. The page is gone (see the rail), so the view it named renders nothing --
      and leaving it here would have made `main` fall through to an empty screen rather than to
      the studio if anything ever set it. */
-  const isStudio = !['credits', 'orgs', 'creations', 'about', 'contact'].includes(view)
+  const isStudio = !['credits', 'orgs', 'creations', 'library', 'about', 'contact'].includes(view)
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -157,8 +167,7 @@ export default function App() {
   const session = useSession()
   const sessions = useApp((s) => s.sessions)
 
-  const { send, abort, addFiles, removeFile, addReference, flushReferences, requestDeletion } =
-    useRun(client)
+  const { send, abort, addFiles, removeFile, addReference, flushReferences } = useRun(client)
 
   // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
   // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
@@ -252,6 +261,61 @@ export default function App() {
     },
     [addReference, slots],
   )
+
+  /* THE RAIL'S TWO ACTIONS ON A SELECTION, and the Library's two doors into a chat.
+     Delete goes straight to the daemon after the one warning the rail shows (the agent's
+     comfy_delete stays for the case where the person asks in the conversation). Add to Library
+     copies on the daemon's disk into the shared folder, with this chat's title as the caption.
+     Use hands a workflow to the agent, which brings it in with library_use so its slots are
+     recorded; Run again starts a fresh conversation seeded with the same ask. */
+  const chatTitleOf = useCallback((key: string): string => {
+    const row = useApp.getState().chats.find((c) => c.sessionId === key)
+    return row?.title || 'a conversation'
+  }, [])
+  const onDeleteFiles = useCallback(
+    async (paths: string[]) => {
+      if (!client) throw new Error('not connected')
+      const rels = paths.map((p) => relOfChatFile(p, currentKey)).filter((r): r is string => !!r)
+      await applyApprovedDeletions(client, rels)
+      useApp.getState().bumpWorkspace()
+    },
+    [client, currentKey],
+  )
+  const onAddToLibrary = useCallback(
+    async (paths: string[]): Promise<string> => {
+      if (!client) throw new Error('not connected')
+      const chosen = files
+        .filter((a) => paths.includes(a.path))
+        .map((a) => ({ rel: relOfChatFile(a.path, currentKey) || '', name: a.name, kind: a.kind, path: a.path }))
+        .filter((f) => f.rel)
+      const added = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
+      useApp.getState().bumpWorkspace()
+      return added.length === 1
+        ? `Added ${added[0].name} to the Library`
+        : `Added ${added.length} items to the Library`
+    },
+    [client, files, currentKey, chatTitleOf],
+  )
+  /* USING A WORKFLOW FILLS THE BOX, IT DOES NOT SEND. The person may want to add to the ask
+     (which slots, what to change) before the agent brings it in. */
+  const onUseWorkflow = useCallback((item: LibraryItem) => {
+    useApp.getState().seedComposer(useWorkflowMessage(item))
+  }, [])
+  const onUseWorkflowInNewChat = useCallback((item: LibraryItem) => {
+    const { newSession, seedComposer } = useApp.getState()
+    newSession(true)
+    setView('chat')
+    seedComposer(useWorkflowMessage(item))
+  }, [setView])
+  const onRunAgain = useCallback((item: LibraryItem) => {
+    const { newSession, seedComposer } = useApp.getState()
+    newSession(true)
+    setView('chat')
+    seedComposer(
+      `Run my Library workflow "${item.name}" (id ${item.id}) again: bring it in with library_use, ` +
+        `keep its settings, then validate it, price it and ask. I'll fill the slots.`,
+    )
+  }, [setView])
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */
   const latestWorkflow = useMemo(() => {
@@ -626,7 +690,7 @@ export default function App() {
         {isStudio && !solo && (
           <button
             className="st-drawer-btn mobile-bar-end"
-            aria-label="Open workspace"
+            aria-label="Open outputs, workflow and files"
             aria-expanded={drawer === 'workspace'}
             onClick={(e) => openDrawer('workspace', e)}
           >
@@ -657,7 +721,8 @@ export default function App() {
         /* A SCREEN OF THIS AGENT'S OWN, above the shared three. What this agent makes is FILES,
            and files are the one thing a conversation is a bad container for. */
         extraDestinations={[
-          { id: 'creations', label: 'My creations', icon: <WorkflowIcon size={15} /> },
+          { id: 'creations', label: 'Gallery', icon: <Images size={15} /> },
+          { id: 'library', label: 'Library', icon: <Library size={15} /> },
         ]}
         /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
            from the shipped HTML files (components/policies), which stay readable with no
@@ -688,7 +753,7 @@ export default function App() {
              (agentd/chat-library.ts) and needs the chat list only for the section titles.
              Opening a section switches to that conversation — the studio branch below then
              loads its transcript, the same as a click in the rail. */
-          <MyCreations
+          <Gallery
             client={client ?? undefined}
             chats={chats}
             workspaceVersion={workspaceVersion}
@@ -696,6 +761,18 @@ export default function App() {
               useApp.getState().openSession(key)
               setView('chat')
             }}
+          />
+        ) : view === 'library' ? (
+          /* THE LIBRARY, full page. The same panel the stage's Library tab shows; "Use in new
+             chat" opens a fresh conversation with the workflow's ask in the box, unsent. */
+          <LibraryPage
+            client={client ?? undefined}
+            sessionKey={currentKey}
+            slots={slots}
+            running={session.running}
+            workspaceVersion={workspaceVersion}
+            onUseWorkflow={onUseWorkflowInNewChat}
+            onRunAgain={onRunAgain}
           />
         ) : view === 'about' ? (
           <PolicyPage key="about" start="about.html" />
@@ -770,6 +847,14 @@ export default function App() {
                     /* A ticked-boxes verdict SENDS. The user already made the deliberate choice
                        in the checkboxes; asking them to press Enter afterwards asks twice. */
                     onDecide={(reply) => void send(reply)}
+                    after={
+                      <SaveToLibraryChips
+                        client={client ?? undefined}
+                        files={files}
+                        sessionKey={currentKey}
+                        chatTitle={chatTitleOf(currentKey)}
+                      />
+                    }
                   />
                 )}
               </div>
@@ -782,6 +867,7 @@ export default function App() {
                   onSend={(text) => void send(text)}
                   onAbort={() => void abort()}
                   onFiles={(files) => void addFiles(files)}
+                  library={client ? () => readIndex(client).then((i) => i.items) : undefined}
                   onRemoveFile={removeFile}
                   credits={credits}
                   onCredits={() => setView('credits')}
@@ -800,6 +886,15 @@ export default function App() {
                 {/* UNDER THE BOX, and only while there is nothing to read. Once a conversation
                     exists these are noise competing with the agent's own `suggest` chips. */}
                 {empty && !loadingHistory && <StarterPrompts onPick={seedComposer} />}
+                {/* THE SAVED WORKFLOWS, on an empty chat only — "run it again" at the moment a
+                    person is about to start something. Renders nothing when none are kept. */}
+                {empty && !loadingHistory && (
+                  <StarterWorkflows
+                    client={client ?? undefined}
+                    workspaceVersion={workspaceVersion}
+                    onRunAgain={onRunAgain}
+                  />
+                )}
               </div>
             </div>
 
@@ -816,7 +911,7 @@ export default function App() {
                   tabIndex={-1}
                   role={drawer === 'workspace' ? 'dialog' : undefined}
                   aria-modal={drawer === 'workspace' ? true : undefined}
-                  aria-label={drawer === 'workspace' ? 'Workspace' : undefined}
+                  aria-label={drawer === 'workspace' ? 'Studio panel' : undefined}
                 >
                 <StudioDashboard
                   client={client ?? undefined}
@@ -827,9 +922,14 @@ export default function App() {
                   freeReferences={free}
                   onAddReference={onAddReference}
                   referencesDisabled={!connected}
-                  onRequestDeletion={(paths) => void requestDeletion(paths)}
-                  /* Not mid-run: a delete request landing between an emit and its run is the
-                     one case worth refusing outright, so it waits rather than queues. */
+                  onDeleteFiles={onDeleteFiles}
+                  onAddToLibrary={onAddToLibrary}
+                  sessionKey={currentKey}
+                  workspaceVersion={workspaceVersion}
+                  onUseWorkflow={onUseWorkflow}
+                  onRunAgain={onRunAgain}
+                  /* Not mid-run: a delete landing between an emit and its run is the one case
+                     worth refusing outright, so it waits rather than queues. */
                   deletionDisabled={
                     !connected
                       ? 'Not connected to the daemon'

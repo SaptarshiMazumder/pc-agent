@@ -1,0 +1,34 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "@model" },
+    "_meta": { "title": "Influencer reference" }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "@garment" },
+    "_meta": { "title": "Exact jacket reference" }
+  },
+  "10": {
+    "class_type": "ByteDance2TextToVideoNode",
+    "inputs": {
+      "model": "seedance-2-5",
+      "prompt": "Photorealistic 9:16 social media fashion reel, 8 seconds. The exact woman from the person reference is wearing the exact jacket from the garment reference; preserve her face, hair, skin tone, identity, and the jacket's precise color, cut, material, seams, pockets, zipper, buttons, hardware, and fit throughout. Natural handheld phone-camera feel on a modern city street in soft daylight. She turns slightly toward a friend just off camera, lightly touches the jacket lapel and smiles. She says clearly and naturally: \"I'm obsessed with this jacket, it goes with everything.\" The friend is heard briefly off camera reacting with a warm laugh, but is not shown. Casual, natural, lightly playful delivery, realistic fabric movement, believable hands and mouth motion, synchronized spoken audio, no captions, no text, no extra logos, no cartoon look.",
+      "image_1": ["1", 0],
+      "image_2": ["2", 0],
+      "duration": 8,
+      "aspect_ratio": "9:16",
+      "resolution": "1080p"
+    },
+    "_meta": { "title": "8-second reels skit" }
+  },
+  "20": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": ["10", 0],
+      "filename_prefix": "jacket_influencer_reel",
+      "format": "mp4"
+    },
+    "_meta": { "title": "Save vertical reel" }
+  }
+}

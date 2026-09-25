@@ -24,6 +24,8 @@ from pathlib import Path
 
 from agent_runtime.application.run_context import current_run_context, current_workspace
 
+import chat_paths
+
 #: Newest-first caps. The dashboard shows a page of each; history beyond that is scrollback.
 _MAX_RUNS = 50
 _MAX_RENDERS = 60
@@ -337,12 +339,24 @@ def forget_validated(name: str) -> None:
         pass
 
 
+def _workflow_exists(name: str) -> bool:
+    """Is `<name>.api.json` still in this chat's workflows folder?"""
+    try:
+        return (chat_paths.chat_dir(Path(current_workspace(".") or "."), chat_paths.WORKFLOWS) / f"{name}.api.json").is_file()
+    except OSError:
+        return False
+
+
 def install_allowed(filename: str) -> tuple[bool, str]:
     """May `filename` be installed? Only if a validation in this conversation listed it."""
     if not _session():
         return True, ""
     want = (filename or "").strip().lower()
     for name, rec in _validations().items():
+        # A VALIDATION WHOSE WORKFLOW IS GONE AUTHORISES NOTHING. The window deletes files
+        # directly now (one warning), so a record can outlive its file; the file is the truth.
+        if not _workflow_exists(name):
+            continue
         if any(str(f).strip().lower() == want for f in rec.get("missing_files") or []):
             # NAMED BY A VALIDATION — and the ask has been answered. Installing is Phase 3; the
             # ask is 3.5. It does not matter that a download is free: it is the design being

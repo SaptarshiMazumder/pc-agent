@@ -600,18 +600,27 @@ class OversizeError(Exception):
 #: Never synced into a shell's microVM: build output and per-run data the command has no
 #: business reading, and which is most of the bytes. Measured on staging: an account's whole
 #: agent tree is 37 MB, and 1.7 MB once these are gone.
-_SHELL_SKIP_DIRS = frozenset({"ui", "sessions", "workspace", "node_modules", "__pycache__",
+AUTHORING_SKIP_DIRS = frozenset({"ui", "sessions", "workspace", "node_modules", "__pycache__",
                               ".git", ".vite", "dist"})
+
+#: What an agent's OWN workspace leaves behind when it is the synced tree. Much less than the
+#: authoring skip set above: here the workspace IS the point — its files, its `.git`, its build
+#: output are exactly what the command came to work on. Only dependency and bytecode caches stay
+#: home; a command that needs them installs them into scratch space, not the workspace.
+WORKSPACE_SKIP_DIRS = frozenset({"node_modules", "__pycache__"})
 
 
 async def run_shell(config, command: str, cwd: str, timeout_s: float,
-                    env: dict | None = None, sync_root: str = "") -> tuple[bool, str, dict]:
+                    env: dict | None = None, sync_root: str = "",
+                    skip_dirs: frozenset = AUTHORING_SKIP_DIRS) -> tuple[bool, str, dict]:
     """One shell command in a microVM, with the caller's own files synced through.
 
     `sync_root` is WHAT THE COMMAND CAN SEE — for the agent builder, the account's whole agent
     tree, because that is what it edits; the files it just wrote with `write` are the files its
-    next `python -c compile(...)` has to open. Falling back to `cwd` keeps the old behaviour for
-    anything else.
+    next `python -c compile(...)` has to open. For every other agent, its own workspace. The
+    caller picks both the root and `skip_dirs` together, because what counts as ballast depends
+    on which tree it is: a `workspace/` folder is noise inside the authoring tree and the whole
+    point when it is the root.
 
     PATHS ARE REWRITTEN, and they have to be: a Lambda's filesystem is read-only except /tmp, so
     the tree cannot be placed at its real absolute path. The command's text and the output are
@@ -632,8 +641,8 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
         raise ExecutorError(f"nothing to sync: {root!r} is not a directory")
     root_path = Path(root).resolve()
 
-    tree = backend._zip_dir(str(root_path), _SHELL_SKIP_DIRS)
-    before = _tree_manifest(root_path)          # to detect a daemon-side write underneath us
+    tree = backend._zip_dir(str(root_path), skip_dirs)
+    before = _tree_manifest(root_path, skip_dirs)          # to detect a daemon-side write underneath us
     slots = await backend._ask({"op": "presign", "workspace": True, "broker": False})
     await backend._upload(slots, b"", tree)
 
@@ -672,10 +681,10 @@ def _relative_or_empty(cwd: str, root: Path) -> str:
     return "" if str(rel) == "." else rel.as_posix()
 
 
-def _tree_manifest(root: Path) -> dict:
+def _tree_manifest(root: Path, skip_dirs: frozenset = AUTHORING_SKIP_DIRS) -> dict:
     out: dict = {}
     for f in root.rglob("*"):
-        if not f.is_file() or any(p in _SHELL_SKIP_DIRS for p in f.relative_to(root).parts):
+        if not f.is_file() or any(p in skip_dirs for p in f.relative_to(root).parts):
             continue
         try:
             st = f.stat()
