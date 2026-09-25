@@ -109,7 +109,13 @@ export function SaveToLibraryChips({
 
   return (
     <div className="keep">
-      <span className="keep-lead">Keep for later:</span>
+      {/* THE MOMENT TO KEEP IT. A finished run is when a result is judged worth repeating, so the
+          offer is phrased as the product's promise: a kept workflow runs again in one click. */}
+      <div className="keep-text">
+        <b>Keep this for next time</b>
+        <span>A saved workflow runs again in one click, from any chat. Renders are kept as assets.</span>
+      </div>
+      <div className="keep-chips">
       {wfChips.map((wf) => {
         const key = `wf:${wf.name}`
         const saved = done.has(key)
@@ -143,6 +149,7 @@ export function SaveToLibraryChips({
               : `Save ${unsavedRenders.length} render${unsavedRenders.length === 1 ? '' : 's'}`}
         </button>
       )}
+      </div>
       {error && <span className="keep-error">{error}</span>}
     </div>
   )

@@ -117,7 +117,7 @@ export function ReferenceSlots({
     >
       <header className="refs-head">
         <span className="refs-heading">
-          <span className="refs-title">References</span>
+          <span className="refs-title">Inputs</span>
           {slots.length > 0 && (
             <span className={`refs-count${filled < slots.length ? ' is-short' : ''}`}>
               {filled} of {slots.length}
@@ -135,7 +135,7 @@ export function ReferenceSlots({
           onDragLeave={() => setOver(null)}
         >
           <div className="refs-slot-text">
-            <span className="refs-role">@{s.role}</span>
+            <span className="refs-role">{s.role}</span>
             {s.what && <span className="refs-what">{s.what}</span>}
             {s.file ? (
               <button type="button" className="refs-file" onClick={() => onOpen(s.file as Artifact)}>

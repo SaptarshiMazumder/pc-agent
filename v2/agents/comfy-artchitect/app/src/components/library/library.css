@@ -48,8 +48,10 @@
 /* ── rows ─────────────────────────────────────────────────────────────────────────────────── */
 .lib-row {
   display: flex; align-items: center; gap: 10px; min-width: 0;
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm, 6px); background: var(--bg2);
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-control); background: var(--bg2);
+  transition: border-color var(--dur-base) ease;
 }
+.lib-row:hover { border-color: var(--border2); }
 .lib-ico {
   flex: none; display: grid; place-items: center; width: 26px; height: 26px;
   border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-text);
@@ -103,15 +105,45 @@
   font: inherit; font-size: var(--fs-tiny); text-decoration: underline; cursor: pointer;
 }
 
-/* ── the chips under a finished run: keep the workflow, keep the renders ────────────────── */
-.keep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
-.keep-lead { font-size: var(--fs-tiny); color: var(--faint); margin-right: 2px; }
-.keep-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
-  border: 1px solid var(--accent-edge, var(--border2)); border-radius: var(--r-pill);
-  background: transparent; color: var(--accent-text); font: inherit; font-size: var(--fs-small); cursor: pointer;
+/* ── the keep prompt under a finished run: keep the workflow, keep the renders ────────────── */
+/* A card, not a line of chips: this is the moment the product pays off ("run it again in one
+   click"), so it gets the accent edge and a sentence saying why keeping is worth a click. */
+.keep {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 10px; padding: 14px 16px;
+  border: 1px solid var(--accent-edge); border-radius: var(--r-card);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 7%, transparent), color-mix(in srgb, var(--glow-1) 30%, transparent));
 }
+.keep-text { display: flex; flex-direction: column; gap: 3px; }
+.keep-text b { font-family: var(--display); font-size: 16px; font-weight: 700; color: var(--text); }
+.keep-text span { font-size: var(--fs-small); color: var(--dim); }
+.keep-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.keep-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px;
+  border: 1px solid var(--accent-edge, var(--border2)); border-radius: var(--r-control);
+  background: transparent; color: var(--accent-text); font: inherit; font-size: var(--fs-small);
+  font-weight: var(--fw-semi); cursor: pointer;
+}
+/* The first offer — the workflow — is the primary one. */
+.keep-chip:first-child:not(.is-done) { background: var(--prim-bg); border-color: var(--prim-bg); color: var(--prim-ink); }
+.keep-chip:first-child:not(.is-done):hover:not(:disabled) { background: var(--prim-bg-h); }
 .keep-chip:hover:not(:disabled) { background: var(--accent-soft); }
 .keep-chip:disabled { cursor: default; opacity: .7; }
 .keep-chip.is-done { color: var(--dim); border-color: var(--border); }
 .keep-error { font-size: var(--fs-tiny); color: var(--danger); }
+
+/* ── the Library as a page of its own (LibraryPage) ──────────────────────────────────────── */
+/* The same panel, given the page's width: rows become cards in a grid, so a shelf of kept
+   workflows reads as a shelf rather than a log. */
+.lib-page { flex: 1; min-height: 0; display: flex; padding: 0 26px 20px; }
+.lib-page .lib { padding: 4px 0 24px; }
+.lib-page .lib-sec { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.lib-page .lib-sec-head, .lib-page .lib-filters { grid-column: 1 / -1; }
+.lib-page .lib-row {
+  flex-wrap: wrap; align-items: flex-start; padding: 14px; border-radius: var(--r-card);
+}
+.lib-page .lib-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; padding-top: 6px; border-top: 1px solid var(--row-line); }
+.lib-page .lib-name { font-family: var(--display); font-size: 16px; font-weight: 700; white-space: normal; }
+.lib-page .lib-ico { width: 34px; height: 34px; border-radius: 10px; }
+.lib-page .lib-btn { padding: 6px 11px; font-size: var(--fs-small); border-radius: 9px; }
+.lib-page .lib-row-workflow .lib-btn-use { background: var(--prim-bg); border-color: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent); }
+@media (max-width: 820px) { .lib-page { padding: 0 12px 16px; } }

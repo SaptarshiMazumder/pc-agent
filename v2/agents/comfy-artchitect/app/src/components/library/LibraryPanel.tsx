@@ -257,7 +257,7 @@ export function LibraryPanel({
         <p className="lib-empty">
           Nothing kept yet. Files here are shared by every conversation: a workflow you want to
           run again, a face or a product photo you keep using, a workflow JSON you already have.
-          Drop files here, or tick files in the Workspace and press <em>Add to Library</em>.
+          Drop files here, press <em>Save to Library</em> on a workflow, or tick files under All files in the Workspace and press <em>Add to Library</em>.
         </p>
       )}
 

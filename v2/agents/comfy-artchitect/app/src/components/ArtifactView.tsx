@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { fileUrl, humanSize, thumbnailUrl, type Artifact } from '../agentd/artifacts'
 import { useApp } from '../state/store'
+import { MediaKindTag } from './media/MediaKindTag'
 
 /**
  * Files an agent produced, shown under the answer that produced them.
@@ -66,6 +67,9 @@ function One({ a }: { a: Artifact }) {
               onError={() => setThumbnailFailed(true)}
             />
           )}
+          <span className="artifact-kind" aria-hidden="true">
+            <MediaKindTag kind="image" over />
+          </span>
         </button>
       </>
     )

@@ -1,4 +1,4 @@
-/* My creations — the library screen's own rules. Tokens only; `theme.css` decides the look.
+/* The Gallery (formerly My creations) — the screen's own rules. Tokens only; `theme.css` decides the look.
  * Co-located and imported by the screen, so deleting the screen takes its rules out of the bundle.
  * The workflow cards themselves keep their rules in ../workflows/workflows.css. */
 
@@ -44,7 +44,7 @@
 /* ── the render grid ─────────────────────────────────────────────────────────────────────── */
 .cr-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--sp-gap);
 }
 
@@ -56,7 +56,7 @@
 /* SQUARE AND COVERED: a wall of thumbnails is for finding, not judging — the lightbox is for
    judging, and it shows the whole frame. */
 .cr-tile-media {
-  position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0;
+  position: relative; display: block; width: 100%; aspect-ratio: 4 / 5; padding: 0; border: 0;
   background: var(--bg3); cursor: zoom-in; overflow: hidden;
 }
 .cr-tile-media img, .cr-tile-media video {
@@ -144,3 +144,8 @@
   background: transparent; color: var(--faint); cursor: pointer;
 }
 .cr-tile-save:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }
+
+/* ── the kind tag over a tile (creative-studio redesign) ─────────────────────────────────── */
+.cr-tile-kind { position: absolute; top: 8px; left: 8px; pointer-events: none; }
+.cr-tile { transition: border-color var(--dur-base) ease, transform var(--dur-base) var(--ease-smooth); }
+.cr-tile:hover { border-color: var(--accent-edge); transform: translateY(-2px); }

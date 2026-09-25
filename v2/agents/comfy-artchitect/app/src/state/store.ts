@@ -136,6 +136,10 @@ export interface AppState {
    *  size arrives, a render finishes), so holding the object pins whichever copy was clicked. */
   selectedArtifactPath: string
   selectArtifact: (path: string) => void
+  /** Bumped by EVERY selectArtifact call, including a second click on the same file. The stage
+   *  brings the right tab forward on each pick; keyed to the path alone, re-clicking the render
+   *  already selected while another tab was showing did nothing. */
+  selectionSeq: number
 
   /** Every open conversation, by session key. */
   sessions: Record<string, ChatSession>
@@ -233,7 +237,8 @@ export const useApp = create<AppState>((set) => ({
   },
 
   selectedArtifactPath: '',
-  selectArtifact: (path) => set({ selectedArtifactPath: path }),
+  selectionSeq: 0,
+  selectArtifact: (path) => set((s) => ({ selectedArtifactPath: path, selectionSeq: s.selectionSeq + 1 })),
 
   sessions: {},
   currentSessionKey: '',

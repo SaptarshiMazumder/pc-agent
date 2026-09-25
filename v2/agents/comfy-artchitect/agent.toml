@@ -13,13 +13,13 @@
 # pretending it can fix it.
 
 name = "Comfy Penguin"
-version = "1.64.33"
-description = "Designs, runs and iterates ComfyUI workflows against your own instance: reads what is actually installed, builds the graph, submits it, repairs what the server rejects, and hands back importable workflow files."
-tagline = "design ﾂｷ run ﾂｷ repair ﾂｷ iterate"
+version = "1.65.0"
+description = "An AI image and video studio: describe what you want and it picks the best model, sets it up on a cloud GPU, renders it, fixes whatever breaks, and hands you a reusable workflow to run again in one click or in your own ComfyUI."
+tagline = "describe · render · keep the workflow"
 color = "#7C5CFF"
 suggestions = [
-  "Build a text-to-image workflow using what my instance already has",
-  "Connect to my ComfyUI and tell me what models are installed",
+  "Turn a photo of my product into a 6-second vertical ad video",
+  "Put my model in four different outfits, same face",
   "Make my last workflow faster without changing the look",
 ]
 

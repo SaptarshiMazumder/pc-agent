@@ -17,6 +17,7 @@
  */
 
 import { accessTokenAccount, creditsHost, type AgentdClient } from '@agentd/client'
+import { ExternalLink, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
 /** The platform's answer for this account's machine, as the signed-in person. */
@@ -39,7 +40,21 @@ async function openableLink(client: AgentdClient): Promise<string> {
   return d.open_url
 }
 
-export function OpenComfyButton({ client }: { client?: AgentdClient }) {
+/** Where the engine is, as far as the window knows — decides whether the button can open. */
+export interface EngineReadiness {
+  ready: boolean
+  /** What to say when it is not ready: "Engine starting…", "Engine offline". */
+  label: string
+  /** A boot or a check is in progress, so the label spins rather than sits. */
+  pending: boolean
+}
+
+/* THE LOUDEST THING IN THE STAGE'S BAR WHEN THERE IS SOMETHING TO OPEN (creative-studio
+   redesign): a filled accent button once the engine answers, because watching the queue in
+   ComfyUI itself is the one thing a person may want to do outside this window. Before that it is
+   the same button, disabled, saying why — starting, waiting for a GPU, offline — so the control
+   never moves and never lies about being clickable. */
+export function OpenComfyButton({ client, engine }: { client?: AgentdClient; engine: EngineReadiness }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
@@ -60,17 +75,33 @@ export function OpenComfyButton({ client }: { client?: AgentdClient }) {
       .finally(() => setBusy(false))
   }
 
+  const live = engine.ready && !!client
   return (
-    <span className="sb-open">
+    <>
       <button
-        className="sb-chip"
+        className={`eng-open${live ? ' is-live' : ''}`}
         onClick={open}
-        disabled={!client || busy}
-        title="Open this account's ComfyUI in a new tab"
+        disabled={!live || busy}
+        title={live ? "Open this account's ComfyUI in a new tab" : engine.label}
       >
-        {busy ? 'opening…' : 'open ComfyUI ↗'}
+        {live ? (
+          <>
+            <span className="eng-dot" aria-hidden="true" />
+            {busy ? 'Opening…' : 'Open in ComfyUI'}
+            <ExternalLink size={13} strokeWidth={2.2} aria-hidden="true" />
+          </>
+        ) : (
+          <>
+            {engine.pending ? (
+              <Loader2 size={13} strokeWidth={2.2} className="spin" aria-hidden="true" />
+            ) : (
+              <span className="eng-dot is-off" aria-hidden="true" />
+            )}
+            {engine.label}
+          </>
+        )}
       </button>
       {note && <span className="sb-open-note">{note}</span>}
-    </span>
+    </>
   )
 }

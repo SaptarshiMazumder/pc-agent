@@ -166,11 +166,19 @@ export function AskPanel({
           ? 'Build with these answers'
           : 'Keep the defaults and build'
 
+  /* THE RUNNING TOTAL of what is ticked — display only, the same credits each row already
+     shows, added up so the decision reads as one number. */
+  const tickedCredits = services.reduce((n, s, i) => (picked.has(i) ? n + s.credits : n), 0)
+
   return (
-    <div className="approve ask" role="group" aria-label="Before anything is built">
-      <p className="ask-title">{title || 'Before anything is built:'}</p>
+    <div className="approve ask plan-card" role="group" aria-label="Before anything is built">
+      <div className="plan-card-head">
+        <span className="plan-card-label">The plan</span>
+        <p className="ask-title">{title || 'Before anything is built:'}</p>
+      </div>
       {services.length > 0 && (
-        <>
+        <div className="plan-card-sec">
+          <p className="ask-section">Models</p>
           <p className="approve-head">
             These models use more credits. Tick the ones you want — the agent builds around your
             answer.
@@ -180,18 +188,15 @@ export function AskPanel({
               <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} disabled={closed} />
               <span className="approve-text">
                 <span className="approve-name">{s.name}</span>
-                <span className="approve-for">
-                  {s.purpose}
-                  {s.purpose ? ' — ' : ''}
-                  {price(s)}
-                </span>
+                {s.purpose && <span className="approve-for">{s.purpose}</span>}
               </span>
+              <span className={`approve-price${s.credits > 0 ? '' : ' is-free'}`}>{price(s)}</span>
             </label>
           ))}
-        </>
+        </div>
       )}
       {questions.length > 0 && (
-        <>
+        <div className="plan-card-sec">
           <p className="ask-section">The brief — change anything, or keep the defaults</p>
           {questions.map((q, i) => (
             <label key={i} className="ask-q">
@@ -204,10 +209,10 @@ export function AskPanel({
               />
             </label>
           ))}
-        </>
+        </div>
       )}
       {workflows.length > 0 && (
-        <>
+        <div className="plan-card-sec">
           <p className="ask-section">What gets built, in order</p>
           <ol className="ask-wf">
             {workflows.map((w, i) => (
@@ -217,35 +222,50 @@ export function AskPanel({
               </li>
             ))}
           </ol>
-        </>
+        </div>
       )}
       {references.length > 0 && (
-        <>
-          <p className="ask-section">Files it needs — add them in the References panel on the left</p>
+        <div className="plan-card-sec">
+          <p className="ask-section">Photos it needs — add them on the Inputs tab</p>
           <ol className="ask-wf">
             {references.map((r, i) => (
               <li key={i}>
-                <b>@{r.role}</b>
+                <b>{r.role}</b>
                 {r.what ? ` — ${r.what}` : ''}
               </li>
             ))}
           </ol>
-        </>
+        </div>
       )}
-      <label className="ask-q ask-other">
-        <span className="ask-q-label">Something else?</span>
-        <textarea
-          rows={2}
-          placeholder="Want a different model or provider, something cheaper, or free / open-source models only? Say so here."
-          value={other}
-          onChange={(e) => setOther(e.target.value)}
-          disabled={closed}
-        />
-      </label>
-      <button className="approve-go" onClick={confirm} disabled={closed}>
-        <Check size={14} strokeWidth={2.2} />
-        {label}
-      </button>
+      <div className="plan-card-sec">
+        <label className="ask-q ask-other">
+          <span className="ask-q-label">Something else?</span>
+          <textarea
+            rows={2}
+            placeholder="Want a different model or provider, something cheaper, or free / open-source models only? Say so here."
+            value={other}
+            onChange={(e) => setOther(e.target.value)}
+            disabled={closed}
+          />
+        </label>
+      </div>
+      <div className="plan-card-foot">
+        {services.length > 0 && (
+          <span className="plan-card-total">
+            {picked.size ? (
+              <>
+                Ticked <b>{tickedCredits.toLocaleString()} credits</b>
+              </>
+            ) : (
+              'Nothing ticked'
+            )}
+          </span>
+        )}
+        <button className="approve-go" onClick={confirm} disabled={closed}>
+          <Check size={14} strokeWidth={2.2} />
+          {label}
+        </button>
+      </div>
     </div>
   )
 }

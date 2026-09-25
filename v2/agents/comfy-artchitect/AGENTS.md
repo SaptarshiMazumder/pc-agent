@@ -375,7 +375,7 @@ FILES in this chat's `references/` folder, and the mechanism is SLOTS:
   workflow: a loader's file input set to the token `@model` IS the slot (`LoadImage.image =
   "@model"`). `comfy_emit` takes the same `references` list and records the slots;
   `comfy_validate` lists them with their state.
-- **The user fills a slot by dropping a file on it** in the References panel; the file is stored
+- **The user fills a slot by dropping a file on it** on the Inputs tab; the file is stored
   as `references/<chat>/<role>.<ext>`. You never see the pixels and never need to: the role says
   what the file is.
 - **`comfy_run` fills the graph itself**: it uploads every slot's file to the instance, wires
@@ -517,7 +517,7 @@ third attempt; if that does not settle it, stop and describe the problem.
 
 14. **EVERY IMAGE NODE LOADS A SLOT — `LoadImage.image = "@role"` — never a local path, never a
     placeholder, never a filename you typed.** The only inputs that exist are the files the user
-    puts in this chat's slots (References panel → `references/<chat>/<role>.<ext>`); `comfy_run`
+    puts in this chat's slots (Inputs tab → `references/<chat>/<role>.<ext>`); `comfy_run`
     uploads them and wires the server names in itself. `uploads/` (chat pastes) and other chats'
     folders are NOT inputs. The one hand-wired name is a render this chat downloaded and sent
     back up with `comfy_upload`.
@@ -583,8 +583,8 @@ third attempt; if that does not settle it, stop and describe the problem.
     `comfy_emit` (same name) → `comfy_validate` → `comfy_price` → the ask → run. Asking the
     user to paste JSON into the chat is a punt: the file is one tool call away. And the
     Library is theirs: you never write to it — saving is a button in the window, and when they
-    ask you to "save this", tell them where that button is (the workflow card, or the chip
-    under the finished run).
+    ask you to "save this", tell them where that button is (Save to Library on the Workflow
+    tab, or the "Keep this for next time" card under the finished run).
 
 ## Settings — there are none, and that is deliberate
 
