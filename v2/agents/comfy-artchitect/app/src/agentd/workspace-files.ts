@@ -179,7 +179,14 @@ export function mergeFiles(declared: Artifact[], listed: Artifact[], sessionKey:
     const k = `/${key(p)}`
     return ours.some((dir) => k.includes(dir))
   }
-  const kept = declared.filter((a) => !inChatFolder(a.path) || present.has(key(a.path)))
-  const seen = new Set(kept.map((a) => key(a.path)))
+  /* ONE ENTRY PER FILE among the declared ones too: two tool calls that name the same render
+     (a run, then a download) are one file, not two tiles. The first declaration wins. */
+  const seen = new Set<string>()
+  const kept = declared.filter((a) => {
+    const k = key(a.path)
+    if (seen.has(k) || (inChatFolder(a.path) && !present.has(k))) return false
+    seen.add(k)
+    return true
+  })
   return [...kept, ...listed.filter((a) => !seen.has(key(a.path)))]
 }
