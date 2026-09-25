@@ -21,8 +21,9 @@ import { buildAndOpen, hasWindow } from './agentd/app-window'
 import { MAX_FILES } from './agentd/chat'
 import { useCredits } from './agentd/credits'
 import SignIn from '../../skills/build-agent/templates/_common/auth/SignIn'
+import { useAuth } from '../../skills/build-agent/templates/_common/auth/useAuth'
 import { AGENT_ID, useClient } from './agentd/client'
-import { usePlatform, useRestartDaemon, useWhoAmI } from './agentd/platform'
+import { useRestartDaemon, useWhoAmI } from './agentd/platform'
 import { openable } from './agentd/roster'
 import { forkSession } from './agentd/sessions'
 import { installSoftScroll } from './lib/softScroll'
@@ -123,7 +124,11 @@ export default function App() {
   // threading platform state through the whole tree to save a request at boot. The settings
   // modal is mounted only while open, so it re-reads after a sign-out from here and the two
   // cannot drift where anyone can see it.
-  const platform = usePlatform(client)
+  /* IDENTITY IS THE SHARED HOOK (`_common/auth/useAuth`), the one Comfy Penguin and every
+     template use. Its sign-out is the SDK's: announce it to the gate, wait for it to resolve,
+     then let the page start over. usePlatform's version logged out and re-read a flag while
+     the window kept rendering the old account. */
+  const account = useAuth(client)
   const daemon = useRestartDaemon(client)
 
   /* Soft scroll edges, app-wide and automatic: every scroll container — this one, the sidebar,
@@ -148,8 +153,8 @@ export default function App() {
      real identity change may. This does: on a sign-in, sign-out or switch, setIdentity wipes the
      open transcripts, tabs and org view so nothing of the last account survives in this window. */
   useEffect(() => {
-    setIdentity(platform.auth?.signedIn ? platform.auth.accountId : '')
-  }, [platform.auth?.signedIn, platform.auth?.accountId, setIdentity])
+    setIdentity(account.auth?.signedIn ? account.auth.accountId : '')
+  }, [account.auth?.signedIn, account.auth?.accountId, setIdentity])
 
   const files = useAgentFiles(client, selected?.id ?? null)
   /* A tool finishing in the OPEN conversation may have written files; re-read the tree. The store
@@ -385,7 +390,7 @@ export default function App() {
      to call the SDK's vanilla gate, which built its own DOM on top of the page. Raised from the
      account menu; it takes the whole window because signing in is not something to do alongside
      something else. */
-  if (platform.wantsSignIn) return <SignIn product="Agent Builder" onDone={platform.signedIn} />
+  if (account.wantsSignIn) return <SignIn product="Agent Builder" onDone={account.signedIn} />
 
   return (
     <div className={shellClass}>
@@ -407,10 +412,10 @@ export default function App() {
         onSettings={() => setView('settings')}
         onCredits={() => setView('credits')}
         onOrgs={() => setView('orgs')}
-        auth={platform.auth}
-        authError={platform.error}
-        onSignIn={platform.signIn}
-        onSignOut={platform.signOut}
+        auth={account.auth}
+        authError={account.error}
+        onSignIn={account.signIn}
+        onSignOut={account.signOut}
         status={status}
         daemonVersion={daemonVersion}
       />
