@@ -64,6 +64,7 @@ from agent_runtime.domain.manager_verdict import (
     MANAGER_PREFIX,
     REDIRECT,
     RETHINK,
+    WAIT,
     ManagerVerdict,
 )
 from agent_runtime.domain.messages import (
@@ -85,6 +86,14 @@ PLAN_TOOL = "update_plan"
 HANDOFF_AT = 0.6  # fraction of the model's context used before old history becomes a handoff
 KEEP_RECENT_MESSAGES = 30  # the stretch of the work sent verbatim after the handoff
 MAX_ITERATION_EXTENSIONS = 3  # contracted work may run this many iteration budgets past the cap
+STOP_EVIDENCE_CALLS = 6  # the developer's last calls shown to the manager as the reason for a stop
+UNANSWERED_RETRIES = 1  # a send-back met with words, not a tool call, gets this many firmer pushes
+
+#: The one firmer push after a send-back the developer answered with words instead of the action.
+ACT_NOW_DIRECTIVE = (
+    "You did not take the action you were given. Take it now, as your next step: {directive} "
+    "Make the tool call; do not write to the user until it has run."
+)
 
 APPROVAL_DIRECTIVE = (
     "Before building anything, the user must approve the plan. Send them EXACTLY the message "
@@ -142,6 +151,13 @@ class ManagerCheckpointService:
         #                            the full history would go straight back out and refill it
         self._extensions = 0
         self._written_at_extension = 0
+        # A SEND-BACK AT A FINISH MUST BE ANSWERED WITH AN ACTION. Where the tool-call count stood
+        # when it went out, and what it said: a finish with no call since then is the same stop
+        # again, and reviewing it again is what looped a paused run twelve times — same facts in,
+        # same verdict out, one more message to the user each time.
+        self._sent_back_at: int | None = None
+        self._sent_back_directive = ""
+        self._unanswered = 0
 
     # ------------------------------------------------------------------ engine-facing
 
@@ -195,6 +211,10 @@ class ManagerCheckpointService:
             return self._act(FINISH, ManagerVerdict(
                 ESCALATE, reason="continuation budget for this run spent — steering stops"
             ))
+        if self._sent_back_at is not None:
+            if self._recorder.total_calls == self._sent_back_at:
+                return self._unanswered_send_back()
+            self._sent_back_at, self._unanswered = None, 0  # it acted: a normal review follows
         proofs = [await self._proofs.prove(c) for c in contract.criteria]
         verdict = await self._review(self._brief(FINISH, messages, proofs=proofs))
         if verdict is None:
@@ -215,14 +235,35 @@ class ManagerCheckpointService:
             self._record(FINISH, verdict)
             await self._emit("manager", {"verdict": DONE, "contract": self._ledger.contract.to_dict()})
             return None
-        if verdict.kind == CONTINUE:
-            # At a finish, CONTINUE means the developer is legitimately pausing for the user.
+        if verdict.kind in (CONTINUE, WAIT):
+            # At a finish both mean the stop is right: paused on the user or on something outside
+            # the developer's reach. The run ends; the next review is at the user's reply.
             self._ledger.awaiting_user = True
             self._record(FINISH, verdict)
             return None
         for p in failed:
             self._ledger.note_failure(p.criterion_id)
-        return self._act(FINISH, verdict)
+        note = self._act(FINISH, verdict)
+        if note and verdict.kind in (REDIRECT, RETHINK):
+            self._sent_back_at = self._recorder.total_calls
+            self._sent_back_directive = verdict.directive
+        return note
+
+    def _unanswered_send_back(self) -> str | None:
+        """The developer met a send-back with words, not the action. Once, push harder; after
+        that the stop stands — the send-back was wrong or cannot be carried out, and another
+        review of the same facts would only return the same verdict."""
+        if self._unanswered < UNANSWERED_RETRIES:
+            self._unanswered += 1
+            self._forced += 1
+            log.info("manager: finish after an unanswered send-back — one firmer push")
+            return self._say(ACT_NOW_DIRECTIVE.format(directive=self._sent_back_directive))
+        self._ledger.awaiting_user = True
+        self._record(FINISH, ManagerVerdict(
+            WAIT, reason="send-back not acted on — the stop stands; nothing new to review",
+        ))
+        self._sent_back_at, self._unanswered = None, 0
+        return None
 
     def note_context(self, fraction_used: float) -> None:
         self._context_used = fraction_used
@@ -319,6 +360,8 @@ class ManagerCheckpointService:
         verdict = self._policy.adjust(verdict, self._ledger)
         if verdict.kind == RETHINK and verdict.criterion_id:
             self._ledger.note_rethink(verdict.criterion_id)
+        if verdict.kind == WAIT:
+            verdict = replace(verdict, directive="")  # a wait mid-run says nothing to the developer
         if verdict.kind in (ESCALATE, AWAIT_APPROVAL):
             self._ledger.awaiting_user = True
         self._record(checkpoint, verdict)
@@ -377,6 +420,7 @@ class ManagerCheckpointService:
             proofs=tuple(proofs or ()),
             drift=tuple(drift or ()),
             decisions=tuple(self._ledger.recent_decisions()),
+            recent_results=tuple(e.render() for e in self._recorder.work_log()[-STOP_EVIDENCE_CALLS:]),
         )
 
     def _approval_given_in_own_card(self, messages: list[Message]) -> bool:
@@ -437,6 +481,10 @@ class ManagerCheckpointService:
         return contract is not None and not contract.active and not contract.pending_approval
 
     def _record(self, checkpoint: str, verdict: ManagerVerdict) -> None:
+        # One line per verdict: what it decided and why is otherwise only in the session's ledger,
+        # which the logs never showed — a loop of send-backs was invisible from the outside.
+        log.info("manager verdict at %s: %s %s — %s", checkpoint, verdict.kind,
+                 verdict.criterion_id or "-", verdict.reason or "")
         self._ledger.record(checkpoint, verdict, self._clock())
         self._store.save(self._ledger)
 

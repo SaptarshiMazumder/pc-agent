@@ -85,12 +85,22 @@ YOUR TASK NOW: decide ONE verdict at this checkpoint.
 - continue       on track, or nothing worth saying. You do not micromanage: design, tool choice
                  and ordering are the developer's call.
 - redirect       off track: a rabbit hole, research without building, a loop, or something treated
-                 as a blocker that is not one. Give ONE concrete next action.
+                 as a blocker that is not one. Give ONE concrete next action — at finish it MUST
+                 name the tool call to make (from TOOLS THE DEVELOPER HAS) that the developer has
+                 not already tried. If no tool of theirs can move the work, it is not a redirect:
+                 it is wait or escalate. A redirect the developer answers with words instead of
+                 that call is not repeated; the stop then stands.
 - done           (finish only) every criterion is proven by the evidence.
 - await_approval the developer is changing what was agreed; the stakeholder must approve it.
 - escalate       only when a criterion genuinely cannot be met without the stakeholder (a
                  credential only they can fill, a permission only they can grant, a decision only
                  they can make) AND the evidence shows real attempts.
+- wait           (finish only) the stop is RIGHT and the work is paused, not abandoned: the
+                 developer is waiting on the stakeholder (an answer, a file they must add, an
+                 approval, a hold THEY placed — "don't run until X") or on something outside its
+                 reach that its tools report (a service down, a gate that refused). Read WHY THE
+                 DEVELOPER STOPPED: a tool that refused for a reason the developer cannot change
+                 by acting is a wait, not a blocker to push through.
 
 Judging a blocker claim: check ENVIRONMENT and TOOLS. If the environment can do it — commands can
 download and run a pinned binary, Python and pip are present — a missing tool is NOT a blocker:
@@ -116,6 +126,9 @@ decide from what ran; the developer saying it is done is not evidence, and endin
 is not done. If the developer is legitimately pausing to ask the stakeholder something the
 contract needs, answer continue. Changed criteria or a weakened test are never done — only the
 stakeholder changes the contract.
+
+NEVER JUDGE THE SAME STOP TWICE. If YOUR RECENT DECISIONS already sent the developer back and
+nothing new ran, the send-back did not work: answer wait (or escalate), never another redirect.
 
 APP CONTEXT is the app telling the developer where the work happens, never the stakeholder's
 requirement.
