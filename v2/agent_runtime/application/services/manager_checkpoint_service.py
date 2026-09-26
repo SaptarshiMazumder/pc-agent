@@ -92,6 +92,16 @@ APPROVAL_DIRECTIVE = (
 )
 _RULE = "-" * 40
 
+# THE AGENT'S OWN CARD, when it has one. An agent with an approval tool of its own (Comfy
+# Penguin's ask_user card: the brief, the paid services, their prices) already stops for the
+# user's go; a second, separate plan message made the person approve the same work twice. So
+# the plan rides INSIDE that card, and the one answer approves both.
+APPROVAL_IN_OWN_TOOL = (
+    "Before building anything, the user must approve the plan. Ask for it with your own `{tool}` "
+    "card: include the points between the lines in it, word for word, alongside what the card "
+    "already asks. Do NOT send them as a separate message. Then END YOUR TURN and wait."
+)
+
 
 class ManagerCheckpointService:
     def __init__(
@@ -105,8 +115,11 @@ class ManagerCheckpointService:
         recorder: RunDigestRecorder,
         emit: Callable[[str, dict], Awaitable[None]],
         is_runtime: Callable[[UserMessage], bool],
+        approval_tool: str = "",
         clock: Callable[[], float] = time.time,
     ) -> None:
+        """:param approval_tool: the agent's own approval tool (a checkpoint tool), or "" — the
+        plan is then approved inside that tool's card rather than in a message of the manager's."""
         self._pm = project_manager
         self._store = ledger_store
         self._proofs = proof_runner
@@ -115,6 +128,7 @@ class ManagerCheckpointService:
         self._recorder = recorder
         self._emit = emit
         self._is_runtime = is_runtime
+        self._approval_tool = approval_tool
         self._clock = clock
         self._ledger: ManagerLedger = ledger_store.load()
         self._engaged = self._ledger.contract is not None and not self._fulfilled()
@@ -251,7 +265,7 @@ class ManagerCheckpointService:
         self._store.save(self._ledger)
         await self._emit("manager", {"checkpoint": ENGAGE, "contract": contract.to_dict()})
         if contract.pending_approval:
-            return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present()}\n{_RULE}")
+            return self._ask_approval(contract)
         return self._say("This is what done means for this work; each criterion will be checked "
                          "at the end, not taken on your word:\n" + contract.render())
 
@@ -265,9 +279,16 @@ class ManagerCheckpointService:
         self._store.save(self._ledger)
         await self._emit("manager", {"checkpoint": REPLY, "contract": contract.to_dict()})
         if contract.pending_approval:
-            return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present(revised=True)}\n{_RULE}")
+            return self._ask_approval(contract, revised=True)
         return self._say("The user approved the plan. Build to this contract; each criterion is "
                          "checked at the end:\n" + contract.render())
+
+    def _ask_approval(self, contract: DeliverableContract, revised: bool = False) -> str:
+        """One approval: in the agent's own card when it has one, else the manager's message."""
+        if self._approval_tool:
+            ask = APPROVAL_IN_OWN_TOOL.format(tool=self._approval_tool)
+            return self._say(f"{ask}\n{_RULE}\n{contract.plan_points()}\n{_RULE}")
+        return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present(revised=revised)}\n{_RULE}")
 
     def _act(self, checkpoint: str, verdict: ManagerVerdict) -> str | None:
         verdict = self._policy.adjust(verdict, self._ledger)
