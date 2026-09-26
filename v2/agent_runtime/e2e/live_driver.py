@@ -138,6 +138,7 @@ async def drive(
             params: dict = {
                 "sessionKey": session_key, "agentId": scenario.agent_id,
                 "message": turn.text, "traceId": uuid.uuid4().hex,
+                "driver": "harness",  # a program's turn: no project manager beside it
             }
             atts = []
             for rel in turn.attachments:

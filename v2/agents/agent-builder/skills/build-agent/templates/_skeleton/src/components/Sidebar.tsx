@@ -119,8 +119,15 @@ export function Sidebar({
     openSession(sessionId)
     if (!client) return
     void loadHistory(client, sessionId)
-      .then((items) => {
+      .then(async (items) => {
         if (items.length) openSession(sessionId, items)
+        /* A RELOADED WINDOW FORGETS WHICH CHATS WERE MID-RUN. Ask about this one: `chat.status`
+           answers AND re-attaches this window, so a run still going keeps streaming here instead
+           of being reaped as abandoned. */
+        const st = (await client.request('chat.status', { sessionKey: sessionId })) as {
+          running?: boolean
+        }
+        if (st?.running) useApp.getState().patch(sessionId, { running: true })
       })
       .catch(() => {
         /* left as-is: the rail still shows the row, and re-clicking retries */

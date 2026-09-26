@@ -14,11 +14,13 @@ instrument itself (the engine streams the LLM, the session store hits the disk).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from collections.abc import Callable
 
 from agent_runtime.application.interfaces.agent_engine import AgentEngine
 from agent_runtime.application.interfaces.agents import AgentRegistry
 from agent_runtime.application.interfaces.events import EventSink
+from agent_runtime.application.interfaces.manager_checkpoints import ManagerCheckpoints, ManagerRunScope
 from agent_runtime.application.interfaces.memory import SessionStore
 from agent_runtime.infrastructure import accounts
 from agent_runtime.application.run_context import (
@@ -37,7 +39,8 @@ from agent_runtime.domain.agent import (
     select_private_tools,
     select_tools,
 )
-from agent_runtime.domain.messages import Artifact, UserMessage
+from agent_runtime.domain.events import AgentEvent
+from agent_runtime.domain.messages import RUNTIME, Artifact, UserMessage
 
 log = logging.getLogger("agentd")
 
@@ -128,8 +131,13 @@ class AgentService:
         # agent.toml [[mcp]], lazily, on its first run. Kept OUT of `agent_tools` because that map
         # is rebuilt wholesale on every marketplace hot-reload, which would drop these silently.
         # None => no declared-MCP support (tests, and any composition that does not want it).
+        manager_for_run: Callable[[ManagerRunScope], ManagerCheckpoints] | None = None,  # the
+        # project manager beside each interactive run (manager_checkpoint_service.py). A factory:
+        # every run gets its own, holding that run's digest and its session's ledger. None => no
+        # manager, exactly as before.
     ):
         self._engine = engine
+        self._manager_for_run = manager_for_run
         self._tools = tools
         self._agent_tools = dict(agent_tools or {})
         self._mcp = mcp_connector
@@ -540,8 +548,13 @@ class AgentService:
         attachments: list[Artifact] | None = None,
         interjections: list | None = None,
         background_jobs=None,
+        supervised: bool = False,
     ) -> None:
         """Run one turn end to end for the resolved agent.
+
+        ``supervised`` puts the project manager beside this turn. True only for a PERSON's own
+        chat message: a program's turn (e2e, run_agent), a scheduled run or a job delivery has
+        nobody to approve a plan or answer an escalation.
 
         ``interjections`` is the run's INBOX — a list the transport appends UserMessages to while
         this turn is live (chat.send during a run). The engine drains it after each tool batch
@@ -584,6 +597,10 @@ class AgentService:
                 workspace = self._resolve_workspace(owner, session_id) or workspace
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a turn
                 pass
+        # THE RUN'S OWN FOLDER EXISTS BEFORE ANY TOOL USES IT. Per-account workspaces are only
+        # ever computed, never created, so the first `exec` in a fresh one ran in a folder that
+        # was not there and Windows answered "The directory name is invalid".
+        Path(workspace).mkdir(parents=True, exist_ok=True)
         # expose the run context to context-aware tools (e.g. cron tags its task with
         # this agent). Task-local, so concurrent runs never cross. Set BEFORE the prompt is
         # built, so the workspace manifest indexes the same folder the tools will use.
@@ -618,6 +635,9 @@ class AgentService:
         # The agent-declared write fence — the SAME method a direct tools.invoke uses, so the two
         # can never disagree about what an agent may write.
         _write_roots, _write_denies, _protected = self.resolve_write_fence(agent)
+        # Resolved before the context so it can ride it: a tool's model call that names no model
+        # runs on this (RunContext.brain_model).
+        run_model, run_router = self._models_for(agent)
         set_run_context(
             RunContext(
                 agent_id=agent.id,
@@ -632,6 +652,7 @@ class AgentService:
                 # contextvar it cannot see. See RunContext.account_id.
                 account_id=accounts.account_id() or "",
                 agent_dir=str(getattr(agent, "dir", "") or ""),
+                brain_model=run_model or "",
                 write_roots=_write_roots,
                 write_denies=_write_denies,
                 protected_paths=_protected,
@@ -688,7 +709,6 @@ class AgentService:
 
         # hand off to the engine; it streams the LLM, runs tools, and re-feeds until done.
         # (it persists each assistant/tool message via the `session` it's given.)
-        run_model, run_router = self._models_for(agent)
 
         def take_interjections() -> list:
             """Everything queued since the last drain, and the inbox left empty for the next."""
@@ -697,6 +717,17 @@ class AgentService:
             batch = list(interjections)
             del interjections[:]
             return batch
+
+        async def emit(kind: str, payload: dict) -> None:
+            await on_event(AgentEvent(kind, payload))
+
+        # The manager sits beside a PERSON's work. A scheduled run has nobody to approve a plan or
+        # answer an escalation, so it keeps its own report_outcome discipline below instead.
+        checkpoints = (
+            self._manager_for_run(ManagerRunScope(agent, session, tools, run_model, emit))
+            if self._manager_for_run is not None and supervised and mode == RunMode.INTERACTIVE
+            else None
+        )
 
         await self._engine.run(
             messages=messages,
@@ -709,6 +740,7 @@ class AgentService:
             model_router=run_router,  # ...and the router that would otherwise overwrite it
             get_interjections=take_interjections,
             background_jobs=background_jobs,
+            checkpoints=checkpoints,
         )
         # RUN seam: a scheduled run MUST record an outcome. If the agent finished WITHOUT
         # calling report_outcome (common: it did the work but skipped the bookkeeping), force
@@ -716,6 +748,7 @@ class AgentService:
         # 'incomplete'. Fires at most once; if it still won't declare, the gateway marks it.
         if mode == RunMode.CRON and not abort.is_set() and current_run_outcome() is None:
             nudge = UserMessage(
+                source=RUNTIME,
                 content=(
                     "You are a SCHEDULED run and finished WITHOUT recording the outcome. Call "
                     "`report_outcome` now, exactly once: status='done' if you completed the task, "

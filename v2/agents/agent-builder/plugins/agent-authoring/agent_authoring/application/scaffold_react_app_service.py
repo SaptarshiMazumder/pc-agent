@@ -177,7 +177,10 @@ class ScaffoldReactAppService:
             return False
         if ui_dir.exists() and any(ui_dir.iterdir()):
             return False
-        shutil.copytree(preview, ui_dir, dirs_exist_ok=True)
+        # STAMPED NOW, like the app source copied just before it. copytree's default keeps the
+        # prebuilt's own dates, so every fresh agent's window was older than its source and
+        # validate_agent failed it as a stale build before anyone had touched a file.
+        shutil.copytree(preview, ui_dir, dirs_exist_ok=True, copy_function=shutil.copyfile)
         return True
 
     # ------------------------------------------------------------------ planning

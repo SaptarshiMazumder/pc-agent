@@ -362,6 +362,9 @@ function replay(m: any): ThreadItem[] {
   const ts = Number.isFinite(at) ? at : undefined
 
   if (m?.role === 'user') {
+    // The runtime's notes to the agent (manager, liveness, retries) ride the user slot so the
+    // model receives them; the person never said them, so they are not shown.
+    if (m.source === 'runtime') return []
     const text =
       typeof m.content === 'string'
         ? m.content

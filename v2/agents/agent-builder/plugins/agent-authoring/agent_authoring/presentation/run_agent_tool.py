@@ -153,7 +153,8 @@ async def _run_inprocess(client, agent_id: str, message: str, session: str | Non
     try:
         try:
             await client.send("chat.send", {"message": message, "sessionKey": session_key,
-                                            "agentId": agent_id})
+                                            "agentId": agent_id,
+                                            "driver": "harness"})  # a test drive, not a person
         except Exception as e:  # noqa: BLE001 — a refused send is a transport fact, not a crash
             out.transport_error = str(e)
             return out

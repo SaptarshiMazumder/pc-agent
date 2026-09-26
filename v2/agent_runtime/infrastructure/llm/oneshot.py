@@ -33,6 +33,25 @@ import os
 from pathlib import Path
 
 
+def _named_or_brain(model: str | None) -> str:
+    """The model to call: the one named, else the CURRENT RUN's brain — never an empty name.
+
+    `text_complete(model=None)` is the documented way an agent-authored tool asks for "the
+    agent's model"; the sandbox broker has always filled it in, but a tool running in-process
+    reached normalize_model("") and called "gemini/" — a 404 blamed on the agent's own code.
+    Outside a run there is no brain to inherit, and that is said, not guessed."""
+    if model:
+        return model
+    from agent_runtime.application.run_context import current_brain_model
+
+    brain = current_brain_model()
+    if not brain:
+        raise ValueError(
+            "no model named and no current run to inherit one from — pass `model=` explicitly"
+        )
+    return brain
+
+
 def normalize_model(model: str) -> str:
     """Make a model id litellm-routable. A bare id (no "provider/") implies gemini — this preserves
     the plugins' historical bare Gemini constants ("gemini-2.5-flash") while letting config pass a
@@ -78,13 +97,55 @@ def text_complete(
     import litellm
 
     litellm.suppress_debug_info = True
-    model = normalize_model(model)
+    model = normalize_model(_named_or_brain(model))
     if not api_key and model.startswith("gemini/"):
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
     kwargs: dict = {"model": model, "messages": [{"role": "user", "content": prompt}]}
     if api_key:
         kwargs["api_key"] = api_key
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    if timeout:
+        kwargs["request_timeout"] = timeout
+
+    from agent_runtime.infrastructure.llm import model_proxy
+
+    model_proxy.apply(kwargs)  # platform-keys mode: route via our proxy (no-op if off)
+    resp = litellm.completion(**kwargs)
+    _meter(resp, model)
+    return (resp.choices[0].message.content or "") if resp.choices else ""
+
+
+def chat_complete(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    want_json: bool = False,
+    max_tokens: int | None = None,
+    timeout: float | None = None,
+) -> str:
+    """A system prompt + one user message -> the model's text (or JSON string in JSON mode).
+
+    text_complete's sibling for a caller that needs a ROLE, not just a prompt: the project
+    manager judges an agent's run from a brief, and its instructions belong in the system turn
+    where the brief cannot override them. Same funnel — proxy routing and metering included.
+    Synchronous — call it from a worker thread."""
+    import litellm
+
+    litellm.suppress_debug_info = True
+    model = normalize_model(model)
+    kwargs: dict = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+    }
+    if model.startswith("gemini/"):
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if api_key:
+            kwargs["api_key"] = api_key
+    if want_json:
+        kwargs["response_format"] = {"type": "json_object"}
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
     if timeout:

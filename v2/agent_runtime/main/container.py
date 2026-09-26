@@ -13,7 +13,23 @@ import logging
 
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config
+from agent_runtime.application.interfaces.manager_checkpoints import ManagerRunScope
+from agent_runtime.application.services.capability_sheet_assembler import CapabilitySheetAssembler
+from agent_runtime.application.services.manager_checkpoint_service import ManagerCheckpointService
+from agent_runtime.application.services.run_digest_recorder import RunDigestRecorder
+from agent_runtime.application.services.settings_capability_facts import SettingsCapabilityFacts
+from agent_runtime.application.tool_models import brain_model
+from agent_runtime.domain.escalation_policy import EscalationPolicy
 from agent_runtime.infrastructure import accounts
+from agent_runtime.infrastructure.engine.incomplete_turn import is_runtime_message
+from agent_runtime.infrastructure.llm.oneshot import chat_complete
+from agent_runtime.infrastructure.machine_credential_keeper import MachineCredentialKeeper
+from agent_runtime.infrastructure.project_manager.llm_project_manager import LlmProjectManager
+from agent_runtime.infrastructure.project_manager.session_manager_ledger_store import (
+    SessionManagerLedgerStore,
+)
+from agent_runtime.infrastructure.project_manager.workspace_proof_runner import WorkspaceProofRunner
+from agent_runtime.infrastructure.tools.sandbox.sandbox_capability_facts import SandboxCapabilityFacts
 from agent_runtime.infrastructure import tool_catalog_file
 from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
 from agent_runtime.infrastructure.engine.native import NativeEngine
@@ -817,6 +833,23 @@ def build_service(
     def _write_tool_catalog(all_tools: list) -> None:
         tool_catalog_file.write(config.state_dir, all_tools)
 
+    def _manager_for_run(scope: ManagerRunScope) -> ManagerCheckpointService:
+        """The project manager beside one interactive run: its own digest, its session's ledger,
+        proofs through the run's own tools, and a capability sheet read from the running system.
+        Same model as the agent's brain — a separate call, never a separate process."""
+        return ManagerCheckpointService(
+            project_manager=LlmProjectManager(scope.model or brain_model(config), chat_complete),
+            ledger_store=SessionManagerLedgerStore(scope.session.path),
+            proof_runner=WorkspaceProofRunner(scope.tools),
+            sheet=CapabilitySheetAssembler(
+                [SandboxCapabilityFacts(config), SettingsCapabilityFacts(scope.agent)]
+            ).assemble(scope.tools),
+            policy=EscalationPolicy(),
+            recorder=RunDigestRecorder(),
+            emit=scope.emit,
+            is_runtime=is_runtime_message,
+        )
+
     service = AgentService(
         engine=engine,
         tools=tools,
@@ -850,6 +883,7 @@ def build_service(
         agent_tools=agent_tools,  # the agent-private tier (agents/<id>/plugins/)
         # the tenant fence: what a hosted run may SEE and where it may WRITE (empty on desktop)
         resolve_scope=_tenant_scope,
+        manager_for_run=_manager_for_run,  # the project manager, beside every agent's work
     )
     _late["service"] = service  # late-bind so register_plugin_live can hot-add tools
     # The boot snapshot. Everything after this arrives through add_tools, which hooks itself.
@@ -1084,6 +1118,11 @@ def build_gateway(config: Config) -> Gateway:
     # signed-in install with no stated preference comes up on platform keys with nothing pressed,
     # and one that chose Local comes up exactly where it was left.
 
+    platform_session = (
+        None
+        if getattr(config, "hosted", False)
+        else PlatformSession(config.state_dir, accounts_api_base(config))
+    )
     gateway = Gateway(
         config=config,
         service=service,
@@ -1105,10 +1144,11 @@ def build_gateway(config: Config) -> Gateway:
         # decision rather than a runtime branch: a hosted daemon never gets one, so its /auth/*
         # HTTP endpoints answer 404 and a machine-wide credential cannot exist on a process that
         # serves many people. See platform_session.py for the architecture this replaces.
-        platform_session=(
-            None
-            if getattr(config, "hosted", False)
-            else PlatformSession(config.state_dir, accounts_api_base(config))
+        platform_session=platform_session,
+        # ...and the thing that keeps every desktop connection's live credential fresh from it
+        # (machine_credential_keeper.py). Absent exactly when the machine session is.
+        credential_keeper=(
+            MachineCredentialKeeper(platform_session) if platform_session is not None else None
         ),
     )
     # LATE-BIND the roster broadcast (same pattern as late["service"] inside build_service):
