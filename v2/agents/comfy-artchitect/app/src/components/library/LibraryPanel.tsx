@@ -17,7 +17,7 @@
  * This panel is where things are kept, not where people discover that keeping is possible.
  */
 
-import { Library, Loader2, Upload } from 'lucide-react'
+import { LayoutTemplate, Library, Loader2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -34,10 +34,13 @@ import {
 } from '../../agentd/library'
 import type { Artifact } from '../../agentd/artifacts'
 import { readLibraryCache, writeLibraryCache } from '../../agentd/library-cache'
+import { uploadTemplate } from '../../agentd/library-template'
 import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { LibraryItemRow } from './LibraryItemRow'
+import { LibraryTemplateCard } from './LibraryTemplateCard'
+import { LibraryWorkflowItem } from './LibraryWorkflowItem'
 
 import './library.css'
 
@@ -52,6 +55,7 @@ export function LibraryPanel({
   useLabel = 'Use in this chat',
   onUseWorkflow,
   onRunAgain,
+  onUseTemplate,
 }: {
   client: AgentdClient | undefined
   /** The chat a "Use" lands in. */
@@ -70,6 +74,8 @@ export function LibraryPanel({
   useLabel?: string
   onUseWorkflow: (item: LibraryItem) => void
   onRunAgain: (item: LibraryItem) => void
+  /** "Use this template": a new chat with the template's brief in the box. */
+  onUseTemplate: (item: LibraryItem) => void
 }) {
   /* FIRST FRAME FROM THE CACHE, then the daemon's answer replaces it (agentd/library-cache).
      `cached` is read once: it only decides whether the first load shows a spinner or a list. */
@@ -127,7 +133,13 @@ export function LibraryPanel({
       if (!client || !files.length) return
       setBusy(true)
       try {
-        const added = await uploadToLibrary(client, files)
+        // A .zip is a TEMPLATE (a downloaded one coming back); everything else is a plain item.
+        const zips = files.filter((f) => f.name.toLowerCase().endsWith('.zip'))
+        const rest = files.filter((f) => !zips.includes(f))
+        const added = [
+          ...(await Promise.all(zips.map((f) => uploadTemplate(client, f)))),
+          ...(rest.length ? await uploadToLibrary(client, rest) : []),
+        ]
         say(added.length === 1 ? `Added ${added[0].name} to the Library` : `Added ${added.length} items`)
         await reload()
         bump()
@@ -190,9 +202,11 @@ export function LibraryPanel({
     [client],
   )
 
-  const uploaded = useMemo(() => items.filter((i) => i.origin === 'uploaded'), [items])
+  // TEMPLATES ARE THEIR OWN SECTION, first: a whole reusable setup is the Library's headline.
+  const templates = useMemo(() => items.filter((i) => i.kind === 'template'), [items])
+  const uploaded = useMemo(() => items.filter((i) => i.origin === 'uploaded' && i.kind !== 'template'), [items])
   const saved = useMemo(
-    () => items.filter((i) => i.origin === 'saved' && (!filter || i.from?.title === filter)),
+    () => items.filter((i) => i.origin === 'saved' && i.kind !== 'template' && (!filter || i.from?.title === filter)),
     [items, filter],
   )
   const chatsSeen = useMemo(() => {
@@ -205,9 +219,25 @@ export function LibraryPanel({
 
   // The drop zone: a real <input type=file> behind a button, plus the whole panel as a target.
   const pickRef = useRef<HTMLInputElement>(null)
+  const templateRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
 
-  const row = (item: LibraryItem) => (
+  const row = (item: LibraryItem) =>
+    item.kind === 'workflow' ? (
+      // THE WORKSPACE'S OWN CARD (WorkflowItem): a kept workflow looks exactly as it did in the
+      // chat that made it — both files, their downloads, the installer.
+      <LibraryWorkflowItem
+        key={item.id}
+        item={item}
+        client={client}
+        busy={busy || running}
+        useLabel={useLabel}
+        onUse={onUseWorkflow}
+        onRunAgain={onRunAgain}
+        onDelete={() => setDoomed(item)}
+        onNote={saveNote}
+      />
+    ) : (
     <LibraryItemRow
       key={item.id}
       item={item}
@@ -223,7 +253,7 @@ export function LibraryPanel({
       onDelete={() => setDoomed(item)}
       onNote={saveNote}
     />
-  )
+    )
 
   return (
     <div
@@ -294,6 +324,53 @@ export function LibraryPanel({
         </p>
       )}
 
+      <Section
+        title="Templates"
+        hint="whole setups — every workflow, installer and input — to reuse in a new chat"
+        origin="template"
+        action={
+          <>
+            <button
+              type="button"
+              className="lib-upload"
+              disabled={!client || busy}
+              onClick={() => templateRef.current?.click()}
+              title="Add a template you downloaded (.template.zip)"
+            >
+              <Upload size={13} strokeWidth={1.8} /> Upload template
+            </button>
+            <input
+              ref={templateRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(e) => {
+                void addFiles(Array.from(e.target.files || []))
+                e.target.value = ''
+              }}
+            />
+          </>
+        }
+      >
+        {templates.length ? (
+          templates.map((t) => (
+            <LibraryTemplateCard
+              key={t.id}
+              item={t}
+              client={client}
+              busy={busy || running}
+              onUse={onUseTemplate}
+              onDelete={() => setDoomed(t)}
+            />
+          ))
+        ) : (
+          <p className="lib-sec-empty">
+            <LayoutTemplate size={14} strokeWidth={1.8} /> None yet. In a chat, press <em>Save as template to reuse</em> to keep
+            all of its workflows as one.
+          </p>
+        )}
+      </Section>
+
       {uploaded.length > 0 && (
         <Section title="Uploaded" hint="from this computer" origin="uploaded">
           {uploaded.map(row)}
@@ -345,11 +422,14 @@ function Section({
   title,
   hint,
   origin,
+  action,
   children,
 }: {
   title: string
   hint: string
-  origin: LibraryOrigin
+  origin: LibraryOrigin | 'template'
+  /** A button that belongs to this section alone (Upload template). */
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -357,6 +437,7 @@ function Section({
       <div className="lib-sec-head">
         <span className="lib-sec-title">{title}</span>
         <span className="lib-sec-hint">{hint}</span>
+        {action && <span className="lib-sec-action">{action}</span>}
       </div>
       {children}
     </section>

@@ -11,7 +11,7 @@
  * files change under it.
  */
 
-import { BookmarkPlus, Check } from 'lucide-react'
+import { BookmarkPlus, Check, LayoutTemplate } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -21,6 +21,7 @@ import { readIndex, saveFromChat, type LibraryItem } from '../../agentd/library'
 import { chatDirFor, relOfChatFile } from '../../agentd/workspace-files'
 import { useApp } from '../../state/store'
 import { collectWorkflows, workflowFiles, type Workflow } from '../workflows/WorkflowCard'
+import { installersFor } from '../workflows/WorkflowItem'
 
 import './library.css'
 
@@ -46,12 +47,15 @@ export function SaveToLibraryChips({
   files,
   sessionKey,
   chatTitle,
+  onSaveTemplate,
 }: {
   client: AgentdClient | undefined
   /** This chat's merged file list (App.tsx). */
   files: Artifact[]
   sessionKey: string
   chatTitle: string
+  /** Keep every workflow of this chat as one template (the prompt asks its name). */
+  onSaveTemplate?: () => void
 }) {
   const [kept, setKept] = useState<LibraryItem[] | null>(null)
   const [done, setDone] = useState<Set<string>>(() => new Set())
@@ -106,7 +110,7 @@ export function SaveToLibraryChips({
   )
   const unsavedRenders = renders.filter((a) => !keptAlready(kept, sessionKey, a.name, 'reference', a.modified))
 
-  if (!wfChips.length && !unsavedRenders.length) return null
+  if (!wfChips.length && !unsavedRenders.length && !(onSaveTemplate && workflows.some((w) => w.api))) return null
 
   return (
     <div className="keep">
@@ -117,6 +121,19 @@ export function SaveToLibraryChips({
         <span>A saved workflow runs again in one click, from any chat. Renders are kept as assets.</span>
       </div>
       <div className="keep-chips">
+      {/* THE WHOLE SETUP, FIRST. A chat that built several workflows made one thing — a
+          pipeline — and keeping it as one template is what "run it again" really means. */}
+      {onSaveTemplate && workflows.some((w) => w.api) && (
+        <button
+          type="button"
+          className="keep-chip is-template"
+          disabled={!!busy}
+          onClick={onSaveTemplate}
+          title="Keep every workflow of this chat, their installers and inputs, as one template"
+        >
+          <LayoutTemplate size={13} strokeWidth={1.8} /> Save as template to reuse
+        </button>
+      )}
       {wfChips.map((wf) => {
         const key = `wf:${wf.name}`
         const saved = done.has(key)
@@ -126,7 +143,7 @@ export function SaveToLibraryChips({
             type="button"
             className={`keep-chip${saved ? ' is-done' : ''}`}
             disabled={!!busy || saved}
-            onClick={() => void save(key, workflowFiles(wf))}
+            onClick={() => void save(key, [...workflowFiles(wf), ...installersFor(wf.name, files)])}
             title="Copy this workflow into your Library, where every conversation can use it"
           >
             {saved ? <Check size={13} strokeWidth={2} /> : <BookmarkPlus size={13} strokeWidth={1.8} />}

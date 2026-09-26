@@ -26,9 +26,10 @@ INDEX_NAME = "index.json"
 INDEX = f"{LIBRARY}/{INDEX_NAME}"
 
 ORIGINS = ("uploaded", "saved")
-KINDS = ("workflow", "reference", "file")
-#: The folder each kind lives under, inside an origin.
-KIND_DIRS = {"workflow": "workflows", "reference": "references", "file": "files"}
+KINDS = ("workflow", "reference", "file", "template")
+#: The folder each kind lives under, inside an origin. A template is a folder of its own:
+#: template.json, workflows/, a thumbnail (library_template.py).
+KIND_DIRS = {"workflow": "workflows", "reference": "references", "file": "files", "template": "templates"}
 
 
 def library_dir(root: Path) -> Path:

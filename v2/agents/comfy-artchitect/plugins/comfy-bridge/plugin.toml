@@ -48,4 +48,5 @@ workspace = [
   "library/index.json",
   "library/uploaded/workflows", "library/saved/workflows",
   "library/uploaded/files", "library/saved/files",
+  "library/uploaded/templates", "library/saved/templates",
 ]

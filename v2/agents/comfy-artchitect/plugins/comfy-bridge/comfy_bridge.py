@@ -2620,6 +2620,7 @@ def register(api, ctx):
     from library_find_tool import LibraryFindTool
     from library_read_tool import LibraryReadTool
     from library_use_tool import LibraryUseTool
+    from template_use_tool import TemplateUseTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2643,3 +2644,4 @@ def register(api, ctx):
     api.register_tool(LibraryFindTool())
     api.register_tool(LibraryReadTool())
     api.register_tool(LibraryUseTool())
+    api.register_tool(TemplateUseTool())

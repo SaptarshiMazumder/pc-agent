@@ -24,6 +24,7 @@ export function LibraryPage({
   workspaceVersion,
   onUseWorkflow,
   onRunAgain,
+  onUseTemplate,
 }: {
   client: AgentdClient | undefined
   /** The open chat — where "Use in this chat" lands. */
@@ -33,6 +34,7 @@ export function LibraryPage({
   workspaceVersion: number
   onUseWorkflow: (item: LibraryItem) => void
   onRunAgain: (item: LibraryItem) => void
+  onUseTemplate: (item: LibraryItem) => void
 }) {
   return (
     <>
@@ -56,6 +58,7 @@ export function LibraryPage({
           useLabel="Use in new chat"
           onUseWorkflow={onUseWorkflow}
           onRunAgain={onRunAgain}
+          onUseTemplate={onUseTemplate}
         />
       </div>
     </>

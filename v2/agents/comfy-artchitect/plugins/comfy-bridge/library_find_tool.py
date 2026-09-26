@@ -36,7 +36,7 @@ class LibraryFindTool(Tool):
             "kind": {
                 "type": "string",
                 "enum": list(library_paths.KINDS),
-                "description": "Only this kind: workflow, reference (image/video input), or file.",
+                "description": "Only this kind: workflow, reference (image/video input), file, or template (a whole saved setup of several workflows — bring it in with template_use).",
             },
             "query": {
                 "type": "string",

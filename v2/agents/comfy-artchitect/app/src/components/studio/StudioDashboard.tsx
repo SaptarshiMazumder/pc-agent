@@ -62,6 +62,8 @@ export function StudioDashboard({
   workspaceVersion,
   onUseWorkflow,
   onRunAgain,
+  onUseTemplate,
+  onSaveTemplate,
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
@@ -89,6 +91,10 @@ export function StudioDashboard({
   onUseWorkflow: (item: LibraryItem) => void
   /** Start a new conversation around a Library workflow. */
   onRunAgain: (item: LibraryItem) => void
+  /** Start a new conversation from a Library template. */
+  onUseTemplate: (item: LibraryItem) => void
+  /** Keep every workflow of this chat as one template (asks for its name first). */
+  onSaveTemplate?: () => void
 }) {
   const state = useStudioState(client, running)
   const selectedPath = useApp((s) => s.selectedArtifactPath)
@@ -183,6 +189,7 @@ export function StudioDashboard({
             }}
             onUseWorkflow={onUseWorkflow}
             onRunAgain={onRunAgain}
+            onUseTemplate={onUseTemplate}
           />
         ) : (
           <>
@@ -233,6 +240,7 @@ export function StudioDashboard({
                       files={workflowSide}
                       onDelete={onDeleteFiles}
                       onAddToLibrary={onAddToLibrary}
+                      onSaveTemplate={onSaveTemplate}
                       onOpen={(a) => setSelectedPath(a.path)}
                       deletionDisabled={deletionDisabled}
                     />

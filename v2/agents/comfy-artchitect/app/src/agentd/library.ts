@@ -28,7 +28,7 @@ import { fileUrl, type Artifact, type ArtifactKind } from './artifacts'
 import { AGENT_ID } from './client'
 import { chatDirFor } from './workspace-files'
 
-export type LibraryKind = 'workflow' | 'reference' | 'file'
+export type LibraryKind = 'workflow' | 'reference' | 'file' | 'template'
 export type LibraryOrigin = 'uploaded' | 'saved'
 
 export interface LibraryVersion {
@@ -60,10 +60,12 @@ export interface LibraryIndex {
 
 export const LIBRARY_DIR = 'library'
 const INDEX_NAME = 'index.json'
-const KIND_DIR: Record<LibraryKind, string> = {
+export const KIND_DIR: Record<LibraryKind, string> = {
   workflow: 'workflows',
   reference: 'references',
   file: 'files',
+  // A folder per template: template.json, its workflows/, a thumbnail (library-template.ts).
+  template: 'templates',
 }
 const MEDIA: ArtifactKind[] = ['image', 'video', 'audio']
 
@@ -132,14 +134,14 @@ export function slug(name: string): string {
   )
 }
 
-function newId(kind: LibraryKind): string {
-  const prefix = kind === 'workflow' ? 'wf' : kind === 'reference' ? 'ref' : 'file'
+export function newId(kind: LibraryKind): string {
+  const prefix = kind === 'workflow' ? 'wf' : kind === 'reference' ? 'ref' : kind === 'template' ? 'tpl' : 'file'
   const bytes = new Uint8Array(6)
   crypto.getRandomValues(bytes)
   return `${prefix}_${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')}`
 }
 
-function utf8Base64(text: string): string {
+export function utf8Base64(text: string): string {
   const bytes = new TextEncoder().encode(text)
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
@@ -157,7 +159,7 @@ async function list(client: AgentdClient, path: string): Promise<Entry[]> {
   return Array.isArray(res?.entries) ? res.entries : []
 }
 
-async function copy(client: AgentdClient, from: string, to: string, overwrite = false): Promise<void> {
+export async function copy(client: AgentdClient, from: string, to: string, overwrite = false): Promise<void> {
   const res = (await client.request('workspace.copy', {
     agentId: AGENT_ID,
     from,
@@ -167,7 +169,7 @@ async function copy(client: AgentdClient, from: string, to: string, overwrite = 
   if (!res?.ok) throw new Error(res?.error || `could not copy ${from}`)
 }
 
-async function upload(
+export async function upload(
   client: AgentdClient,
   dir: string,
   name: string,
@@ -195,7 +197,7 @@ async function remove(client: AgentdClient, rel: string): Promise<void> {
 
 /** The Library's files as artifacts — the entries of one folder, absolute paths included, so
  *  `fileUrl` can open them. */
-async function listArtifacts(client: AgentdClient, dir: string): Promise<Artifact[]> {
+export async function listArtifacts(client: AgentdClient, dir: string): Promise<Artifact[]> {
   const entries = await list(client, dir)
   return entries
     .filter((e) => e && e.kind !== 'folder' && e.path)
@@ -216,7 +218,7 @@ function normalise(raw: unknown): LibraryIndex {
   for (const it of Array.isArray(list) ? list : []) {
     const r = it as Partial<LibraryItem> & { from?: unknown }
     if (!r || !r.id || !r.name || !r.path) continue
-    if (!['workflow', 'reference', 'file'].includes(String(r.kind))) continue
+    if (!['workflow', 'reference', 'file', 'template'].includes(String(r.kind))) continue
     if (!['uploaded', 'saved'].includes(String(r.origin))) continue
     const from = r.from as { chat?: unknown; title?: unknown } | undefined
     items.push({
@@ -260,7 +262,7 @@ export async function writeIndex(client: AgentdClient, index: LibraryIndex): Pro
   await upload(client, LIBRARY_DIR, INDEX_NAME, utf8Base64(JSON.stringify(index, null, 2) + '\n'), true)
 }
 
-function nowIso(): string {
+export function nowIso(): string {
   return new Date().toISOString()
 }
 
@@ -277,7 +279,7 @@ function freeName(index: LibraryIndex, kind: LibraryKind, origin: LibraryOrigin,
 }
 
 /** Split `name.ext` keeping the extension for a single-file item. */
-function splitExt(name: string): { stem: string; ext: string } {
+export function splitExt(name: string): { stem: string; ext: string } {
   const m = name.match(/^(.*?)(\.[A-Za-z0-9]+)?$/)
   return { stem: m?.[1] || name, ext: (m?.[2] || '').toLowerCase() }
 }

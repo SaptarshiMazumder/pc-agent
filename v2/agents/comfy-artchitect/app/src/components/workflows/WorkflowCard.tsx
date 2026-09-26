@@ -63,10 +63,13 @@ export function workflowFiles<A extends Artifact>(wf: Workflow<A>): A[] {
 
 export function WorkflowCard<A extends Artifact>({
   wf,
+  meta,
   onDelete,
   onSave,
 }: {
   wf: Workflow<A>
+  /** Extra facts appended to the meta line — a Library version and its slots. */
+  meta?: string
   /** Drawn as a trash button when given. The card asks; the screen decides what asking means. */
   onDelete?: (wf: Workflow<A>) => void
   /** Drawn as a bookmark when given: keep this workflow in the Library, for every chat. */
@@ -82,7 +85,7 @@ export function WorkflowCard<A extends Artifact>({
         <div className="wf-card-text">
           <span className="wf-card-title">{wf.name}</span>
           <span className="wf-card-meta">
-            {[humanSize(bytes), wf.api && wf.ui ? 'run + import files' : wf.api ? 'run file only' : 'import file only']
+            {[humanSize(bytes), wf.api && wf.ui ? 'run + import files' : wf.api ? 'run file only' : 'import file only', meta]
               .filter(Boolean)
               .join(' · ')}
           </span>

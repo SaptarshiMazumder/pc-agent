@@ -149,6 +149,11 @@ class LibraryIndex:
         base = library_paths.item_path(self.root, item.path)
         if item.kind == "reference":
             return [base], ""
+        if item.kind == "template":
+            files = sorted(p for p in base.rglob("*") if p.is_file()) if base.is_dir() else []
+            if not files:
+                return [], f"template {item.name} has no files under {library_paths.library_rel(item.path)}"
+            return files, ""
         if item.kind == "workflow":
             v = int(version or item.latest_version or 0)
             folder = base / f"v{v}" if v else base
