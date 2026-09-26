@@ -1069,6 +1069,33 @@ def _bearer(authorization: str | None) -> str:
     return authorization[len("Bearer ") :].strip()
 
 
+def _spending_account(x_internal_key: str | None, authorization: str | None, claimed: str) -> str:
+    """WHOSE MONEY THIS IS — the one rule for every route a daemon's plugin calls.
+
+      * trusted infra — the internal key, as the X-Internal-Key header OR as the bearer — speaks
+        for the account it NAMES (`claimed`);
+      * a person — their own session token as the bearer — speaks for themselves only; a claim
+        naming someone else is refused.
+
+    THE BEARER FORM IS NOT OPTIONAL. A sandboxed plugin never holds the key: it writes
+    `Authorization: Bearer ${AGENTD_PLATFORM_TOKEN}` and the daemon substitutes the key into that
+    header as the request leaves. Routes that only read X-Internal-Key answered those requests
+    401 — so on every hosted daemon the Comfy balance gate failed open and every paid run's
+    /debit was refused: runs the publisher paid Comfy for, never charged to anyone. The GPU
+    router already took both forms (vast_router._caller); this makes the money routes agree.
+    """
+    token = authorization[len("Bearer "):].strip() if authorization and authorization.startswith("Bearer ") else ""
+    if _require_internal(x_internal_key) or (token and _require_internal(token)):
+        if not claimed:
+            raise HTTPException(status_code=400, detail="account_id required")
+        return claimed
+    with _db() as c:
+        own = str(_account_for_token(c, _bearer(authorization))["id"])
+    if claimed and claimed != own:
+        raise HTTPException(status_code=403, detail="not your account")
+    return own
+
+
 @app.get("/resolve")
 def resolve(authorization: str | None = Header(default=None)) -> dict:
     """agentd calls this at the connection gate: a session token -> the account behind it.
@@ -1137,16 +1164,32 @@ def budget(
     authorization: str | None = Header(default=None),
     x_internal_key: str | None = Header(default=None),
 ) -> dict:
-    """Trusted infra (internal key) or the account's OWN session token may read its budget."""
-    if not _require_internal(x_internal_key):
-        token = _bearer(authorization)
-        with _db() as c:
-            row = _account_for_token(c, token)
-            if row["id"] != account_id:
-                raise HTTPException(status_code=403, detail="not your account")
-            return _budget_view(c, account_id)
+    """Trusted infra (internal key) or the account's OWN session token may read its budget.
+    DOLLARS against a monthly cap — for the balance in CREDITS, read /credits/{account_id}."""
+    account_id = _spending_account(x_internal_key, authorization, account_id)
     with _db() as c:
         return _budget_view(c, account_id)
+
+
+@app.get("/credits/{account_id}")
+def credits_balance(
+    account_id: str,
+    agent_id: str = "",
+    authorization: str | None = Header(default=None),
+    x_internal_key: str | None = Header(default=None),
+) -> dict:
+    """What an account can spend right now, IN CREDITS — the balance a paid run is gated on.
+
+    The same view /funding gives the proxy and /me/credits gives the app, for the caller a
+    plugin is: the daemon's internal key naming the account (hosted), or the signed-in person's
+    own token (desktop). It exists because the Comfy gate read /budget, which reports dollars
+    and has no credits in it, took the missing number for 0, and refused every paid run on the
+    desktop however much the account held."""
+    account_id = _spending_account(x_internal_key, authorization, account_id)
+    with _db() as c:
+        if c.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="unknown account")
+        return _funding_view(c, account_id, agent_id)
 
 
 # --- prepaid credits: resolve / debit / grant --------------------------------
@@ -1486,16 +1529,11 @@ def debit(
     """
     # TRUSTED INFRA DEBITS ANYONE IT NAMES; A PERSON DEBITS ONLY THEMSELVES. The second path is
     # the desktop daemon settling a paid ComfyUI run for the account signed in to it — a debit
-    # someone could only ever aim at their own balance.
-    if not _require_internal(x_internal_key):
-        token = _bearer(authorization)
-        with _db() as c:
-            own = str(_account_for_token(c, token)["id"])
-        claimed = (payload.get("account_id") or "").strip()
-        if claimed and claimed != own:
-            raise HTTPException(status_code=403, detail="not your account")
-        payload = {**payload, "account_id": own}
-    account_id = (payload.get("account_id") or "").strip()
+    # someone could only ever aim at their own balance. (_spending_account: the key in EITHER
+    # header form, which a sandboxed plugin's debit needs.)
+    account_id = _spending_account(
+        x_internal_key, authorization, (payload.get("account_id") or "").strip()
+    )
     credits = max(0, int(payload.get("credits") or 0))
     # A PROVIDER-COST DEBIT. ComfyUI partner nodes are priced in dollars; a caller sends `usd`
     # and THIS service converts at its own rate, so no plugin has to know how a credit is
