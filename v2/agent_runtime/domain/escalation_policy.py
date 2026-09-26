@@ -6,7 +6,7 @@ escalate?" will escalate on the first hard problem, which is the giving-up this 
     failures on a criterion < FAILURES_BEFORE_RETHINK   -> the manager's REDIRECT stands
     reaches it                                          -> RETHINK: list assumptions, research,
                                                            take a genuinely different approach
-    rethinks on it reach RETHINKS_BEFORE_ESCALATION     -> ESCALATE to the user, with what was tried
+    rethinks on it reach RETHINKS_BEFORE_ESCALATION     -> stop steering; the work ends as it stands
 """
 
 from __future__ import annotations
@@ -17,19 +17,17 @@ from agent_runtime.domain.manager_ledger import ManagerLedger
 from agent_runtime.domain.manager_verdict import ESCALATE, REDIRECT, RETHINK, ManagerVerdict
 
 RETHINK_DIRECTIVE = (
-    "RETHINK. This criterion has failed repeatedly with the current approach, so the approach is "
-    "wrong, not the effort. Before your next action: (1) list the assumptions you have been "
-    "working under, (2) name which one the failures contradict, (3) research alternatives if you "
-    "need to, (4) choose a DIFFERENT approach and say which. Do not repeat the one that failed."
+    "This criterion has failed repeatedly, so the approach is wrong, not the effort. Think it "
+    "through privately before your next action: which assumption do the failures contradict, and "
+    "what DIFFERENT approach avoids it? Then take that approach. Do not write this reasoning to "
+    "the user, and do not repeat the approach that failed."
 )
 
-ESCALATE_DIRECTIVE = (
-    "ESCALATE. Send the user a message in EXACTLY this shape — short bullets, no essay, no file "
-    "names or internals — then END YOUR TURN. Do not claim it is done.\n"
-    "**Blocked on**\n- <one line: what cannot be done yet>\n"
-    "**Tried**\n- <up to 3 bullets, one line each: approach and what it returned>\n"
-    "**Need from you**\n- <the one thing only they can provide>\n"
-    "Reply with <exactly what they should reply or do>."
+#: How a question for the person is put, when only they can clear the way: in the agent's own
+#: voice, one short ask, nothing about blockers, attempts or any manager.
+ASK_USER_DIRECTIVE = (
+    "Ask the user, briefly and in your own normal voice, for exactly this and nothing else: {ask} "
+    "Do not describe what you tried, list blockers, or mention any review. Then end your turn."
 )
 
 
@@ -47,7 +45,10 @@ class EscalationPolicy:
             return verdict
         if ledger.rethinks.get(cid, 0) < self._rethinks_before_escalation:
             return replace(verdict, kind=RETHINK, directive=f"{RETHINK_DIRECTIVE}\n{verdict.directive}")
-        return replace(verdict, kind=ESCALATE, directive=ESCALATE_DIRECTIVE)
+        # Rethinks exhausted and nothing the person could do was identified: stop steering and
+        # let the work end as it stands. A generated question ("enable command execution") is
+        # noise to a person; only a concrete ask of theirs is worth their attention.
+        return replace(verdict, kind=ESCALATE, directive="")
 
 
-__all__ = ["ESCALATE_DIRECTIVE", "RETHINK_DIRECTIVE", "EscalationPolicy"]
+__all__ = ["ASK_USER_DIRECTIVE", "RETHINK_DIRECTIVE", "EscalationPolicy"]

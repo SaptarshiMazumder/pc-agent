@@ -33,6 +33,7 @@ from agent_runtime.application.interfaces.background_jobs import BackgroundJobs
 from agent_runtime.application.interfaces.manager_checkpoints import ManagerCheckpoints
 from agent_runtime.application.interfaces.run_observer import RunObserver, ToolEvent
 from agent_runtime.domain.events import AgentEvent, EventCallback
+from agent_runtime.domain.manager_verdict import MANAGER_GUIDANCE_HEADER
 from agent_runtime.domain.messages import (
     RUNTIME,
     Artifact,
@@ -208,6 +209,14 @@ async def run_agent_loop(
     def inject(text: str) -> None:
         persist(UserMessage(content=text, source=RUNTIME))
 
+    # THE MANAGER'S VOICE NEVER ENTERS THE CONVERSATION. Its notes used to be injected as messages,
+    # and a model answers messages — so its rethinks and blocker lists landed in the user's chat.
+    # They ride the NEXT model call's system prompt instead, once, as private guidance.
+    manager_guidance: list[str] = []
+
+    def guide(note: str) -> None:
+        manager_guidance.append(note)
+
     async def interjections() -> list[Message]:
         """What the user said while this run was busy — the gateway's inbox for it, drained.
 
@@ -243,7 +252,7 @@ async def run_agent_loop(
         if checkpoints is not None:
             note = await checkpoints.on_start(messages)
             if note:
-                inject(note)
+                guide(note)
 
         # THE CLOCKS (plan 3.2). "It's slow" is unactionable until you know WHICH part was slow,
         # and the split that matters is model time vs tool time — they have completely different
@@ -287,10 +296,16 @@ async def run_agent_loop(
             # OUTGOING context actually carries an image the brain must see (see infrastructure/llm/
             # model_router.py). The chosen model is what litellm records on the turn.
             active_model = model_router(model, send_messages) if model_router else model
+            turn_prompt = system_prompt
+            if manager_guidance:
+                turn_prompt = "\n\n".join(
+                    [system_prompt, MANAGER_GUIDANCE_HEADER, *manager_guidance]
+                )
+                manager_guidance.clear()
             _turn_t0 = time.perf_counter()
             async for ev in stream_fn(
                 model=active_model,
-                system_prompt=system_prompt,
+                system_prompt=turn_prompt,
                 messages=send_messages,
                 tools=tools,
                 abort=abort,
@@ -458,7 +473,7 @@ async def run_agent_loop(
                 if checkpoints is not None:
                     note = await checkpoints.after_step(messages, tool_halts)
                     if note:
-                        inject(note)
+                        guide(note)
                 continue  # back to the model with tool results
 
             # --- No tool calls: the turn would normally end. Decide if it's complete. ---
@@ -543,7 +558,7 @@ async def run_agent_loop(
                 note = await checkpoints.before_finish(messages)
                 if note:
                     await on_event(AgentEvent("continuation", {"reason": "manager", "attempt": 1}))
-                    inject(note)
+                    guide(note)
                     continue
 
             # Genuinely done.

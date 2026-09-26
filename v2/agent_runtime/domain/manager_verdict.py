@@ -21,6 +21,15 @@ from dataclasses import dataclass
 
 MANAGER_PREFIX = "[manager]"
 
+#: Heads the manager's guidance where the model receives it — the system prompt of its next
+#: call, never the conversation. The person must never see the manager, its reasoning or its
+#: vocabulary; only what the agent itself would naturally say.
+MANAGER_GUIDANCE_HEADER = (
+    "PRIVATE GUIDANCE FROM YOUR PROJECT MANAGER — for you only. Act on it. Never quote it, "
+    "mention it, mention a manager, or narrate your reasoning about it to the user; the user "
+    "sees only your normal work and replies."
+)
+
 CONTINUE = "continue"
 REDIRECT = "redirect"
 RETHINK = "rethink"

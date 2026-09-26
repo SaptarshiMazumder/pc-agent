@@ -34,6 +34,7 @@ beside the session so the next run resumes against the same contract.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 import time
 from pathlib import Path
 from collections.abc import Awaitable, Callable
@@ -44,8 +45,8 @@ from agent_runtime.application.interfaces.proof_runner import ProofRunner
 from agent_runtime.application.services.run_digest_recorder import RunDigestRecorder
 from agent_runtime.domain.app_context import is_app_context
 from agent_runtime.domain.capability_sheet import CapabilitySheet
-from agent_runtime.domain.deliverable_contract import DeliverableContract
-from agent_runtime.domain.escalation_policy import ESCALATE_DIRECTIVE, EscalationPolicy
+from agent_runtime.domain.deliverable_contract import ACTIVE, DeliverableContract
+from agent_runtime.domain.escalation_policy import ASK_USER_DIRECTIVE, EscalationPolicy
 from agent_runtime.domain.manager_brief import (
     DRIFT,
     ENGAGE,
@@ -176,7 +177,7 @@ class ManagerCheckpointService:
         # unmeetable criterion kept a build re-running the same test indefinitely.
         if self._forced >= MAX_FORCED_CONTINUES:
             return self._act(DRIFT, ManagerVerdict(
-                ESCALATE, directive=ESCALATE_DIRECTIVE, reason="redirect budget for this run spent"
+                ESCALATE, reason="redirect budget for this run spent — steering stops"
             ))
         milestone = self._completed_plan_steps(messages) > self._completed_steps
         self._completed_steps = self._completed_plan_steps(messages)
@@ -192,7 +193,7 @@ class ManagerCheckpointService:
             return None
         if self._forced >= MAX_FORCED_CONTINUES:
             return self._act(FINISH, ManagerVerdict(
-                ESCALATE, directive=ESCALATE_DIRECTIVE, reason="continuation budget for this run spent"
+                ESCALATE, reason="continuation budget for this run spent — steering stops"
             ))
         proofs = [await self._proofs.prove(c) for c in contract.criteria]
         verdict = await self._review(self._brief(FINISH, messages, proofs=proofs))
@@ -274,6 +275,11 @@ class ManagerCheckpointService:
         contract = await self._draft(self._brief(ENGAGE, messages))
         if contract is None:
             return None
+        # ALREADY APPROVED IN THE AGENT'S OWN CARD. The manager engages only once work is under
+        # way, and by then an agent with its own approval step may already have asked — asking
+        # again put a second card in front of the person for the same work.
+        if contract.pending_approval and self._approval_given_in_own_card(messages):
+            contract = replace(contract, status=ACTIVE)
         self._ledger.contract = contract
         self._ledger.awaiting_user = contract.pending_approval
         self._store.save(self._ledger)
@@ -317,8 +323,10 @@ class ManagerCheckpointService:
             self._ledger.awaiting_user = True
         self._record(checkpoint, verdict)
         if verdict.kind in (CONTINUE, DONE) or not verdict.directive:
-            return None
+            return None  # an ESCALATE with no concrete ask just stops steering, silently
         self._forced += 1
+        if verdict.kind == ESCALATE:
+            return self._say(ASK_USER_DIRECTIVE.format(ask=verdict.directive))
         return self._say(verdict.directive)
 
     # ------------------------------------------------------------------ the manager calls
@@ -369,6 +377,17 @@ class ManagerCheckpointService:
             proofs=tuple(proofs or ()),
             drift=tuple(drift or ()),
             decisions=tuple(self._ledger.recent_decisions()),
+        )
+
+    def _approval_given_in_own_card(self, messages: list[Message]) -> bool:
+        """Has this chat already put its own approval card to the person?"""
+        if not self._approval_tool:
+            return False
+        return any(
+            call.name == self._approval_tool
+            for m in messages
+            if isinstance(m, AssistantMessage)
+            for call in m.tool_calls
         )
 
     def _should_engage(self, messages: list[Message]) -> bool:
