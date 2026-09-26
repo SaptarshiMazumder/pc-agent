@@ -38,6 +38,11 @@ class ManagerBrief:
     drift: tuple[str, ...] = ()
     decisions: tuple[dict, ...] = ()
     app_context: tuple[str, ...] = ()  # notes the agent's app sent (app_context.py) — never requirements
+    #: The developer's LAST tool calls and what they returned, whatever the checkpoint. The
+    #: digest above is only what ran SINCE the last look — empty after a send-back the developer
+    #: could not act on — so without these the manager judged a stop without its reason: a gate
+    #: that refused, a service that was down, a hold the user placed.
+    recent_results: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.checkpoint not in CHECKPOINTS:
@@ -53,6 +58,9 @@ class ManagerBrief:
         if self.proofs:
             parts += ["", "PROOFS JUST CHECKED:"] + [f"  {p.render()}" for p in self.proofs]
         parts += ["", "WHAT ACTUALLY RAN SINCE THE LAST CHECKPOINT:", self.digest.render()]
+        if self.checkpoint == FINISH and self.recent_results:
+            parts += ["", "WHY THE DEVELOPER STOPPED — its last tool calls and what they returned:"]
+            parts += list(self.recent_results)
         if self.drift:
             parts += ["", "DRIFT SIGNALS:"] + [f"  - {d}" for d in self.drift]
         parts += ["", "DEVELOPER'S PLAN:"] + ([f"  {p}" for p in self.developer_plan] or ["  (none)"])

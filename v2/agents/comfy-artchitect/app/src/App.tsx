@@ -65,15 +65,26 @@ import { LibraryPage } from './components/library/LibraryPage'
 import PolicyPage from './components/policies/PolicyPage'
 import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
+import { chatWorkflowFiles } from './components/workflows/WorkflowItem'
+import { SaveTemplatePrompt } from './components/library/SaveTemplatePrompt'
+import { saveChatAsTemplate, useTemplateMessage } from './agentd/library-template'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useHumanActivity } from './components/studio/useHumanActivity'
 import { SaveToLibraryChips } from './components/library/SaveToLibraryChips'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 import { referencesReadyInstruction, useReferenceSlots } from './agentd/reference-slots'
-import { readIndex, saveFromChat, useWorkflowMessage, type LibraryItem } from './agentd/library'
+import {
+  readIndex,
+  saveFromChat,
+  saveOutcome,
+  useWorkflowMessage,
+  type LibraryItem,
+  type LibrarySaveOutcome,
+} from './agentd/library'
 import {
   applyApprovedDeletions,
+  chatDirFor,
   mergeFiles,
   relOfChatFile,
   useChatWorkspaceFiles,
@@ -284,18 +295,23 @@ export default function App() {
     [client, currentKey],
   )
   const onAddToLibrary = useCallback(
-    async (paths: string[]): Promise<string> => {
+    async (paths: string[]): Promise<LibrarySaveOutcome> => {
       if (!client) throw new Error('not connected')
       const chosen = files
         .filter((a) => paths.includes(a.path))
-        .map((a) => ({ rel: relOfChatFile(a.path, currentKey) || '', name: a.name, kind: a.kind, path: a.path }))
+        .map((a) => ({
+          rel: relOfChatFile(a.path, currentKey) || '',
+          name: a.name,
+          kind: a.kind,
+          path: a.path,
+          size: a.size,
+        }))
         .filter((f) => f.rel)
-      const added = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
+      const res = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
       useApp.getState().bumpWorkspace()
+      // Lit either way: saved just now, or already there — both answer "where is it".
       useApp.getState().flashLibrary()
-      return added.length === 1
-        ? `Added ${added[0].name} to the Library`
-        : `Added ${added.length} items to the Library`
+      return saveOutcome(res)
     },
     [client, files, currentKey, chatTitleOf],
   )
@@ -319,6 +335,61 @@ export default function App() {
         `keep its settings, then validate it, price it and ask. I'll fill the slots.`,
     )
   }, [setView])
+  /* A TEMPLATE STARTS A NEW CHAT, with its brief in the box, unsent: the agent brings every
+     workflow in with template_use, sets up the inputs and says what it does. */
+  const onUseTemplate = useCallback((item: LibraryItem) => {
+    const { newSession, seedComposer } = useApp.getState()
+    newSession(true)
+    setView('chat')
+    seedComposer(useTemplateMessage(item))
+  }, [setView])
+
+  /* SAVE AS TEMPLATE: every workflow this chat built (run file, ComfyUI file, installer), the
+     inputs its slots declare, and the newest render as the thumbnail — one Library card. */
+  const [templatePrompt, setTemplatePrompt] = useState(false)
+  const [templateBusy, setTemplateBusy] = useState(false)
+  const [templateError, setTemplateError] = useState('')
+  const chatWorkflows = useMemo(() => {
+    const dir = `/${chatDirFor('workflows', currentKey)}/`
+    return chatWorkflowFiles(files.filter((a) => a.path.replace(/\\/g, '/').includes(dir)))
+  }, [files, currentKey])
+  const openTemplatePrompt = useCallback(() => {
+    setTemplateError('')
+    setTemplatePrompt(true)
+  }, [])
+  const saveTemplate = useCallback(
+    async (name: string, description: string) => {
+      if (!client) return
+      setTemplateBusy(true)
+      setTemplateError('')
+      try {
+        const outputs = `/${chatDirFor('outputs', currentKey)}/`
+        const thumbnail = files
+          .filter((a) => a.kind === 'image' && a.path.replace(/\\/g, '/').includes(outputs))
+          .sort((a, b) => (b.modified || 0) - (a.modified || 0))[0]
+        await saveChatAsTemplate(
+          client,
+          {
+            name,
+            description,
+            workflows: chatWorkflows,
+            inputs: slots.map((sl) => ({ role: sl.role, what: sl.what })),
+            thumbnail,
+            relOf: (a) => relOfChatFile(a.path, currentKey) || '',
+          },
+          { chat: currentKey, title: chatTitleOf(currentKey) },
+        )
+        setTemplatePrompt(false)
+        useApp.getState().bumpWorkspace()
+        useApp.getState().flashLibrary()
+      } catch (e) {
+        setTemplateError(String((e as Error)?.message || e))
+      } finally {
+        setTemplateBusy(false)
+      }
+    },
+    [client, currentKey, files, chatWorkflows, slots, chatTitleOf],
+  )
   /* The newest emitted workflow's API file — the conversation header's subtitle, so the run
      the studio is about is named right over the transcript. */
   const latestWorkflow = useMemo(() => {
@@ -779,6 +850,7 @@ export default function App() {
             workspaceVersion={workspaceVersion}
             onUseWorkflow={onUseWorkflowInNewChat}
             onRunAgain={onRunAgain}
+            onUseTemplate={onUseTemplate}
           />
         ) : view === 'about' ? (
           <PolicyPage key="about" start="about.html" />
@@ -859,6 +931,7 @@ export default function App() {
                         files={files}
                         sessionKey={currentKey}
                         chatTitle={chatTitleOf(currentKey)}
+                        onSaveTemplate={openTemplatePrompt}
                       />
                     }
                   />
@@ -934,6 +1007,8 @@ export default function App() {
                   workspaceVersion={workspaceVersion}
                   onUseWorkflow={onUseWorkflow}
                   onRunAgain={onRunAgain}
+                  onUseTemplate={onUseTemplate}
+                  onSaveTemplate={chatWorkflows.length ? openTemplatePrompt : undefined}
                   /* Not mid-run: a delete landing between an emit and its run is the one case
                      worth refusing outright, so it waits rather than queues. */
                   deletionDisabled={
@@ -952,6 +1027,16 @@ export default function App() {
           </div>
         )}
       </main>
+      {templatePrompt && (
+        <SaveTemplatePrompt
+          defaultName={chatTitleOf(currentKey)}
+          workflowCount={chatWorkflows.length}
+          busy={templateBusy}
+          error={templateError}
+          onSave={(name, description) => void saveTemplate(name, description)}
+          onClose={() => setTemplatePrompt(false)}
+        />
+      )}
       {oversizeImages.length > 0 && (
         <ChatImageTooBigPrompt files={oversizeImages} onClose={() => setOversizeImages([])} />
       )}

@@ -616,27 +616,6 @@
 
 /* ── Workflow section ─────────────────────────────────────────────────────────────────────── */
 .wp { display: flex; flex-direction: column; gap: 12px; }
-.wp-item {
-  display: flex; flex-direction: column; gap: 10px; padding: 14px;
-  border: 1px solid var(--border); border-radius: var(--r-card); background: var(--bg2);
-}
-.wp-item .wf-card { border: 0; padding: 0; background: none; }
-.wp-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.wp-btn {
-  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px;
-  border: 1px solid var(--border-strong); border-radius: var(--r-control); background: transparent;
-  color: var(--text); font: inherit; font-size: var(--fs-small); font-weight: var(--fw-semi);
-  cursor: pointer; text-decoration: none; overflow-wrap: anywhere;
-}
-.wp-btn:hover { background: var(--bg3); }
-.wp-btn.is-primary { background: var(--prim-bg); border-color: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent); }
-.wp-btn.is-primary:hover { background: var(--prim-bg-h); border-color: var(--prim-bg-h); }
-.wp-inst {
-  display: flex; flex-direction: column; gap: 6px; padding: 12px;
-  border: 1px dashed var(--border-strong); border-radius: var(--r-control);
-}
-.wp-inst-title { font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--faint); font-weight: 700; }
-.wp-inst-sub { font-size: var(--fs-small); color: var(--dim); }
 .wp-hint { margin: 0; font-size: var(--fs-small); color: var(--faint); }
 
 @media (max-width: 820px) {

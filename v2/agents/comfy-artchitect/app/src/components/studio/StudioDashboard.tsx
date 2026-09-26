@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
+import type { LibrarySaveOutcome } from '../../agentd/library'
 
 import type { GpuWarmup } from './useGpuWarmup'
 
@@ -62,6 +63,8 @@ export function StudioDashboard({
   workspaceVersion,
   onUseWorkflow,
   onRunAgain,
+  onUseTemplate,
+  onSaveTemplate,
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
@@ -79,7 +82,7 @@ export function StudioDashboard({
   /** Delete: the daemon removes the files, after the one warning each section shows. */
   onDeleteFiles?: (paths: string[]) => Promise<void>
   /** Add to Library: copies into the shared Library; answers a sentence to show. */
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   deletionDisabled?: string
   /** The chat the Library's "Use" lands in. */
   sessionKey: string
@@ -89,6 +92,10 @@ export function StudioDashboard({
   onUseWorkflow: (item: LibraryItem) => void
   /** Start a new conversation around a Library workflow. */
   onRunAgain: (item: LibraryItem) => void
+  /** Start a new conversation from a Library template. */
+  onUseTemplate: (item: LibraryItem) => void
+  /** Keep every workflow of this chat as one template (asks for its name first). */
+  onSaveTemplate?: () => void
 }) {
   const state = useStudioState(client, running)
   const selectedPath = useApp((s) => s.selectedArtifactPath)
@@ -183,6 +190,7 @@ export function StudioDashboard({
             }}
             onUseWorkflow={onUseWorkflow}
             onRunAgain={onRunAgain}
+            onUseTemplate={onUseTemplate}
           />
         ) : (
           <>
@@ -233,6 +241,7 @@ export function StudioDashboard({
                       files={workflowSide}
                       onDelete={onDeleteFiles}
                       onAddToLibrary={onAddToLibrary}
+                      onSaveTemplate={onSaveTemplate}
                       onOpen={(a) => setSelectedPath(a.path)}
                       deletionDisabled={deletionDisabled}
                     />

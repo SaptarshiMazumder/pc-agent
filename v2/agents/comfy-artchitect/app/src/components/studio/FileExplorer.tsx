@@ -28,6 +28,8 @@ import {
 } from 'lucide-react'
 
 import { humanSize, type Artifact } from '../../agentd/artifacts'
+import type { LibrarySaveOutcome } from '../../agentd/library'
+import { saveLabel, useSaveFeedback } from '../library/use-save-feedback'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { CHAT_DIRS } from '../../agentd/workspace-files'
 import { isCanvasImportable, setDragPayload } from './dragOut'
@@ -228,7 +230,7 @@ export function FileExplorer({
   /** Delete these files (absolute paths, as listed) — the daemon does it, after one warning. */
   onDelete?: (paths: string[]) => Promise<void>
   /** Copy these files into the Library. Answers a sentence for the bar to show. */
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   /** Why a delete cannot happen right now (a run in flight) — shown on the button. */
   deletionDisabled?: string
 }) {
@@ -250,7 +252,7 @@ export function FileExplorer({
   const [doomed, setDoomed] = useState<string[] | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const feedback = useSaveFeedback()
   const [notice, setNotice] = useState('')
   const doDelete = async (): Promise<void> => {
     if (!doomed || !onDelete) return
@@ -268,15 +270,13 @@ export function FileExplorer({
   }
   const save = async (): Promise<void> => {
     if (!chosen.length || !onAddToLibrary) return
-    setSaving(true)
     try {
-      setNotice(await onAddToLibrary(chosen))
-      setPicked(new Set())
+      setNotice((await feedback.run('selection', () => onAddToLibrary(chosen))).message)
+      // The bar stays long enough for its button to say what happened, then the ticks clear.
+      setTimeout(() => setPicked(new Set()), 2500)
       setTimeout(() => setNotice(''), 4000)
     } catch (e) {
       setNotice(`Could not add to the Library: ${String((e as Error)?.message || e)}`)
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -297,12 +297,12 @@ export function FileExplorer({
             <button
               type="button"
               className="fx-bar-btn"
-              disabled={saving}
+              disabled={feedback.stateOf('selection') === 'saving'}
               title="Copy the selected files into your Library, shared by every conversation"
               onClick={() => void save()}
             >
               <BookmarkPlus size={13} strokeWidth={1.8} />
-              {saving ? 'Adding…' : 'Add to Library'}
+              {saveLabel(feedback.stateOf('selection'), 'Add to Library')}
             </button>
           )}
           {onDelete && (

@@ -1264,23 +1264,47 @@ def _charge(credits: int, note: str, usd: float = 0.0) -> tuple[bool, str]:
 def _affordable(credits: int) -> tuple[bool, str]:
     """Does the caller have the credits this run will cost? (ok, why not).
 
-    THE GATE THAT ACTUALLY BITES. Fails OPEN when the balance cannot be read — an accounts blip
-    must not block a user who has paid, and the settlement below still records the spend.
+    THE GATE THAT ACTUALLY BITES. It reads CREDITS from /credits (the same view the proxy gates
+    on) — it read /budget until 2026-09-27, which reports dollars and has no credits in it: the
+    missing number was taken for 0 and every paid run on a desktop was refused, whatever the
+    account held.
+
+    A BLIP FAILS OPEN, A WRONG ANSWER DOES NOT. Accounts unreachable or erroring (no status, 5xx)
+    must not block a user who has paid — the settlement still records the spend. But a 4xx is
+    this call being wrong (a refused credential, a missing route), and an answer without a
+    credits number is not a balance: both refuse, saying so, instead of silently reading as
+    "fine" (the hosted 401s did that for weeks) or as "0" (the desktop did).
     """
     account_id = current_account_id()
     if not account_id or credits <= 0:
         return True, ""
     res = fetch(
-        f"{_ACCOUNTS}/budget/{account_id}",
+        f"{_ACCOUNTS}/credits/{account_id}",
+        params={"agent_id": "comfy-artchitect"},
         headers=_AUTH,
         timeout_s=20.0,
     )
+    if not res.status or res.status >= 500:
+        return True, ""
     if not res.ok:
-        return True, ""
+        return False, (
+            f"could not read the account's balance (HTTP {res.status}) — a platform problem, not "
+            "the user's. Do NOT submit the paid run; tell the user the balance check failed."
+        )
     try:
-        have = int((res.json() or {}).get("credits_remaining") or 0)
-    except (ValueError, TypeError):
+        view = res.json() or {}
+    except ValueError:
+        view = {}
+    # An account never put on a credit plan is not gated, exactly as the proxy treats it.
+    if view.get("credits_enforced") is False:
         return True, ""
+    have = view.get("credits_remaining")
+    if not isinstance(have, (int, float)):
+        return False, (
+            "the balance answer had no credits in it — a platform problem, not the user's. Do NOT "
+            "submit the paid run; tell the user the balance check failed."
+        )
+    have = int(have)
     if have >= credits:
         return True, ""
     return False, (
@@ -2620,6 +2644,7 @@ def register(api, ctx):
     from library_find_tool import LibraryFindTool
     from library_read_tool import LibraryReadTool
     from library_use_tool import LibraryUseTool
+    from template_use_tool import TemplateUseTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2643,3 +2668,4 @@ def register(api, ctx):
     api.register_tool(LibraryFindTool())
     api.register_tool(LibraryReadTool())
     api.register_tool(LibraryUseTool())
+    api.register_tool(TemplateUseTool())

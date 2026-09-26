@@ -85,6 +85,12 @@ class DeliverableContract:
     def criterion(self, criterion_id: str) -> Criterion | None:
         return next((c for c in self.criteria if c.id == criterion_id), None)
 
+    def plan_points(self) -> str:
+        """Just the bullets — for an agent that shows them inside its OWN approval card."""
+        lines = [f"- {c.statement}" for c in self.criteria]
+        lines += [f"- Needed from you: {n}" for n in self.needs_from_user]
+        return "\n".join(lines)
+
     def present(self, revised: bool = False) -> str:
         """The approval message the user sees — fixed shape, no essays, nothing internal."""
         lines = ["**Revised plan**" if revised else "**Plan**"]

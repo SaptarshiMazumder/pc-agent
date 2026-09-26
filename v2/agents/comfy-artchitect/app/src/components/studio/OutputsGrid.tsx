@@ -13,10 +13,12 @@
  * reason the tree gives), Download is the file itself.
  */
 
-import { BookmarkPlus, Download, Image as ImageIcon, Music, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Check, Download, Image as ImageIcon, Loader2, Music, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { fileUrl, thumbnailUrl, type Artifact } from '../../agentd/artifacts'
+import type { LibrarySaveOutcome } from '../../agentd/library'
+import { saveLabel, useSaveFeedback } from '../library/use-save-feedback'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { MediaKindTag } from '../media/MediaKindTag'
 
@@ -50,24 +52,22 @@ export function OutputsGrid({
   selectedPath: string
   onOpen: (a: Artifact) => void
   onDelete?: (paths: string[]) => Promise<void>
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   deletionDisabled?: string
 }) {
   const [doomed, setDoomed] = useState<Artifact | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [notice, setNotice] = useState('')
-  const [saving, setSaving] = useState('')
+  const feedback = useSaveFeedback()
 
   const save = async (a: Artifact): Promise<void> => {
     if (!onAddToLibrary) return
-    setSaving(a.path)
     try {
-      setNotice(await onAddToLibrary([a.path]))
+      setNotice((await feedback.run(a.path, () => onAddToLibrary([a.path]))).message)
     } catch (e) {
       setNotice(`Could not add to the Library: ${String((e as Error)?.message || e)}`)
     } finally {
-      setSaving('')
       setTimeout(() => setNotice(''), 4000)
     }
   }
@@ -114,12 +114,18 @@ export function OutputsGrid({
                 <button
                   type="button"
                   className="op-act"
-                  disabled={saving === a.path}
+                  disabled={feedback.stateOf(a.path) === 'saving'}
                   onClick={() => void save(a)}
-                  title="Add to Library, shared by every conversation"
+                  title={saveLabel(feedback.stateOf(a.path), 'Add to Library, shared by every conversation')}
                   aria-label={`Add ${a.name} to the Library`}
                 >
-                  <BookmarkPlus size={14} strokeWidth={1.9} />
+                  {feedback.stateOf(a.path) === 'saving' ? (
+                    <Loader2 size={14} strokeWidth={1.9} className="ld-spin" />
+                  ) : feedback.stateOf(a.path) === 'idle' ? (
+                    <BookmarkPlus size={14} strokeWidth={1.9} />
+                  ) : (
+                    <Check size={14} strokeWidth={2.2} />
+                  )}
                 </button>
               )}
               {onDelete && (

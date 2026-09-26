@@ -10,6 +10,9 @@ application/services/manager_checkpoint_service.py). At each checkpoint it retur
     AWAIT_APPROVAL  the contract needs the user's yes before the work starts
     DONE            every criterion of the contract is proven
     ESCALATE        rethinks are exhausted — put the question to the user, with what was tried
+    WAIT            (finish) the stop is right: the work is paused on the user (an answer, a file,
+                    an approval) or on something outside the developer's reach (a service down, a
+                    hold the user placed). The run ends; the next review is at the user's reply.
 
 Everything the manager says to the developer is injected into the run behind MANAGER_PREFIX, so
 the runtime can always tell it from the person (a manager note must never read as the user).
@@ -21,14 +24,24 @@ from dataclasses import dataclass
 
 MANAGER_PREFIX = "[manager]"
 
+#: Heads the manager's guidance where the model receives it — the system prompt of its next
+#: call, never the conversation. The person must never see the manager, its reasoning or its
+#: vocabulary; only what the agent itself would naturally say.
+MANAGER_GUIDANCE_HEADER = (
+    "PRIVATE GUIDANCE FROM YOUR PROJECT MANAGER — for you only. Act on it. Never quote it, "
+    "mention it, mention a manager, or narrate your reasoning about it to the user; the user "
+    "sees only your normal work and replies."
+)
+
 CONTINUE = "continue"
 REDIRECT = "redirect"
 RETHINK = "rethink"
 AWAIT_APPROVAL = "await_approval"
 DONE = "done"
 ESCALATE = "escalate"
+WAIT = "wait"
 
-VERDICT_KINDS = (CONTINUE, REDIRECT, RETHINK, AWAIT_APPROVAL, DONE, ESCALATE)
+VERDICT_KINDS = (CONTINUE, REDIRECT, RETHINK, AWAIT_APPROVAL, DONE, ESCALATE, WAIT)
 
 
 @dataclass(frozen=True)
@@ -69,5 +82,6 @@ __all__ = [
     "REDIRECT",
     "RETHINK",
     "VERDICT_KINDS",
+    "WAIT",
     "ManagerVerdict",
 ]

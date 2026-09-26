@@ -24,6 +24,7 @@ from agent_runtime.infrastructure import accounts
 from agent_runtime.infrastructure.engine.incomplete_turn import is_runtime_message
 from agent_runtime.infrastructure.llm.oneshot import chat_complete
 from agent_runtime.infrastructure.machine_credential_keeper import MachineCredentialKeeper
+from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
 from agent_runtime.infrastructure.project_manager.llm_project_manager import LlmProjectManager
 from agent_runtime.infrastructure.project_manager.session_manager_ledger_store import (
     SessionManagerLedgerStore,
@@ -848,6 +849,11 @@ def build_service(
             recorder=RunDigestRecorder(),
             emit=scope.emit,
             is_runtime=is_runtime_message,
+            # The agent's own approval tool, if it has one (a CHECKPOINT tool, the same flag the
+            # engine reads): the manager's plan is approved inside that card, never beside it.
+            approval_tool=next(
+                (t.name for t in scope.tools if getattr(_unwrap_tool(t), "checkpoint", False)), ""
+            ),
         )
 
     service = AgentService(

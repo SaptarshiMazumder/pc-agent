@@ -50,6 +50,7 @@ class RunDigestRecorder:
         self._failure_streak = 0
         self._drift: list[str] = []
         self._tool_failures: dict[str, int] = {}  # tool -> consecutive failures, any arguments
+        self._repeat_counts: dict[tuple[str, str], int] = {}  # identical call -> times since a write
         self._work_log: list[DigestEntry] = []  # every call, kept past `take` for handoffs
         self._files_written: dict[str, None] = {}  # insertion-ordered set of written paths
 
@@ -77,6 +78,7 @@ class RunDigestRecorder:
                 self._research_since_write += 1
         self._track_failures(name, args_text, is_error)
         self._track_tool_failures(name, is_error)
+        self._track_repeats(name, args_text)
         self._check_drift()
 
     def take(self) -> RunDigest:
@@ -108,6 +110,22 @@ class RunDigestRecorder:
         if self._failure_streak >= self._repeat_limit:
             self._drift.append(f"the same call failed {self._failure_streak} times in a row: {name}({args_text})")
             self._failure_streak = 0
+
+    def _track_repeats(self, name: str, args_text: str) -> None:
+        """The same call, same arguments, again and again with nothing written in between —
+        whether it passes or fails. A passing test re-run five times against unchanged files
+        cannot produce a different answer; the failure checks never saw it because nothing failed."""
+        if name in WRITE_TOOLS:
+            self._repeat_counts.clear()
+            return
+        key = (name, args_text)
+        self._repeat_counts[key] = self._repeat_counts.get(key, 0) + 1
+        if self._repeat_counts[key] >= self._repeat_limit:
+            self._drift.append(
+                f"{name}({args_text}) has run {self._repeat_counts[key]} times with nothing "
+                "changed in between — re-running it cannot give a different answer"
+            )
+            self._repeat_counts[key] = 0
 
     def _track_tool_failures(self, name: str, is_error: bool) -> None:
         """The same TOOL failing again and again, whatever its arguments. Varying the target on

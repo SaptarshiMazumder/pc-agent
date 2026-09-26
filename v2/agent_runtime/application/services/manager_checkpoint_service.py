@@ -34,6 +34,7 @@ beside the session so the next run resumes against the same contract.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 import time
 from pathlib import Path
 from collections.abc import Awaitable, Callable
@@ -44,8 +45,8 @@ from agent_runtime.application.interfaces.proof_runner import ProofRunner
 from agent_runtime.application.services.run_digest_recorder import RunDigestRecorder
 from agent_runtime.domain.app_context import is_app_context
 from agent_runtime.domain.capability_sheet import CapabilitySheet
-from agent_runtime.domain.deliverable_contract import DeliverableContract
-from agent_runtime.domain.escalation_policy import ESCALATE_DIRECTIVE, EscalationPolicy
+from agent_runtime.domain.deliverable_contract import ACTIVE, DeliverableContract
+from agent_runtime.domain.escalation_policy import ASK_USER_DIRECTIVE, EscalationPolicy
 from agent_runtime.domain.manager_brief import (
     DRIFT,
     ENGAGE,
@@ -63,6 +64,7 @@ from agent_runtime.domain.manager_verdict import (
     MANAGER_PREFIX,
     REDIRECT,
     RETHINK,
+    WAIT,
     ManagerVerdict,
 )
 from agent_runtime.domain.messages import (
@@ -84,6 +86,14 @@ PLAN_TOOL = "update_plan"
 HANDOFF_AT = 0.6  # fraction of the model's context used before old history becomes a handoff
 KEEP_RECENT_MESSAGES = 30  # the stretch of the work sent verbatim after the handoff
 MAX_ITERATION_EXTENSIONS = 3  # contracted work may run this many iteration budgets past the cap
+STOP_EVIDENCE_CALLS = 6  # the developer's last calls shown to the manager as the reason for a stop
+UNANSWERED_RETRIES = 1  # a send-back met with words, not a tool call, gets this many firmer pushes
+
+#: The one firmer push after a send-back the developer answered with words instead of the action.
+ACT_NOW_DIRECTIVE = (
+    "You did not take the action you were given. Take it now, as your next step: {directive} "
+    "Make the tool call; do not write to the user until it has run."
+)
 
 APPROVAL_DIRECTIVE = (
     "Before building anything, the user must approve the plan. Send them EXACTLY the message "
@@ -91,6 +101,16 @@ APPROVAL_DIRECTIVE = (
     "inspected, the starting template, files or checks. Then END YOUR TURN and wait."
 )
 _RULE = "-" * 40
+
+# THE AGENT'S OWN CARD, when it has one. An agent with an approval tool of its own (Comfy
+# Penguin's ask_user card: the brief, the paid services, their prices) already stops for the
+# user's go; a second, separate plan message made the person approve the same work twice. So
+# the plan rides INSIDE that card, and the one answer approves both.
+APPROVAL_IN_OWN_TOOL = (
+    "Before building anything, the user must approve the plan. Ask for it with your own `{tool}` "
+    "card: include the points between the lines in it, word for word, alongside what the card "
+    "already asks. Do NOT send them as a separate message. Then END YOUR TURN and wait."
+)
 
 
 class ManagerCheckpointService:
@@ -105,8 +125,11 @@ class ManagerCheckpointService:
         recorder: RunDigestRecorder,
         emit: Callable[[str, dict], Awaitable[None]],
         is_runtime: Callable[[UserMessage], bool],
+        approval_tool: str = "",
         clock: Callable[[], float] = time.time,
     ) -> None:
+        """:param approval_tool: the agent's own approval tool (a checkpoint tool), or "" — the
+        plan is then approved inside that tool's card rather than in a message of the manager's."""
         self._pm = project_manager
         self._store = ledger_store
         self._proofs = proof_runner
@@ -115,6 +138,7 @@ class ManagerCheckpointService:
         self._recorder = recorder
         self._emit = emit
         self._is_runtime = is_runtime
+        self._approval_tool = approval_tool
         self._clock = clock
         self._ledger: ManagerLedger = ledger_store.load()
         self._engaged = self._ledger.contract is not None and not self._fulfilled()
@@ -126,6 +150,14 @@ class ManagerCheckpointService:
         self._handing_off = False  # sticky: once the history is condensed it stays condensed, or
         #                            the full history would go straight back out and refill it
         self._extensions = 0
+        self._written_at_extension = 0
+        # A SEND-BACK AT A FINISH MUST BE ANSWERED WITH AN ACTION. Where the tool-call count stood
+        # when it went out, and what it said: a finish with no call since then is the same stop
+        # again, and reviewing it again is what looped a paused run twelve times — same facts in,
+        # same verdict out, one more message to the user each time.
+        self._sent_back_at: int | None = None
+        self._sent_back_directive = ""
+        self._unanswered = 0
 
     # ------------------------------------------------------------------ engine-facing
 
@@ -156,6 +188,13 @@ class ManagerCheckpointService:
         contract = self._ledger.contract
         if contract is None or not contract.active or self._ledger.awaiting_user:
             return None
+        # THE REDIRECT BUDGET HOLDS EVERYWHERE, not only at a finish: a developer sent back at
+        # every milestone never tries to finish, so a finish-only check never fired and one
+        # unmeetable criterion kept a build re-running the same test indefinitely.
+        if self._forced >= MAX_FORCED_CONTINUES:
+            return self._act(DRIFT, ManagerVerdict(
+                ESCALATE, reason="redirect budget for this run spent — steering stops"
+            ))
         milestone = self._completed_plan_steps(messages) > self._completed_steps
         self._completed_steps = self._completed_plan_steps(messages)
         if not (milestone or signals):
@@ -170,8 +209,12 @@ class ManagerCheckpointService:
             return None
         if self._forced >= MAX_FORCED_CONTINUES:
             return self._act(FINISH, ManagerVerdict(
-                ESCALATE, directive=ESCALATE_DIRECTIVE, reason="continuation budget for this run spent"
+                ESCALATE, reason="continuation budget for this run spent — steering stops"
             ))
+        if self._sent_back_at is not None:
+            if self._recorder.total_calls == self._sent_back_at:
+                return self._unanswered_send_back()
+            self._sent_back_at, self._unanswered = None, 0  # it acted: a normal review follows
         proofs = [await self._proofs.prove(c) for c in contract.criteria]
         verdict = await self._review(self._brief(FINISH, messages, proofs=proofs))
         if verdict is None:
@@ -192,14 +235,35 @@ class ManagerCheckpointService:
             self._record(FINISH, verdict)
             await self._emit("manager", {"verdict": DONE, "contract": self._ledger.contract.to_dict()})
             return None
-        if verdict.kind == CONTINUE:
-            # At a finish, CONTINUE means the developer is legitimately pausing for the user.
+        if verdict.kind in (CONTINUE, WAIT):
+            # At a finish both mean the stop is right: paused on the user or on something outside
+            # the developer's reach. The run ends; the next review is at the user's reply.
             self._ledger.awaiting_user = True
             self._record(FINISH, verdict)
             return None
         for p in failed:
             self._ledger.note_failure(p.criterion_id)
-        return self._act(FINISH, verdict)
+        note = self._act(FINISH, verdict)
+        if note and verdict.kind in (REDIRECT, RETHINK):
+            self._sent_back_at = self._recorder.total_calls
+            self._sent_back_directive = verdict.directive
+        return note
+
+    def _unanswered_send_back(self) -> str | None:
+        """The developer met a send-back with words, not the action. Once, push harder; after
+        that the stop stands — the send-back was wrong or cannot be carried out, and another
+        review of the same facts would only return the same verdict."""
+        if self._unanswered < UNANSWERED_RETRIES:
+            self._unanswered += 1
+            self._forced += 1
+            log.info("manager: finish after an unanswered send-back — one firmer push")
+            return self._say(ACT_NOW_DIRECTIVE.format(directive=self._sent_back_directive))
+        self._ledger.awaiting_user = True
+        self._record(FINISH, ManagerVerdict(
+            WAIT, reason="send-back not acted on — the stop stands; nothing new to review",
+        ))
+        self._sent_back_at, self._unanswered = None, 0
+        return None
 
     def note_context(self, fraction_used: float) -> None:
         self._context_used = fraction_used
@@ -237,6 +301,12 @@ class ManagerCheckpointService:
             return False
         if self._extensions >= MAX_ITERATION_EXTENSIONS:
             return False
+        # ONLY FOR WORK THAT IS MOVING: a budget renewed for a run that wrote nothing since the
+        # last one just lengthens a loop.
+        written = len(self._recorder.files_written())
+        if self._extensions and written <= self._written_at_extension:
+            return False
+        self._written_at_extension = written
         self._extensions += 1
         return True
 
@@ -246,12 +316,17 @@ class ManagerCheckpointService:
         contract = await self._draft(self._brief(ENGAGE, messages))
         if contract is None:
             return None
+        # ALREADY APPROVED IN THE AGENT'S OWN CARD. The manager engages only once work is under
+        # way, and by then an agent with its own approval step may already have asked — asking
+        # again put a second card in front of the person for the same work.
+        if contract.pending_approval and self._approval_given_in_own_card(messages):
+            contract = replace(contract, status=ACTIVE)
         self._ledger.contract = contract
         self._ledger.awaiting_user = contract.pending_approval
         self._store.save(self._ledger)
         await self._emit("manager", {"checkpoint": ENGAGE, "contract": contract.to_dict()})
         if contract.pending_approval:
-            return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present()}\n{_RULE}")
+            return self._ask_approval(contract)
         return self._say("This is what done means for this work; each criterion will be checked "
                          "at the end, not taken on your word:\n" + contract.render())
 
@@ -265,20 +340,36 @@ class ManagerCheckpointService:
         self._store.save(self._ledger)
         await self._emit("manager", {"checkpoint": REPLY, "contract": contract.to_dict()})
         if contract.pending_approval:
-            return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present(revised=True)}\n{_RULE}")
+            return self._ask_approval(contract, revised=True)
         return self._say("The user approved the plan. Build to this contract; each criterion is "
                          "checked at the end:\n" + contract.render())
 
+    def _ask_approval(self, contract: DeliverableContract, revised: bool = False) -> str:
+        """One approval: in the agent's own card when it has one, else the manager's message."""
+        if self._approval_tool:
+            ask = APPROVAL_IN_OWN_TOOL.format(tool=self._approval_tool)
+            return self._say(f"{ask}\n{_RULE}\n{contract.plan_points()}\n{_RULE}")
+        return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present(revised=revised)}\n{_RULE}")
+
     def _act(self, checkpoint: str, verdict: ManagerVerdict) -> str | None:
+        # EVERY REDIRECT ABOUT A CRITERION COUNTS toward rethink-then-escalate, not only a failed
+        # finish (which notes its own failures from the proofs). Milestone redirects that never
+        # added up let one criterion be pushed forever.
+        if verdict.kind == REDIRECT and verdict.criterion_id and checkpoint != FINISH:
+            self._ledger.note_failure(verdict.criterion_id)
         verdict = self._policy.adjust(verdict, self._ledger)
         if verdict.kind == RETHINK and verdict.criterion_id:
             self._ledger.note_rethink(verdict.criterion_id)
+        if verdict.kind == WAIT:
+            verdict = replace(verdict, directive="")  # a wait mid-run says nothing to the developer
         if verdict.kind in (ESCALATE, AWAIT_APPROVAL):
             self._ledger.awaiting_user = True
         self._record(checkpoint, verdict)
         if verdict.kind in (CONTINUE, DONE) or not verdict.directive:
-            return None
+            return None  # an ESCALATE with no concrete ask just stops steering, silently
         self._forced += 1
+        if verdict.kind == ESCALATE:
+            return self._say(ASK_USER_DIRECTIVE.format(ask=verdict.directive))
         return self._say(verdict.directive)
 
     # ------------------------------------------------------------------ the manager calls
@@ -329,6 +420,18 @@ class ManagerCheckpointService:
             proofs=tuple(proofs or ()),
             drift=tuple(drift or ()),
             decisions=tuple(self._ledger.recent_decisions()),
+            recent_results=tuple(e.render() for e in self._recorder.work_log()[-STOP_EVIDENCE_CALLS:]),
+        )
+
+    def _approval_given_in_own_card(self, messages: list[Message]) -> bool:
+        """Has this chat already put its own approval card to the person?"""
+        if not self._approval_tool:
+            return False
+        return any(
+            call.name == self._approval_tool
+            for m in messages
+            if isinstance(m, AssistantMessage)
+            for call in m.tool_calls
         )
 
     def _should_engage(self, messages: list[Message]) -> bool:
@@ -378,6 +481,10 @@ class ManagerCheckpointService:
         return contract is not None and not contract.active and not contract.pending_approval
 
     def _record(self, checkpoint: str, verdict: ManagerVerdict) -> None:
+        # One line per verdict: what it decided and why is otherwise only in the session's ledger,
+        # which the logs never showed — a loop of send-backs was invisible from the outside.
+        log.info("manager verdict at %s: %s %s — %s", checkpoint, verdict.kind,
+                 verdict.criterion_id or "-", verdict.reason or "")
         self._ledger.record(checkpoint, verdict, self._clock())
         self._store.save(self._ledger)
 

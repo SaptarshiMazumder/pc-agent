@@ -11,27 +11,30 @@
  * a workflow has to be in the Library to be run from another conversation.
  */
 
-import { BookmarkPlus, Download, FileCode2 } from 'lucide-react'
+import { BookmarkPlus, FileCode2, LayoutTemplate } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { fileUrl, type Artifact } from '../../agentd/artifacts'
+import type { Artifact } from '../../agentd/artifacts'
+import type { LibrarySaveOutcome } from '../../agentd/library'
+import { saveLabel, useSaveFeedback } from '../library/use-save-feedback'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
-import { collectWorkflows, WorkflowCard, workflowFiles, type Workflow } from '../workflows/WorkflowCard'
-
-/** `install_stills.py` / `install_stills.manifest.json` — the installer a validate exported. */
-const INSTALLER = /^install_(.+?)(\.manifest\.json|\.py)$/i
+import { collectWorkflows, workflowFiles, type Workflow } from '../workflows/WorkflowCard'
+import { INSTALLER, WorkflowItem } from '../workflows/WorkflowItem'
 
 export function WorkflowPanel({
   files,
   onDelete,
   onAddToLibrary,
+  onSaveTemplate,
   onOpen,
   deletionDisabled = '',
 }: {
   /** This chat's workflow-folder files (App's merged list, references excluded). */
   files: Artifact[]
   onDelete?: (paths: string[]) => Promise<void>
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
+  /** Keep ALL of this chat's workflows as one template (the prompt asks its name). */
+  onSaveTemplate?: () => void
   /** Show a file (the graph's JSON, the installer) in the viewer beside this panel. */
   onOpen: (a: Artifact) => void
   deletionDisabled?: string
@@ -51,11 +54,17 @@ export function WorkflowPanel({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [notice, setNotice] = useState('')
+  const feedback = useSaveFeedback()
 
   const save = async (wf: Workflow): Promise<void> => {
     if (!onAddToLibrary) return
     try {
-      setNotice(await onAddToLibrary(workflowFiles(wf).map((f) => f.path)))
+      // The installer travels with the graph: a kept workflow is the whole reusable setup.
+      const inst = installers.get(wf.name) || []
+      const outcome = await feedback.run(wf.name, () =>
+        onAddToLibrary([...workflowFiles(wf), ...inst].map((f) => f.path)),
+      )
+      setNotice(outcome.message)
     } catch (e) {
       setNotice(`Could not add to the Library: ${String((e as Error)?.message || e)}`)
     }
@@ -87,27 +96,34 @@ export function WorkflowPanel({
   return (
     <div className="wp">
       {notice && <p className="op-note">{notice}</p>}
-      {workflows.map((wf) => {
-        const inst = installers.get(wf.name) || []
-        return (
-          <section key={wf.name} className="wp-item">
-            {/* The card's own bookmark is left off: the labelled Save button below is the same
-                action, and two saves side by side read as two different things. */}
-            <WorkflowCard
-              wf={wf}
-              onDelete={
-                onDelete && !deletionDisabled
-                  ? (w) => {
-                      setDeleteError('')
-                      setDoomed(w)
-                    }
-                  : undefined
-              }
-            />
-            <div className="wp-row">
+      {onSaveTemplate && (
+        <button type="button" className="wp-btn is-primary wp-template" onClick={onSaveTemplate}>
+          <LayoutTemplate size={14} strokeWidth={1.9} /> Save as template to reuse
+        </button>
+      )}
+      {workflows.map((wf) => (
+        <WorkflowItem
+          key={wf.name}
+          wf={wf}
+          installers={installers.get(wf.name) || []}
+          onDelete={
+            onDelete && !deletionDisabled
+              ? (w) => {
+                  setDeleteError('')
+                  setDoomed(w)
+                }
+              : undefined
+          }
+          actions={
+            <>
               {onAddToLibrary && (
-                <button type="button" className="wp-btn is-primary" onClick={() => void save(wf)}>
-                  <BookmarkPlus size={14} strokeWidth={1.9} /> Save to Library
+                <button
+                  type="button"
+                  className="wp-btn is-primary"
+                  disabled={feedback.stateOf(wf.name) === 'saving'}
+                  onClick={() => void save(wf)}
+                >
+                  <BookmarkPlus size={14} strokeWidth={1.9} /> {saveLabel(feedback.stateOf(wf.name), 'Save to Library')}
                 </button>
               )}
               {wf.api && (
@@ -115,25 +131,10 @@ export function WorkflowPanel({
                   <FileCode2 size={14} strokeWidth={1.9} /> View graph
                 </button>
               )}
-            </div>
-            {inst.length > 0 && (
-              <div className="wp-inst">
-                <span className="wp-inst-title">For your own ComfyUI</span>
-                <span className="wp-inst-sub">
-                  An installer that sets up this workflow&rsquo;s models and nodes on your machine.
-                </span>
-                <div className="wp-row">
-                  {inst.map((f) => (
-                    <a key={f.path} className="wp-btn" href={fileUrl(f.path)} download={f.name}>
-                      <Download size={14} strokeWidth={1.9} /> {f.name}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-        )
-      })}
+            </>
+          }
+        />
+      ))}
       {deletionDisabled && <p className="wp-hint">{deletionDisabled} to delete a workflow.</p>}
 
       {doomed && (

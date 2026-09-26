@@ -20,6 +20,7 @@ from agent_runtime.application.run_context import current_workspace
 
 import library_paths
 from library_index import LibraryIndex, LibraryItem
+from library_template import LibraryTemplate
 from workflow_summary import WorkflowSummary
 
 #: A text file bigger than this is cut; the first part is shown with the cut named.
@@ -75,6 +76,8 @@ class LibraryReadTool(Tool):
         files, problem = idx.files_of(item, int(version) if version else None)
         if problem:
             return ToolResult.text(f"library_read: {problem}", is_error=True)
+        if item.kind == "template":
+            return self._template(root, item)
         if item.kind == "workflow":
             return self._workflow(idx, item, files, int(version or item.latest_version or 0))
         if item.kind == "reference":
@@ -91,6 +94,23 @@ class LibraryReadTool(Tool):
         return self._file(item, files[0])
 
     # ------------------------------------------------------------------ kinds
+
+    def _template(self, root: Path, item: LibraryItem):
+        """What a template holds, without bringing it in: its steps and the inputs it needs."""
+        template, problem = LibraryTemplate.load(library_paths.item_path(root, item.path))
+        if template is None:
+            return ToolResult.text(f"library_read: {problem}", is_error=True)
+        steps = "\n".join(
+            f"  {n}. {s.role}" + (f"  (slots: {', '.join('@' + r for r in s.slots)})" if s.slots else "")
+            for n, s in enumerate(template.steps, 1)
+        )
+        inputs = "\n".join(f"  @{i.role}" + (f" — {i.what}" if i.what else "") for i in template.inputs) or "  none"
+        return ToolResult.text(
+            f"template {template.name} ({item.id}, {item.origin})"
+            + (f"\nwhat it makes: {template.description}" if template.description else "")
+            + f"\nworkflows, in run order:\n{steps}\ninputs:\n{inputs}"
+            + f"\nTo use it in this chat: template_use(item='{item.id}')."
+        )
 
     def _workflow(self, idx: LibraryIndex, item: LibraryItem, files: list[Path], v: int):
         api = idx.api_graph_file(files)

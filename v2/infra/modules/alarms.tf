@@ -625,3 +625,39 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
     be starved by a neighbour.
   EOT
 }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# A PAID RUN THAT WAS NOT CHARGED. Comfy Penguin submits a paid partner-node run (billed to the
+# publisher's Comfy.org balance at once) and settles it afterwards with /debit. When that settle
+# fails, the run is already paid for and the user was never charged — and the only trace was a
+# plugin line in the daemon's log. For two weeks every hosted settle 401'd and nothing said so.
+# Now any such line pages: one is already money lost.
+# ══════════════════════════════════════════════════════════════════════════════
+resource "aws_cloudwatch_log_metric_filter" "paid_run_not_charged" {
+  name           = "${local.name_prefix}-paid-run-not-charged"
+  log_group_name = aws_cloudwatch_log_group.agentd.name
+  pattern        = "\"could not charge\""
+
+  metric_transformation {
+    name          = "paid_run_not_charged_total"
+    namespace     = local.ns
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "paid_run_not_charged" {
+  alarm_name          = "${local.name_prefix}-paid-run-not-charged"
+  namespace           = local.ns
+  metric_name         = aws_cloudwatch_log_metric_filter.paid_run_not_charged.metric_transformation[0].name
+  statistic           = "Sum"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  period              = local.period
+  evaluation_periods  = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  tags                = local.common_tags
+
+  alarm_description = "A paid Comfy run was submitted but its /debit failed: the platform paid Comfy.org and the user was not charged. Search the daemon log for \"could not charge\" to see the account, amount and HTTP status."
+}

@@ -56,7 +56,11 @@ class WorkspaceProofRunner:
         if not pattern:
             return ProofResult(cid, False, "the proof names no glob")
         base, rel = _split_glob(pattern)
-        hits = sorted(str(p) for p in base.glob(rel) if p.is_file())[:5]
+        # RECURSIVE BY THE FILE NAME'S PATTERN too: tools save into their own subfolders
+        # (outputs/<chat>/…), and a glob anchored at the top level failed a video that existed.
+        found = {p for p in base.glob(rel) if p.is_file()}
+        found |= {p for p in base.rglob(Path(rel).name) if p.is_file()}
+        hits = sorted(str(p) for p in found)[:5]
         if hits:
             return ProofResult(cid, True, f"found {', '.join(hits)}")
         return ProofResult(cid, False, f"nothing matches {pattern} (searched {base})")
