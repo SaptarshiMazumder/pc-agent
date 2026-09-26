@@ -20,6 +20,7 @@ import tomllib
 from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
+from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     USER_DATA_DIRS,
@@ -279,6 +280,27 @@ def _mcp_servers(raw, agent_id: str = "") -> tuple:
             )
         )
     return tuple(out)
+
+
+#: What every new agent's `.agentdignore` starts with: the junk every language leaves behind and
+#: nobody wants copied or shipped. NOTHING TOOL-SPECIFIC — a Terraform or Azure agent's own
+#: folders are added by its author as its commands start producing them.
+BASELINE_IGNORE = """# What never travels: not into the command sandbox, not back out, not into a package.
+# Add what this agent's own commands download or cache (e.g. a CLI's provider folder), and
+# anything that must never ship (state, credentials). Gitignore syntax; `!` is not supported.
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# General caches
+.cache/
+"""
 
 
 class FileAgentRegistry:
@@ -1032,6 +1054,13 @@ class FileAgentRegistry:
         d.mkdir(parents=True, exist_ok=True)
         (d / "workspace").mkdir(exist_ok=True)
         write_files(d)
+        # EVERY AGENT IS BORN WITH AN IGNORE FILE, whoever creates it (the builder's tool or the
+        # UI's Create both land here). It starts with the junk every language has; the author
+        # adds what the agent's own commands produce as they appear. A creator that wrote its
+        # own keeps it.
+        ignore_file = d / IGNORE_FILENAME
+        if not ignore_file.exists():
+            ignore_file.write_text(BASELINE_IGNORE, encoding="utf-8")
         ownership_store.stamp_create(
             d,
             self._account_id() if callable(self._account_id) else None,

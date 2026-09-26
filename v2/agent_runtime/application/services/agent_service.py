@@ -631,6 +631,7 @@ class AgentService:
                 # The caller, so a SANDBOXED plugin can act on their behalf without a
                 # contextvar it cannot see. See RunContext.account_id.
                 account_id=accounts.account_id() or "",
+                agent_dir=str(getattr(agent, "dir", "") or ""),
                 write_roots=_write_roots,
                 write_denies=_write_denies,
                 protected_paths=_protected,

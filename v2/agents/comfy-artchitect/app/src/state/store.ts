@@ -173,6 +173,14 @@ export interface AppState {
    *  counter rather than the list itself: the folders are the truth, the panel reads them. */
   workspaceVersion: number
   bumpWorkspace: () => void
+  /** Bumped once per successful Save/Add to Library. The Library tab and the rail's Library
+   *  row light up for a moment on each bump — the save's only feedback that points at where
+   *  the thing went (useLibraryFlash). */
+  libraryFlash: number
+  flashLibrary: () => void
+  /** Chat images refused for size, until the person closes the popup that says why. */
+  oversizeImages: { name: string; size: number }[]
+  setOversizeImages: (files: { name: string; size: number }[]) => void
   /** `show` decides whether the view switches to the chat. TRUE for a person clicking "New
    *  chat"; FALSE for boot, which needs a session to type into but must not decide what is on
    *  screen — a dashboard template opens on its dashboard, and the boot call was stomping that. */
@@ -275,6 +283,10 @@ export const useApp = create<AppState>((set) => ({
 
   workspaceVersion: 0,
   bumpWorkspace: () => set((s) => ({ workspaceVersion: s.workspaceVersion + 1 })),
+  libraryFlash: 0,
+  flashLibrary: () => set((s) => ({ libraryFlash: s.libraryFlash + 1 })),
+  oversizeImages: [],
+  setOversizeImages: (files) => set({ oversizeImages: files }),
 
   ensureSession: (key) =>
     set((s) => (s.sessions[key] ? {} : { sessions: { ...s.sessions, [key]: { ...EMPTY } } })),

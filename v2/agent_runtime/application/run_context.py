@@ -44,6 +44,11 @@ class RunContext:
     #:
     #: "" on desktop and any unscoped run, exactly as `accounts.account_id()` returns None there.
     account_id: str = ""
+    #: The serving agent's DEFINITION folder (agents/<id>/, where agent.toml lives). Carried so
+    #: a command can honour the agent's own `.agentdignore` without guessing the folder from the
+    #: workspace path — an installed agent's workspace does not live inside its definition.
+    #: "" when unknown; nothing is then ignored beyond the platform's own junk list.
+    agent_dir: str = ""
     write_roots: tuple[str, ...] = ()
     # Carved OUT of the roots. Deny beats allow. Chiefly so an agent cannot rewrite its own
     # definition, skill or allow-list — the constraints it is running under.

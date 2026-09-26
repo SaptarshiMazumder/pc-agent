@@ -184,16 +184,6 @@ def build_vast_router(
         released = service.release(account, reason="released by user")
         return {"released": released, **view(None)}
 
-    @router.get("/vast/spend/{account_id}")
-    def spend(
-        account_id: str,
-        x_internal_key: str | None = Header(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict:
-        """What this account has spent on GPUs this month, and what is left."""
-        account = _caller(x_internal_key, authorization, account_id)
-        return service.spend_this_month(account)
-
     @router.post("/vast/reap")
     def reap(x_internal_key: str | None = Header(default=None)) -> dict:
         """Kill what nobody wants any more. Called every minute by the scheduler, never by a user.

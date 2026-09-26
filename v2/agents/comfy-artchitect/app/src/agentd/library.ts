@@ -482,6 +482,18 @@ export async function libraryFiles(
   return (await listArtifacts(client, parent)).filter((a) => a.name === name)
 }
 
+/** Every Library reference's file, keyed by the catalogue's `path` (`saved/references/x.png`).
+ *  TWO LISTINGS FOR THE WHOLE SHELF — uploaded and saved — rather than one per card, so the
+ *  panel can draw thumbnails without a request per row. */
+export async function referenceFiles(client: AgentdClient): Promise<Map<string, Artifact>> {
+  const out = new Map<string, Artifact>()
+  for (const origin of ['uploaded', 'saved'] as const) {
+    const dir = `${origin}/${KIND_DIR.reference}`
+    for (const a of await listArtifacts(client, `${LIBRARY_DIR}/${dir}`)) out.set(`${dir}/${a.name}`, a)
+  }
+  return out
+}
+
 /** Fill a slot of THIS chat with a Library reference: a copy on the daemon's disk into
  *  `references/<chat>/<role>.<ext>`, the same file the References panel would have uploaded. */
 export async function useReferenceInChat(

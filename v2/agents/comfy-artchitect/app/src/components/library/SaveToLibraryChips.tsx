@@ -93,6 +93,7 @@ export function SaveToLibraryChips({
       await saveFromChat(client, toChatFiles(list), { chat: sessionKey, title: chatTitle })
       setDone((prev) => new Set(prev).add(key))
       bump()
+      useApp.getState().flashLibrary()
     } catch (e) {
       setError(String((e as Error)?.message || e))
     } finally {

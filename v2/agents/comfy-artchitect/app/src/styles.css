@@ -344,7 +344,12 @@ h2 { font-size: var(--fs-lead); }
   padding: 7px 10px; box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
 .hovertip-title { font-size: var(--fs-help); font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
-.hovertip-sub { margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim); white-space: nowrap; }
+/* WRAPS, AND STOPS. A chat's first message can be a paragraph; on one unbroken line it ran past
+   the 300px box across the page. Three lines is enough to recognise the chat. */
+.hovertip-sub {
+  margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim);
+  overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 
 /* THE ACCOUNT MENU IS A FLOATING SURFACE, AND THIS THEME'S `--bg2` IS NOT.
    `common/auth/auth.css` paints it `--bg2`, which is correct against the token's own description
@@ -630,6 +635,12 @@ a.milestone-detail:hover { text-decoration: underline; }
 @keyframes ag-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
 @keyframes ag-spin { to { transform: rotate(360deg); } }
 @keyframes ag-pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+/* A SAVE LANDED IN THE LIBRARY: its tab and rail row glow once and fade (useLibraryFlash). */
+@keyframes lib-flash {
+  0% { background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent-edge), 0 0 18px var(--accent-soft); color: var(--accent-text); }
+  100% { box-shadow: 0 0 0 1px transparent, 0 0 0 transparent; }
+}
+.is-flash { animation: lib-flash 1.2s var(--ease-smooth, ease-out); }
 
 /* tool calls — COPIED FROM agentd.
  *

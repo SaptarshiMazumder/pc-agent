@@ -81,7 +81,8 @@ export function Sidebar({
   name?: string
   /** A TEMPLATE's own screens, rendered above the shared three. This is how a dashboard variant
    *  gets a nav entry without shipping its own copy of this file — the base is written once. */
-  extraDestinations?: { id: View; label: string; icon: JSX.Element }[]
+  /** `flash` lights the row for a moment — the Library's answer to a save made elsewhere. */
+  extraDestinations?: { id: View; label: string; icon: JSX.Element; flash?: boolean }[]
   /** Rows drawn UNDER the shared three (credits, orgs, settings) — the app's own screens that
    *  belong after the account rather than before the conversation. Same shape as `extra`. */
   afterDestinations?: { id: View; label: string; icon: JSX.Element }[]
@@ -219,7 +220,7 @@ export function Sidebar({
         {extraDestinations.map((d) => (
           <button
             key={d.id}
-            className={`nav-item${view === d.id ? ' on' : ''}`}
+            className={`nav-item${view === d.id ? ' on' : ''}${d.flash ? ' is-flash' : ''}`}
             onClick={() => onView(d.id)}
           >
             <span className="nav-ico">{d.icon}</span>

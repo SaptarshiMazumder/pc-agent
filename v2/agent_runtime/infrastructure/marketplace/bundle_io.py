@@ -19,6 +19,8 @@ from agent_runtime.domain.agent_config import (
 )
 from pathlib import Path
 
+from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
+from agent_runtime.domain.agentd_ignore import AgentdIgnore
 from agent_runtime.domain.bundle import BundleError, BundleManifest, parse_bundle_manifest
 
 log = logging.getLogger("agentd")
@@ -303,9 +305,19 @@ def _secrets_in_package(package_path: Path, secret_keys: set[str]) -> list[str]:
 
 
 def _iter_files(root: Path):
+    """Every file a package carries. On top of the fixed junk and user-data list, whatever the
+    agent's own `.agentdignore` names never ships: downloads, caches and state its commands
+    produce, which only the author can know. The ignore file itself IS packed, so an installed
+    copy keeps the same junk out of its own users' command sandbox."""
+    own = root / IGNORE_FILENAME
+    ignore = AgentdIgnore.from_files(
+        [("", own.read_text(encoding="utf-8", errors="replace"))] if own.is_file() else []
+    )
     for item in sorted(root.rglob("*")):
         relative_parts = item.relative_to(root).parts
         if any(part in EXCLUDED_DIRS for part in relative_parts):
+            continue
+        if ignore and ignore.matches(item.relative_to(root).as_posix()):
             continue
         if item.name in EXCLUDED_FILES:
             continue

@@ -38,6 +38,7 @@ import '@fontsource/jetbrains-mono/latin-ext-400.css'
 import '@fontsource/jetbrains-mono/latin-ext-500.css'
 import '@fontsource/jetbrains-mono/latin-ext-600.css'
 
+import Gate from '../../skills/build-agent/templates/_common/auth/Gate'
 import App from './App'
 import './styles.css'
 
@@ -46,4 +47,14 @@ const host = document.getElementById('root')
 // and a page that silently renders nothing is the hardest kind of build error to find.
 if (!host) throw new Error('#root is missing from index.html')
 
-createRoot(host).render(<App />)
+/* THE SAME GATE EVERY AGENT WINDOW USES (`_common/auth/Gate`, what Comfy Penguin and the
+   templates render). Where the daemon DEMANDS an account it shows the sign-in card first and
+   redeems a Google return (`?code=`) on its first frame; elsewhere it renders straight through.
+   It also covers the frames between a Sign out and the page starting over. Agent Builder used to
+   skip it and keep a hand-rolled sign-in beside it, which is why its sign-in and sign-out
+   behaved like nothing else in the product. */
+createRoot(host).render(
+  <Gate product="Agent Builder">
+    <App />
+  </Gate>,
+)

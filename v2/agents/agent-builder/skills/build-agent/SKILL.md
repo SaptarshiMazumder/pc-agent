@@ -105,6 +105,11 @@ is the owner's decision even when there is only one plausible answer.
 `update_plan`, one line per thing they asked for — and then, for each, **the file that will
 satisfy it and what that file needs from you first**.
 
+If the agent runs commands, one line is on every plan, every batch: **"Keep `.agentdignore`
+current"** — add whatever this batch's commands download, build or leave behind (see rule 7 of
+"Running commands" in `reference/agent-toml.md`). A batch that adds a command and not its
+leftovers is not done. Only the re-creatable goes there — never state the agent must keep.
+
 This is the difference between a build that starts in three minutes and one that never starts.
 Every file has its OWN prerequisites: `agent.toml` needs the exact package names of the servers
 you are declaring, and nothing else. It does not need the CSS variable names. It does not need to
@@ -285,7 +290,8 @@ see "Whose an agent is" in AGENTS.md.
 
 ### B2. Say what you are going to do
 
-`update_plan`, briefly. For a one-file change this is one or two lines.
+`update_plan`, briefly. For a one-file change this is one or two lines — plus "Keep
+`.agentdignore` current" whenever the change touches a command (A2).
 
 ### B3. Make the change
 

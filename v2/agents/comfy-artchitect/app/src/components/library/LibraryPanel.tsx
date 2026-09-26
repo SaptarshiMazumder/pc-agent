@@ -17,7 +17,7 @@
  * This panel is where things are kept, not where people discover that keeping is possible.
  */
 
-import { Library, Upload } from 'lucide-react'
+import { Library, Loader2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -25,12 +25,15 @@ import type { AgentdClient } from '@agentd/client'
 import {
   deleteItem,
   readIndex,
+  referenceFiles,
   updateNote,
   uploadToLibrary,
   useReferenceInChat,
   type LibraryItem,
   type LibraryOrigin,
 } from '../../agentd/library'
+import type { Artifact } from '../../agentd/artifacts'
+import { readLibraryCache, writeLibraryCache } from '../../agentd/library-cache'
 import type { Slot } from '../../agentd/reference-slots'
 import { useApp } from '../../state/store'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
@@ -68,8 +71,15 @@ export function LibraryPanel({
   onUseWorkflow: (item: LibraryItem) => void
   onRunAgain: (item: LibraryItem) => void
 }) {
-  const [items, setItems] = useState<LibraryItem[]>([])
+  /* FIRST FRAME FROM THE CACHE, then the daemon's answer replaces it (agentd/library-cache).
+     `cached` is read once: it only decides whether the first load shows a spinner or a list. */
+  const [cached] = useState(readLibraryCache)
+  const [items, setItems] = useState<LibraryItem[]>(() => cached?.items || [])
+  /** The reference cards' own files, for their thumbnails. */
+  const [media, setMedia] = useState<Map<string, Artifact>>(() => cached?.media || new Map())
   const [loading, setLoading] = useState(true)
+  /** Something to show: a cached list, or a finished load. Until then the panel is a spinner. */
+  const [ready, setReady] = useState(!!cached)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [filter, setFilter] = useState('')
@@ -84,17 +94,25 @@ export function LibraryPanel({
     setLoading(true)
     setError('')
     try {
-      setItems((await readIndex(client)).items)
+      const [index, files] = await Promise.all([readIndex(client), referenceFiles(client)])
+      setItems(index.items)
+      setMedia(files)
     } catch (e) {
       setError(String((e as Error)?.message || e))
     } finally {
       setLoading(false)
+      setReady(true)
     }
   }, [client])
 
   useEffect(() => {
     void reload()
   }, [reload, workspaceVersion])
+
+  // Whatever the panel settles on — a load, a note edit — is the next open's first frame.
+  useEffect(() => {
+    if (!loading) writeLibraryCache({ items, media })
+  }, [items, media, loading])
 
   // A notice is a sentence for a moment, not a state to dismiss.
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -193,6 +211,7 @@ export function LibraryPanel({
     <LibraryItemRow
       key={item.id}
       item={item}
+      media={item.kind === 'reference' ? media.get(item.path) : undefined}
       client={client}
       slots={slots}
       targetRole={targetRole}
@@ -225,6 +244,9 @@ export function LibraryPanel({
           <Library size={15} strokeWidth={1.8} /> Library
         </span>
         <span className="lib-count">{items.length}</span>
+        {loading && ready && (
+          <Loader2 className="ld-spin lib-refreshing" size={13} strokeWidth={2} aria-label="Refreshing" />
+        )}
         <button
           type="button"
           className="lib-upload"
@@ -256,6 +278,13 @@ export function LibraryPanel({
       )}
       {notice && <p className="lib-notice">{notice}</p>}
       {error && <p className="lib-error">{error}</p>}
+
+      {!ready && (
+        <div className="lib-loading" role="status">
+          <Loader2 className="ld-spin" size={20} strokeWidth={1.8} />
+          <span>Loading your Library…</span>
+        </div>
+      )}
 
       {!loading && items.length === 0 && (
         <p className="lib-empty">

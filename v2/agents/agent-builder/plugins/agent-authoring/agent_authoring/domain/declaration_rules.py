@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 
+from .exec_grant import ExecGrant
 from .finding import ERROR, INFO, WARN, Finding
 
 #: Daemon-owned names. `AGENTD_*` is unambiguous: it is the daemon's own configuration.
@@ -45,20 +46,6 @@ _SECRET_SHAPES = re.compile(
 )
 
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z0-9_:-]+)\}")
-
-
-def _grants_exec(raw: dict) -> bool:
-    """Does this agent's shell exist? Every declared setting is in each `exec` command's
-    environment under its own name, so an agent that can run commands READS every setting it
-    declares — no `${NAME}` reference needed, and "nothing references it" would be false.
-
-    Granted when [tools] allow names `exec`, or when there is no allow list at all (the full
-    catalog), unless [tools] deny takes it away."""
-    tools = raw.get("tools") if isinstance(raw.get("tools"), dict) else {}
-    allow, deny = tools.get("allow"), tools.get("deny") or ()
-    if "exec" in {str(t).strip() for t in deny}:
-        return False
-    return allow is None or "exec" in {str(t).strip() for t in allow}
 
 
 class DeclarationRules:
@@ -87,7 +74,7 @@ class DeclarationRules:
         out: list[Finding] = []
         out += self._inlined_credentials(raw)
         out += self._reserved_names(settings)
-        if not _grants_exec(raw):
+        if not ExecGrant.granted(raw):
             out += self._unused_settings(settings, servers, logins, sources or {})
         out += self._mcp_servers(servers, declared, logins)
         out += self._oauth(logins, declared)

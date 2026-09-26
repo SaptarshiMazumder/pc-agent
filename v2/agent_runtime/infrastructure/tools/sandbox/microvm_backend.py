@@ -37,6 +37,7 @@ import io
 import json
 import logging
 import os
+import shutil
 import tempfile
 import time
 import zipfile
@@ -516,7 +517,7 @@ class MicrovmPluginSandbox:
         sync_table = [e for _p, _path, e in entries if e["field"] != "agent_dir"]
         return buf.getvalue(), sync_table, h.hexdigest()
 
-    def _zip_dir(self, directory: str, skip: frozenset, dest: Path, scopes=()) -> int:
+    def _zip_dir(self, directory: str, skip: frozenset, dest: Path, scopes=(), ignore=None) -> int:
         """Zip `directory` to the FILE `dest` — only what `scopes` names, when there are any —
         and return the bytes written. Streams file by file: memory is one file's buffer, whatever
         the workspace weighs. An empty result is still a zip (a new chat has nothing in scope
@@ -529,6 +530,10 @@ class MicrovmPluginSandbox:
                     continue
                 rel = f.relative_to(base)
                 if any(part in skip for part in rel.parts):
+                    continue
+                # What the agent itself declared must never travel (.agentdignore). Only the shell
+                # passes one; a plugin run's tree is scoped by its grant instead.
+                if ignore is not None and ignore.matches(rel.as_posix()):
                     continue
                 if scopes and not in_scopes(rel.as_posix(), scopes):
                     continue
@@ -612,7 +617,8 @@ WORKSPACE_SKIP_DIRS = frozenset({"node_modules", "__pycache__"})
 
 async def run_shell(config, command: str, cwd: str, timeout_s: float,
                     env: dict | None = None, sync_root: str = "",
-                    skip_dirs: frozenset = AUTHORING_SKIP_DIRS) -> tuple[bool, str, dict]:
+                    skip_dirs: frozenset = AUTHORING_SKIP_DIRS,
+                    ignore=None) -> tuple[bool, str, dict]:
     """One shell command in a microVM, with the caller's own files synced through.
 
     `sync_root` is WHAT THE COMMAND CAN SEE — for the agent builder, the account's whole agent
@@ -646,11 +652,13 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
     # and the dir removed by the `with` whatever happens. This call site was left passing two
     # arguments when _zip_dir learned to write to a file, so every hosted command failed with a
     # TypeError before it reached the box.
-    before = _tree_manifest(root_path, skip_dirs)          # to detect a daemon-side write underneath us
+    before = _tree_manifest(root_path, skip_dirs, ignore)  # to detect a daemon-side write underneath us
     async with backend._transfer_gate():
         with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
             ws_path = Path(tmp) / "workspace.zip"
-            await asyncio.to_thread(backend._zip_dir, str(root_path), skip_dirs, ws_path)
+            await asyncio.to_thread(
+                backend._zip_dir, str(root_path), skip_dirs, ws_path, (), ignore
+            )
             slots = await backend._ask({"op": "presign", "workspace": True, "broker": False})
             await backend._upload(slots, b"", ws_path)
 
@@ -665,12 +673,15 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
         # translate with the same pair rather than guessing at each other's layout.
         "path_from": str(root_path),
         "cwd_rel": _relative_or_empty(cwd, root_path),
+        # The agent's .agentdignore, so the box never even sends declared junk back — a Terraform
+        # provider or a pip install is hundreds of MB the daemon would otherwise receive and drop.
+        "ignore": ignore.to_wire() if ignore else [],
     }, timeout_s=timeout_s + TRANSFER_MARGIN_S)
 
     changes_url = str(answer.get("changes_url") or "")
     applied: list[str] = []
     if changes_url:
-        applied = await _apply_changes_guarded(backend, changes_url, root_path, before)
+        applied = await _apply_changes_guarded(backend, changes_url, root_path, before, ignore)
 
     output = str(answer.get("output") or "")
     remote_root = str(answer.get("path_to") or "")
@@ -689,10 +700,12 @@ def _relative_or_empty(cwd: str, root: Path) -> str:
     return "" if str(rel) == "." else rel.as_posix()
 
 
-def _tree_manifest(root: Path, skip_dirs: frozenset = AUTHORING_SKIP_DIRS) -> dict:
+def _tree_manifest(root: Path, skip_dirs: frozenset = AUTHORING_SKIP_DIRS, ignore=None) -> dict:
     out: dict = {}
     for f in root.rglob("*"):
         if not f.is_file() or any(p in skip_dirs for p in f.relative_to(root).parts):
+            continue
+        if ignore is not None and ignore.matches(f.relative_to(root).as_posix()):
             continue
         try:
             st = f.stat()
@@ -724,7 +737,8 @@ async def _file_chunks(path: Path):
             yield chunk
 
 
-async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: dict) -> list[str]:
+async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: dict,
+                                 ignore=None) -> list[str]:
     """Write the command's changes back onto the daemon's real files.
 
     THREE RULES, and each one is the reason this is not a plain unzip:
@@ -739,15 +753,22 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
       * DELETIONS NEVER PROPAGATE - a file missing from the box is simply absent from the zip.
 
     A refusal fails the whole call loudly. Applying half of what a command did, and reporting
-    success, is the outcome worth avoiding most."""
+    success, is the outcome worth avoiding most.
+
+    OFF THE EVENT LOOP. Unzipping, checking and writing thousands of files onto the shared volume
+    takes minutes, and done on the loop it stopped the daemon answering anything — its health
+    check included — until the load balancer killed it for one agent's `pip install`. The work
+    runs in a thread (which inherits this run's context, so check_write still knows the caller);
+    the loop only awaits it. Paths the agent's .agentdignore names are dropped here too, in case
+    an older executor sent them."""
     from agent_runtime.application.write_scope import check_write
 
-    applied: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
-        path = Path(tmp) / "changes.zip"
-        await _download_to(changes_url, path)
+    def _write_back(path: Path) -> list[str]:
+        applied: list[str] = []
         with zipfile.ZipFile(path) as z:
             members = [m for m in z.infolist() if not m.is_dir()]
+            if ignore is not None:
+                members = [m for m in members if not ignore.matches(m.filename)]
             # Validate EVERYTHING before writing ANYTHING: a half-applied change set is worse than
             # a refused one, because the agent is told it succeeded.
             targets: list[tuple[zipfile.ZipInfo, Path]] = []
@@ -773,6 +794,11 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
             for m, target in targets:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(m) as src, open(target, "wb") as dst:
-                    dst.write(src.read())
+                    shutil.copyfileobj(src, dst)
                 applied.append(m.filename)
-    return applied
+        return applied
+
+    with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
+        path = Path(tmp) / "changes.zip"
+        await _download_to(changes_url, path)
+        return await asyncio.to_thread(_write_back, path)

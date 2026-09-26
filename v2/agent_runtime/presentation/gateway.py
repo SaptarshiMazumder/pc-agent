@@ -1753,6 +1753,7 @@ class Gateway:
             _wroots, _wdenies, _protected = self.service.resolve_write_fence(spec)
             run_ctx = RunContext(
                 agent_id=scope,
+                agent_dir=str(getattr(spec, "dir", "") or ""),
                 session_key=f"agent:{scope}:app",
                 mode=RunMode.INTERACTIVE,
                 # A WINDOW ASKED FOR THIS, not a model. Exempts it from the loop guard, which
@@ -4552,6 +4553,7 @@ class Gateway:
         ctx = RunContext(
             agent_id=agent_id,
             session_key=f"agent:{agent_id}:app",
+            agent_dir=str(getattr(spec, "dir", "") or ""),
             mode=RunMode.INTERACTIVE,
             workspace=workspace,
             read_roots=read_roots,

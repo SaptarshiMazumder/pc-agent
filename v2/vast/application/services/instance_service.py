@@ -21,10 +21,8 @@ races the first.
 
 from __future__ import annotations
 
-import calendar
 import logging
 import secrets
-import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -126,8 +124,8 @@ class InstanceService:
         # commits money. `ensure` on an account that already has a machine never reaches this,
         # which is deliberate: a user mid-job is not cut off the moment they cross a line, they
         # are refused the NEXT rental. Cutting a running render dead would waste the very money
-        # the cap exists to protect.
-        self._check_caps(row.account_id, now)
+        # the caps exist to protect.
+        self._check_caps(row.account_id)
 
         market = self._marketplace()
         cfg = self._settings
@@ -224,8 +222,8 @@ class InstanceService:
             raise SlotLost(f"row {row.id} disappeared while being rented")
         return fresh
 
-    def _check_caps(self, account_id: str, now: float) -> None:
-        """Refuse a NEW rental that would breach either limit — or that nobody can pay for."""
+    def _check_caps(self, account_id: str) -> None:
+        """Refuse a NEW rental that nobody can pay for, or that would breach the platform limit."""
         cfg = self._settings
         if self._charges is not None:
             with self._db() as c:
@@ -236,38 +234,17 @@ class InstanceService:
                     "this account has no credits left, so no machine can be started — top up "
                     "and try again."
                 )
-        with self._db() as c:
-            live = self._store.count_live(c) if cfg.max_live_instances else 0
-            spent = (
-                self._store.spend_since(c, account_id, month_start(now), now)
-                if cfg.monthly_cap_usd
-                else 0.0
-            )
-
-        # `count_live` already includes the row this call just claimed, so the limit is breached
-        # only when the count EXCEEDS it — at exactly the limit, this rental is the last allowed.
-        if cfg.max_live_instances and live > cfg.max_live_instances:
-            raise CapacityFull(
-                f"{cfg.max_live_instances} machines are already running, which is the limit. "
-                "One will free up shortly — try again in a few minutes."
-            )
-        if cfg.monthly_cap_usd and spent >= cfg.monthly_cap_usd:
-            raise BudgetExhausted(
-                f"this account has used ${spent:.2f} of its ${cfg.monthly_cap_usd:.2f} GPU "
-                "allowance this month, so no new machine can be started until the month turns."
-            )
-
-    def spend_this_month(self, account_id: str) -> dict:
-        """What this account has run up, and what it is allowed. For the panel and for support."""
-        now = self._now()
-        with self._db() as c:
-            spent = self._store.spend_since(c, account_id, month_start(now), now)
-        cap = self._settings.monthly_cap_usd
-        return {
-            "spent_usd": round(spent, 4),
-            "cap_usd": cap,
-            "remaining_usd": round(max(0.0, cap - spent), 4) if cap else None,
-        }
+        if cfg.max_live_instances:
+            with self._db() as c:
+                live = self._store.count_live(c)
+            # `count_live` already includes the row this call just claimed, so the limit is
+            # breached only when the count EXCEEDS it — at exactly the limit, this rental is the
+            # last allowed.
+            if live > cfg.max_live_instances:
+                raise CapacityFull(
+                    f"{cfg.max_live_instances} machines are already running, which is the limit. "
+                    "One will free up shortly — try again in a few minutes."
+                )
 
     def _refresh(self, row: InstanceRow) -> InstanceRow:
         """Ask whether a starting instance has an address yet, and record it if so.
@@ -380,18 +357,3 @@ class InstanceService:
             self._store.mark_dead(c, row.id, reason=reason, now=self._now())
         return True
 
-
-def month_start(now: float) -> float:
-    """Midnight UTC on the 1st of the month containing `now`.
-
-    UTC ON PURPOSE. A cap that reset on the server's local midnight would move with the
-    deployment's timezone, and "the month" has to mean the same thing to the check and to the
-    invoice it is protecting.
-
-    `calendar.timegm`, NOT `time.mktime`. mktime interprets its argument as LOCAL time, so the
-    "- time.timezone" correction this first used was both a fudge and wrong across DST — and on
-    Windows it raises OverflowError outright for any date near the epoch, which is how the tests
-    found it. timegm is gmtime's exact inverse and has neither problem.
-    """
-    t = time.gmtime(now)
-    return float(calendar.timegm((t.tm_year, t.tm_mon, 1, 0, 0, 0, 0, 0, 0)))

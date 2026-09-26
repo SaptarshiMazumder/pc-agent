@@ -460,6 +460,18 @@ for it also works on a Linux or macOS desktop, so nothing you author needs a mod
    `Start-Sleep -Seconds 90; ssh …` over and over, showing the user nothing, until the runtime's
    "you are repeating yourself" nudge fired. It was reasoning correctly about a toolbox missing
    half a pair.
+7. **`.agentdignore` lists what the commands leave behind.** It sits beside `agent.toml`, uses
+   gitignore syntax (`name/` = a folder at any depth, `*.tfstate` = a file name at any depth,
+   `build/out.log` = a path from the agent's folder; no `!`), and anything it matches is never
+   copied into or out of a hosted command's machine and never ships in the agent's package.
+   `create_agent` writes one with the language-level junk every agent has (`.venv/`,
+   `node_modules/`, `__pycache__/`, …). **You** add what THIS agent's commands produce — only you
+   know that: a Terraform agent's `.terraform/`, a Node build's `dist/`, a tool's cache folder.
+   Whenever a batch adds or changes a command, update the file in the same batch. List only
+   what is re-creatable: an ignored file is not copied back either, so never list something
+   rule 2 says must persist (a state file, a lockfile). A dependency folder copied on every
+   call makes commands slow, then impossible — one froze a server. `validate_agent` warns when
+   an agent with `exec` has no `.agentdignore`, and packaging refuses it.
 
 **Write these rules into the agent's own `AGENTS.md`**, not just here. This file is read while
 you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Something like:
@@ -468,7 +480,9 @@ you BUILD; the agent's AGENTS.md is present on every turn it ever takes. Somethi
 > command and use them in the same call; keep anything that must persist in the workspace.
 > Credentials from your settings are already in the environment; never print them.
 > Long jobs: start them with `exec(background=true)` and poll with `process`; a background
-> command installs its own tools. Never `sleep` inside a foreground `exec`.
+> command installs its own tools. Never `sleep` inside a foreground `exec`. Anything
+> re-creatable a command leaves behind — dependency folders, caches — is listed in
+> `.agentdignore`.
 
 **Polling still costs a turn.** Nothing arrives on its own, so between polls the agent should
 do useful work, not spin. If a job runs for hours, the right shape is usually a `cron` or

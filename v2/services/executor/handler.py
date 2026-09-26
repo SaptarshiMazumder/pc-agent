@@ -49,6 +49,8 @@ import time
 import zipfile
 from pathlib import Path
 
+from agent_runtime.domain.agentd_ignore import AgentdIgnore
+
 SCRATCH_BUCKET = os.environ.get("EXECUTOR_SCRATCH_BUCKET", "")
 INTERNAL_KEY = os.environ.get("EXECUTOR_INTERNAL_KEY", "")
 
@@ -247,7 +249,17 @@ def shell_job(params: dict) -> dict:
         if path_from:
             command = command.replace(path_from, local_root)
 
-        env = {**os.environ, "HOME": local_root, "CI": "1", "NO_COLOR": "1"}
+        # HOME AND TMPDIR ARE SCRATCH, BESIDE THE WORKSPACE — NEVER INSIDE IT. Everything a tool
+        # drops in "home" by default (pip's ~/.local when site-packages is read-only, npm's cache,
+        # ~/.cache, a CLI's config) used to land in the synced workspace and ride back to the
+        # daemon: one `pip install awscli` sent thousands of files, and writing them back froze
+        # the daemon until it was killed. Both folders live in this job's temp dir and vanish
+        # with it.
+        home = root / "home"
+        scratch = root / "tmp"
+        home.mkdir(exist_ok=True)
+        scratch.mkdir(exist_ok=True)
+        env = {**os.environ, "HOME": str(home), "TMPDIR": str(scratch), "CI": "1", "NO_COLOR": "1"}
         # The COMMAND never inherits this box's AWS authority: the executor's role can touch the
         # shared scratch bucket, where OTHER jobs' trees ride - a shell that kept these could
         # read across jobs. The handler brokers S3 itself; the command gets none of it.
@@ -272,7 +284,10 @@ def shell_job(params: dict) -> dict:
 
         out: dict = {"ok": code == 0, "exit_code": code, "output": output[-50_000:],
                      "path_to": local_root}
-        changed_key = _upload_changes(params, Path(local_root), mapping["ws_manifest"])
+        changed_key = _upload_changes(
+            params, Path(local_root), mapping["ws_manifest"],
+            AgentdIgnore.from_wire(params.get("ignore")),
+        )
         if changed_key:
             out["changes_key"] = changed_key
             out["changes_url"] = _s3().generate_presigned_url(
@@ -521,12 +536,19 @@ def _manifest(directory: Path) -> dict:
     return out
 
 
-def _upload_changes(params: dict, ws_dir: Path, before: dict) -> str:
+def _upload_changes(params: dict, ws_dir: Path, before: dict,
+                    ignore: AgentdIgnore | None = None) -> str:
     """Zip files the job created or modified and put them beside it. Deletions are NOT propagated
     (reported implicitly by their absence here) — an untrusted tool must not be able to erase a
-    workspace through the sync channel."""
+    workspace through the sync channel.
+
+    What the agent's `.agentdignore` names never leaves the box: a provider download or a
+    dependency folder is re-created by the next command, and sending it back would only be
+    hundreds of MB for the daemon to receive and drop."""
     after = _manifest(ws_dir)
     changed = [rel for rel, sig in after.items() if before.get(rel) != sig]
+    if ignore:
+        changed = [rel for rel in changed if not ignore.matches(rel)]
     if not changed:
         return ""
     buf_path = Path(tempfile.mkstemp(dir="/tmp", suffix=".zip")[1])
