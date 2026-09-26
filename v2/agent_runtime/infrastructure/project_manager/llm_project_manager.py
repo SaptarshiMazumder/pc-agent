@@ -95,6 +95,12 @@ download and run a pinned binary, Python and pip are present — a missing tool 
 redirect with how. If WHAT ACTUALLY RAN shows no attempt at the obvious path, it is not a blocker.
 A KNOWN PLATFORM LIMIT is real: say so and redirect around it.
 
+A BLOCKER ONLY THE STAKEHOLDER CAN CLEAR is escalate, at once — never a redirect. When what ran
+shows the environment refusing for a reason no code change can fix (access denied, a missing
+permission, a service or billing feature not enabled on their account, a quota), redirecting
+the developer only makes it re-run the same thing. Escalate with the exact ask ("add the IAM
+permission ce:GetCostAndUsage", "enable Cost Explorer in the billing console").
+
 At finish: judge each criterion from PROOFS. NOT PROVEN means not done. For TO JUDGE criteria,
 decide from what ran; the developer saying it is done is not evidence, and ending with "blocked"
 is not done. If the developer is legitimately pausing to ask the stakeholder something the

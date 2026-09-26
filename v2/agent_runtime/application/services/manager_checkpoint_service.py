@@ -140,6 +140,7 @@ class ManagerCheckpointService:
         self._handing_off = False  # sticky: once the history is condensed it stays condensed, or
         #                            the full history would go straight back out and refill it
         self._extensions = 0
+        self._written_at_extension = 0
 
     # ------------------------------------------------------------------ engine-facing
 
@@ -170,6 +171,13 @@ class ManagerCheckpointService:
         contract = self._ledger.contract
         if contract is None or not contract.active or self._ledger.awaiting_user:
             return None
+        # THE REDIRECT BUDGET HOLDS EVERYWHERE, not only at a finish: a developer sent back at
+        # every milestone never tries to finish, so a finish-only check never fired and one
+        # unmeetable criterion kept a build re-running the same test indefinitely.
+        if self._forced >= MAX_FORCED_CONTINUES:
+            return self._act(DRIFT, ManagerVerdict(
+                ESCALATE, directive=ESCALATE_DIRECTIVE, reason="redirect budget for this run spent"
+            ))
         milestone = self._completed_plan_steps(messages) > self._completed_steps
         self._completed_steps = self._completed_plan_steps(messages)
         if not (milestone or signals):
@@ -251,6 +259,12 @@ class ManagerCheckpointService:
             return False
         if self._extensions >= MAX_ITERATION_EXTENSIONS:
             return False
+        # ONLY FOR WORK THAT IS MOVING: a budget renewed for a run that wrote nothing since the
+        # last one just lengthens a loop.
+        written = len(self._recorder.files_written())
+        if self._extensions and written <= self._written_at_extension:
+            return False
+        self._written_at_extension = written
         self._extensions += 1
         return True
 
@@ -291,6 +305,11 @@ class ManagerCheckpointService:
         return self._say(f"{APPROVAL_DIRECTIVE}\n{_RULE}\n{contract.present(revised=revised)}\n{_RULE}")
 
     def _act(self, checkpoint: str, verdict: ManagerVerdict) -> str | None:
+        # EVERY REDIRECT ABOUT A CRITERION COUNTS toward rethink-then-escalate, not only a failed
+        # finish (which notes its own failures from the proofs). Milestone redirects that never
+        # added up let one criterion be pushed forever.
+        if verdict.kind == REDIRECT and verdict.criterion_id and checkpoint != FINISH:
+            self._ledger.note_failure(verdict.criterion_id)
         verdict = self._policy.adjust(verdict, self._ledger)
         if verdict.kind == RETHINK and verdict.criterion_id:
             self._ledger.note_rethink(verdict.criterion_id)
