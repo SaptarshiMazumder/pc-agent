@@ -67,6 +67,7 @@ from agent_runtime.infrastructure.files import (
     resolve_artifacts,
     save_upload,
 )
+from agent_runtime.infrastructure.live_credential import LiveCredential
 from agent_runtime.infrastructure.llm import model_proxy
 from agent_runtime.infrastructure.memory.local_store import (
     SessionStore,
@@ -413,6 +414,16 @@ OUTBOX_PROMPT = (
 
 #: How long `_chat_send` waits for a finished run's teardown before calling the session busy.
 RUN_TEARDOWN_GRACE_S = 10.0
+
+#: The most one ranged /file answer carries (see `_serve_file`).
+_FILE_RANGE_CHUNK = 16 * 1024 * 1024
+
+
+def _read_file_range(path, start: int, length: int) -> bytes:
+    """`length` bytes of `path` from `start`. A plain function so it can run in a thread."""
+    with open(path, "rb") as f:
+        f.seek(start)
+        return f.read(length)
 
 
 @dataclass
@@ -2593,10 +2604,17 @@ class Gateway:
                 status, reason = 206, "Partial Content"
             except ValueError:
                 start, end, status, reason = 0, size - 1, 200, "OK"
+            # A RANGE ANSWER IS AT MOST ONE CHUNK. This server holds a response whole in memory
+            # (websockets cannot stream a body), so `bytes=0-` on a long video meant the entire
+            # file in the daemon at once. A server may return less than a range asked for; the
+            # Content-Range says what was sent, and a media element simply asks for the next
+            # piece. Only a range request is clamped: a plain GET still gets the whole file.
+            if status == 206:
+                end = min(end, start + _FILE_RANGE_CHUNK - 1)
 
-        with open(p, "rb") as f:
-            f.seek(start)
-            body = f.read(end - start + 1)
+        # OFF THE EVENT LOOP: a synchronous read of megabytes from EFS here stalled every other
+        # socket on the daemon, /healthz included, for as long as it took.
+        body = await asyncio.to_thread(_read_file_range, p, start, end - start + 1)
 
         hdrs = Headers()
         hdrs["Content-Type"] = guess_mime(p)
@@ -3076,6 +3094,14 @@ class Gateway:
         # account's subtree — the same account a run already sees. None (desktop/no-account)
         # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
         _conn_acct_tok = accounts.set_account(account)
+        # The live credential rides the same context, BY REFERENCE: runs this socket starts share
+        # the object, so a renewal below reaches them mid-run (live_credential.py).
+        credential = (
+            LiveCredential(str(account.get("account_id") or ""), str(account.get("session_token") or ""))
+            if account
+            else None
+        )
+        _conn_cred_tok = accounts.set_credential(credential)
         # WHICH KEYS this connection's model calls run on. Pinned the same way and for the same
         # reason: it is this client's choice, not the machine's, so two windows can differ.
         # THE PERSISTED mode, not the client's `?mode=` guess: one answer, same in every window.
@@ -3097,6 +3123,8 @@ class Gateway:
                         account, response = await self._auth_update(frame, account)
                         accounts.reset_account(_conn_acct_tok)
                         _conn_acct_tok = accounts.set_account(account)
+                        if credential is not None:
+                            credential.renew(account)
                         self.client_identities[ws] = ownership.callers(
                             (account or {}).get("account_id"),
                             self._hosted(),
@@ -3112,6 +3140,7 @@ class Gateway:
             pass
         finally:
             accounts.reset_account(_conn_acct_tok)
+            accounts.reset_credential(_conn_cred_tok)
             model_proxy.reset_billing(_conn_bill_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)

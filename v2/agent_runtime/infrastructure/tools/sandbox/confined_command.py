@@ -16,6 +16,13 @@ keep it inside its own:
   3. A CLEAN ENVIRONMENT: the command gets the few variables a shell needs and the ones the
      agent passed, never the daemon's. (Built by the caller: see `environment`.)
 
+AND ONE BUDGET, because the box it shares is the daemon's. Landlock bounds what a command can
+SEE, not what it can SPEND: with no limit, one runaway background job could take the memory
+every account's chats run on. So before the command starts it gets (see `limits`) a memory cap,
+a CPU-seconds cap, a file-size cap and a lower scheduling priority. A command past a cap is
+killed; the daemon is not. These are per process, not a cgroup: they stop a single runaway, the
+failure seen, not a determined fork tree.
+
 TWO HALVES OF ONE PROTOCOL, IN ONE CLASS. The daemon builds the argv (`argv`); the launched
 interpreter parses it back (`main`), applies the locks and execs the command. Keeping both here
 means the flag format cannot drift between the side that writes it and the side that reads it.
@@ -32,6 +39,11 @@ import shutil
 import sys
 
 from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import LandlockConfinement
+
+# POSIX only. Confinement exists only on a hosted (Linux) daemon, but this module is imported by
+# the shell plugin everywhere, including a Windows desktop daemon that never confines anything.
+if sys.platform.startswith("linux"):
+    import resource
 
 #: System folders a shell command needs to read and execute. Missing ones are skipped by the
 #: confinement (an image without /lib64 is not an error).
@@ -55,6 +67,22 @@ _SETPRIV_FLAGS = (
 )
 
 _ENTRYPOINT = "agent_runtime.infrastructure.tools.sandbox.confined_command"
+
+#: RLIMIT_DATA, not RLIMIT_AS: the data cap counts memory a process actually writes, where the
+#: address-space cap also counts the large empty reservations Node and the JVM make at start,
+#: and would refuse an ordinary dev server. 1 GiB is well above any build or server a chat runs
+#: and well below the daemon's own cap.
+MEMORY_BYTES = 1024 * 1024 * 1024
+
+#: CPU SECONDS, not wall clock: a dev server idling for hours spends almost none and lives; a
+#: loop pinning a core dies after an hour of it.
+CPU_SECONDS = 3600
+
+#: The largest single file a command may write. Keeps one job from filling the shared disk.
+FILE_BYTES = 2 * 1024 * 1024 * 1024
+
+#: Scheduling priority: a background job yields the CPU to the daemon serving chats.
+NICENESS = 10
 
 
 class ConfinedCommand:
@@ -101,6 +129,16 @@ class ConfinedCommand:
     # ------------------------------------------------------------------- child side
 
     @staticmethod
+    def limits() -> None:
+        """Cap this process before it becomes the command. rlimits survive `exec` and are
+        inherited by every child the command starts, so the shell and what it runs are bound
+        alike. Set before the capabilities are dropped, while lowering them is still allowed."""
+        resource.setrlimit(resource.RLIMIT_DATA, (MEMORY_BYTES, MEMORY_BYTES))
+        resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_BYTES, FILE_BYTES))
+        os.nice(NICENESS)
+
+    @staticmethod
     def main(args: list[str]) -> None:
         """Parse the argv `argv()` built, lock this process, and become the command."""
         read_only: list[str] = []
@@ -111,6 +149,7 @@ class ConfinedCommand:
             (read_only if flag == "--ro" else read_write).append(value)
             i += 2
         command = " ".join(args[i + 1:])
+        ConfinedCommand.limits()
         LandlockConfinement(read_only, read_write).apply()
         os.execv(_SETPRIV, [_SETPRIV, *_SETPRIV_FLAGS, "--", "/bin/sh", "-c", command])
 

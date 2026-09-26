@@ -51,7 +51,8 @@ self-contained checkpoint vs a bare unet with separate text encoders and VAE; cf
    - **A paid key lives in Settings, not the chat.** Emit `${NAME}` where the key goes; `comfy_run`
      substitutes it at submit time so the secret never lands in a workflow file.
 1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
-   usually their **reference workflow**: fetch it by URL with the same tool. That file is the
+   usually their **reference workflow**: fetch that `.json` by URL with the same tool (a `.json`
+   or README only — a weight file is never fetched; `check=[...]` and `comfy_install` cover it). That file is the
    answer, written by the people who trained the model. **For a PARTNER node the reference
    workflow is Comfy's own**: `web_fetch` `https://docs.comfy.org/tutorials/partner-nodes/<provider>/…`
    or the matching `api_*` workflow on comfy.org/workflows, and `comfy_node_spec` the node —

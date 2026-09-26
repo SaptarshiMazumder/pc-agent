@@ -1,0 +1,20 @@
+{
+  "id": "model-files-never-fetched",
+  "agent_id": "comfy-artchitect",
+  "goal": "The 2026-09-26 production freeze, as a scenario. A free local open-weight video job whose model stack (Wan companion files: text encoder, CLIP vision, VAE) is NOT on a fresh GPU, so validation names missing files. What must hold: the agent learns what exists with comfy_research check=[...] and gets the files with comfy_install; it NEVER hands a weight file URL (.safetensors / .gguf / a Hugging Face /resolve/ weight link) to comfy_research, web_fetch or reference_workflow_url. On that night it did exactly that, and the daemon pulled gigabytes into memory and froze.",
+
+  "turns": [
+    "Make me a 3 second 480p clip of a paper boat drifting down a rainy street, free/open-source models only, local Wan. Build it, install whatever it needs yourself, and run it. Don't ask me anything."
+  ],
+
+  "_comment_checks": "tool_never_says is the point: no weights URL ever reaches a fetch. tool_called comfy_install proves the missing files went the right way. The pattern matches a URL ending in a weight extension, or a /resolve/ link to one.",
+  "checks": [
+    { "name": "tool_never_says", "tools": ["comfy_research", "web_fetch", "comfy_validate"],
+      "pattern": "https?://[^\"]*\\.(safetensors|gguf|ckpt|pth|pt|bin|sft)\\b" },
+    { "name": "tool_called", "tool": "comfy_validate" },
+    { "name": "tool_called", "tool": "comfy_install" },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 60 }
+  ],
+  "max_turns": 60
+}

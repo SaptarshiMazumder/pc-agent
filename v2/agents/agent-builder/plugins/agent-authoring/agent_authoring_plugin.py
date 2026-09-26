@@ -320,6 +320,7 @@ def register(api, ctx):
                 driver_factory=lambda shot: PlaywrightPageDriver(_shot_dir(), want_shot=shot),
                 gateway_reader=lifecycle.find_running,
                 screenshot_dir=_shot_dir(),
+                session_reader=ctx.caller_session,
             )
         )
     )

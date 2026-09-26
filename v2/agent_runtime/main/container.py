@@ -13,6 +13,7 @@ import logging
 
 from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.config import Config
+from agent_runtime.infrastructure import accounts
 from agent_runtime.infrastructure import tool_catalog_file
 from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
 from agent_runtime.infrastructure.engine.native import NativeEngine
@@ -172,6 +173,14 @@ def build_service(
     # them), and MCP servers (connected at gateway startup — appended to config.mcp_servers so
     # build_mcp_provider, called AFTER build_service, picks them up). A plugin's tools receive the
     # SAME injected singletons the built-ins do (browser, ledgers, stores) via its PluginContext.
+    def caller_session() -> str | None:
+        """The signed-in caller's CURRENT access token, for a plugin that must act as them
+        outside a socket (verify_app opening their agent's window). None when this daemon has no
+        sign-in at all; "" when it does but this run carries no token (a scheduled run)."""
+        if not accounts.enabled():
+            return None
+        return accounts.session_token()
+
     # the agent registry is built HERE (before plugin discovery) so it can be injected into
     # plugins too — the create_agent tool uses it to register a newly-authored agent live.
     from agent_runtime.infrastructure.agents import FileAgentRegistry
@@ -397,7 +406,7 @@ def build_service(
         return {
             "ok": True,
             "tools": [getattr(t, "name", "") for t in new_tools],
-            "agentTools": {aid: len(ts) for aid, ts in agent_map.items()},
+            "agentTools": {folder: len(ts) for folder, ts in agent_map.items()},  # keyed by agent_dir_key
             "sections": len(new_sections),
         }
 
@@ -445,6 +454,7 @@ def build_service(
         "broadcast_app_rebuilt": broadcast_app_rebuilt,
         "add_run_observer": plugin_run_observers.append,
         "gateway_client": gateway_client,
+        "caller_session": caller_session,
     }
     plugin_tools, plugin_sections, plugin_mcp_servers, plugin_skill_dirs = (
         discover_plugin_contributions(config, plugin_deps, entitlement, skip_ids=loaded_plugin_ids)

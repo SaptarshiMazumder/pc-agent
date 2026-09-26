@@ -948,10 +948,15 @@ variable "services" {
       cpu = 1024
 
       # MEMORY IS THE REAL CEILING: on EC2 this one IS a hard cap, and a container that crosses
-      # it is OOM-killed. 3584 of the ~3900 MiB a t3.medium registers, which is the whole box
-      # minus what the agent and the OS need — the memory that used to sit idle beside a 2048
-      # cap now belongs to the daemon. Free, because the instance was already paid for.
-      memory = 3584
+      # it is OOM-killed — which is the GOOD outcome: the ECS agent sees it die and starts a new
+      # one in a minute or two.
+      # 3072, NOT THE 3584 IT WAS. 3584 left the box ~300 MiB for Linux, Docker and the ECS
+      # agent, so a runaway daemon exhausted the MACHINE before it reached its own cap: no OOM
+      # kill, the box thrashed, the ECS agent starved and disconnected, the task sat in STOPPING
+      # and nothing replaced it until a human rebooted the host (production, 2026-09-26). ~800
+      # MiB of headroom keeps the agent alive to do the restart. The daemon's real load is
+      # ~0.7 GB idle and ~1.3 GB busy, so the cap is still more than twice what it uses.
+      memory = 3072
       env = {
         AGENTD_HOST      = "0.0.0.0"
         AGENTD_PORT      = "8787"

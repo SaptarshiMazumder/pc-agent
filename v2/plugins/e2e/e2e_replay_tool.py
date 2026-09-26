@@ -7,7 +7,6 @@ or just to re-open the last report without paying for it again.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
@@ -38,8 +37,9 @@ class E2eReplayTool(Tool):
         },
     }
 
-    def __init__(self, ctx):
+    def __init__(self, ctx, resolver):
         self._ctx = ctx
+        self._resolver = resolver
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         from agent_runtime.e2e import checks as checks_mod
@@ -48,12 +48,9 @@ class E2eReplayTool(Tool):
         from agent_runtime.e2e.scenario import Scenario
         from agent_runtime.e2e.trace import load_trace
 
-        raw = str(params.get("trace_path") or "").strip()
-        if not raw:
-            return ToolResult.text("e2e_replay needs `trace_path`", is_error=True)
-        path = Path(raw)
-        if not path.is_file():
-            return ToolResult.text(f"trace not found: {path}", is_error=True)
+        path = self._resolver.resolve(str(params.get("trace_path") or "").strip(), "trace_path")
+        if isinstance(path, str):  # resolution failure message
+            return ToolResult.text(f"e2e_replay: {path}", is_error=True)
 
         try:
             trace = load_trace(path)
@@ -63,8 +60,11 @@ class E2eReplayTool(Tool):
         scenario = None
         sp = str(params.get("scenario_path") or "").strip()
         if sp:
+            found = self._resolver.resolve(sp, "scenario_path")
+            if isinstance(found, str):
+                return ToolResult.text(f"e2e_replay: {found}", is_error=True)
             try:
-                scenario = Scenario.load(sp)
+                scenario = Scenario.load(found)
             except (ValueError, KeyError, OSError) as e:
                 return ToolResult.text(f"could not load scenario {sp}: {e}", is_error=True)
 

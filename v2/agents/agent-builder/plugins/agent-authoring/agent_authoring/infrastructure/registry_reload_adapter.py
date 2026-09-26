@@ -28,6 +28,8 @@ that dependency to this one adapter is precisely what the outermost ring is for.
 
 from __future__ import annotations
 
+from agent_runtime.domain.agent import agent_dir_key
+
 
 class RegistryReloadAdapter:
     def __init__(
@@ -78,7 +80,9 @@ class RegistryReloadAdapter:
             try:
                 reloaded = self._reload_plugins() or {}
                 if reloaded.get("ok"):
-                    result["tools"] = (reloaded.get("agentTools") or {}).get(agent_id, 0)
+                    # Keyed by the agent's FOLDER, not its id — ids repeat across accounts.
+                    folder = agent_dir_key(self._registry.resolve_dir(agent_id))
+                    result["tools"] = (reloaded.get("agentTools") or {}).get(folder, 0)
                 else:
                     result["error"] = f"plugin reload failed: {reloaded.get('error')}"
             except Exception as e:  # noqa: BLE001

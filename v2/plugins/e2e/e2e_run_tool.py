@@ -19,7 +19,6 @@ is an agent broken.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
@@ -91,8 +90,9 @@ class E2eRunTool(Tool):
         },
     }
 
-    def __init__(self, ctx):
+    def __init__(self, ctx, resolver):
         self._ctx = ctx
+        self._resolver = resolver
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         from agent_runtime.e2e import checks as checks_mod
@@ -101,7 +101,7 @@ class E2eRunTool(Tool):
         from agent_runtime.e2e.live_driver import drive
         from agent_runtime.e2e.scenario import Scenario
 
-        path = self._resolve_path(str(params.get("scenario_path") or "").strip())
+        path = self._resolver.resolve(str(params.get("scenario_path") or "").strip(), "scenario_path")
         if isinstance(path, str):  # resolution failure message
             return ToolResult.text(path, is_error=True)
 
@@ -169,24 +169,3 @@ class E2eRunTool(Tool):
 
         # The report already carries TRIAGE; failing CHECKS is a finding, not a tool error.
         return ToolResult.text(text + "\n" + "\n".join(notes))
-
-    def _resolve_path(self, raw: str):
-        """Absolute → as-is; relative → against the agents root, then cwd. Returns a Path, or an
-        error STRING naming everything that was tried (so the fix is obvious)."""
-        if not raw:
-            return "e2e_run needs `scenario_path`"
-        p = Path(raw)
-        if p.is_absolute():
-            return p if p.is_file() else f"scenario not found: {p}"
-        tried = []
-        agents_dir = getattr(getattr(self._ctx, "config", None), "agents_dir", None)
-        if agents_dir:
-            base = Path(agents_dir)
-            for cand in (base / raw, base.parent / raw):
-                if cand.is_file():
-                    return cand
-                tried.append(str(cand))
-        if p.is_file():
-            return p
-        tried.append(str(p.resolve()))
-        return "scenario not found — tried: " + "; ".join(tried)
