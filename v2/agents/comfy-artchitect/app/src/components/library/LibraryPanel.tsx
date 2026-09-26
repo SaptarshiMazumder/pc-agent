@@ -56,6 +56,7 @@ export function LibraryPanel({
   onUseWorkflow,
   onRunAgain,
   onUseTemplate,
+  titled = true,
 }: {
   client: AgentdClient | undefined
   /** The chat a "Use" lands in. */
@@ -76,6 +77,9 @@ export function LibraryPanel({
   onRunAgain: (item: LibraryItem) => void
   /** "Use this template": a new chat with the template's brief in the box. */
   onUseTemplate: (item: LibraryItem) => void
+  /** Draw the panel's own "Library · count" line. The Library PAGE says it in its page title
+   *  already, so it turns this off rather than printing "Library" twice. */
+  titled?: boolean
 }) {
   /* FIRST FRAME FROM THE CACHE, then the daemon's answer replaces it (agentd/library-cache).
      `cached` is read once: it only decides whether the first load shows a spinner or a list. */
@@ -269,34 +273,20 @@ export function LibraryPanel({
         void addFiles(Array.from(e.dataTransfer.files || []))
       }}
     >
-      <div className="lib-head">
-        <span className="lib-title">
-          <Library size={15} strokeWidth={1.8} /> Library
-        </span>
-        <span className="lib-count">{items.length}</span>
-        {loading && ready && (
-          <Loader2 className="ld-spin lib-refreshing" size={13} strokeWidth={2} aria-label="Refreshing" />
-        )}
-        <button
-          type="button"
-          className="lib-upload"
-          disabled={!client || busy}
-          onClick={() => pickRef.current?.click()}
-          title="Add files from this computer"
-        >
-          <Upload size={13} strokeWidth={1.8} /> {busy ? 'Adding…' : 'Upload'}
-        </button>
-        <input
-          ref={pickRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => {
-            void addFiles(Array.from(e.target.files || []))
-            e.target.value = ''
-          }}
-        />
-      </div>
+      {titled ? (
+        <div className="lib-head">
+          <span className="lib-title">
+            <Library size={15} strokeWidth={1.8} /> Library
+          </span>
+          <span className="lib-count">{items.length}</span>
+          {loading && ready && (
+            <Loader2 className="ld-spin lib-refreshing" size={13} strokeWidth={2} aria-label="Refreshing" />
+          )}
+        </div>
+      ) : (
+        loading &&
+        ready && <Loader2 className="ld-spin lib-refreshing lib-refreshing-float" size={13} strokeWidth={2} aria-label="Refreshing" />
+      )}
 
       {targetRole && (
         <p className="lib-target">
@@ -371,11 +361,44 @@ export function LibraryPanel({
         )}
       </Section>
 
-      {uploaded.length > 0 && (
-        <Section title="Uploaded" hint="from this computer" origin="uploaded">
-          {uploaded.map(row)}
-        </Section>
-      )}
+      {/* UPLOADED CARRIES ITS OWN UPLOAD BUTTON, like Templates does: the button sat in the
+          Library's header, above Templates, so what it added looked like it landed somewhere else. */}
+      <Section
+        title="Uploaded"
+        hint="from this computer"
+        origin="uploaded"
+        action={
+          <>
+            <button
+              type="button"
+              className="lib-upload"
+              disabled={!client || busy}
+              onClick={() => pickRef.current?.click()}
+              title="Add files from this computer"
+            >
+              <Upload size={13} strokeWidth={1.8} /> {busy ? 'Adding…' : 'Upload'}
+            </button>
+            <input
+              ref={pickRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                void addFiles(Array.from(e.target.files || []))
+                e.target.value = ''
+              }}
+            />
+          </>
+        }
+      >
+        {uploaded.length ? (
+          uploaded.map(row)
+        ) : (
+          <p className="lib-sec-empty">
+            <Upload size={14} strokeWidth={1.8} /> Workflow JSONs, faces, product photos from your computer — press Upload or drop them here.
+          </p>
+        )}
+      </Section>
 
       {items.some((i) => i.origin === 'saved') && (
         <Section title="Saved from chats" hint="Add to Library and Save to Library land here" origin="saved">

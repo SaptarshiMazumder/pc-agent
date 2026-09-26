@@ -15,6 +15,8 @@ import { BookmarkPlus, FileCode2, LayoutTemplate } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { Artifact } from '../../agentd/artifacts'
+import type { LibrarySaveOutcome } from '../../agentd/library'
+import { saveLabel, useSaveFeedback } from '../library/use-save-feedback'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { collectWorkflows, workflowFiles, type Workflow } from '../workflows/WorkflowCard'
 import { INSTALLER, WorkflowItem } from '../workflows/WorkflowItem'
@@ -30,7 +32,7 @@ export function WorkflowPanel({
   /** This chat's workflow-folder files (App's merged list, references excluded). */
   files: Artifact[]
   onDelete?: (paths: string[]) => Promise<void>
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   /** Keep ALL of this chat's workflows as one template (the prompt asks its name). */
   onSaveTemplate?: () => void
   /** Show a file (the graph's JSON, the installer) in the viewer beside this panel. */
@@ -52,13 +54,17 @@ export function WorkflowPanel({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [notice, setNotice] = useState('')
+  const feedback = useSaveFeedback()
 
   const save = async (wf: Workflow): Promise<void> => {
     if (!onAddToLibrary) return
     try {
       // The installer travels with the graph: a kept workflow is the whole reusable setup.
       const inst = installers.get(wf.name) || []
-      setNotice(await onAddToLibrary([...workflowFiles(wf), ...inst].map((f) => f.path)))
+      const outcome = await feedback.run(wf.name, () =>
+        onAddToLibrary([...workflowFiles(wf), ...inst].map((f) => f.path)),
+      )
+      setNotice(outcome.message)
     } catch (e) {
       setNotice(`Could not add to the Library: ${String((e as Error)?.message || e)}`)
     }
@@ -111,8 +117,13 @@ export function WorkflowPanel({
           actions={
             <>
               {onAddToLibrary && (
-                <button type="button" className="wp-btn is-primary" onClick={() => void save(wf)}>
-                  <BookmarkPlus size={14} strokeWidth={1.9} /> Save to Library
+                <button
+                  type="button"
+                  className="wp-btn is-primary"
+                  disabled={feedback.stateOf(wf.name) === 'saving'}
+                  onClick={() => void save(wf)}
+                >
+                  <BookmarkPlus size={14} strokeWidth={1.9} /> {saveLabel(feedback.stateOf(wf.name), 'Save to Library')}
                 </button>
               )}
               {wf.api && (

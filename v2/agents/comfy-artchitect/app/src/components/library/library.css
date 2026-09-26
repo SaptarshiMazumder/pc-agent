@@ -160,7 +160,7 @@
 /* ── Templates ─────────────────────────────────────────────────────────────────────────── */
 .lib-sec-action { margin-left: auto; display: inline-flex; }
 .lib-sec-empty { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--faint); }
-.lib-page .lib-sec-template .lib-sec-empty { grid-column: 1 / -1; }
+.lib-page .lib-sec-empty { grid-column: 1 / -1; }
 .tpl-card { gap: 12px; }
 .tpl-head { display: flex; align-items: flex-start; gap: 12px; }
 .tpl-thumb {
@@ -184,3 +184,6 @@
 }
 .tpl-field input:focus, .tpl-field textarea:focus { outline: none; border-color: var(--accent-edge); }
 .wp-template { align-self: flex-start; }
+/* Untitled panel (the Library page): the refresh spinner sits in the corner instead of a title line. */
+.lib { position: relative; }
+.lib-refreshing-float { position: absolute; top: 0; right: 0; }

@@ -74,7 +74,14 @@ import { SaveToLibraryChips } from './components/library/SaveToLibraryChips'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
 import { referencesReadyInstruction, useReferenceSlots } from './agentd/reference-slots'
-import { readIndex, saveFromChat, useWorkflowMessage, type LibraryItem } from './agentd/library'
+import {
+  readIndex,
+  saveFromChat,
+  saveOutcome,
+  useWorkflowMessage,
+  type LibraryItem,
+  type LibrarySaveOutcome,
+} from './agentd/library'
 import {
   applyApprovedDeletions,
   chatDirFor,
@@ -288,18 +295,23 @@ export default function App() {
     [client, currentKey],
   )
   const onAddToLibrary = useCallback(
-    async (paths: string[]): Promise<string> => {
+    async (paths: string[]): Promise<LibrarySaveOutcome> => {
       if (!client) throw new Error('not connected')
       const chosen = files
         .filter((a) => paths.includes(a.path))
-        .map((a) => ({ rel: relOfChatFile(a.path, currentKey) || '', name: a.name, kind: a.kind, path: a.path }))
+        .map((a) => ({
+          rel: relOfChatFile(a.path, currentKey) || '',
+          name: a.name,
+          kind: a.kind,
+          path: a.path,
+          size: a.size,
+        }))
         .filter((f) => f.rel)
-      const added = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
+      const res = await saveFromChat(client, chosen, { chat: currentKey, title: chatTitleOf(currentKey) })
       useApp.getState().bumpWorkspace()
+      // Lit either way: saved just now, or already there — both answer "where is it".
       useApp.getState().flashLibrary()
-      return added.length === 1
-        ? `Added ${added[0].name} to the Library`
-        : `Added ${added.length} items to the Library`
+      return saveOutcome(res)
     },
     [client, files, currentKey, chatTitleOf],
   )

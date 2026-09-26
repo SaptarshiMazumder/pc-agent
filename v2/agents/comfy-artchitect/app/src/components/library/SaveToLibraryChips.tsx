@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AgentdClient } from '@agentd/client'
 
 import type { Artifact } from '../../agentd/artifacts'
-import { readIndex, saveFromChat, type LibraryItem } from '../../agentd/library'
+import { readIndex, saveFromChat, saveOutcome, type LibraryItem } from '../../agentd/library'
 import { chatDirFor, relOfChatFile } from '../../agentd/workspace-files'
 import { useApp } from '../../state/store'
 import { collectWorkflows, workflowFiles, type Workflow } from '../workflows/WorkflowCard'
@@ -58,7 +58,8 @@ export function SaveToLibraryChips({
   onSaveTemplate?: () => void
 }) {
   const [kept, setKept] = useState<LibraryItem[] | null>(null)
-  const [done, setDone] = useState<Set<string>>(() => new Set())
+  /** What each pressed chip ended as: saved now, or already in the Library. */
+  const [done, setDone] = useState<Map<string, 'saved' | 'already'>>(() => new Map())
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const bump = useApp((s) => s.bumpWorkspace)
@@ -87,15 +88,15 @@ export function SaveToLibraryChips({
 
   const toChatFiles = (list: Artifact[]) =>
     list
-      .map((a) => ({ rel: relOfChatFile(a.path, sessionKey) || '', name: a.name, kind: a.kind, path: a.path }))
+      .map((a) => ({ rel: relOfChatFile(a.path, sessionKey) || '', name: a.name, kind: a.kind, path: a.path, size: a.size }))
       .filter((f) => f.rel)
 
   const save = async (key: string, list: Artifact[]): Promise<void> => {
     setBusy(key)
     setError('')
     try {
-      await saveFromChat(client, toChatFiles(list), { chat: sessionKey, title: chatTitle })
-      setDone((prev) => new Set(prev).add(key))
+      const outcome = saveOutcome(await saveFromChat(client, toChatFiles(list), { chat: sessionKey, title: chatTitle }))
+      setDone((prev) => new Map(prev).set(key, outcome.state))
       bump()
       useApp.getState().flashLibrary()
     } catch (e) {
@@ -136,18 +137,24 @@ export function SaveToLibraryChips({
       )}
       {wfChips.map((wf) => {
         const key = `wf:${wf.name}`
-        const saved = done.has(key)
+        const state = done.get(key)
         return (
           <button
             key={key}
             type="button"
-            className={`keep-chip${saved ? ' is-done' : ''}`}
-            disabled={!!busy || saved}
+            className={`keep-chip${state ? ' is-done' : ''}`}
+            disabled={!!busy || !!state}
             onClick={() => void save(key, [...workflowFiles(wf), ...installersFor(wf.name, files)])}
             title="Copy this workflow into your Library, where every conversation can use it"
           >
-            {saved ? <Check size={13} strokeWidth={2} /> : <BookmarkPlus size={13} strokeWidth={1.8} />}
-            {saved ? `${wf.name} saved` : busy === key ? 'Saving…' : `Save ${wf.name} to Library`}
+            {state ? <Check size={13} strokeWidth={2} /> : <BookmarkPlus size={13} strokeWidth={1.8} />}
+            {state === 'saved'
+              ? `${wf.name} saved`
+              : state === 'already'
+                ? `${wf.name} already in Library`
+                : busy === key
+                  ? 'Saving…'
+                  : `Save ${wf.name} to Library`}
           </button>
         )
       })}
@@ -160,11 +167,13 @@ export function SaveToLibraryChips({
           title="Copy the renders into your Library as references"
         >
           {done.has('renders') ? <Check size={13} strokeWidth={2} /> : <BookmarkPlus size={13} strokeWidth={1.8} />}
-          {done.has('renders')
+          {done.get('renders') === 'saved'
             ? 'renders saved'
-            : busy === 'renders'
-              ? 'Saving…'
-              : `Save ${unsavedRenders.length} render${unsavedRenders.length === 1 ? '' : 's'}`}
+            : done.get('renders') === 'already'
+              ? 'renders already in Library'
+              : busy === 'renders'
+                ? 'Saving…'
+                : `Save ${unsavedRenders.length} render${unsavedRenders.length === 1 ? '' : 's'}`}
         </button>
       )}
       </div>

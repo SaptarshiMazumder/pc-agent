@@ -24,7 +24,7 @@
 
 import './creations.css'
 
-import { BookmarkPlus, FileJson, Image as ImageIcon, MessageSquare, Play, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Check, FileJson, Image as ImageIcon, Loader2, MessageSquare, Play, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 
 import { MediaKindTag } from '../media/MediaKindTag'
@@ -42,7 +42,8 @@ import type { ChatRow } from '../../agentd/sessions'
 import { ImageLightbox } from '../studio/ImageLightbox'
 import { collectWorkflows, WorkflowCard, workflowFiles } from '../workflows/WorkflowCard'
 import { DeleteFilePrompt } from './DeleteFilePrompt'
-import { saveFromChat } from '../../agentd/library'
+import { saveFromChat, saveOutcome } from '../../agentd/library'
+import { saveLabel, useSaveFeedback, type SaveState } from '../library/use-save-feedback'
 import { useApp } from '../../state/store'
 
 type Shelf = 'workflows' | 'outputs'
@@ -100,12 +101,14 @@ function RenderTile({
   onOpen,
   onDelete,
   onSave,
+  saveState,
 }: {
   file: LibraryFile
   onOpen: () => void
   onDelete: () => void
   /** Copy this render into the Library, where every chat can reach it. */
   onSave: () => void
+  saveState: SaveState
 }) {
   const src = fileUrl(file.path)
   const [thumbFailed, setThumbFailed] = useState(false)
@@ -144,10 +147,17 @@ function RenderTile({
         <button
           className="cr-tile-save"
           onClick={onSave}
-          title="Save to Library"
+          disabled={saveState === 'saving'}
+          title={saveLabel(saveState, 'Save to Library')}
           aria-label={`Save ${file.name} to the Library`}
         >
-          <BookmarkPlus size={13} strokeWidth={1.8} />
+          {saveState === 'saving' ? (
+            <Loader2 size={13} strokeWidth={1.8} className="ld-spin" />
+          ) : saveState === 'idle' ? (
+            <BookmarkPlus size={13} strokeWidth={1.8} />
+          ) : (
+            <Check size={13} strokeWidth={2.2} />
+          )}
         </button>
         <button
           className="cr-tile-del"
@@ -189,16 +199,21 @@ export default function Gallery({
      folder, captioned with the chat that made it. The sentence it answers shows under the title
      for a moment — a save is a fact, not a state to dismiss. */
   const [notice, setNotice] = useState('')
+  const feedback = useSaveFeedback()
   const saveToLibrary = useCallback(
-    async (files: LibraryFile[], g: ChatGroup) => {
+    async (key: string, files: LibraryFile[], g: ChatGroup) => {
       if (!client) return
       try {
-        const added = await saveFromChat(
-          client,
-          files.map((f) => ({ rel: f.rel, name: f.name, kind: f.kind, path: f.path })),
-          { chat: g.sessionId || g.folder, title: g.title },
+        const outcome = await feedback.run(key, async () =>
+          saveOutcome(
+            await saveFromChat(
+              client,
+              files.map((f) => ({ rel: f.rel, name: f.name, kind: f.kind, path: f.path, size: f.size })),
+              { chat: g.sessionId || g.folder, title: g.title },
+            ),
+          ),
         )
-        setNotice(added.length === 1 ? `Saved ${added[0].name} to the Library` : `Saved ${added.length} items to the Library`)
+        setNotice(outcome.message)
         useApp.getState().bumpWorkspace()
         useApp.getState().flashLibrary()
       } catch (e) {
@@ -206,7 +221,7 @@ export default function Gallery({
       }
       setTimeout(() => setNotice(''), 4000)
     },
-    [client],
+    [client, feedback],
   )
   const doDelete = useCallback(async () => {
     if (!client || !doomed) return
@@ -286,7 +301,8 @@ export default function Gallery({
                       <WorkflowCard
                         key={wf.name}
                         wf={wf}
-                        onSave={(w) => void saveToLibrary(workflowFiles(w), g)}
+                        onSave={(w) => void saveToLibrary(`wf:${g.folder}:${w.name}`, workflowFiles(w), g)}
+                        saveState={feedback.stateOf(`wf:${g.folder}:${wf.name}`)}
                         onDelete={(w) => askDelete(workflowFiles(w))}
                       />
                     ))}
@@ -299,7 +315,8 @@ export default function Gallery({
                         file={f}
                         onOpen={() => setViewing(f)}
                         onDelete={() => askDelete([f])}
-                        onSave={() => void saveToLibrary([f], g)}
+                        onSave={() => void saveToLibrary(f.rel || f.path, [f], g)}
+                        saveState={feedback.stateOf(f.rel || f.path)}
                       />
                     ))}
                   </div>

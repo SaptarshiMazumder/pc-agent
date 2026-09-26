@@ -50,7 +50,41 @@ export interface LibraryItem {
   versions: LibraryVersion[]
   /** Where a saved item came from. Absent on an upload. */
   from?: { chat: string; title: string }
+  /** A saved single file: its workspace-relative path in that chat, and its size then — what
+   *  "is this already in the Library" is answered by. Absent on older items and uploads. */
+  source?: string
+  size?: number
   created: string
+}
+
+/** What one Save/Add to Library press did: every button says one of these. */
+export interface LibrarySaveOutcome {
+  /** One sentence for the note under the button. */
+  message: string
+  /** 'already' only when NOTHING new went in — the button then reads "Already in Library". */
+  state: 'saved' | 'already'
+}
+
+/** What `saveFromChat` did: what went in, and what was already there unchanged. */
+export interface LibrarySaveResult {
+  added: LibraryItem[]
+  unchanged: LibraryItem[]
+}
+
+/** The result as the sentence and state every save button shows. */
+export function saveOutcome(res: LibrarySaveResult): LibrarySaveOutcome {
+  const { added, unchanged } = res
+  if (!added.length && unchanged.length) {
+    return {
+      state: 'already',
+      message:
+        unchanged.length === 1
+          ? `${unchanged[0].name} is already in your Library`
+          : `All ${unchanged.length} are already in your Library`,
+    }
+  }
+  const first = added.length === 1 ? `Added ${added[0].name} to the Library` : `Added ${added.length} items to the Library`
+  return { state: 'saved', message: unchanged.length ? `${first} · ${unchanged.length} already there` : first }
 }
 
 export interface LibraryIndex {
@@ -238,6 +272,8 @@ function normalise(raw: unknown): LibraryIndex {
           }))
         : [],
       ...(from && from.chat ? { from: { chat: String(from.chat), title: String(from.title || '') } } : {}),
+      ...(r.source ? { source: String(r.source) } : {}),
+      ...(typeof r.size === 'number' ? { size: r.size } : {}),
       created: String(r.created || ''),
     })
   }
@@ -294,6 +330,14 @@ export interface ChatFile {
   kind: ArtifactKind
   /** Absolute path, when known — lets a workflow's slots be read before it is saved. */
   path?: string
+  /** Bytes, when known — half of the "already saved" check for a single file. */
+  size?: number
+}
+
+async function textOf(path: string): Promise<string> {
+  const res = await fetch(fileUrl(path), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`could not read ${path} (HTTP ${res.status})`)
+  return res.text()
 }
 
 /**
@@ -301,15 +345,21 @@ export interface ChatFile {
  * api.json, the editor json and the installer files travel as one versioned item; a name that is
  * already in the Library gets a new version rather than a copy. References and files are single
  * items, deduped by name.
+ *
+ * NOTHING IS SAVED TWICE. A workflow whose run file is byte-identical to its newest Library
+ * version is left alone (a press used to add an empty v2, v3 … v10 each time); an installer it
+ * gained since is added to that same version. A single file already saved from this chat, same
+ * path and size, is left alone too. Both come back in `unchanged`, so the button can say so.
  */
 export async function saveFromChat(
   client: AgentdClient,
   files: ChatFile[],
   from: { chat: string; title: string },
-): Promise<LibraryItem[]> {
+): Promise<LibrarySaveResult> {
   const index = await readIndex(client)
   const at = nowIso()
   const added: LibraryItem[] = []
+  const unchanged: LibraryItem[] = []
 
   // Workflows first, grouped by base name.
   const byBase = new Map<string, ChatFile[]>()
@@ -329,6 +379,20 @@ export async function saveFromChat(
     }
     const name = slug(base)
     let item = index.items.find((i) => i.kind === 'workflow' && i.name === name)
+    const apiText = api?.path ? await textOf(api.path) : ''
+    if (item && api && apiText) {
+      const kept = await libraryFiles(client, item)
+      const keptApi = kept.find((k) => k.name.endsWith('.api.json'))
+      if (keptApi && (await textOf(keptApi.path)) === apiText) {
+        // SAME GRAPH: no new version. Only files the kept version lacks (an installer exported
+        // after the first save) are added to it.
+        const dir = `${LIBRARY_DIR}/${item.path}/v${latestVersion(item)}`
+        const have = new Set(kept.map((k) => k.name))
+        for (const p of parts) if (!have.has(p.name)) await copy(client, p.rel, `${dir}/${p.name}`, true)
+        unchanged.push(item)
+        continue
+      }
+    }
     const v = item ? latestVersion(item) + 1 : 1
     if (!item) {
       item = {
@@ -346,14 +410,7 @@ export async function saveFromChat(
     }
     const dir = `${LIBRARY_DIR}/${item.path}/v${v}`
     for (const p of parts) await copy(client, p.rel, `${dir}/${p.name}`, true)
-    let slots: string[] | undefined
-    if (api?.path) {
-      try {
-        slots = slotsInGraph(await (await fetch(fileUrl(api.path), { cache: 'no-store' })).text())
-      } catch {
-        slots = undefined
-      }
-    }
+    const slots = apiText ? slotsInGraph(apiText) : undefined
     item.versions.push({ v, at, ...(slots ? { slots } : {}) })
     // A later save from another chat: the caption follows the newest version.
     item.from = from
@@ -363,6 +420,19 @@ export async function saveFromChat(
   for (const f of singles) {
     const kind = kindForName(f.name, f.kind)
     const { stem, ext } = splitExt(f.name)
+    // Already saved from this chat? By its path there (older items: by name), and by size.
+    const kept = index.items.find(
+      (i) =>
+        i.kind === kind &&
+        i.origin === 'saved' &&
+        i.from?.chat === from.chat &&
+        (i.source ? i.source === f.rel : i.name === slug(stem)) &&
+        (i.size === undefined || f.size === undefined || i.size === f.size),
+    )
+    if (kept) {
+      unchanged.push(kept)
+      continue
+    }
     const name = freeName(index, kind, 'saved', slug(stem))
     const fileName = `${name}${ext}`
     const rel = `saved/${KIND_DIR[kind]}/${fileName}`
@@ -376,14 +446,18 @@ export async function saveFromChat(
       path: rel,
       versions: [],
       from,
+      source: f.rel,
+      ...(f.size !== undefined ? { size: f.size } : {}),
       created: at,
     }
     index.items.push(item)
     added.push(item)
   }
 
-  if (added.length) await writeIndex(client, index)
-  return added
+  // Written for an installer added to a kept version too: the catalogue itself did not change
+  // then, but writing it is harmless, and one rule is simpler than two.
+  if (added.length || unchanged.length) await writeIndex(client, index)
+  return { added, unchanged }
 }
 
 // ---------------------------------------------------------------------------- uploading

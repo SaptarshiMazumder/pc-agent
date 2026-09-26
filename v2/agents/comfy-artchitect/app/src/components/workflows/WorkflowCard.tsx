@@ -14,9 +14,10 @@
 
 import './workflows.css'
 
-import { BookmarkPlus, Download, FileJson, Play, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Check, Download, FileJson, Loader2, Play, Trash2 } from 'lucide-react'
 
 import { fileUrl, humanSize, type Artifact } from '../../agentd/artifacts'
+import { saveLabel, type SaveState } from '../library/use-save-feedback'
 
 /** One workflow: the name it was emitted under, and whichever of its two files exist. */
 export interface Workflow<A extends Artifact = Artifact> {
@@ -66,6 +67,7 @@ export function WorkflowCard<A extends Artifact>({
   meta,
   onDelete,
   onSave,
+  saveState = 'idle',
 }: {
   wf: Workflow<A>
   /** Extra facts appended to the meta line — a Library version and its slots. */
@@ -74,6 +76,8 @@ export function WorkflowCard<A extends Artifact>({
   onDelete?: (wf: Workflow<A>) => void
   /** Drawn as a bookmark when given: keep this workflow in the Library, for every chat. */
   onSave?: (wf: Workflow<A>) => void
+  /** Where the bookmark's save is: drawn as a spinner, then a tick. */
+  saveState?: SaveState
 }) {
   const bytes = (wf.api?.size || 0) + (wf.ui?.size || 0)
   return (
@@ -94,10 +98,17 @@ export function WorkflowCard<A extends Artifact>({
           <button
             className="wf-card-save"
             onClick={() => onSave(wf)}
-            title="Save to Library"
+            disabled={saveState === 'saving'}
+            title={saveLabel(saveState, 'Save to Library')}
             aria-label={`Save ${wf.name} to the Library`}
           >
-            <BookmarkPlus size={14} strokeWidth={1.8} />
+            {saveState === 'saving' ? (
+              <Loader2 size={14} strokeWidth={1.8} className="ld-spin" />
+            ) : saveState === 'idle' ? (
+              <BookmarkPlus size={14} strokeWidth={1.8} />
+            ) : (
+              <Check size={14} strokeWidth={2.2} />
+            )}
           </button>
         )}
         {onDelete && (

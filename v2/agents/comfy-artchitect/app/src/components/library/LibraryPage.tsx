@@ -56,6 +56,7 @@ export function LibraryPage({
           targetRole=""
           onClearTarget={() => {}}
           useLabel="Use in new chat"
+          titled={false}
           onUseWorkflow={onUseWorkflow}
           onRunAgain={onRunAgain}
           onUseTemplate={onUseTemplate}

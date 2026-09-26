@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
+import type { LibrarySaveOutcome } from '../../agentd/library'
 
 import type { GpuWarmup } from './useGpuWarmup'
 
@@ -81,7 +82,7 @@ export function StudioDashboard({
   /** Delete: the daemon removes the files, after the one warning each section shows. */
   onDeleteFiles?: (paths: string[]) => Promise<void>
   /** Add to Library: copies into the shared Library; answers a sentence to show. */
-  onAddToLibrary?: (paths: string[]) => Promise<string>
+  onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   deletionDisabled?: string
   /** The chat the Library's "Use" lands in. */
   sessionKey: string
