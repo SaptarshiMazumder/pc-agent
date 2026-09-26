@@ -26,10 +26,13 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.infrastructure.net.outbound import fetch
 
 from comfy_bridge import _get as _instance_get
+from model_file_url_detector import ModelFileUrlDetector
 
 #: How much fetched text rides back to the model. Enough for any README or workflow JSON that
 #: matters; a page bigger than this is a webpage, and its useful part is at the top.
 _CLAMP = 14_000
+
+_MODEL_FILES = ModelFileUrlDetector()
 
 
 def _web_get(url: str, token_placeholder: str | None = None, timeout_s: float = 30.0):
@@ -157,9 +160,11 @@ class ComfyResearchTool(Tool):
         "to SEARCH (Hugging Face + Civitai: repos, base model, weight files, and any reference "
         "workflow JSONs the publisher ships), or a URL to FETCH whole (a model card, a shipped "
         "workflow, a docs page — the publisher's own reference workflow is the single best "
-        "answer to 'what does this need'). Pass `check` to verify names — node classes or "
-        "model filenames — against the user's instance, turning research into a concrete "
-        "present/missing list. Use it for EVERY model family you have not already confirmed "
+        "answer to 'what does this need'). NEVER a model file URL (.safetensors, .gguf, a "
+        "/resolve/ weight link): those are refused — model bytes only ever go to the GPU "
+        "through comfy_install. Pass `check` to verify names — node classes or model "
+        "filenames — against the user's instance, turning research into a concrete "
+        "present/missing list; that is how to ask 'is this model already there'. Use it for EVERY model family you have not already confirmed "
         "this session, and again whenever the user changes model mid-job."
     )
     parameters = {
@@ -189,6 +194,22 @@ class ComfyResearchTool(Tool):
             sections: list[str] = []
             details: dict = {}
 
+            model_file = (
+                _MODEL_FILES.model_file(query) if query.lower().startswith(("http://", "https://")) else ""
+            )
+            if model_file:
+                # A MODEL FILE IS NEVER READ HERE. It is weights, not a page: fetching it as text
+                # once pulled gigabytes through the daemon and froze it. Say the two calls that
+                # answer what the agent actually wanted, and fetch nothing.
+                return ToolResult.text(
+                    f"not fetched: {query} is a model file ({model_file}), not a page to read. "
+                    f"To see whether the GPU already has it: comfy_research check=[\"{model_file}\"]. "
+                    "To get it: comfy_install with this URL as the file's source; the GPU downloads "
+                    "it. To learn what it needs: fetch the repo's README "
+                    "(https://huggingface.co/<id>/raw/main/README.md) or its workflow .json.",
+                    is_error=True,
+                    details={"refused": {"url": query, "model_file": model_file}},
+                )
             if query.lower().startswith(("http://", "https://")):
                 # HF file/card URLs are the ones that turn out gated, hence the HF token here.
                 res = _web_get(query, token_placeholder="${HF_TOKEN}", timeout_s=45.0)
@@ -229,8 +250,10 @@ class ComfyResearchTool(Tool):
                         if r["weights"]:
                             lines.append(f"    weights: " + ", ".join(r["weights"][:6]))
                     lines.append(
-                        "  read a card:  https://huggingface.co/<id>/raw/main/README.md   "
-                        "a file: https://huggingface.co/<id>/resolve/main/<file>"
+                        "  read a card:  https://huggingface.co/<id>/raw/main/README.md\n"
+                        "  is a weight file on the GPU?  check=[\"<file>\"]\n"
+                        "  install a weight file:  comfy_install with source "
+                        "https://huggingface.co/<id>/resolve/main/<file> (never fetch it here)"
                     )
                     sections.append("\n".join(lines))
                 if cv:

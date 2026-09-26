@@ -27,6 +27,7 @@ from pathlib import Path
 import httpx
 
 from agent_runtime.config import accounts_api_base
+from agent_runtime.infrastructure.live_credential import LiveCredential
 from identity.domain.errors import TokenExpired, TokenInvalid
 from identity.infrastructure.jwks_verifier import looks_like_jwt
 
@@ -49,6 +50,13 @@ _RESOLVE_TTL = 30.0
 # Shape: {"account_id", "email", "budget_usd", "over", ...} exactly as /resolve returns.
 current_account: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "agentd_current_account", default=None
+)
+
+# The connection's LIVE credential (see live_credential.py): the same object for the socket and
+# every run it starts, so a token renewed by `auth.update` reaches runs already in flight. None
+# for work with no connection behind it (cron) — those read the account snapshot.
+current_credential: contextvars.ContextVar[LiveCredential | None] = contextvars.ContextVar(
+    "agentd_current_credential", default=None
 )
 
 # Per-turn spend accumulator (a MUTABLE dict shared down the call stack by contextvar reference):
@@ -258,6 +266,28 @@ def reset_account(token) -> None:
         pass
 
 
+def set_credential(credential: LiveCredential | None):
+    """Pin the connection's live credential; returns the contextvar token to reset with."""
+    return current_credential.set(credential)
+
+
+def reset_credential(token) -> None:
+    try:
+        current_credential.reset(token)
+    except (ValueError, LookupError):  # different context (task boundary) — best-effort
+        pass
+
+
+def session_token() -> str:
+    """The signed-in person's access token AS OF NOW: the connection's live credential when the
+    run has one (renewed mid-run by `auth.update`), else the account snapshot. "" when neither."""
+    live = current_credential.get()
+    acc = current_account.get()
+    if live is not None and live.account_id == str((acc or {}).get("account_id") or ""):
+        return live.token
+    return str((acc or {}).get("session_token") or "")
+
+
 async def resolve(token: str) -> dict | None:
     """Credential -> account dict (or None if unknown/expired). Never raises: a resolve failure
     (service down, bad token) is a None, which the caller treats as unauthorized.
@@ -341,8 +371,7 @@ def platform_token() -> str:
     internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
     if internal:
         return internal
-    acc = current_account.get()
-    return str((acc or {}).get("session_token") or "")
+    return session_token()
 
 
 def _auth_headers() -> dict:
@@ -352,8 +381,7 @@ def _auth_headers() -> dict:
     internal = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "").strip()
     if internal:
         return {"X-Internal-Key": internal}
-    acc = current_account.get()
-    token = (acc or {}).get("session_token") or ""
+    token = session_token()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

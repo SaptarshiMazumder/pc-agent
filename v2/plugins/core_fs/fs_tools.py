@@ -32,6 +32,10 @@ MAX_READ_CHARS = 100_000
 MAX_LINE_CHARS = 2_000
 # image files are returned as the PICTURE itself (so a vision-capable model SEES it), not text
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+#: The largest image `read` puts into the conversation. Model providers reject much past this
+#: anyway; the cap keeps the daemon from holding a huge file for nothing.
+_IMAGE_READ_MAX_BYTES = 10 * 1024 * 1024
 # Recursive search skips these noise/heavy/system dirs for speed (does NOT
 # restrict access — any absolute path is still readable, and you can search any
 # root). These are generic folder NAMES, identical on every machine.
@@ -104,6 +108,16 @@ def _resolve(config, path: str) -> Path:
     return check_read(p)
 
 
+def _not_a_file(path: Path) -> str:
+    """Why a path cannot be read or edited as a file. A folder answered "File not found" once,
+    and the model concluded the folder it had just created did not exist."""
+    if path.is_dir():
+        return f"{path} is a directory, not a file — use `ls` to list it"
+    if path.exists():
+        return f"{path} is not a regular file"
+    return f"File not found: {path}"
+
+
 def _resolve_write(config, path: str) -> Path:
     """``_resolve`` plus the calling agent's write scope.
 
@@ -146,7 +160,7 @@ class ReadTool(Tool):
         # skill and the SDK it vendors into a generated UI, and reading damages nothing.
         path = _resolve(self.config, params["path"])
         if not path.is_file():
-            return ToolResult.text(f"File not found: {path}", is_error=True)
+            return ToolResult.text(_not_a_file(path), is_error=True)
 
         # Observability: a skill is INVOKED by reading its SKILL.md, so surface every such read
         # — on the server console (INFO) AND to clients/watch (via on_update -> tool_progress),
@@ -181,6 +195,16 @@ class ReadTool(Tool):
             import base64
             import mimetypes
 
+            # CAPPED: the picture rides into the model request base64-encoded, and a camera RAW
+            # or a huge PNG would be read whole into the daemon first. Past the cap, say so.
+            size = path.stat().st_size
+            if size > _IMAGE_READ_MAX_BYTES:
+                return ToolResult.text(
+                    f"{path.name} is {size / (1024 * 1024):.1f} MB, over the "
+                    f"{_IMAGE_READ_MAX_BYTES // (1024 * 1024)} MB limit for reading an image into "
+                    "the conversation. Resize it first (e.g. with a shell command) and read the smaller copy.",
+                    is_error=True,
+                )
             data = await asyncio.to_thread(path.read_bytes)
             mime = mimetypes.guess_type(str(path))[0] or "image/png"
             return ToolResult(
@@ -358,7 +382,7 @@ class EditTool(Tool):
         except WriteRefused as e:
             return ToolResult.text(str(e), is_error=True)
         if not path.is_file():
-            return ToolResult.text(f"File not found: {path}", is_error=True)
+            return ToolResult.text(_not_a_file(path), is_error=True)
         original = path.read_text(encoding="utf-8")
         try:
             new_text, diff = apply_edits(original, params["edits"])

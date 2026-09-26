@@ -2447,6 +2447,13 @@ class ComfyValidateTool(Tool):
             if missing_files:
                 lines.append("model files to install (this is the comfy_install shopping list):")
                 lines += [f"  {x}" for x in missing_files]
+                # THE NEXT CALL, NAMED. Left to improvise, the agent once "checked" a missing
+                # file by fetching its weights URL as a page, and froze the daemon doing it.
+                lines.append(
+                    "next: comfy_install these files, each with its direct download link (a Hugging Face "
+                    "/resolve/ or Civitai download URL found by a comfy_research SEARCH). Never fetch "
+                    "the file itself; the GPU downloads it."
+                )
             if downloading:
                 lines.append(downloading)
             if slots_note:

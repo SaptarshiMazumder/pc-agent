@@ -5,6 +5,7 @@
  */
 
 import { getSession } from './auth'
+import { isDesktop } from './host'
 import { getMode } from './mode'
 
 export type ArtifactKind = 'image' | 'video' | 'audio' | 'file'
@@ -84,7 +85,11 @@ export function installerUrl(path: string): string {
 export function appLaunchUrl(app: { url: string }, agentId: string): string {
   const q = new URLSearchParams({ scope: `agent:${agentId}` })
   if (authToken) q.set('token', authToken)
-  const session = getSession()?.token
+  // NOT ON DESKTOP. There the daemon holds the machine's session and renews it; a copy pinned
+  // into the URL is dead an hour later, the window then reads "expired", takes it for a
+  // different person and reloads itself — orphaning whatever run it was showing. Without one the
+  // window's socket gets the machine's account, always fresh. The web keeps passing its session.
+  const session = isDesktop ? '' : getSession()?.token
   const mode = getMode()
   if (session) q.set('session', session)
   if (mode) q.set('mode', mode)

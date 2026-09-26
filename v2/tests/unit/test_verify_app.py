@@ -177,6 +177,7 @@ def _service(tmp_path, driver, gateway=FakeGateway()):
         driver_factory=factory,
         gateway_reader=lambda: gateway,
         screenshot_dir=tmp_path / "shots",
+        session_reader=lambda: None,  # a daemon with no sign-in
     )
 
 

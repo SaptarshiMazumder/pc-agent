@@ -10,7 +10,7 @@ Shares cookies/session with the context, which is usually beneficial.
 from __future__ import annotations
 
 from agent_runtime.application.interfaces.fetch import FetchResult
-from fetch.extract import extract_html, truncate
+from fetch.extract import MAX_RESPONSE_BYTES, extract_html, truncate
 
 _NETWORKIDLE_TIMEOUT_MS = 8_000
 
@@ -34,7 +34,9 @@ class BrowserRenderProvider:
                 await page.wait_for_load_state("networkidle", timeout=_NETWORKIDLE_TIMEOUT_MS)
             except Exception:
                 pass
-            html = await page.content()
+            # A rendered page's HTML is capped like the plain fetch's body (extract.py): a
+            # runaway DOM is not text worth holding in the daemon.
+            html = (await page.content())[:MAX_RESPONSE_BYTES]
             final_url = page.url
             status = resp.status if resp is not None else None
         finally:

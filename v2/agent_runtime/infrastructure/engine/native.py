@@ -30,9 +30,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
 from agent_runtime.application.interfaces.background_jobs import BackgroundJobs
+from agent_runtime.application.interfaces.manager_checkpoints import ManagerCheckpoints
 from agent_runtime.application.interfaces.run_observer import RunObserver, ToolEvent
 from agent_runtime.domain.events import AgentEvent, EventCallback
 from agent_runtime.domain.messages import (
+    RUNTIME,
     Artifact,
     AssistantMessage,
     Message,
@@ -59,7 +61,7 @@ from .incomplete_turn import (
     build_before_finalize_retry_prompt,
     classify_incomplete_turn,
     describe_empty_run,
-    is_injected_prompt,
+    is_runtime_message,
     resolve_max_run_loop_iterations,
 )
 
@@ -156,6 +158,7 @@ async def run_agent_loop(
     context_policy=None,
     model_router=None,
     model_trace: bool = False,
+    checkpoints: ManagerCheckpoints | None = None,
 ) -> list[Message]:
     """Run the loop until the model produces a genuine final answer (or limits
     are hit). Mutates `messages` in place; returns only messages produced here."""
@@ -185,7 +188,7 @@ async def run_agent_loop(
         (
             mm.content
             for mm in reversed(messages)
-            if isinstance(mm, UserMessage) and not is_injected_prompt(mm.content)
+            if isinstance(mm, UserMessage) and not is_runtime_message(mm)
         ),
         "",
     )
@@ -203,13 +206,13 @@ async def run_agent_loop(
             session.append(m)
 
     def inject(text: str) -> None:
-        persist(UserMessage(content=text))
+        persist(UserMessage(content=text, source=RUNTIME))
 
     async def interjections() -> list[Message]:
         """What the user said while this run was busy — the gateway's inbox for it, drained.
 
         NOT `inject`: those are the runtime's own nudges, marked so the incomplete-turn guard
-        can tell them from the person (is_injected_prompt). These ARE the person. They are
+        can tell them from the person (is_runtime_message). These ARE the person. They are
         persisted as ordinary user messages at the point the loop could first act on them."""
         if get_interjections is None:
             return []
@@ -235,6 +238,12 @@ async def run_agent_loop(
         if get_steering_messages is not None:
             for m in await _maybe_await(get_steering_messages()) or []:
                 persist(m)
+        # THE PROJECT MANAGER (application/services/manager_checkpoint_service.py): a chat with a
+        # contract in force starts from it — or settles the approval the user just answered.
+        if checkpoints is not None:
+            note = await checkpoints.on_start(messages)
+            if note:
+                inject(note)
 
         # THE CLOCKS (plan 3.2). "It's slow" is unactionable until you know WHICH part was slow,
         # and the split that matters is model time vs tool time — they have completely different
@@ -247,7 +256,17 @@ async def run_agent_loop(
         _model_time_ms = 0.0
 
         iterations = 0
-        while iterations < max_iters:
+        base_iters = max_iters
+        while True:
+            if iterations >= max_iters:
+                # Contracted work that is not finished gets another budget from its manager
+                # rather than stopping mid-build; everything else ends here as it always did.
+                if checkpoints is not None and checkpoints.extend_iterations():
+                    max_iters += base_iters
+                    await on_event(AgentEvent("continuation", {"reason": "budget", "attempt": 1}))
+                else:
+                    stop_reason = "length"  # iteration cap exhausted
+                    break
             iterations += 1
             # ONE message can be many model turns (think -> tool -> think -> answer). Numbering
             # them is what lets "turn 4 of run abc was the slow one" be a question you can ask.
@@ -259,6 +278,10 @@ async def run_agent_loop(
             # compact the model's VIEW of history if a policy is set (never mutates the
             # real transcript; default None => send everything, unchanged).
             send_messages = context_policy.prepare(messages) if context_policy else messages
+            # Once contracted work fills the context, its manager condenses the old history into
+            # a handoff (the transcript itself is never touched).
+            if checkpoints is not None:
+                send_messages = checkpoints.view(send_messages)
             # Cost-efficiency routing (default off => active_model is just `model`): pick the brain
             # per iteration by NEED — a cheap text model normally, a vision model only when the
             # OUTGOING context actually carries an image the brain must see (see infrastructure/llm/
@@ -348,6 +371,8 @@ async def run_agent_loop(
             usage_in = int((assistant.usage or {}).get("input") or 0)
             served_model = getattr(assistant, "model", "") or active_model
             limit = context_limits.max_input_tokens(served_model)
+            if usage_in and limit and checkpoints is not None:
+                checkpoints.note_context(usage_in / limit)
             if usage_in and limit:
                 await on_event(
                     AgentEvent(
@@ -399,7 +424,7 @@ async def run_agent_loop(
             tool_calls = assistant.tool_calls
             if tool_calls and assistant.stop_reason not in ("error", "aborted"):
                 results, tool_halts = await _execute_tool_calls(
-                    tool_calls, tool_map, abort, on_event, observers, background_jobs
+                    tool_calls, tool_map, abort, on_event, observers, background_jobs, checkpoints
                 )
                 # A CHECKPOINT TOOL (`ask_user`) THAT RETURNED IS THE TURN'S VISIBLE OUTPUT: the
                 # window renders it, and the right next move for the model is to say nothing.
@@ -429,6 +454,11 @@ async def run_agent_loop(
                 # that was holding the turn returns, instead of after the run, as a new run.
                 for m in await interjections():
                     persist(m)
+                # A milestone or drift is the manager's cue; small work never reaches it.
+                if checkpoints is not None:
+                    note = await checkpoints.after_step(messages, tool_halts)
+                    if note:
+                        inject(note)
                 continue  # back to the model with tool results
 
             # --- No tool calls: the turn would normally end. Decide if it's complete. ---
@@ -507,11 +537,18 @@ async def run_agent_loop(
             # (Answer verification is now the agent-invoked `verify_answer` TOOL — it is
             # NOT a loop hook. The loop knows nothing about it.)
 
+            # 4. The contract's criteria are checked before the work may end. The manager's
+            #    service bounds how often it sends the run back (MAX_FORCED_CONTINUES).
+            if checkpoints is not None:
+                note = await checkpoints.before_finish(messages)
+                if note:
+                    await on_event(AgentEvent("continuation", {"reason": "manager", "attempt": 1}))
+                    inject(note)
+                    continue
+
             # Genuinely done.
             stop_reason = assistant.stop_reason
             break
-        else:
-            stop_reason = "length"  # iteration cap exhausted
     except asyncio.CancelledError:
         abort.set()
         await on_event(AgentEvent("agent_end", {"stopReason": "aborted"}))
@@ -643,6 +680,7 @@ async def _execute_tool_calls(
     on_event: EventCallback,
     observers: list[RunObserver] | None = None,
     background_jobs: BackgroundJobs | None = None,
+    checkpoints: ManagerCheckpoints | None = None,
 ) -> tuple[list[ToolResultMessage], list[str]]:
     """Execute one assistant turn's tool calls.
 
@@ -750,6 +788,8 @@ async def _execute_tool_calls(
         results[index] = msg
         rtext = "".join(getattr(b, "text", "") for b in result.content)
         digest = hashlib.sha1(rtext.encode("utf-8", "ignore")).hexdigest()[:12] if rtext else None
+        if checkpoints is not None:
+            checkpoints.record_tool(call.name, call.arguments, result.is_error, rtext)
         halts.extend(
             _notify_tool(
                 observers,
@@ -837,6 +877,7 @@ class NativeEngine:
         model_router=_UNSET,
         get_interjections=None,
         background_jobs=None,
+        checkpoints=None,
     ):
         """``model_router`` is the per-agent counterpart of ``model``, and it exists because
         without it ``model`` did not actually work.
@@ -873,4 +914,5 @@ class NativeEngine:
             model_trace=self._model_trace,
             get_interjections=get_interjections,
             background_jobs=background_jobs,
+            checkpoints=checkpoints,
         )

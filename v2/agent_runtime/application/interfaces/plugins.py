@@ -61,6 +61,11 @@ class PluginContext:
     #                                as the CURRENT caller's account, with no socket. The e2e
     #                                plugin's run tool is the consumer; a socket dial-back's
     #                                ?act_as= does not authorise on hosted daemons, this does.
+    caller_session: object = None  # callable() -> the signed-in caller's CURRENT access token,
+    #                                for acting as them outside a socket (verify_app opens their
+    #                                agent's window with it). None = this daemon has no sign-in;
+    #                                "" = it does, but this run carries no token (a scheduled run).
+    #                                Resolved at call time, so a token renewed mid-run is the one used.
 
     def resource(self, name: str) -> str:
         """Absolute path to a file bundled in the plugin's folder (its declared scripts/data,

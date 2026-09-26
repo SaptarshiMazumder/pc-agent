@@ -30,6 +30,7 @@ from agent_authoring.domain.sandbox_contract import (
 )
 from agent_authoring.domain.sandbox_rules import SandboxRules
 from agent_authoring.presentation.create_tool_tool import CreateToolTool
+from agent_runtime.domain.agent import agent_dir_key
 
 # --- the derivation ---------------------------------------------------------
 
@@ -173,7 +174,8 @@ class _Registry:
 def _tool(tmp_path, reloaded=None):
     def _reload():
         (reloaded if reloaded is not None else []).append(True)
-        return {"ok": True, "tools": [], "agentTools": {"note-taker": 1}}
+        # Keyed by the agent's folder, as the daemon reports it — never by bare id.
+        return {"ok": True, "tools": [], "agentTools": {agent_dir_key(tmp_path / "note-taker"): 1}}
 
     return CreateToolTool(_reload, _Registry(tmp_path))
 

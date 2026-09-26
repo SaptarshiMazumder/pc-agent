@@ -13,7 +13,14 @@ import unicodedata
 from dataclasses import dataclass
 
 from agent_runtime.application.interfaces.background_jobs import BACKGROUND_JOB_PREFIX
-from agent_runtime.domain.messages import AssistantMessage, TextContent, ThinkingContent
+from agent_runtime.domain.manager_verdict import MANAGER_PREFIX
+from agent_runtime.domain.messages import (
+    RUNTIME,
+    AssistantMessage,
+    TextContent,
+    ThinkingContent,
+    UserMessage,
+)
 
 # --- Verbatim instruction strings (incomplete-turn.ts) -----------------------
 
@@ -313,6 +320,17 @@ def _planning_only_guards_pass(ctx: PlanningContext | None) -> bool:
     return True
 
 
+def is_runtime_message(m: UserMessage) -> bool:
+    """Did the RUNTIME write this user-slot message, rather than the person?
+
+    The message's own `source` field decides. The text prefixes below are consulted only for a
+    record written before that field existed (source "") — so a person typing "[manager] …" is a
+    person, whatever the text looks like."""
+    if m.source:
+        return m.source == RUNTIME
+    return is_injected_prompt(m.content)
+
+
 def is_injected_prompt(text: str) -> bool:
     """Was this 'user' message written by the RUNTIME rather than the user?
 
@@ -330,6 +348,8 @@ def is_injected_prompt(text: str) -> bool:
     if not s:
         return False
     if s.startswith("[liveness]"):  # steering from a liveness observer
+        return True
+    if s.startswith(MANAGER_PREFIX):  # the project manager speaking to the developer
         return True
     if s.startswith(BACKGROUND_JOB_PREFIX):  # a background job's result, or its loss
         return True

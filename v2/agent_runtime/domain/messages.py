@@ -121,6 +121,10 @@ def artifact_from_dict(d: dict[str, Any]) -> Artifact:
 # ===========================================================================
 
 
+PERSON = "person"
+RUNTIME = "runtime"
+
+
 @dataclass
 class UserMessage:
     """Something the user said. Its visible text is a plain string; it may also carry
@@ -133,6 +137,11 @@ class UserMessage:
     attachments: list[Artifact] = field(default_factory=list)  # user-supplied files (by ref)
     timestamp: int = field(default_factory=now_ms)  # when it was created (ms)
     role: str = "user"  # discriminator tag
+    # WHO WROTE IT: "person", or "runtime" for a message the runtime put in the user's slot so
+    # the model receives it (a manager note, a liveness nudge, a retry). A FIELD, not a text
+    # prefix, so typing "[manager] …" can never pass as the runtime, and windows can hide what
+    # the person never said. "" = an older record, written before the field existed.
+    source: str = PERSON
 
 
 @dataclass
@@ -230,7 +239,7 @@ def message_to_dict(m: Message) -> dict[str, Any]:
     """Turn a whole message into a JSON-safe dict (for the transcript / the wire).
     Content blocks are serialized via ``content_to_dict``; keys are camelCase."""
     if isinstance(m, UserMessage):
-        d = {"role": "user", "content": m.content, "timestamp": m.timestamp}
+        d = {"role": "user", "content": m.content, "timestamp": m.timestamp, "source": m.source}
         if m.attachments:  # only when the user attached something (old records unchanged)
             d["attachments"] = [artifact_to_dict(a) for a in m.attachments]
         return d
@@ -268,6 +277,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             content=d.get("content", ""),
             attachments=[artifact_from_dict(a) for a in d.get("attachments") or []],
             timestamp=d.get("timestamp", 0),
+            source=str(d.get("source") or ""),  # absent = written before the field existed
         )
     if role == "assistant":
         return AssistantMessage(

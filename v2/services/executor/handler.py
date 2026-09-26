@@ -284,10 +284,12 @@ def shell_job(params: dict) -> dict:
 
         out: dict = {"ok": code == 0, "exit_code": code, "output": output[-50_000:],
                      "path_to": local_root}
-        changed_key = _upload_changes(
-            params, Path(local_root), mapping["ws_manifest"],
-            AgentdIgnore.from_wire(params.get("ignore")),
-        )
+        ignore = AgentdIgnore.from_wire(params.get("ignore"))
+        after = _manifest(Path(local_root))
+        deleted = _deleted_paths(mapping["ws_manifest"], after, ignore)
+        if deleted:
+            out["deleted"] = deleted
+        changed_key = _upload_changes(params, Path(local_root), mapping["ws_manifest"], ignore, after)
         if changed_key:
             out["changes_key"] = changed_key
             out["changes_url"] = _s3().generate_presigned_url(
@@ -536,16 +538,26 @@ def _manifest(directory: Path) -> dict:
     return out
 
 
+def _deleted_paths(before: dict, after: dict, ignore: AgentdIgnore | None = None) -> list[str]:
+    """Files the job was given and no longer has. The daemon applies each one through the same
+    write guard as a changed file, so a command can delete exactly what it could already have
+    overwritten — no more. Ignored paths never travelled in, so they cannot be reported gone."""
+    gone = [rel for rel in before if rel not in after]
+    if ignore:
+        gone = [rel for rel in gone if not ignore.matches(rel)]
+    return sorted(gone)
+
+
 def _upload_changes(params: dict, ws_dir: Path, before: dict,
-                    ignore: AgentdIgnore | None = None) -> str:
-    """Zip files the job created or modified and put them beside it. Deletions are NOT propagated
-    (reported implicitly by their absence here) — an untrusted tool must not be able to erase a
-    workspace through the sync channel.
+                    ignore: AgentdIgnore | None = None, after: dict | None = None) -> str:
+    """Zip files the job created or modified and put them beside it. Deletions travel separately
+    (`_deleted_paths`), as a list in the answer rather than members of this zip.
 
     What the agent's `.agentdignore` names never leaves the box: a provider download or a
     dependency folder is re-created by the next command, and sending it back would only be
     hundreds of MB for the daemon to receive and drop."""
-    after = _manifest(ws_dir)
+    if after is None:
+        after = _manifest(ws_dir)
     changed = [rel for rel, sig in after.items() if before.get(rel) != sig]
     if ignore:
         changed = [rel for rel in changed if not ignore.matches(rel)]

@@ -145,6 +145,11 @@ async def _kill_process(proc: asyncio.subprocess.Process) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: How much of a background command's output the daemon holds. 1 MiB is far more than any poll
+#: shows (it middle-truncates), and small enough that a hundred chatty jobs cannot matter.
+OUTPUT_KEEP = 1024 * 1024
+
+
 @dataclass
 class BackgroundProcess:
     session_id: str
@@ -154,7 +159,12 @@ class BackgroundProcess:
     #: per daemon, and a hosted daemon serves many accounts: without this, `process list` would
     #: print every account's commands and `poll` would read anyone's output.
     owner: str = ""
-    output: list[bytes] = field(default_factory=list)
+    #: THE LAST `OUTPUT_KEEP` BYTES, never all of them. A dev server logging for hours used to
+    #: grow this list without end inside the daemon; now older output is dropped, and a poll
+    #: that fell behind is told how much it missed.
+    output: bytearray = field(default_factory=bytearray)
+    #: Every byte the command has written, kept or not: cursors are positions in THIS stream.
+    total: int = 0
     reader_task: asyncio.Task | None = None
     read_cursor: int = 0
 
@@ -162,11 +172,19 @@ class BackgroundProcess:
     def running(self) -> bool:
         return self.proc.returncode is None
 
+    def append_output(self, chunk: bytes) -> None:
+        self.output += chunk
+        self.total += len(chunk)
+        if len(self.output) > OUTPUT_KEEP:
+            del self.output[: len(self.output) - OUTPUT_KEEP]
+
     def drain_new_output(self) -> str:
-        data = b"".join(self.output)
-        new = data[self.read_cursor :]
-        self.read_cursor = len(data)
-        return new.decode("utf-8", errors="replace")
+        kept_from = self.total - len(self.output)
+        missed = max(0, kept_from - self.read_cursor)
+        new = bytes(self.output[max(0, self.read_cursor - kept_from):])
+        self.read_cursor = self.total
+        text = new.decode("utf-8", errors="replace")
+        return f"[... {missed} bytes of older output dropped ...]\n{text}" if missed else text
 
 
 class ProcessRegistry:
@@ -202,7 +220,7 @@ class ProcessRegistry:
                 chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
-                bp.output.append(chunk)
+                bp.append_output(chunk)
             await proc.wait()
             if confined is not None:
                 confined.discard_scratch()

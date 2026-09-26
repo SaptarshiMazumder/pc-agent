@@ -24,10 +24,14 @@ class WorkflowReferenceRepository:
         path = self.root / ".studio" / "model-references" / (key + ".json")
         if url:
             parsed = urlsplit(url)
+            # A WORKFLOW IS A .json. The host check alone let a huggingface.co `/resolve/` link to a
+            # checkpoint through, which this then read as text.
             if (parsed.scheme != "https" or parsed.username or parsed.password
                     or parsed.port not in (None, 443)
-                    or parsed.hostname not in ("raw.githubusercontent.com", "huggingface.co")):
-                return ["reference_workflow_url must be a raw public HTTPS workflow JSON on GitHub or Hugging Face"]
+                    or parsed.hostname not in ("raw.githubusercontent.com", "huggingface.co")
+                    or not parsed.path.lower().endswith(".json")):
+                return ["reference_workflow_url must be a raw public HTTPS workflow .json on GitHub or Hugging Face "
+                        "(a model file is never a reference; install it with comfy_install)"]
             response = self.fetch(url, timeout_s=30)
             if not response.ok:
                 return [f"Reference workflow fetch failed (HTTP {response.status}); nothing is authorised for install"]

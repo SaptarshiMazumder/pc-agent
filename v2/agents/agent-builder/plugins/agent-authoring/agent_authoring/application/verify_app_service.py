@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlencode
 
 from agent_authoring.domain.app_checks import Finding, PageObservation, check_page
 from agent_authoring.domain.finding import ERROR, LEVEL_RANK
@@ -86,18 +87,23 @@ class VerifyResult:
 
 
 class VerifyAppService:
-    def __init__(self, reader, driver_factory, gateway_reader, screenshot_dir):
+    def __init__(self, reader, driver_factory, gateway_reader, screenshot_dir, session_reader):
         """
         :param reader: agent id -> directory.
         :param driver_factory: (screenshot: bool) -> PageDriver. A factory, not an instance: a
             browser is expensive and must not be held open between calls.
         :param gateway_reader: () -> the daemon's rendezvous info (host/port/token), or None.
             Injected so the TOKEN is resolved here and never travels through the model.
+        :param session_reader: () -> the caller's current access token; None where the daemon
+            has no sign-in, "" where it does but this run has no token. On a hosted daemon the
+            agent being verified lives under the CALLER's account, and only their session makes
+            the window resolve — the machine token belongs to no account and gets a 404.
         :param screenshot_dir: where screenshots land.
         """
         self._reader = reader
         self._driver_factory = driver_factory
         self._gateway = gateway_reader
+        self._session = session_reader
         self._shots = Path(screenshot_dir)
 
     def verify(
@@ -128,10 +134,22 @@ class VerifyAppService:
         # and locally an accounts URL advertises sign-in rather than demanding it). So the flag
         # grants nothing the daemon would have refused; it removes a prompt that was going to
         # stop a browser which needed no account in the first place.
-        url = (
-            f"http://{info.host}:{info.port}/apps/{agent_id}/"
-            f"?token={info.token}&scope=agent:{agent_id}&verify=1"
-        )
+        session = self._session()
+        if session == "":
+            raise VerifyError(
+                "this run carries no sign-in (a scheduled run has none), so there is no account "
+                "to open this agent's window as. Verify it from a signed-in conversation."
+            )
+        # The same query the product's own launcher builds: `session` is the CALLER, which is what
+        # resolves an account's agent and sets the cookie its assets load with; `token` is the
+        # machine's, kept for daemons with no sign-in. Loopback, never the bind address.
+        query = {"scope": f"agent:{agent_id}", "verify": "1"}
+        if info.token:
+            query["token"] = info.token
+        if session:
+            query["session"] = session
+        host = "127.0.0.1" if info.host in ("0.0.0.0", "::", "") else info.host
+        url = f"http://{host}:{info.port}/apps/{agent_id}/?{urlencode(query)}"
         # The factory takes the screenshot decision, so the driver never captures an image
         # nobody asked for — the cost is in TAKING it, not in whether it is later attached.
         driver = self._driver_factory(screenshot)

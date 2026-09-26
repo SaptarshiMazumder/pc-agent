@@ -286,8 +286,9 @@ def _mcp_servers(raw, agent_id: str = "") -> tuple:
 #: nobody wants copied or shipped. NOTHING TOOL-SPECIFIC — a Terraform or Azure agent's own
 #: folders are added by its author as its commands start producing them.
 BASELINE_IGNORE = """# What never travels: not into the command sandbox, not back out, not into a package.
-# Add what this agent's own commands download or cache (e.g. a CLI's provider folder), and
-# anything that must never ship (state, credentials). Gitignore syntax; `!` is not supported.
+# Add only what this agent's commands can RE-CREATE (e.g. a CLI's provider folder, a cache).
+# An ignored file is never copied back either, so never list state a command must keep.
+# Gitignore syntax; `!` is not supported.
 
 # Python
 __pycache__/

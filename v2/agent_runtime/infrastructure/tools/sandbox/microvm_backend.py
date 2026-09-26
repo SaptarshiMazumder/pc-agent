@@ -45,6 +45,7 @@ from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import OnUpdate, Tool, ToolResult
 from agent_runtime.application.run_context import RunContext
+from agent_runtime.application.write_scope import check_write
 from agent_runtime.domain.sandbox import CapabilityGrant
 from agent_runtime.domain.sandbox_workspace import expand_scopes, in_scopes
 from agent_runtime.infrastructure import telemetry
@@ -652,7 +653,9 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
     # and the dir removed by the `with` whatever happens. This call site was left passing two
     # arguments when _zip_dir learned to write to a file, so every hosted command failed with a
     # TypeError before it reached the box.
-    before = _tree_manifest(root_path, skip_dirs, ignore)  # to detect a daemon-side write underneath us
+    # to detect a daemon-side write underneath us. OFF THE EVENT LOOP: a walk + stat of a whole
+    # workspace on EFS is slow, and on the loop it stalls every socket the daemon serves.
+    before = await asyncio.to_thread(_tree_manifest, root_path, skip_dirs, ignore)
     async with backend._transfer_gate():
         with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
             ws_path = Path(tmp) / "workspace.zip"
@@ -679,9 +682,12 @@ async def run_shell(config, command: str, cwd: str, timeout_s: float,
     }, timeout_s=timeout_s + TRANSFER_MARGIN_S)
 
     changes_url = str(answer.get("changes_url") or "")
+    deleted = [str(d) for d in (answer.get("deleted") or [])]
     applied: list[str] = []
-    if changes_url:
-        applied = await _apply_changes_guarded(backend, changes_url, root_path, before, ignore)
+    if changes_url or deleted:
+        applied = await _apply_changes_guarded(
+            backend, changes_url, root_path, before, ignore, deleted
+        )
 
     output = str(answer.get("output") or "")
     remote_root = str(answer.get("path_to") or "")
@@ -738,7 +744,7 @@ async def _file_chunks(path: Path):
 
 
 async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: dict,
-                                 ignore=None) -> list[str]:
+                                 ignore=None, deleted: list[str] | None = None) -> list[str]:
     """Write the command's changes back onto the daemon's real files.
 
     THREE RULES, and each one is the reason this is not a plain unzip:
@@ -750,7 +756,11 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
         fence rather than another writer through it.
       * A FILE THE DAEMON CHANGED UNDERNEATH IS A COLLISION, not a race to win: we hold the
         mtimes from sync-out and refuse rather than clobber.
-      * DELETIONS NEVER PROPAGATE - a file missing from the box is simply absent from the zip.
+      * DELETIONS GO THROUGH THE SAME DOOR. The box lists what it was given and no longer has;
+        each one passes `check_write` and the collision check exactly like a changed file, so a
+        command can delete what it could already have overwritten — no more. They used to be
+        dropped, and a hosted `rm` reported success while the file stayed: an agent cleaning up
+        its scaffold looped on the same delete, and no hosted command could remove anything.
 
     A refusal fails the whole call loudly. Applying half of what a command did, and reporting
     success, is the outcome worth avoiding most.
@@ -761,44 +771,75 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
     runs in a thread (which inherits this run's context, so check_write still knows the caller);
     the loop only awaits it. Paths the agent's .agentdignore names are dropped here too, in case
     an older executor sent them."""
-    from agent_runtime.application.write_scope import check_write
+    def _guarded_target(rel: str, verb: str) -> Path:
+        target = (root / rel).resolve()
+        if not str(target).startswith(str(root) + os.sep):
+            raise ExecutorError(f"the command tried to {verb} outside its tree: {rel}")
+        try:
+            check_write(target)
+        except Exception as e:  # noqa: BLE001 - the guard's own refusal is the message
+            raise ExecutorError(
+                f"the command tried to {verb} {rel}, which this agent may not write ({e}). "
+                "Nothing was applied."
+            ) from e
+        was = before.get(rel)
+        if was is not None and target.exists() and target.stat().st_mtime_ns != was:
+            raise ExecutorError(
+                f"{rel} changed on the daemon while the command was running - "
+                f"refusing to {verb} it. Nothing was applied; re-run the command."
+            )
+        return target
 
-    def _write_back(path: Path) -> list[str]:
+    def _write_back(path: Path | None) -> list[str]:
         applied: list[str] = []
-        with zipfile.ZipFile(path) as z:
+        gone = [d for d in (deleted or []) if ignore is None or not ignore.matches(d)]
+        # Validate EVERYTHING before touching ANYTHING: a half-applied change set is worse than
+        # a refused one, because the agent is told it succeeded.
+        removals = [(rel, _guarded_target(rel, "delete")) for rel in gone]
+        with (zipfile.ZipFile(path) if path else _NoChanges()) as z:
             members = [m for m in z.infolist() if not m.is_dir()]
             if ignore is not None:
                 members = [m for m in members if not ignore.matches(m.filename)]
-            # Validate EVERYTHING before writing ANYTHING: a half-applied change set is worse than
-            # a refused one, because the agent is told it succeeded.
-            targets: list[tuple[zipfile.ZipInfo, Path]] = []
-            for m in members:
-                target = (root / m.filename).resolve()
-                if not str(target).startswith(str(root) + os.sep):
-                    raise ExecutorError(f"the command tried to write outside its tree: {m.filename}")
-                try:
-                    check_write(target)
-                except Exception as e:  # noqa: BLE001 - the guard's own refusal is the message
-                    raise ExecutorError(
-                        f"the command wrote {m.filename}, which this agent may not write ({e}). "
-                        "Nothing was applied."
-                    ) from e
-                was = before.get(m.filename)
-                if was is not None and target.exists() and target.stat().st_mtime_ns != was:
-                    raise ExecutorError(
-                        f"{m.filename} changed on the daemon while the command was running - "
-                        "refusing to overwrite it. Nothing was applied; re-run the command."
-                    )
-                targets.append((m, target))
+            targets = [(m, _guarded_target(m.filename, "write")) for m in members]
 
             for m, target in targets:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(m) as src, open(target, "wb") as dst:
                     shutil.copyfileobj(src, dst)
                 applied.append(m.filename)
+        for rel, target in removals:
+            target.unlink(missing_ok=True)
+            _prune_empty_parents(target.parent, root)
+            applied.append(f"deleted {rel}")
         return applied
 
+    if not changes_url:
+        return await asyncio.to_thread(_write_back, None)
     with tempfile.TemporaryDirectory(prefix="agentd-mvm-") as tmp:
         path = Path(tmp) / "changes.zip"
         await _download_to(changes_url, path)
         return await asyncio.to_thread(_write_back, path)
+
+
+class _NoChanges:
+    """A command that only deleted: stands in for an empty changes zip."""
+
+    def __enter__(self) -> "_NoChanges":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+    def infolist(self) -> list:
+        return []
+
+
+def _prune_empty_parents(folder: Path, root: Path) -> None:
+    """Remove folders a deletion left empty, stopping at the synced root — so deleting the last
+    file of `widgets/` removes `widgets/` too, as it would on the author's own machine."""
+    while folder != root and str(folder).startswith(str(root) + os.sep):
+        try:
+            folder.rmdir()
+        except OSError:
+            return
+        folder = folder.parent

@@ -95,7 +95,7 @@ def turn_key() -> str:
         return ""
     from agent_runtime.infrastructure import accounts  # local: accounts imports nothing from llm
 
-    session = str((accounts.current_account.get() or {}).get("session_token") or "")
+    session = accounts.session_token()
     if session:
         return session
     return _api_key if _forced else ""

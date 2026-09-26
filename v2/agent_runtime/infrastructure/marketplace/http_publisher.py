@@ -60,9 +60,9 @@ def platform_session_token(config=None) -> str:
     try:
         from agent_runtime.infrastructure import accounts
 
-        current = accounts.current_account.get()
-        if current and current.get("session_token"):
-            return str(current["session_token"])
+        token = accounts.session_token()
+        if token:
+            return token
     except Exception:  # noqa: BLE001 — accounts is optional; fall through to the ambient identity
         pass
     return (os.environ.get("AGENTD_SESSION_TOKEN") or "").strip()

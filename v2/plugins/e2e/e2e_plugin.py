@@ -18,8 +18,10 @@ from __future__ import annotations
 def register(api, ctx):
     from e2e_checks_tool import E2eChecksTool
     from e2e_replay_tool import E2eReplayTool
+    from e2e_path_resolver import E2ePathResolver
     from e2e_run_tool import E2eRunTool
 
-    api.register_tool(E2eRunTool(ctx))
-    api.register_tool(E2eReplayTool(ctx))
+    resolver = E2ePathResolver(ctx.registry)
+    api.register_tool(E2eRunTool(ctx, resolver))
+    api.register_tool(E2eReplayTool(ctx, resolver))
     api.register_tool(E2eChecksTool())

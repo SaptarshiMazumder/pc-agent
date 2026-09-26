@@ -42,6 +42,7 @@ import textwrap
 from pathlib import Path
 
 from agent_authoring.domain.sandbox_contract import blocking_defects, derive_model_need
+from agent_runtime.domain.agent import agent_dir_key
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.write_scope import WriteRefused, check_write
 
@@ -280,9 +281,10 @@ class CreateToolTool(Tool):
                 f"wrote tool '{tool_name}' at {d}, but reload failed: {result.get('error')}",
                 is_error=True,
             )
-        # Agent-private tools are reported in `agentTools` ({agentId: count}), separately from the
-        # shared `tools` list — checking the wrong side would always falsely warn.
-        loaded = bool((result.get("agentTools") or {}).get(agent_id))
+        # Agent-private tools are reported in `agentTools`, keyed by the agent's FOLDER (not its
+        # id: two accounts may each own an agent called the same thing) — so look it up by the
+        # folder this tool was just written into.
+        loaded = bool((result.get("agentTools") or {}).get(agent_dir_key(d.parent.parent)))
         where = f"private to agent '{agent_id}'"
         # Say that the model wiring was decided FOR the caller, and how to change it. A tool that
         # silently acquires an attribute is one nobody knows to configure later.

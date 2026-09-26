@@ -34,4 +34,7 @@ class AgentEngine(Protocol):
         background_jobs=None,  # BackgroundJobs: where a long tool call goes when it is still
         # running after the engine's grace period — the turn continues with a provisional
         # answer and the result comes back as a message (interfaces/background_jobs.py).
+        checkpoints=None,  # ManagerCheckpoints: the project manager beside this run — told of
+        # every tool call, asked at start, after each step and before the run may end
+        # (interfaces/manager_checkpoints.py). None = no manager (sub-runs, nudges).
     ) -> list[Message]: ...

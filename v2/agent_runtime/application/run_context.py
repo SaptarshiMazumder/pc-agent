@@ -93,6 +93,10 @@ class RunContext:
     #: stop a MODEL spinning on the same call, and a window polling telemetry on a timer is not
     #: that — see GuardedTool._loop_block.
     direct_invoke: bool = False
+    #: The model this run's brain uses. A model call that names no model (an agent-authored tool
+    #: written the documented way, `text_complete(model=None)`) runs on this rather than on a
+    #: guess: an empty name once became "gemini/", a 404 that read as the agent's own bug.
+    brain_model: str = ""
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
@@ -277,3 +281,9 @@ def take_run_outcome() -> tuple[str, str] | None:
     val = _outcome.get()
     _outcome.set(None)
     return val
+
+
+def current_brain_model() -> str:
+    """The current run's brain model, or "" outside a run."""
+    ctx = current_run_context()
+    return ctx.brain_model if ctx is not None else ""

@@ -771,7 +771,13 @@ export const useApp = create<AppState>()((set, get) => ({
     try {
       const res = await client.history(key, AGENT_ID)
       const messages = res?.messages || []
-      patch(set, key, () => ({ items: restore(messages), running: false, pending: [] }))
+      /* A RELOAD FORGETS WHICH CHATS WERE MID-RUN. `connect` re-attaches the runs this window
+         remembers, but after a page reload it remembers none — so a chat reopened while its build
+         was still going sat there as finished, and the daemon reaped the run as abandoned. Ask
+         about THIS chat: `chat.status` answers and re-attaches this window, and a live run keeps
+         streaming here. */
+      const st = (await client.request('chat.status', { sessionKey: key })) as { running?: boolean }
+      patch(set, key, () => ({ items: restore(messages), running: !!st?.running, pending: [] }))
       return subjectOf(messages)
     } catch (e) {
       patch(set, key, () => ({

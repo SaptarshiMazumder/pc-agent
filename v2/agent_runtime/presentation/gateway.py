@@ -57,7 +57,7 @@ from agent_runtime.domain.agent import (
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
 from agent_runtime.domain.reserved_hosts import is_reserved_host_label
 from agent_runtime.domain.events import AgentEvent
-from agent_runtime.domain.messages import Artifact, UserMessage, artifact_to_dict
+from agent_runtime.domain.messages import RUNTIME, Artifact, UserMessage, artifact_to_dict
 from agent_runtime.domain.notify import Notification
 from agent_runtime.infrastructure import account_config, accounts, telemetry, user_state
 from agent_runtime.infrastructure.env_file import EnvFile
@@ -67,6 +67,7 @@ from agent_runtime.infrastructure.files import (
     resolve_artifacts,
     save_upload,
 )
+from agent_runtime.infrastructure.live_credential import LiveCredential
 from agent_runtime.infrastructure.llm import model_proxy
 from agent_runtime.infrastructure.memory.local_store import (
     SessionStore,
@@ -351,6 +352,8 @@ def _trim_history_message(message: dict) -> dict:
             "content": _cap(message.get("content", ""), _HISTORY_TEXT_CAP),
             "ts": ts,
             "timestamp": message.get("timestamp", 0),
+            # "runtime" = not something the person said; windows hide it (messages.UserMessage)
+            "source": message.get("source", ""),
         }
         if message.get(
             "attachments"
@@ -414,6 +417,16 @@ OUTBOX_PROMPT = (
 #: How long `_chat_send` waits for a finished run's teardown before calling the session busy.
 RUN_TEARDOWN_GRACE_S = 10.0
 
+#: The most one ranged /file answer carries (see `_serve_file`).
+_FILE_RANGE_CHUNK = 16 * 1024 * 1024
+
+
+def _read_file_range(path, start: int, length: int) -> bytes:
+    """`length` bytes of `path` from `start`. A plain function so it can run in a thread."""
+    with open(path, "rb") as f:
+        f.seek(start)
+        return f.read(length)
+
 
 @dataclass
 class RunHandle:
@@ -425,7 +438,9 @@ class RunHandle:
     #                                         relayed (compactly) to the parent's view
     parent_run_id: str | None = None  # SUB-AGENT: the run that spawned this one. Without it a
     #                                   delegated run's cost looks like it came from nowhere.
-    trigger: str = "chat"  # chat | cron | heartbeat | channel | webhook | app | subagent | job.
+    trigger: str = "chat"  # chat | harness | cron | heartbeat | channel | webhook | app | subagent | job.
+    #                        `harness`: a chat turn a PROGRAM sent (an e2e scenario, run_agent's
+    #                        test drive) — no person is there to approve a plan or answer a question.
     #                        Most runs do NOT start at a chat box, and unattended ones (cron)
     #                        carry the highest cost risk — so they need their own dimension.
     task: asyncio.Task | None = None
@@ -1193,6 +1208,9 @@ class Gateway:
     task_store: object | None = None  # injected; durable cron ledger (Phase 2b), or None
     memory_bank: object | None = None  # injected; long-term memory store (S4), or None
     event_log: object | None = None  # injected; durable per-run event stream, or None
+    credential_keeper: object | None = None  # injected; MachineCredentialKeeper — renews every
+    #                                          desktop connection's live credential from the
+    #                                          machine session. None on hosted daemons.
     platform_session: object | None = None  # injected; the machine's ONE signed-in account
     #                                         (PlatformSession). None on hosted daemons, where
     #                                         identity is per connection — the /auth/* HTTP
@@ -1332,10 +1350,17 @@ class Gateway:
             startup_task = asyncio.create_task(
                 self._deferred_startup(_adopt_background), name="deferred-startup"
             )
+            keeper_task = (
+                asyncio.create_task(self.credential_keeper.run(), name="credential-keeper")
+                if self.credential_keeper is not None
+                else None
+            )
             try:
                 await asyncio.Future()  # run forever
             finally:
                 lifecycle.clear_gateway_file(only_pid=os.getpid())
+                if keeper_task is not None:
+                    keeper_task.cancel()
                 if startup_task is not None:
                     startup_task.cancel()
                 if scheduler_task is not None:
@@ -2593,10 +2618,17 @@ class Gateway:
                 status, reason = 206, "Partial Content"
             except ValueError:
                 start, end, status, reason = 0, size - 1, 200, "OK"
+            # A RANGE ANSWER IS AT MOST ONE CHUNK. This server holds a response whole in memory
+            # (websockets cannot stream a body), so `bytes=0-` on a long video meant the entire
+            # file in the daemon at once. A server may return less than a range asked for; the
+            # Content-Range says what was sent, and a media element simply asks for the next
+            # piece. Only a range request is clamped: a plain GET still gets the whole file.
+            if status == 206:
+                end = min(end, start + _FILE_RANGE_CHUNK - 1)
 
-        with open(p, "rb") as f:
-            f.seek(start)
-            body = f.read(end - start + 1)
+        # OFF THE EVENT LOOP: a synchronous read of megabytes from EFS here stalled every other
+        # socket on the daemon, /healthz included, for as long as it took.
+        body = await asyncio.to_thread(_read_file_range, p, start, end - start + 1)
 
         hdrs = Headers()
         hdrs["Content-Type"] = guess_mime(p)
@@ -3076,6 +3108,17 @@ class Gateway:
         # account's subtree — the same account a run already sees. None (desktop/no-account)
         # => resolvers fall back to the shared/agent dirs, unchanged. Reset on disconnect.
         _conn_acct_tok = accounts.set_account(account)
+        # The live credential rides the same context, BY REFERENCE: runs this socket starts share
+        # the object, so a renewal below reaches them mid-run (live_credential.py).
+        credential = (
+            LiveCredential(str(account.get("account_id") or ""), str(account.get("session_token") or ""))
+            if account
+            else None
+        )
+        _conn_cred_tok = accounts.set_credential(credential)
+        # DESKTOP: no window renews its token — the daemon does — so the keeper does it for them.
+        if credential is not None and self.credential_keeper is not None:
+            self.credential_keeper.track(credential)
         # WHICH KEYS this connection's model calls run on. Pinned the same way and for the same
         # reason: it is this client's choice, not the machine's, so two windows can differ.
         # THE PERSISTED mode, not the client's `?mode=` guess: one answer, same in every window.
@@ -3097,6 +3140,8 @@ class Gateway:
                         account, response = await self._auth_update(frame, account)
                         accounts.reset_account(_conn_acct_tok)
                         _conn_acct_tok = accounts.set_account(account)
+                        if credential is not None:
+                            credential.renew(account)
                         self.client_identities[ws] = ownership.callers(
                             (account or {}).get("account_id"),
                             self._hosted(),
@@ -3112,6 +3157,9 @@ class Gateway:
             pass
         finally:
             accounts.reset_account(_conn_acct_tok)
+            accounts.reset_credential(_conn_cred_tok)
+            if credential is not None and self.credential_keeper is not None:
+                self.credential_keeper.untrack(credential)
             model_proxy.reset_billing(_conn_bill_tok)
             self.clients.discard(ws)
             self.client_scopes.pop(ws, None)
@@ -3129,7 +3177,7 @@ class Gateway:
                 getattr(ws, "close_code", None),
                 f", reason {ws.close_reason!r}" if getattr(ws, "close_reason", "") else "",
             )
-            await self._detach_client_runs(client_id)
+            await self._detach_client_runs(client_id, getattr(ws, "close_code", None))
             self._client_left(left_account, left_token)
 
     async def _auth_update(self, req: Request, current: dict | None) -> tuple[dict | None, Response]:
@@ -3238,7 +3286,7 @@ class Gateway:
             elif req.method == "chat.abort":
                 payload = await self._chat_abort(req.params)
             elif req.method == "chat.status":
-                payload = await self._chat_status(req.params)
+                payload = await self._chat_status(req.params, client_id)
             elif req.method == "jobs.cancel":
                 payload = self._jobs_cancel(req.params)
             elif req.method == "hello":
@@ -6845,6 +6893,12 @@ class Gateway:
                         or fresh.get("account_id") == account.get("account_id")
                     ):
                         account = {**fresh, "machine_session": True}
+                        # The connection's live credential too — it is what the turn actually
+                        # pays with (accounts.session_token), and on the desktop nothing else
+                        # renews it between the keeper's ticks.
+                        live = accounts.current_credential.get()
+                        if live is not None:
+                            live.renew(fresh)
                 else:
                     log.warning("chat.send: machine session did not answer ok: %s", tok.get("state"))
         # AN EXPIRED CREDENTIAL CANNOT START NEW WORK. The socket stays open and its identity
@@ -6980,6 +7034,9 @@ class Gateway:
             account=account,
             client_id=client_id,
             jobs=jobs,
+            # A program driving the chat says so (live_driver, run_agent): its turns get no
+            # project manager, which would stop to ask a person who is not there.
+            trigger="harness" if str(params.get("driver") or "") == "harness" else "chat",
         )
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
 
@@ -7235,7 +7292,7 @@ class Gateway:
         try:
             store = SessionStore(ctx.state_dir, session_key)
             store.load()  # take the chain's tail, so the note links after the last message
-            store.append(UserMessage(content=note))
+            store.append(UserMessage(content=note, source=RUNTIME))
         except (OSError, ValueError):
             log.exception("background jobs: could not note %r on %s", note[:60], session_key)
 
@@ -7293,7 +7350,7 @@ class Gateway:
         handle.task.cancel()
         return True
 
-    async def _detach_client_runs(self, client_id: str) -> None:
+    async def _detach_client_runs(self, client_id: str, close_code: int | None = None) -> None:
         """When a client connection ends, its in-flight runs go DETACHED — not dead.
 
         THE OLD RULE WAS ABORT-ON-DISCONNECT, and it amplified every transport blip into a lost
@@ -7304,12 +7361,30 @@ class Gateway:
         A detached run keeps going: it is already bounded by the silence watchdog and the credit
         meter, and its transcript persists event by event. What remains of the old rule's safety
         case ("a computer-use run must not keep driving the PC after you close the app") is the
-        GRACE REAPER: if nothing re-attaches within `run_detach_grace_seconds` (default 180; 0
+        GRACE REAPER: if nothing re-attaches within `run_detach_grace_seconds` (default 15; 0
         restores abort-on-disconnect), the run is aborted after all. Re-attaching is any window
         asking `chat.status` for the session, or a new send on it.
         Runs started by OTHER clients are untouched.
+
+        LEAVING IS NOT IDLING, and the close code says which happened. 1000/1001 is the page
+        closing its own socket — the tab or window was closed, or reloaded — so the person left:
+        the grace is only long enough for a reload to re-attach, then the run stops. Anything
+        else (1006 no close frame, 1011 keepalive gave up) is a sleeping laptop, a hidden window
+        the OS throttled, a network blip — the person never left, so the run keeps going with no
+        reaper at all, still bounded by the silence watchdog and the credit meter. A 3-minute
+        reaper on every disconnect killed an approved build whose window merely reloaded.
         """
-        grace = float(getattr(self.config, "run_detach_grace_seconds", 180.0))
+        if close_code not in (1000, 1001):
+            for handle in list(self.runs.values()):
+                if handle.client_id == client_id and handle.task is not None and not handle.task.done():
+                    handle.detached_at = time.time()
+                    log.info(
+                        "client %s dropped (close code %s); run %s (session %s) DETACHED — "
+                        "continues until it ends or a window re-attaches",
+                        client_id, close_code, handle.run_id, handle.session_key,
+                    )
+            return
+        grace = float(getattr(self.config, "run_detach_grace_seconds", 15.0))
         for handle in list(self.runs.values()):
             if handle.client_id != client_id or handle.task is None or handle.task.done():
                 continue
@@ -7379,11 +7454,15 @@ class Gateway:
         handle = self.runs.get(str(row.get("sessionId") or ""))
         return handle is not None and handle.task is not None and not handle.task.done()
 
-    def _reattach(self, session_key: str) -> None:
-        """A window is watching this session again: clear detachment, cancel the reaper."""
+    def _reattach(self, session_key: str, client_id: str | None = None) -> None:
+        """A window is watching this session again: clear detachment, cancel the reaper — and
+        the run is now THAT window's, so closing it stops the run (a reloaded page is a new
+        connection; left on the old id, closing the reloaded tab would leave the run orphaned)."""
         handle = self.runs.get(session_key)
         if handle is None:
             return
+        if client_id and handle.task is not None and not handle.task.done():
+            handle.client_id = client_id
         if handle.detached_at is not None:
             log.info("run %s (session %s): window re-attached", handle.run_id, handle.session_key)
         handle.detached_at = None
@@ -7391,13 +7470,13 @@ class Gateway:
             handle.detach_reaper.cancel()
         handle.detach_reaper = None
 
-    async def _chat_status(self, params: dict) -> dict:
+    async def _chat_status(self, params: dict, client_id: str | None = None) -> dict:
         """Is this session's run still going? THE RE-ATTACH SIGNAL: a client that asks is a
         client that is watching, so asking also clears any pending detach-reap. Called by every
         window on reconnect — the answer decides between "keep streaming" and "load what
         finished while I was away"."""
         session_key = str(params.get("sessionKey") or "default")
-        self._reattach(session_key)
+        self._reattach(session_key, client_id)
         handle = self.runs.get(session_key)
         running = handle is not None and handle.task is not None and not handle.task.done()
         return {
@@ -7593,6 +7672,7 @@ class Gateway:
                     attachments=attachments,
                     interjections=handle.interjections,
                     background_jobs=handle.background_jobs,
+                    supervised=handle.trigger == "chat",  # a person's own message, and only that
                 ),
             )
         except TimeoutError:

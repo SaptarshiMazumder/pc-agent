@@ -126,6 +126,9 @@ export function historyToItems(messages: any[]): ChatItem[] {
   for (const message of messages) {
     const ts = toMs(message.ts)
     if (message.role === 'user') {
+      // The runtime's own notes to the agent (manager, liveness, retries) ride the user slot so
+      // the model receives them; the person never said them, so they are not shown.
+      if (message.source === 'runtime') continue
       flushRun() // the previous run ended
       const atts = (message.attachments || []) as Artifact[] // files the user attached (by ref)
       items.push({ kind: 'user', text: String(message.content ?? ''), ts, ...(atts.length ? { artifacts: atts } : {}) })

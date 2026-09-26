@@ -312,6 +312,39 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
   }
 }
 
+# A service near its memory cap. Crossing the cap OOM-kills the task (see the daemon's memory
+# note in variables.tf), so this is the warning before an outage, not after one: the proxy was
+# killed at 512 MiB and the daemon froze its whole host before either was noticed. 85% for three
+# minutes, so a brief spike during a big request does not page.
+resource "aws_cloudwatch_metric_alarm" "service_memory_high" {
+  # Bound to the ECS services, which exist exactly when their load balancer does.
+  for_each = local.alb_services
+
+  alarm_name          = "${local.name_prefix}-${each.key}-memory-high"
+  namespace           = "AWS/ECS"
+  metric_name         = "MemoryUtilization"
+  statistic           = "Maximum"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 85
+  period              = 60
+  evaluation_periods  = 3
+  # A service scaled to zero reports nothing; that is not a memory problem.
+  treat_missing_data = "notBreaching"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = [aws_sns_topic.alerts.arn]
+  tags               = local.common_tags
+
+  alarm_description = "${each.key} has used 85%+ of its memory cap for 3 minutes. Past the cap the task is OOM-killed and restarted; find what is growing (a request, a job) before it gets there."
+
+  # NAMES, NOT RESOURCE REFERENCES: the same strings cluster.tf and services.tf build. Pointing
+  # at aws_ecs_service would tie every alarm change to the service and, through its capacity
+  # provider, to the host groups, so a one-alarm apply would drag a host roll along with it.
+  dimensions = {
+    ClusterName = local.name_prefix
+    ServiceName = "${local.name_prefix}-${each.key}"
+  }
+}
+
 # Users cannot chat. An absolute count rather than the 1%-of-requests ratio the plan
 # sketched: at dev traffic levels a ratio means one error in three requests trips a 33%
 # rate, so the percentage is noise until there is real volume. Revisit with traffic.

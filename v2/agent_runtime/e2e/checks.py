@@ -234,6 +234,38 @@ def _tool_says(trace: Trace, args: dict) -> CheckResult:
     )
 
 
+@_check("tool_never_says")
+def _tool_never_says(trace: Trace, args: dict) -> CheckResult:
+    """No call to any of `tools` carried arguments matching a pattern — what the agent must NEVER
+    put in a call. The negative of tool_says, for a mistake with a cost outside the chat: a
+    model-file URL handed to a fetch once froze the daemon.
+
+    `tools` (required) is a list of tool names; `pattern` (required) is a regex, case-insensitive,
+    run over each call's arguments serialised as JSON. A tool that never ran passes.
+    """
+    import json as _json
+    import re as _re
+
+    names = [str(n) for n in (args.get("tools") or []) if str(n)]
+    pattern = str(args.get("pattern") or "")
+    if not names or not pattern:
+        return CheckResult("tool_never_says", False, "tools and pattern required")
+    try:
+        rx = _re.compile(pattern, _re.I | _re.S)
+    except _re.error as e:
+        return CheckResult("tool_never_says", False, f"bad pattern: {e}")
+    hits = [
+        f"{c.name}#{i}"
+        for name in names
+        for i, c in enumerate(trace.tool_calls(name), 1)
+        if rx.search(_json.dumps(c.args, ensure_ascii=False, sort_keys=True, default=str))
+    ]
+    return CheckResult(
+        "tool_never_says", not hits,
+        f"matched in {hits}" if hits else f"no {'/'.join(names)} call matched {pattern!r}",
+    )
+
+
 @_check("no_unrecovered_error")
 def _no_unrecovered_error(trace: Trace, args: dict) -> CheckResult:
     bad = [f for f in signals.holes(trace) if f.code == "tool_error" and f.severity == signals.PROBLEM]
@@ -265,6 +297,8 @@ _ARGS: dict[str, dict[str, str]] = {
     "tool_succeeded": {"tool": "tool name (required)"},
     "tool_says": {"tool": "tool name (required)",
                   "pattern": "regex the call's arguments (as JSON) must match (required)"},
+    "tool_never_says": {"tools": "list of tool names (required)",
+                        "pattern": "regex no call's arguments (as JSON) may match (required)"},
     "produced_artifact": {"kind": "artifact kind: image / video / file (default: any)",
                           "file": "regex the artifact's file name must match (default: any)"},
     "max_turns": {"n": "maximum turn count (required)"},
