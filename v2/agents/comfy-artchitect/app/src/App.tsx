@@ -46,6 +46,7 @@ import {
 } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 import { useLibraryFlash } from './state/use-library-flash'
+import { ChatImageTooBigPrompt } from './components/ChatImageTooBigPrompt'
 
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
 import { ContextRing } from './components/ContextRing'
@@ -327,6 +328,8 @@ export default function App() {
 
   const chatSide = useApp((s) => s.chatSide)
   const libraryFlash = useLibraryFlash()
+  const oversizeImages = useApp((s) => s.oversizeImages)
+  const setOversizeImages = useApp((s) => s.setOversizeImages)
   const chatWidth = useApp((s) => s.chatWidth)
   const setChatSide = useApp((s) => s.setChatSide)
 
@@ -949,6 +952,9 @@ export default function App() {
           </div>
         )}
       </main>
+      {oversizeImages.length > 0 && (
+        <ChatImageTooBigPrompt files={oversizeImages} onClose={() => setOversizeImages([])} />
+      )}
     </div>
   )
 }

@@ -8,7 +8,7 @@ import { ArrowUp, Loader2, Paperclip, Plus, Square, Upload } from 'lucide-react'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import type { PendingAttachment } from '../agentd/chat'
+import { MAX_CHAT_IMAGE_LABEL, type PendingAttachment } from '../agentd/chat'
 import type { LibraryItem } from '../agentd/library'
 import { useApp } from '../state/store'
 
@@ -373,7 +373,7 @@ export function Composer({
           ) : !connected ? (
             <span className="composer-note bad">not connected</span>
           ) : dragging ? (
-            <span className="composer-note">drop to attach — analysis only, 5 MB each</span>
+            <span className="composer-note">drop to attach — analysis only, {MAX_CHAT_IMAGE_LABEL} each</span>
           ) : null}
           {/* BESIDE THE COMPOSER, because building a window and looking at it are one loop. */}
           {meter}
@@ -424,14 +424,14 @@ export function Composer({
         {/* THE IMAGE RULE EARNS ITS LINE; the keyboard hints did not.
             "for analysis only" is not a tip, it is the answer to "why did it not use my
             reference?" -- this agent reads an attached image, it does not send it to ComfyUI
-            as an input -- and 5 MB is a limit a person hits with one phone photo. Deleting
+            as an input -- and the size cap is a limit a person hits with one phone photo. Deleting
             both along with the Enter/Shift+Enter lecture threw away the only two facts on
             that strip a user could not discover by trying.
 
             ONE LINE, SANS, and only while the box is empty: it is a thing to learn once, and
             once you are typing you have learned it or do not need it yet. */}
         {!text.trim() && !pending.length && (
-          <p className="composer-imagehint">Images: analysis only, 5 MB each</p>
+          <p className="composer-imagehint">Images: analysis only, {MAX_CHAT_IMAGE_LABEL} each</p>
         )}
 
         <input

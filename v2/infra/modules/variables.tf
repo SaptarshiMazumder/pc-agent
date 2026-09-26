@@ -823,6 +823,10 @@ variable "services" {
       # its life blocked on someone else's API, so it can hold every upstream connection it has
       # while reporting single-digit CPU. A CPU policy would sit still through a queue.
       autoscale = { min = 1, max = 4, metric = "alb_requests", target = 200 }
+      # 1 GB, NOT THE 512 DEFAULT. LiteLLM idles at ~340 MB, and a request carrying chat images
+      # (base64, copied several times while it is parsed and logged) spiked it past 512 and got
+      # it OOM-killed mid-turn on production — every chat on the box saw a 502, then a 503.
+      memory = 1024
     }
 
     # accounts — sign-in / metering. Uses SQLite on EFS for now (RDS is a follow-up

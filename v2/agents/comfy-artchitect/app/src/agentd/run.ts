@@ -168,23 +168,13 @@ export function useRun(client: AgentdClient | null) {
     }
     const all = dropped.filter((f) => f.type.startsWith('image/'))
     if (!all.length) return
-    // THE HARD CAP ON A CHAT IMAGE, said in the thread rather than silently dropped: a paste that
+    // THE HARD CAP ON A CHAT IMAGE, said in a popup rather than silently dropped: a paste that
     // vanishes reads as "the paste failed", and the one thing the person needs to hear is that
-    // this is the wrong door for a big image — the reference button is the right one.
+    // this is the wrong door for a big image — the Inputs tab is the right one
+    // (ChatImageTooBigPrompt).
     const tooBig = all.filter((f) => f.size > MAX_CHAT_IMAGE_BYTES)
     if (tooBig.length) {
-      const mb = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`
-      append(key, [
-        {
-          kind: 'system',
-          tone: 'error',
-          text:
-            tooBig.map((f) => `${f.name} (${mb(f.size)})`).join(', ') +
-            ` ${tooBig.length > 1 ? 'are' : 'is'} over the ${mb(MAX_CHAT_IMAGE_BYTES)} chat limit. ` +
-            'Chat images are only looked at by the agent — a generation input goes in the References panel on the left.',
-          ts: Date.now(),
-        },
-      ])
+      useApp.getState().setOversizeImages(tooBig.map((f) => ({ name: f.name || 'pasted image', size: f.size })))
     }
     const files = all.filter((f) => f.size <= MAX_CHAT_IMAGE_BYTES)
     if (!files.length) return

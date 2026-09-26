@@ -143,9 +143,15 @@ export function resultText(result: any): string {
 export const MAX_FILES = 10
 /** The most one image pasted or dropped INTO THE CHAT may weigh. Chat images ride every model
  *  call as vision (the agent looks at them; it never generates from them), so a large one costs
- *  on every turn that follows. Workflow inputs — the person, the garment, a start frame — go
+ *  on every turn that follows.
+ *
+ *  1 MB, DOWN FROM 5: three 1.7 MB photos riding every call pushed the model proxy past its
+ *  memory and got it killed mid-turn on production. A pasted screenshot is 50 KB–1 MB, so the
+ *  cap costs nothing to what the chat is for; a photo is a generation input and has a door. Workflow inputs — the person, the garment, a start frame — go
  *  through the References panel, which uploads to the workspace and never touches a model call. */
-export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
+export const MAX_CHAT_IMAGE_BYTES = 1 * 1024 * 1024
+/** The same cap, as the composer says it. */
+export const MAX_CHAT_IMAGE_LABEL = '1 MB'
 
 /** A clipboard image usually has no usable filename ('' or no extension). The daemon then stores
  *  it as literally "attachment" — which, having no extension, is not classified as an image, so a

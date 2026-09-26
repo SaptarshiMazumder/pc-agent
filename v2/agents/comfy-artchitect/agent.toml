@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Penguin"
-version = "1.65.3"
+version = "1.65.4"
 description = "An AI image and video studio: describe what you want and it picks the best model, sets it up on a cloud GPU, renders it, fixes whatever breaks, and hands you a reusable workflow to run again in one click or in your own ComfyUI."
 tagline = "describe · render · keep the workflow"
 color = "#7C5CFF"
