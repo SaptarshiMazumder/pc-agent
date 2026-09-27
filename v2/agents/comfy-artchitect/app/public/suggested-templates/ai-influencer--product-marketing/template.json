@@ -1,0 +1,43 @@
+{
+  "format": "comfy-penguin-template",
+  "version": 1,
+  "name": "AI influencer — product marketing",
+  "description": "A photo of a person and a photo of a product become a styled social post of them wearing it, then a talking vertical reel.",
+  "created": "2026-09-26T18:35:03.164Z",
+  "thumbnail": "thumb.webp",
+  "inputs": [
+    {
+      "role": "model",
+      "what": "The new human/influencer model, face clearly visible."
+    },
+    {
+      "role": "garment",
+      "what": "The exact jacket/product reference to preserve across the photos and reel."
+    }
+  ],
+  "steps": [
+    {
+      "role": "stills",
+      "api": "workflows/stills.api.json",
+      "ui": "workflows/stills.json",
+      "installer": [
+        "workflows/install_stills.py",
+        "workflows/install_stills.manifest.json"
+      ],
+      "slots": [
+        "garment",
+        "model"
+      ]
+    },
+    {
+      "role": "video",
+      "api": "workflows/video.api.json",
+      "ui": "workflows/video.json",
+      "installer": [
+        "workflows/install_video.py",
+        "workflows/install_video.manifest.json"
+      ],
+      "slots": []
+    }
+  ]
+}

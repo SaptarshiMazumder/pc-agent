@@ -25,7 +25,8 @@ LIBRARY = "library"
 INDEX_NAME = "index.json"
 INDEX = f"{LIBRARY}/{INDEX_NAME}"
 
-ORIGINS = ("uploaded", "saved")
+#: `suggested`: a template the app ships, installed into the Library on first use.
+ORIGINS = ("uploaded", "saved", "suggested")
 KINDS = ("workflow", "reference", "file", "template")
 #: The folder each kind lives under, inside an origin. A template is a folder of its own:
 #: template.json, workflows/, a thumbnail (library_template.py).

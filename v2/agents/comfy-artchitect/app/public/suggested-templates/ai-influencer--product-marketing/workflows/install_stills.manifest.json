@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "workflow_sha256": "f460dfea28be8e5543c98d5976336397e20e1a573b77ce613fde69ef964d8aae",
+  "models": [],
+  "node_packs": [],
+  "unresolved": [],
+  "references": [
+    "LoadImage.image: @garment",
+    "LoadImage.image: @model"
+  ],
+  "paid_api_nodes": [
+    "ByteDanceSeedreamNodeV3"
+  ],
+  "notes": [
+    "Use your existing ComfyUI Python environment. Stop ComfyUI before installing.",
+    "Unpinned node repositories use their current default branch; compatibility is not guaranteed.",
+    "Custom install.py scripts and OS dependencies are NOT run automatically; consult each pack's README.",
+    "Supply your own input/reference media and configure paid-node accounts yourself.",
+    "This installs dependencies only. It never renders or spends Comfy.org credits."
+  ],
+  "workflow": "stills.api.json",
+  "generator": "comfy-workflow-installer"
+}

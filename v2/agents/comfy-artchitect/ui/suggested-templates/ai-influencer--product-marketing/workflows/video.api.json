@@ -1,0 +1,50 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "post_2_mirror_00002_.png"
+    },
+    "_meta": {
+      "title": "Post 2 mirror reference"
+    }
+  },
+  "3": {
+    "class_type": "ByteDance2ReferenceNodeV2",
+    "inputs": {
+      "model": "Seedance 2.5",
+      "model.prompt": "Photorealistic vertical 9:16 social-media reel, 4 seconds, based on the supplied mirror-selfie image. Keep the same woman, face, hair, outfit, and exact jacket from the reference image. Transition naturally from the mirror-selfie setting into a subtle casual influencer moment: she looks toward a friend just off camera, smiles, gestures lightly to the jacket, and says clearly in English: \"Wait, this jacket is actually so good\u2014the fit and details are everything.\" Natural handheld phone-camera movement, realistic facial motion and lip sync, believable jacket fabric movement, preserve the jacket's color, cut, collar, zipper, seams, hardware, and material, no wardrobe changes, no extra people entering frame, no text overlays, no cartoon look.",
+      "model.resolution": "720p",
+      "model.ratio": "9:16",
+      "model.duration": 4,
+      "model.generate_audio": true,
+      "model.task_type": "reference",
+      "model.output_format": "mp4",
+      "model.reference_images.image_1": [
+        "1",
+        0
+      ],
+      "model.auto_downscale": true,
+      "model.auto_upscale": false,
+      "seed": 501,
+      "watermark": false
+    },
+    "_meta": {
+      "title": "Seedance 2.5 \u2014 4-second mirror-based reel"
+    }
+  },
+  "4": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "3",
+        0
+      ],
+      "filename_prefix": "jacket_series_new/reel_4s_mirror_based",
+      "format": "auto",
+      "format.codec": "auto"
+    },
+    "_meta": {
+      "title": "Save mirror-based reel"
+    }
+  }
+}

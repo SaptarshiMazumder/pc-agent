@@ -207,7 +207,8 @@ export function LibraryPanel({
   )
 
   // TEMPLATES ARE THEIR OWN SECTION, first: a whole reusable setup is the Library's headline.
-  const templates = useMemo(() => items.filter((i) => i.kind === 'template'), [items])
+  // The app's own (suggested) templates live on the Templates page, not in the person's shelf.
+  const templates = useMemo(() => items.filter((i) => i.kind === 'template' && i.origin !== 'suggested'), [items])
   const uploaded = useMemo(() => items.filter((i) => i.origin === 'uploaded' && i.kind !== 'template'), [items])
   const saved = useMemo(
     () => items.filter((i) => i.origin === 'saved' && i.kind !== 'template' && (!filter || i.from?.title === filter)),

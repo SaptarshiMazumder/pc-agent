@@ -1,0 +1,64 @@
+{
+  "format": "comfy-penguin-template",
+  "version": 1,
+  "name": "Two characters → a fight video",
+  "description": "Two character photos become two designed fighters and a generated setting, then one short cinematic fight clip.",
+  "created": "2026-09-26T13:49:09.520Z",
+  "thumbnail": "thumb.webp",
+  "inputs": [
+    {
+      "role": "character_a",
+      "what": "character_a.jpg; adult woman identity reference only, not the original outfit"
+    },
+    {
+      "role": "character_b",
+      "what": "character_b.jpg; adult woman identity reference only, not the original outfit"
+    }
+  ],
+  "steps": [
+    {
+      "role": "character_a",
+      "api": "workflows/character_a.api.json",
+      "ui": "workflows/character_a.json",
+      "installer": [
+        "workflows/install_character_a.py",
+        "workflows/install_character_a.manifest.json"
+      ],
+      "slots": [
+        "character_a"
+      ]
+    },
+    {
+      "role": "character_b",
+      "api": "workflows/character_b.api.json",
+      "ui": "workflows/character_b.json",
+      "installer": [
+        "workflows/install_character_b.py",
+        "workflows/install_character_b.manifest.json"
+      ],
+      "slots": [
+        "character_b"
+      ]
+    },
+    {
+      "role": "temple_background",
+      "api": "workflows/temple_background.api.json",
+      "ui": "workflows/temple_background.json",
+      "installer": [
+        "workflows/install_temple_background.py",
+        "workflows/install_temple_background.manifest.json"
+      ],
+      "slots": []
+    },
+    {
+      "role": "video",
+      "api": "workflows/video.api.json",
+      "ui": "workflows/video.json",
+      "installer": [
+        "workflows/install_video.py",
+        "workflows/install_video.manifest.json"
+      ],
+      "slots": []
+    }
+  ]
+}

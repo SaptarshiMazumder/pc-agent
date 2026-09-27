@@ -1,0 +1,143 @@
+{
+  "last_node_id": 4,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": "1",
+      "type": "LoadImage",
+      "pos": [
+        80,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "*",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "post_2_mirror_00002_.png"
+      ],
+      "title": "Post 2 mirror reference"
+    },
+    {
+      "id": "3",
+      "type": "ByteDance2ReferenceNodeV2",
+      "pos": [
+        420,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model.reference_images.image_1",
+          "type": "*",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "*",
+          "links": [
+            2
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ByteDance2ReferenceNodeV2"
+      },
+      "widgets_values": [
+        "Seedance 2.5",
+        "Photorealistic vertical 9:16 social-media reel, 4 seconds, based on the supplied mirror-selfie image. Keep the same woman, face, hair, outfit, and exact jacket from the reference image. Transition naturally from the mirror-selfie setting into a subtle casual influencer moment: she looks toward a friend just off camera, smiles, gestures lightly to the jacket, and says clearly in English: \"Wait, this jacket is actually so good\u2014the fit and details are everything.\" Natural handheld phone-camera movement, realistic facial motion and lip sync, believable jacket fabric movement, preserve the jacket's color, cut, collar, zipper, seams, hardware, and material, no wardrobe changes, no extra people entering frame, no text overlays, no cartoon look.",
+        "720p",
+        "9:16",
+        4,
+        true,
+        "reference",
+        "mp4",
+        true,
+        false,
+        501,
+        false
+      ],
+      "title": "Seedance 2.5 \u2014 4-second mirror-based reel"
+    },
+    {
+      "id": "4",
+      "type": "SaveVideo",
+      "pos": [
+        760,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "*",
+          "link": 2
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "jacket_series_new/reel_4s_mirror_based",
+        "auto",
+        "auto"
+      ],
+      "title": "Save mirror-based reel"
+    }
+  ],
+  "links": [
+    [
+      1,
+      "1",
+      0,
+      "3",
+      0,
+      ""
+    ],
+    [
+      2,
+      "3",
+      0,
+      "4",
+      0,
+      ""
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

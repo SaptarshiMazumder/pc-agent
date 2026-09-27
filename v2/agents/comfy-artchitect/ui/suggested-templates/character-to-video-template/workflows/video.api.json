@@ -1,0 +1,71 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "character_a_final_00001_.png"
+    },
+    "_meta": {
+      "title": "Approved Character A reference"
+    }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "character_b_final_00001_.png"
+    },
+    "_meta": {
+      "title": "Approved Character B reference"
+    }
+  },
+  "3": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "temple_background_final_00001_.png"
+    },
+    "_meta": {
+      "title": "Approved temple courtyard reference"
+    }
+  },
+  "4": {
+    "class_type": "Wan3ReferenceToVideoApi",
+    "inputs": {
+      "model": "wan3.0-video",
+      "model.prompt": "One continuous 7-second cinematic landscape 16:9 sequence in the supplied abandoned, overgrown Japanese temple courtyard. Use @Image1 as the approved Character A identity and design reference, @Image2 as the approved Character B identity and design reference, and @Image3 as the approved temple courtyard environment reference. Shot order and timing: 0.0\u20131.5 seconds, close-up of Character A\u2019s face and upper costume details, tense and focused; 1.5\u20133.0 seconds, cut to a close-up of Character B\u2019s face and upper costume details, tense and focused; 3.0\u20134.0 seconds, deliberate camera pull-back revealing both adult women, their full bodies, and the open courtyard; 4.0\u20137.0 seconds, a clear grounded fists-only kung-fu exchange: one controlled straight punch, a forearm block, one controlled counter-punch, a block, then both settle into guarded stances. Preserve facial identity, approved costume colors and armor, body proportions, courtyard layout, lighting, and grim moody cinematic continuity throughout. No kicks, knees, elbows, weapons, props, extra people, duplicate limbs, costume changes, face changes, supernatural effects, text, or audio. Stable realistic motion, readable silhouettes, coherent camera movement, no random reframing.",
+      "model.resolution": "1080P",
+      "model.ratio": "16:9",
+      "model.duration": "7",
+      "model.audio": false,
+      "model.prompt_extend": false,
+      "model.reference_images.image1": [
+        "1",
+        0
+      ],
+      "model.reference_images.image2": [
+        "2",
+        0
+      ],
+      "model.reference_images.image3": [
+        "3",
+        0
+      ],
+      "seed": 707,
+      "watermark": false
+    }
+  },
+  "5": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "4",
+        0
+      ],
+      "filename_prefix": "fight_video/wan3_multishot_7s_1080p",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto"
+    },
+    "_meta": {
+      "title": "Save Wan 3.0 7-second multi-shot fight"
+    }
+  }
+}

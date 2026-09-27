@@ -1,0 +1,26 @@
+{
+  "1": {
+    "class_type": "GeminiNanoBanana2V2",
+    "inputs": {
+      "prompt": "Generate an empty panoramic 16:9 abandoned Japanese temple courtyard from scratch. Do not include any people or characters. Show a broad open courtyard with clear usable ground and generous spatial separation for two full-body fighters, surrounded by decayed traditional Japanese temple architecture, moss-covered stone, broken wood, deep overgrown vegetation, vines, damp weathering, and atmospheric depth. Cinematic grim and moody lighting, dramatic but natural overcast contrast, restrained dark red and blue accents in the environment, realistic film still, wide composition, no weapons, no text, no modern objects. Match the visual mood and environmental continuity of the previous 3-second temple fight while creating a new location.",
+      "model": "Nano Banana 2 (Gemini 3.1 Flash Image)",
+      "model.aspect_ratio": "16:9",
+      "model.resolution": "1K",
+      "model.thinking_level": "HIGH",
+      "seed": 303,
+      "response_modalities": "IMAGE",
+      "temperature": 1.0,
+      "top_p": 0.95
+    }
+  },
+  "2": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "1",
+        0
+      ],
+      "filename_prefix": "temple_background_final"
+    }
+  }
+}

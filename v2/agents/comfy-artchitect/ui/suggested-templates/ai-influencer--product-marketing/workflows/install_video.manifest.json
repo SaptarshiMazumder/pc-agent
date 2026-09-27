@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "workflow_sha256": "aaebab50be51a279c79c3d06f095d5ef08059c9715b59fa8a3272e8c261e7944",
+  "models": [],
+  "node_packs": [],
+  "unresolved": [],
+  "references": [
+    "LoadImage.image: post_2_mirror_00002_.png"
+  ],
+  "paid_api_nodes": [
+    "ByteDance2ReferenceNodeV2"
+  ],
+  "notes": [
+    "Use your existing ComfyUI Python environment. Stop ComfyUI before installing.",
+    "Unpinned node repositories use their current default branch; compatibility is not guaranteed.",
+    "Custom install.py scripts and OS dependencies are NOT run automatically; consult each pack's README.",
+    "Supply your own input/reference media and configure paid-node accounts yourself.",
+    "This installs dependencies only. It never renders or spends Comfy.org credits."
+  ],
+  "workflow": "video.api.json",
+  "generator": "comfy-workflow-installer"
+}

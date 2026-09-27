@@ -149,7 +149,10 @@ function freeFolder(index: LibraryIndex, origin: 'saved' | 'uploaded', wanted: s
 /** A chat's workflows in the order they were BUILT (oldest run file first): that is the order a
  *  pipeline of stills → video → upscale runs in, and the only order the chat itself recorded. */
 export function inBuildOrder(workflows: ChatWorkflowFiles[]): ChatWorkflowFiles[] {
-  return [...workflows].sort((a, b) => (a.api.modified || 0) - (b.api.modified || 0))
+  // The input is NEWEST FIRST (collectWorkflows). Reversed before the stable sort, files with no
+  // timestamp keep their build order; the first two templates saved came out video-first, which
+  // runs a video before the images it is made from.
+  return [...workflows].reverse().sort((a, b) => (a.api.modified || 0) - (b.api.modified || 0))
 }
 
 export async function saveChatAsTemplate(
@@ -299,23 +302,13 @@ export async function uploadTemplate(client: AgentdClient, file: File): Promise<
   }
   const manifest = parseManifest(parsed)
   if (typeof manifest === 'string') throw new Error(`${file.name}: ${manifest}`)
-  const named = [
-    ...manifest.steps.flatMap((s) => [s.api, ...(s.ui ? [s.ui] : []), ...s.installer]),
-    ...(manifest.thumbnail ? [manifest.thumbnail] : []),
-  ]
-  const missing = named.filter((rel) => !zipped[`${prefix}${rel}`])
+  const missing = manifestFiles(manifest).filter((rel) => !zipped[`${prefix}${rel}`])
   if (missing.length) throw new Error(`${file.name} is missing ${missing.join(', ')}`)
 
   const index = await readIndex(client)
   const folder = freeFolder(index, 'uploaded', slug(manifest.name))
   const path = `uploaded/${KIND_DIR.template}/${folder}`
-  const dir = `${LIBRARY_DIR}/${path}`
-  for (const rel of named) {
-    const parts = rel.split('/')
-    const name = parts.pop() as string
-    await upload(client, [dir, ...parts].join('/'), name, bytesBase64(zipped[`${prefix}${rel}`]), true)
-  }
-  await upload(client, dir, TEMPLATE_MANIFEST, bytesBase64(strToU8(JSON.stringify(manifest, null, 2) + '\n')), true)
+  await writeTemplateFiles(client, `${LIBRARY_DIR}/${path}`, manifest, (rel) => zipped[`${prefix}${rel}`])
 
   const item: LibraryItem = {
     id: newId('template'),
@@ -328,6 +321,108 @@ export async function uploadTemplate(client: AgentdClient, file: File): Promise<
     created: nowIso(),
   }
   index.items.push(item)
+  await writeIndex(client, index)
+  return item
+}
+
+/** Every file a manifest names, and the manifest itself, into `dir`. The one writer for a
+ *  template's folder, whether its bytes came from a zip or from the app's own shipped copy. */
+async function writeTemplateFiles(
+  client: AgentdClient,
+  dir: string,
+  manifest: TemplateManifest,
+  bytesOf: (rel: string) => Uint8Array,
+): Promise<void> {
+  for (const rel of manifestFiles(manifest)) {
+    const parts = rel.split('/')
+    const name = parts.pop() as string
+    await upload(client, [dir, ...parts].join('/'), name, bytesBase64(bytesOf(rel)), true)
+  }
+  await upload(client, dir, TEMPLATE_MANIFEST, bytesBase64(strToU8(JSON.stringify(manifest, null, 2) + '\n')), true)
+}
+
+/** The files a manifest names, besides itself. */
+function manifestFiles(manifest: TemplateManifest): string[] {
+  return [
+    ...manifest.steps.flatMap((s) => [s.api, ...(s.ui ? [s.ui] : []), ...s.installer]),
+    ...(manifest.thumbnail ? [manifest.thumbnail] : []),
+  ]
+}
+
+// ---------------------------------------------------------------------------- suggested
+
+/** Where the app's own templates are served from: its static files, beside the marketing media. */
+const SUGGESTED_BASE = 'suggested-templates'
+
+/** A "what goes in → what comes out" row, as the landing page draws it. */
+export interface ShowcaseStep {
+  src: string
+  label: string
+  kind: 'input' | 'image' | 'video'
+}
+
+/** One card on the Templates page: which shipped template, and how it is shown. */
+export interface SuggestedTemplate {
+  slug: string
+  title: string
+  prompt: string
+  /** null until its media exists: the card then shows the template's thumbnail instead. */
+  showcase: { inputs: ShowcaseStep[]; outputs: ShowcaseStep[] } | null
+}
+
+/** The Templates page's catalogue (suggested-templates/index.json). */
+export async function readSuggestedCatalogue(): Promise<SuggestedTemplate[]> {
+  const res = await fetch(`${SUGGESTED_BASE}/index.json`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`could not load the templates (HTTP ${res.status})`)
+  const data = (await res.json()) as { templates?: SuggestedTemplate[] }
+  return Array.isArray(data.templates) ? data.templates.filter((t) => t && t.slug && t.title) : []
+}
+
+/** A shipped template's manifest, read from the app's own files. */
+export async function readSuggestedManifest(slugName: string): Promise<TemplateManifest> {
+  const res = await fetch(`${SUGGESTED_BASE}/${slugName}/${TEMPLATE_MANIFEST}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`could not load template ${slugName} (HTTP ${res.status})`)
+  const manifest = parseManifest(await res.json())
+  if (typeof manifest === 'string') throw new Error(`${slugName}: ${manifest}`)
+  return manifest
+}
+
+/** The shipped template in this person's Library, installed on first use and refreshed when the
+ *  app ships a newer copy. It becomes an ordinary Library template (origin `suggested`), so the
+ *  agent's `template_use` reads it like any other — there is no second path. */
+export async function installSuggestedTemplate(client: AgentdClient, entry: SuggestedTemplate): Promise<LibraryItem> {
+  const manifest = await readSuggestedManifest(entry.slug)
+  const index = await readIndex(client)
+  const path = `suggested/${KIND_DIR.template}/${slug(entry.slug)}`
+  // THE SHIPPED COPY'S STAMP (`created`) says whether what is installed is current.
+  const stamp = manifest.created || manifest.name
+  let item = index.items.find((i) => i.kind === 'template' && i.origin === 'suggested' && i.path === path)
+  if (item && item.versions[0]?.at === stamp) return item
+
+  const bytes = new Map<string, Uint8Array>()
+  for (const rel of manifestFiles(manifest)) {
+    const res = await fetch(`${SUGGESTED_BASE}/${entry.slug}/${rel}`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`template ${entry.slug} is missing ${rel} (HTTP ${res.status})`)
+    bytes.set(rel, new Uint8Array(await res.arrayBuffer()))
+  }
+  await writeTemplateFiles(client, `${LIBRARY_DIR}/${path}`, manifest, (rel) => bytes.get(rel) as Uint8Array)
+
+  if (!item) {
+    item = {
+      id: newId('template'),
+      kind: 'template',
+      origin: 'suggested',
+      name: entry.title,
+      note: manifest.description,
+      path,
+      versions: [],
+      created: nowIso(),
+    }
+    index.items.push(item)
+  }
+  item.name = entry.title
+  item.note = manifest.description
+  item.versions = [{ v: 1, at: stamp }]
   await writeIndex(client, index)
   return item
 }

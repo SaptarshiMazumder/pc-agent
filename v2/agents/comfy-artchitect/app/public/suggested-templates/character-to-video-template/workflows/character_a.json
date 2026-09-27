@@ -1,0 +1,138 @@
+{
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": "1",
+      "type": "LoadImage",
+      "pos": [
+        80,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "*",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "@character_a"
+      ],
+      "title": "Character A identity reference only"
+    },
+    {
+      "id": "2",
+      "type": "GeminiNanoBanana2V2",
+      "pos": [
+        420,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model.images.image_1",
+          "type": "*",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "*",
+          "links": [
+            2
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GeminiNanoBanana2V2"
+      },
+      "widgets_values": [
+        "Create a complete new scene-ready appearance for an adult woman kung-fu fighter. Use the attached image ONLY to preserve her recognizable identity: face, facial structure, skin tone, and distinctive identity cues. Do not copy, retain, or reinterpret her original clothing or outfit. Design a full-body red ninja-style fighter in sleeveless red attire, with tasteful partial cleavage, legs fully covered, and protective fighting armor on both forearms. Make the costume practical, cinematic, coherent, and clearly visible from head to toe. Grim, moody, cinematic lighting; realistic film still; abandoned temple-fight atmosphere; strong readable silhouette; landscape composition with the complete body visible and clear surrounding space. No weapons, no other people, no text.",
+        "Nano Banana 2 (Gemini 3.1 Flash Image)",
+        "16:9",
+        "1K",
+        "HIGH",
+        101,
+        "IMAGE",
+        1.0,
+        0.95
+      ],
+      "title": "GeminiNanoBanana2V2"
+    },
+    {
+      "id": "3",
+      "type": "SaveImage",
+      "pos": [
+        760,
+        80
+      ],
+      "size": [
+        300,
+        200
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "*",
+          "link": 2
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "character_a_final"
+      ],
+      "title": "SaveImage"
+    }
+  ],
+  "links": [
+    [
+      1,
+      "1",
+      0,
+      "2",
+      0,
+      ""
+    ],
+    [
+      2,
+      "2",
+      0,
+      "3",
+      0,
+      ""
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

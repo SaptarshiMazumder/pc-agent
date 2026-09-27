@@ -1,0 +1,39 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "@character_a"
+    },
+    "_meta": {
+      "title": "Character A identity reference only"
+    }
+  },
+  "2": {
+    "class_type": "GeminiNanoBanana2V2",
+    "inputs": {
+      "prompt": "Create a complete new scene-ready appearance for an adult woman kung-fu fighter. Use the attached image ONLY to preserve her recognizable identity: face, facial structure, skin tone, and distinctive identity cues. Do not copy, retain, or reinterpret her original clothing or outfit. Design a full-body red ninja-style fighter in sleeveless red attire, with tasteful partial cleavage, legs fully covered, and protective fighting armor on both forearms. Make the costume practical, cinematic, coherent, and clearly visible from head to toe. Grim, moody, cinematic lighting; realistic film still; abandoned temple-fight atmosphere; strong readable silhouette; landscape composition with the complete body visible and clear surrounding space. No weapons, no other people, no text.",
+      "model": "Nano Banana 2 (Gemini 3.1 Flash Image)",
+      "model.aspect_ratio": "16:9",
+      "model.resolution": "1K",
+      "model.thinking_level": "HIGH",
+      "model.images.image_1": [
+        "1",
+        0
+      ],
+      "seed": 101,
+      "response_modalities": "IMAGE",
+      "temperature": 1.0,
+      "top_p": 0.95
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "2",
+        0
+      ],
+      "filename_prefix": "character_a_final"
+    }
+  }
+}

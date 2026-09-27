@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "workflow_sha256": "0ebb1cccf15ebd699b49d838ad2e5c5932a930bc62fa8738285178e2722b2846",
+  "models": [],
+  "node_packs": [],
+  "unresolved": [],
+  "references": [],
+  "paid_api_nodes": [
+    "GeminiNanoBanana2V2"
+  ],
+  "notes": [
+    "Use your existing ComfyUI Python environment. Stop ComfyUI before installing.",
+    "Unpinned node repositories use their current default branch; compatibility is not guaranteed.",
+    "Custom install.py scripts and OS dependencies are NOT run automatically; consult each pack's README.",
+    "Supply your own input/reference media and configure paid-node accounts yourself.",
+    "This installs dependencies only. It never renders or spends Comfy.org credits."
+  ],
+  "workflow": "temple_background.api.json",
+  "generator": "comfy-workflow-installer"
+}

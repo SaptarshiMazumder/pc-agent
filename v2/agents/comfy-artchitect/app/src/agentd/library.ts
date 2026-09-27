@@ -29,7 +29,8 @@ import { AGENT_ID } from './client'
 import { chatDirFor } from './workspace-files'
 
 export type LibraryKind = 'workflow' | 'reference' | 'file' | 'template'
-export type LibraryOrigin = 'uploaded' | 'saved'
+/** `suggested`: a template the app ships (the Templates page), installed on first use. */
+export type LibraryOrigin = 'uploaded' | 'saved' | 'suggested'
 
 export interface LibraryVersion {
   v: number
@@ -253,7 +254,7 @@ function normalise(raw: unknown): LibraryIndex {
     const r = it as Partial<LibraryItem> & { from?: unknown }
     if (!r || !r.id || !r.name || !r.path) continue
     if (!['workflow', 'reference', 'file', 'template'].includes(String(r.kind))) continue
-    if (!['uploaded', 'saved'].includes(String(r.origin))) continue
+    if (!['uploaded', 'saved', 'suggested'].includes(String(r.origin))) continue
     const from = r.from as { chat?: unknown; title?: unknown } | undefined
     items.push({
       id: String(r.id),

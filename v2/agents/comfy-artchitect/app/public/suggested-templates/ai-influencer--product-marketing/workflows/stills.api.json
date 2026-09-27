@@ -1,0 +1,134 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "@model"
+    },
+    "_meta": {
+      "title": "@model influencer reference"
+    }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "@garment"
+    },
+    "_meta": {
+      "title": "@garment exact jacket reference"
+    }
+  },
+  "10": {
+    "class_type": "ByteDanceSeedreamNodeV3",
+    "inputs": {
+      "prompt": "Photorealistic vertical social-media fashion photo of the same woman from the identity reference wearing the exact jacket from the garment reference. Casual urban street in natural daylight, candid influencer styling, realistic face, anatomy, hands, fabric, seams, zipper, collar, hardware, and jacket color. Preserve the jacket design exactly; do not redesign, recolor, add logos, or change the fit. Natural camera perspective, believable street background, premium but authentic smartphone photography.",
+      "model": "seedream 5.0 pro",
+      "model.size_preset": "(1K) 736x1312 (9:16)",
+      "model.width": 1024,
+      "model.height": 1312,
+      "model.images.image_1": [
+        "1",
+        0
+      ],
+      "model.images.image_2": [
+        "2",
+        0
+      ],
+      "model.prompt_optimization": "standard",
+      "model.seed": 301,
+      "model.watermark": false,
+      "model.thinking": true
+    },
+    "_meta": {
+      "title": "Post 1 \u2014 street"
+    }
+  },
+  "11": {
+    "class_type": "ByteDanceSeedreamNodeV3",
+    "inputs": {
+      "prompt": "Photorealistic vertical social-media mirror selfie of the same woman from the identity reference wearing the exact jacket from the garment reference. Three-quarter framing in a believable home or boutique mirror, relaxed influencer pose, phone naturally held, realistic reflection and perspective, natural indoor light, authentic social-media photography. Preserve the jacket design exactly, including color, cut, collar, zipper, seams, hardware, and material; do not redesign or recolor it. Same face and hair identity as the reference.",
+      "model": "seedream 5.0 pro",
+      "model.size_preset": "(1K) 736x1312 (9:16)",
+      "model.width": 1024,
+      "model.height": 1312,
+      "model.images.image_1": [
+        "1",
+        0
+      ],
+      "model.images.image_2": [
+        "2",
+        0
+      ],
+      "model.prompt_optimization": "standard",
+      "model.seed": 302,
+      "model.watermark": false,
+      "model.thinking": true
+    },
+    "_meta": {
+      "title": "Post 2 \u2014 mirror selfie"
+    }
+  },
+  "12": {
+    "class_type": "ByteDanceSeedreamNodeV3",
+    "inputs": {
+      "prompt": "Photorealistic vertical close-up fashion detail photo of the same woman from the identity reference wearing the exact jacket from the garment reference. Crop from shoulders to waist with the face partly visible but recognizable, emphasizing the jacket collar, zipper, stitching, seams, pockets, hardware, and fabric texture in sharp natural detail. Soft realistic daylight, premium product-detail photography that still feels like an influencer post. Preserve the jacket exactly: same color, construction, fit, and material; no redesign, recolor, or invented details.",
+      "model": "seedream 5.0 pro",
+      "model.size_preset": "(1K) 736x1312 (9:16)",
+      "model.width": 1024,
+      "model.height": 1312,
+      "model.images.image_1": [
+        "1",
+        0
+      ],
+      "model.images.image_2": [
+        "2",
+        0
+      ],
+      "model.prompt_optimization": "standard",
+      "model.seed": 303,
+      "model.watermark": false,
+      "model.thinking": true
+    },
+    "_meta": {
+      "title": "Post 3 \u2014 jacket details"
+    }
+  },
+  "20": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "10",
+        0
+      ],
+      "filename_prefix": "jacket_series_new/post_1_street"
+    },
+    "_meta": {
+      "title": "Save post 1"
+    }
+  },
+  "21": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "11",
+        0
+      ],
+      "filename_prefix": "jacket_series_new/post_2_mirror"
+    },
+    "_meta": {
+      "title": "Save post 2"
+    }
+  },
+  "22": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "12",
+        0
+      ],
+      "filename_prefix": "jacket_series_new/post_3_detail"
+    },
+    "_meta": {
+      "title": "Save post 3"
+    }
+  }
+}

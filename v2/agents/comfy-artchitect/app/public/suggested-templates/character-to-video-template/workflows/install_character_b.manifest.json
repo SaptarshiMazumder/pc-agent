@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "workflow_sha256": "885d3e6ef92e78cb5e5c2e10702df15c1d277980a0f2c6d783f14a1d32547ab7",
+  "models": [],
+  "node_packs": [],
+  "unresolved": [],
+  "references": [
+    "LoadImage.image: @character_b"
+  ],
+  "paid_api_nodes": [
+    "GeminiNanoBanana2V2"
+  ],
+  "notes": [
+    "Use your existing ComfyUI Python environment. Stop ComfyUI before installing.",
+    "Unpinned node repositories use their current default branch; compatibility is not guaranteed.",
+    "Custom install.py scripts and OS dependencies are NOT run automatically; consult each pack's README.",
+    "Supply your own input/reference media and configure paid-node accounts yourself.",
+    "This installs dependencies only. It never renders or spends Comfy.org credits."
+  ],
+  "workflow": "character_b.api.json",
+  "generator": "comfy-workflow-installer"
+}

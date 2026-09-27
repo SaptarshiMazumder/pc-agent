@@ -1,0 +1,23 @@
+{
+  "_comment": "The Templates page's catalogue. One entry per folder beside this file (a template exactly as Download zips it: template.json, workflows/, thumb). `showcase` is the card's 'what goes in -> what comes out' row, media paths relative to the app root (marketing/…). Adding a template = its folder + one entry here; no code.",
+  "templates": [
+    {
+      "slug": "ai-influencer--product-marketing",
+      "title": "AI influencer — product marketing",
+      "prompt": "Put this jacket on her, make a street post, then a clip of her talking.",
+      "showcase": {
+        "inputs": [{ "src": "marketing/selfie-face.webp", "label": "Model", "kind": "input" }],
+        "outputs": [
+          { "src": "marketing/selfie-street-post.webp", "label": "Post", "kind": "image" },
+          { "src": "marketing/talking-street-reel.mp4", "label": "Reel", "kind": "video" }
+        ]
+      }
+    },
+    {
+      "slug": "character-to-video-template",
+      "title": "Two characters → a fight video",
+      "prompt": "Turn these two into fighters and make a short fight in a dojo.",
+      "showcase": null
+    }
+  ]
+}

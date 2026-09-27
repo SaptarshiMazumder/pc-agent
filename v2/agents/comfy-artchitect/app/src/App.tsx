@@ -27,6 +27,7 @@ import {
   PanelLeft,
   PanelRight,
   Images,
+  LayoutTemplate,
   Library,
   Info,
   Mail,
@@ -62,6 +63,7 @@ import { Thread } from './components/Thread'
    nobody finished the window. */
 import Gallery from './components/creations/Gallery'
 import { LibraryPage } from './components/library/LibraryPage'
+import { SuggestedTemplatesPage } from './components/templates/SuggestedTemplatesPage'
 import PolicyPage from './components/policies/PolicyPage'
 import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
@@ -143,7 +145,7 @@ export default function App() {
   /* NO 'settings'. The page is gone (see the rail), so the view it named renders nothing --
      and leaving it here would have made `main` fall through to an empty screen rather than to
      the studio if anything ever set it. */
-  const isStudio = !['credits', 'orgs', 'creations', 'library', 'about', 'contact'].includes(view)
+  const isStudio = !['credits', 'orgs', 'creations', 'library', 'templates', 'about', 'contact'].includes(view)
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -800,6 +802,8 @@ export default function App() {
         extraDestinations={[
           { id: 'creations', label: 'Gallery', icon: <Images size={15} /> },
           { id: 'library', label: 'Library', icon: <Library size={15} />, flash: libraryFlash },
+          // Whole setups we made, ready to reuse (SuggestedTemplatesPage).
+          { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={15} /> },
         ]}
         /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
            from the shipped HTML files (components/policies), which stay readable with no
@@ -852,6 +856,8 @@ export default function App() {
             onRunAgain={onRunAgain}
             onUseTemplate={onUseTemplate}
           />
+        ) : view === 'templates' ? (
+          <SuggestedTemplatesPage client={client ?? undefined} onUse={onUseTemplate} />
         ) : view === 'about' ? (
           <PolicyPage key="about" start="about.html" />
         ) : view === 'contact' ? (
