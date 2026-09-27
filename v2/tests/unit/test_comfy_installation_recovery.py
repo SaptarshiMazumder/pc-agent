@@ -33,7 +33,7 @@ def service(**overrides):
                   queued_recently=lambda _: False, mark_queued=Mock(),
                   wait_manager=AsyncMock(return_value="idle"),
                   await_loadable=AsyncMock(side_effect=[{}, {model().filename: model().filename}]),
-                  lease=Mock(), direct=SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
+                  lease=Mock(), direct=SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
     values.update(overrides)
     return ModelInstallationService(**values)
 
@@ -82,7 +82,7 @@ async def test_fallback_failure_preserves_actual_error():
     async def wait(requests, *_):
         if requests:
             raise ValueError("Source returned HTTP 403")
-    installer = service(direct=SimpleNamespace(start=Mock(), wait=wait, active=Mock(return_value=False)))
+    installer = service(direct=SimpleNamespace(available=True, start=Mock(), wait=wait, active=Mock(return_value=False)))
     with pytest.raises(ValueError, match="HTTP 403"):
         await installer.install([model().as_dict()], asyncio.Event(), lambda _: None)
     installer.direct.start.assert_called_once()
@@ -122,7 +122,7 @@ async def test_cancelled_install_does_not_launch_fallback():
 
 @pytest.mark.asyncio
 async def test_retry_observes_existing_fallback_instead_of_submitting_to_manager():
-    direct = SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=True))
+    direct = SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(), active=Mock(return_value=True))
     installer = service(direct=direct, await_loadable=AsyncMock(return_value={model().filename: model().filename}))
     await installer.install([model().as_dict()], asyncio.Event(), lambda _: None)
     installer.submit.assert_not_called()
@@ -174,8 +174,12 @@ def test_old_done_status_does_not_hide_deleted_file():
 def test_readiness_checks_correct_loader_not_just_same_basename():
     state = ModelReadiness(inventory([model().filename], "unet_name"))
     assert not state.contains(model())
+    # The same file name in another folder IS the same file (the one the machine lists) — a
+    # workflow made elsewhere names it in its own folder. Two files of that name would be a
+    # choice, and stay missing (test_user_workflows_run).
     graph = {"1": {"class_type": "Loader", "inputs": {"unet_name": "folder/" + model().filename}}}
-    assert state.missing(graph)
+    assert not state.missing(graph)
+    assert state.respell(graph)["1"]["inputs"]["unet_name"] == model().filename
 
 
 @pytest.mark.parametrize("choices", [[], ["pixel_space"], ["other.safetensors"]])
@@ -206,7 +210,7 @@ async def test_missing_vae_fallback_really_writes_model_file(tmp_path):
     target = tmp_path / "models/vae" / model().filename
     async def verify(*_):
         return {model().filename: model().filename} if target.exists() else {}
-    direct = SimpleNamespace(start=lambda request: worker.download(request, lambda *a, **k: None),
+    direct = SimpleNamespace(available=True, start=lambda request: worker.download(request, lambda *a, **k: None),
                              wait=AsyncMock(), active=lambda _: False)
     installer = service(direct=direct, await_loadable=verify)
     result = await installer.install([model().as_dict()], asyncio.Event(), lambda _: None)

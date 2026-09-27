@@ -18,27 +18,6 @@ import { uploadToLibrary } from './library'
 import { chatDirFor } from './workspace-files'
 import { useApp } from '../state/store'
 
-/** The one turn that tells the agent what was added and what to do with it.
- *
- *  A FUNCTION BECAUSE IT HAS TWO CALLERS NOW. Media added between turns is announced at once;
- *  media added DURING a turn is held and announced when that turn ends. Two copies of this
- *  sentence would be two things to keep in step, and the agent's behaviour depends on its exact
- *  wording — "don't ask me to paste it again" is load-bearing.
- *
- *  First person, so it reads as the user's own ask, and FULL paths (this chat's folder included)
- *  so the agent can comfy_upload them verbatim without seeing a pixel or guessing which folder
- *  belongs to this conversation. */
-export function referenceInstruction(paths: string[]): string {
-  const them = paths.length > 1 ? 'them' : 'it'
-  return (
-    `I've added reference media for this chat, not in a slot: ${paths.join(', ')}. ` +
-    `If you can tell which role ${paths.length > 1 ? 'they fill' : 'it fills'}, ` +
-    `move ${them} there with comfy_reference_assign; if not, ask me which in one line. ` +
-    `Then keep going in this same turn: validate and run — comfy_run uploads and wires slot files itself. ` +
-    `Don't ask me to paste ${them} again.`
-  )
-}
-
 /** The message that asks the agent to delete files — the ONLY thing that starts a delete.
  *
  *  THE WINDOW NEVER DELETES. It could (workspace.delete is app-callable, and the Replace flow
@@ -61,7 +40,7 @@ export function deletionRequest(paths: string[]): string {
 export function useRun(client: AgentdClient | null) {
   /** Send the composer's text, with whatever files are staged. */
   const send = useCallback(
-    async (text: string, opts: { origin?: 'reference' } = {}): Promise<void> => {
+    async (text: string): Promise<void> => {
       const body = text.trim()
       const { currentSessionKey: key, sessions, patch, append } = useApp.getState()
       const session = sessions[key]
@@ -93,9 +72,6 @@ export function useRun(client: AgentdClient | null) {
           sessionKey: key,
           message: body,
           ...(wireAttachments.length ? { attachments: wireAttachments } : {}),
-          // The window's own announcement is not the user answering anything — the daemon
-          // must not take it for the answer to a checkpoint. See checkpoint_marker.
-          ...(opts.origin ? { origin: opts.origin } : {}),
         })
       } catch (e) {
         // SURFACED IN THE THREAD, and `running` released. A send that failed silently leaves a
@@ -225,19 +201,11 @@ export function useRun(client: AgentdClient | null) {
         if (!res?.ok) throw new Error(String(res?.error || 'upload failed'))
         // The folder changed; the rail re-reads it (agentd/workspace-files.ts).
         useApp.getState().bumpWorkspace()
-        const saved = String(res.name || name)
-        if (!role) {
-          // A file with no slot: the agent has to be told it exists, since nothing else names it.
-          // Queued if a run is in flight; sent at once otherwise (see flushReferences).
-          const path = `${dir}/${saved}`
-          const now = useApp.getState().sessions[key]
-          if (now?.running) {
-            useApp.getState().patch(key, { pendingReferences: [...(now.pendingReferences || []), path] })
-          } else {
-            await send(referenceInstruction([path]), { origin: 'reference' })
-          }
-        }
-        return saved
+        // NOTHING IS SAID IN THE CHAT. A reference is a file in this chat's folder, and that is
+        // all it is: a message announcing it interrupted whatever the agent was asking (an
+        // approval most of all). comfy_run reads the folder when it runs and names any empty
+        // slot — and any file in no slot — so the agent learns of it exactly when it matters.
+        return String(res.name || name)
       } catch (e) {
         append(key, [
           {
@@ -250,22 +218,8 @@ export function useRun(client: AgentdClient | null) {
         throw e
       }
     },
-    [client, send],
+    [client],
   )
-
-  /** Hand over the unslotted files `addReference` had to hold. Called by the window when a run ends —
-   *  App owns WHEN (it is watching the run), this owns WHAT IS SAID.
-   *
-   *  The queue is cleared BEFORE the send, not after: `send` sets `running` true again, and a
-   *  flush that cleared afterwards would still see a full queue on the re-render in between and
-   *  announce the same files twice. Same order as the GPU resume beside it, for the same reason. */
-  const flushReferences = useCallback(async (): Promise<void> => {
-    const { currentSessionKey: key, sessions, patch } = useApp.getState()
-    const queued = sessions[key]?.pendingReferences || []
-    if (!queued.length) return
-    patch(key, { pendingReferences: [] })
-    await send(referenceInstruction(queued), { origin: 'reference' })
-  }, [send])
 
   /** Ask the agent to delete files the user ticked in the rail. Sends at once — the button
    *  is disabled while a run is going (App.tsx), so there is nothing to queue: a delete request
@@ -278,5 +232,5 @@ export function useRun(client: AgentdClient | null) {
     [send],
   )
 
-  return { send, abort, addFiles, removeFile, addReference, flushReferences, requestDeletion }
+  return { send, abort, addFiles, removeFile, addReference, requestDeletion }
 }

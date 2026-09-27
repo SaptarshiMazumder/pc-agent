@@ -17,6 +17,12 @@ slot then reads as filled like any other.
 
 A FILE that is a ComfyUI graph is a workflow the user did not label as one, and is treated as
 one; any other file has nothing to bring — it is read with library_read.
+
+AN EDITOR-ONLY WORKFLOW IS CONVERTED BY THE MACHINE'S OWN COMFYUI (EditorGraphConverter) — what
+most tutorials ship is the editor save, and a run needs the API format. The machine can only
+convert nodes it has, so a workflow needing custom node packs first names them (recorded as a
+validation would, so comfy_node_install may install them once the ask is answered); after the
+packs are in, library_use again converts it.
 """
 
 from __future__ import annotations
@@ -33,7 +39,9 @@ import chat_paths
 import library_paths
 import reference_slots
 import studio_state
+from editor_graph_converter import EditorGraphConverter
 from library_index import LibraryIndex, LibraryItem
+from workflow_reference_repository import WorkflowReferenceRepository
 from workflow_summary import WorkflowSummary
 
 _UNSAFE = re.compile(r"[^a-z0-9_-]+")
@@ -53,7 +61,9 @@ class LibraryUseTool(Tool):
         "validate it, price it, ask, run — the normal protocol. A reference (image/video) fills "
         "the slot you name in `as` (the window copies the file); it then counts as filled. "
         "A file that is a ComfyUI graph is treated as a workflow; other files are only read "
-        "(library_read)."
+        "(library_read). A workflow saved only in EDITOR format is converted by the machine's "
+        "ComfyUI; if it needs custom node packs the machine lacks, this names them — install "
+        "them (comfy_node_install, after the ask), then call library_use again."
     )
     parameters = {
         "type": "object",
@@ -75,6 +85,10 @@ class LibraryUseTool(Tool):
         "required": ["item"],
     }
 
+    def __init__(self, converter=None) -> None:
+        #: () -> EditorGraphConverter | None: the machine's ComfyUI, or None when there is none.
+        self._converter = converter or (lambda: None)
+
     async def execute(self, tool_call_id, params, abort, on_update=None):
         ws = Path(current_workspace(".") or ".")
         idx = LibraryIndex.load(ws)
@@ -93,14 +107,15 @@ class LibraryUseTool(Tool):
                 return self._reference(ws, item, files[0], as_)
             if item.kind == "workflow":
                 api = idx.api_graph_file(files)
+                ui = idx.ui_graph_file(files)
+                if api is None and ui is not None:
+                    return self._from_editor(ws, item, ui, as_)
                 if api is None:
                     return ToolResult.text(
-                        f"library_use: {item.name} has no .api.json in this version, and only "
-                        "API format can be run. Read it with library_read; ask the user for the "
-                        "API export if they want it run (never convert by hand).",
+                        f"library_use: {item.name} has no workflow graph in this version.",
                         is_error=True,
                     )
-                return self._workflow(ws, item, api, idx.ui_graph_file(files), as_)
+                return self._workflow(ws, item, api, ui, as_)
             # A file: a graph in disguise, or nothing to bring.
             p = files[0]
             if p.suffix == ".json":
@@ -108,11 +123,7 @@ class LibraryUseTool(Tool):
                 if summary is not None and summary.format == "api":
                     return self._workflow(ws, item, p, None, as_)
                 if summary is not None and summary.format == "ui":
-                    return ToolResult.text(
-                        f"library_use: {p.name} is an EDITOR-format graph; only API format can "
-                        "be run. Read it with library_read and ask the user for the API export.",
-                        is_error=True,
-                    )
+                    return self._from_editor(ws, item, p, as_)
             return ToolResult.text(
                 f"library_use: {item.name} is a file, not a workflow or a reference — there is "
                 "nothing to bring into the chat. Read it with library_read."
@@ -122,21 +133,67 @@ class LibraryUseTool(Tool):
 
     # ------------------------------------------------------------------ kinds
 
-    def _workflow(self, ws: Path, item: LibraryItem, api_src: Path, ui_src: Path | None, as_: str):
+    def _from_editor(self, ws: Path, item: LibraryItem, ui_src: Path, as_: str):
+        """An editor-only workflow, converted by the machine's ComfyUI — or the node packs it
+        needs first, named and recorded so they may be installed."""
         name = _slug(as_ or item.name)
+        converter = self._converter()
+        if converter is None:
+            return ToolResult.text(
+                f"library_use: {item.name} is saved in EDITOR format; the machine's ComfyUI converts "
+                "it for running, and there is no machine yet. Once one is connected, call "
+                "library_use again.",
+                is_error=True,
+            )
         try:
-            api = json.loads(api_src.read_text(encoding="utf-8"))
+            ui = json.loads(ui_src.read_text(encoding="utf-8"))
+            missing = converter.missing_classes(ui)
+            if missing:
+                # WHAT THE USER'S WORKFLOW NEEDS is the evidence for the packs, exactly as a
+                # validation's unknown classes are: recorded under this workflow's name.
+                studio_state.mark_first_emit(name)
+                studio_state.mark_validated(name, [], missing)
+                return ToolResult.text(
+                    f"library_use: {item.name} is saved in EDITOR format and uses node types this "
+                    "ComfyUI does not have: " + ", ".join(missing) + ". Find the pack for each (its "
+                    "Manager name or GitHub repository — the workflow's notes and the user's setup "
+                    "files usually say), install them with comfy_node_install once the ask is "
+                    "answered, then call library_use again: the machine converts it then.",
+                    is_error=True,
+                )
+            api, dropped = converter.convert(ui)
         except ValueError as e:
-            return ToolResult.text(f"library_use: {api_src.name} is not valid JSON: {e}", is_error=True)
+            return ToolResult.text(f"library_use: {item.name}: {e}", is_error=True)
+        result = self._workflow(ws, item, api, ui_src, as_)
+        if dropped and not result.is_error:
+            note = ("\nConverted by the machine's ComfyUI. Dropped links into inputs the installed "
+                    "node packs no longer have (their pack changed since the workflow was made — "
+                    "ComfyUI's editor drops these the same way): " + "; ".join(dropped)
+                    + ". Say so to the user in one line.")
+            result = ToolResult.text(result.content[0].text + note, details=result.details)
+        return result
+
+    def _workflow(self, ws: Path, item: LibraryItem, api_src, ui_src: Path | None, as_: str):
+        """`api_src`: the API graph's file, or the graph itself (converted from the editor save)."""
+        name = _slug(as_ or item.name)
+        if isinstance(api_src, dict):
+            api = api_src
+        else:
+            try:
+                api = json.loads(api_src.read_text(encoding="utf-8"))
+            except ValueError as e:
+                return ToolResult.text(f"library_use: {api_src.name} is not valid JSON: {e}", is_error=True)
         if WorkflowSummary(api).format != "api":
             return ToolResult.text(
-                f"library_use: {api_src.name} is not an API-format graph.", is_error=True
+                f"library_use: {getattr(api_src, 'name', item.name)} is not an API-format graph.", is_error=True
             )
         folder = chat_paths.chat_rel(chat_paths.WORKFLOWS)
         dest = ws / folder
         dest.mkdir(parents=True, exist_ok=True)
         api_path = dest / f"{name}.api.json"
-        shutil.copyfile(api_src, api_path)
+        api_path.write_text(json.dumps(api, indent=2), encoding="utf-8")
+        # THE USER'S OWN WORKFLOW PROVES ITS OWN MODEL FILES — see WorkflowReferenceRepository.
+        WorkflowReferenceRepository(ws, fetch=None).remember(api, f"library:{item.id}")
         ui_rel = ""
         if ui_src is not None:
             ui_path = dest / f"{name}.json"
@@ -165,8 +222,10 @@ class LibraryUseTool(Tool):
             + f"\n  run this:    {api_rel}"
             + (f"\n  import this: {ui_rel}" if ui_rel else "\n  (no editor json was saved with it)")
             + slots
-            + "\nIt is this chat's workflow now: to change it, re-emit it under the same name "
-            "with comfy_emit; then comfy_validate, comfy_price and the ask as for any design.",
+            + "\nIt is this chat's workflow now, and its model files are proven by it: "
+            "comfy_validate it WITHOUT reference_workflow_url and install what validate lists. To "
+            "change it, re-emit it under the same name with comfy_emit; then comfy_validate, "
+            "comfy_price and the ask as for any design.",
             details={"workflow": name, "api": api_rel, "ui": ui_rel, "item": item.id},
         )
 

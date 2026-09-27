@@ -1,0 +1,27 @@
+{
+  "id": "usecase-image-to-storyboard",
+  "agent_id": "comfy-artchitect",
+  "goal": "MODEL CHOICE BY USE CASE, with no model named by the user. The run stops at the agent's approval card; what is judged afterwards is WHICH models the card offered and pre-selected for this job (read from the ask_user arguments in the trace), against the quality ladder for the use case.",
+  "turns": [
+    {
+      "text": "Turn this photo into a 6-panel storyboard for a coffee ad starring her, same face in every panel.",
+      "attachments": [
+        "../assets/usecase/redhead.jpg"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "tool_called",
+      "tool": "ask_user"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 40
+    }
+  ],
+  "max_turns": 40
+}

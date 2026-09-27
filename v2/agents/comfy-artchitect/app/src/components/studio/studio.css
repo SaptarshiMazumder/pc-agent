@@ -623,3 +623,74 @@
 }
 
 .refs-role { text-transform: capitalize; }
+
+/* THE CONNECTION SECTION — where this chat's ComfyUI runs (ConnectionSection.tsx). Three
+   choices as one quiet list; the picked one tints, like a picked file row. */
+.cn { display: flex; flex-direction: column; gap: 10px; }
+.cn-options { display: flex; flex-direction: column; gap: 4px; }
+.cn-option { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border-radius: var(--r-control);
+  border: 1px solid transparent; cursor: pointer; }
+.cn-option:hover { background: var(--bg3); }
+.cn-option.is-on { background: var(--accent-soft); border-color: var(--border2); }
+.cn-option input { margin: 3px 0 0; accent-color: var(--accent); }
+.cn-option b { display: block; font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); }
+.cn-note { display: block; font-size: var(--fs-tiny); line-height: 1.45; color: var(--faint); text-wrap: pretty; }
+.cn-link, .cn-keys { display: flex; flex-direction: column; gap: 7px; }
+.cn-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cn-input { flex: 1; min-width: 0; padding: 8px 10px; background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border2); border-radius: var(--r-control); font-size: var(--fs-small); }
+.cn-input:focus { outline: none; border-color: var(--accent); }
+.cn-on { margin: 0; font-size: var(--fs-small); color: var(--dim); overflow-wrap: anywhere; }
+.cn-err { margin: 0; font-size: var(--fs-tiny); line-height: 1.5; color: var(--danger); overflow-wrap: anywhere; }
+.cn-key { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-tiny); color: var(--dim); }
+.cn-set { color: var(--ok); }
+
+/* THE QUESTION ABOVE THE MESSAGE BOX while nothing is chosen (ConnectionPrompt). */
+.cn-prompt { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; padding: 12px 14px;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-control); }
+.cn-prompt-title { font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); }
+
+/* THE VAST MACHINE LIST (ConnectionSection's VastPicker). */
+.cn-machines { display: flex; flex-direction: column; gap: 6px; }
+.cn-machine { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+  border: 1px solid var(--border2); border-radius: var(--r-control); }
+.cn-machine.is-off { opacity: .6; }
+.cn-machine-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cn-machine.is-on { background: var(--accent-soft); }
+.cn-machine b { display: block; font-size: var(--fs-small); color: var(--text); }
+.cn-refresh { margin-left: auto; padding: 2px 8px; background: none; border: 1px solid var(--border2);
+  border-radius: var(--r-control); color: var(--dim); font: inherit; font-size: var(--fs-tiny); cursor: pointer; }
+.cn-refresh:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+
+/* THE SETTLED STATE (Summary): one card — machine, status dot, storage — and Change. */
+.cn-sum { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg2);
+  border: 1px solid var(--border2); border-radius: var(--r-control); }
+.cn-sum-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cn-sum-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cn-sum-text b { font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); overflow-wrap: anywhere; }
+.cn-sum-storage { padding-left: 17px; }
+.cn-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.cn-dot.is-ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.cn-dot.is-warn { background: var(--warn); }
+.cn-link-btn { flex: none; padding: 3px 8px; background: none; border: 0; border-radius: var(--r-control);
+  color: var(--accent-text, var(--accent)); font: inherit; font-size: var(--fs-tiny); cursor: pointer; }
+.cn-link-btn:hover:not(:disabled) { background: var(--bg3); }
+.cn-link-btn:disabled { opacity: .5; cursor: default; }
+.cn-done { align-self: flex-end; }
+
+/* THE CHOOSER: a three-way switch, then only the picked option's controls. */
+.cn-choose { display: flex; flex-direction: column; gap: 8px; }
+.cn-seg { display: flex; gap: 2px; padding: 3px; background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--r-control); }
+.cn-seg-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px;
+  background: none; border: 0; border-radius: var(--r-control); color: var(--dim); font: inherit;
+  font-size: var(--fs-small); font-weight: var(--fw-semi); cursor: pointer; white-space: nowrap; }
+.cn-seg-btn:hover:not(:disabled) { color: var(--text); }
+.cn-seg-btn.is-on { background: var(--accent-soft); color: var(--text); }
+.cn-seg-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+/* THE OPTIONAL KEYS, folded. */
+.cn-fold { align-self: flex-start; padding: 2px 0; background: none; border: 0; color: var(--dim); font: inherit;
+  font-size: var(--fs-small); cursor: pointer; text-align: left; }
+.cn-fold:hover { color: var(--text); }
+.cn-sum.is-gone { border-color: var(--warn); }

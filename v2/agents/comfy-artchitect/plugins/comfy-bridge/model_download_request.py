@@ -37,11 +37,18 @@ class ModelDownloadRequest:
     }
 
     def __post_init__(self):
+        # A MODEL NAME MAY CARRY ITS SUBFOLDER — `Krea2/lora.safetensors` is how a workflow names
+        # a file ComfyUI lists from models/loras/Krea2/, and a Windows-made workflow writes it
+        # `Krea2\lora.safetensors`. One spelling from here on: forward slashes.
+        object.__setattr__(self, "filename", self.filename.replace("\\", "/").strip("/"))
+        *folders, base = self.filename.split("/")
         # Direct installs intentionally accept data-only safetensors, not pickle/checkpoint
         # code. Other formats continue through Manager's curated catalogue.
-        if (not re.fullmatch(r"[\w][\w .()\[\]-]{0,220}\.safetensors", self.filename)
-                or len(self.filename.encode("utf-8")) > 240):
-            raise ValueError("GPU direct downloads require a basename ending in .safetensors")
+        if (not re.fullmatch(r"[\w][\w .()\[\]-]{0,220}\.safetensors", base)
+                or len(self.filename.encode("utf-8")) > 240 or len(folders) > 3
+                or any(not re.fullmatch(r"[\w][\w .()\[\]-]{0,100}", f) for f in folders)):
+            raise ValueError("GPU direct downloads require a file ending in .safetensors, optionally "
+                             "inside a subfolder (Folder/file.safetensors)")
         if self.kind not in self.DIRECTORIES:
             raise ValueError(f"Unsupported model kind: {self.kind}")
         self._check_url()
@@ -66,6 +73,10 @@ class ModelDownloadRequest:
                 "Use a direct HTTPS link to the .safetensors file — no credentials in the URL, "
                 "no '..' in the path"
             )
+
+    @property
+    def basename(self) -> str:
+        return self.filename.rsplit("/", 1)[-1]
 
     @property
     def directory(self) -> str:

@@ -1,0 +1,19 @@
+{
+  "id": "own-vast-z-image-turbo",
+  "agent_id": "comfy-artchitect",
+  "goal": "The whole job on the person's OWN Vast machine (the account's connection, chosen in Workspace -> Connection): design a Z-Image-Turbo workflow, get it approved, download the missing model files onto the machine through its portal (onto its volume when it has one), render, and bring the image back into the chat. Nothing is rented and nothing is handed back to the user.",
+  "turns": [
+    "I want a z image turbo workflow: one 1024x1024 photo of a red fox standing in fresh snow at sunrise. Build it, run it on my machine and show me the image.",
+    "Keep the defaults and build — the free local route only. Install whatever it needs yourself."
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_punt_to_user" },
+    { "name": "tool_called", "tool": "ask_user" },
+    { "name": "tool_succeeded", "tool": "comfy_run" },
+    { "name": "tool_succeeded", "tool": "comfy_download" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "max_turns", "n": 60 }
+  ],
+  "max_turns": 60
+}

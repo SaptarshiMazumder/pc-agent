@@ -172,6 +172,13 @@ class ManagerCheckpointService:
         if contract is None or self._fulfilled():
             return None
         if contract.pending_approval:
+            # THE PERSON ANSWERED THE AGENT'S OWN APPROVAL CARD: that answer IS the approval.
+            # Asking the manager model whether the reply approved its contract second-guessed a
+            # button the person pressed — "Approved: … Declined: …" and then "then continue" were
+            # both read as not-yet-approved, the contract stayed pending, the manager waited on
+            # the user forever and never reviewed a stop (a two-character scene gave up twice).
+            if self._own_card_answered(messages):
+                return await self._approved_in_card(contract)
             return await self._settle_reply(messages)
         self._ledger.awaiting_user = False  # the user has answered whatever was put to them
         self._store.save(self._ledger)
@@ -421,6 +428,29 @@ class ManagerCheckpointService:
             drift=tuple(drift or ()),
             decisions=tuple(self._ledger.recent_decisions()),
             recent_results=tuple(e.render() for e in self._recorder.work_log()[-STOP_EVIDENCE_CALLS:]),
+        )
+
+    async def _approved_in_card(self, contract: DeliverableContract) -> str | None:
+        contract = replace(contract, status=ACTIVE)
+        self._ledger.contract = contract
+        self._engaged = True
+        self._ledger.awaiting_user = False
+        self._store.save(self._ledger)
+        await self._emit("manager", {"checkpoint": REPLY, "contract": contract.to_dict()})
+        return self._say("The user answered the approval card, so the plan is approved. Build to "
+                         "this contract; each criterion is checked at the end:\n" + contract.render())
+
+    def _own_card_answered(self, messages: list[Message]) -> bool:
+        """Did the person reply after the agent's own approval card was last put to them?"""
+        if not self._approval_tool:
+            return False
+        asked_at = max(
+            (i for i, m in enumerate(messages)
+             if isinstance(m, AssistantMessage) and any(c.name == self._approval_tool for c in m.tool_calls)),
+            default=-1,
+        )
+        return asked_at >= 0 and any(
+            isinstance(m, UserMessage) and not self._is_runtime(m) for m in messages[asked_at + 1:]
         )
 
     def _approval_given_in_own_card(self, messages: list[Message]) -> bool:

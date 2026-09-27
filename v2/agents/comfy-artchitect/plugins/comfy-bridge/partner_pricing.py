@@ -52,6 +52,8 @@ _DURATION_KEYS = ("duration", "duration_seconds", "seconds", "length", "video_le
 
 #: Input names that plausibly carry a resolution/quality tier.
 _TIER_KEYS = ("resolution", "mode", "quality", "size", "aspect_ratio", "profile")
+# Inputs the user writes in words; `_tier_for` never reads a tier out of them.
+_FREE_TEXT_KEYS = ("text", "caption", "description", "instructions", "script", "lyrics")
 
 
 @dataclass
@@ -208,14 +210,31 @@ def _peak(rates) -> float:
     return max(tiers) if tiers else float(rates.get("_default") or 0.0)
 
 
+def _by_leaf(inputs: dict) -> dict:
+    """Inputs keyed by the last part of their name: newer nodes nest settings (`model.duration`)."""
+    return {str(k).rsplit(".", 1)[-1]: v for k, v in (inputs or {}).items()}
+
+
+def _settings(inputs: dict) -> dict:
+    """The node's settings without its free text: a prompt saying "medium shot" is not a quality."""
+    return {k: v for k, v in (inputs or {}).items() if not _is_free_text(str(k).rsplit(".", 1)[-1])}
+
+
+def _is_free_text(name: str) -> bool:
+    name = name.lower()
+    return "prompt" in name or name in _FREE_TEXT_KEYS
+
+
 def _tier_for(rates: dict, inputs: dict) -> tuple[str, float]:
     """The rate for this node's resolution/quality, else the model's `_default`."""
     # Rate tiers only: `_default` is the fallback, `_unit` and `classes` are metadata.
     named = {k: v for k, v in rates.items() if not str(k).startswith("_") and k != "classes"}
     if named:
-        blob = " ".join(_strings_in(inputs))
+        settings = _settings(inputs)
+        blob = " ".join(_strings_in(settings))
+        leaves = _by_leaf(settings)
         for field_name in _TIER_KEYS:
-            value = (inputs or {}).get(field_name)
+            value = leaves.get(field_name)
             if isinstance(value, str):
                 blob += " " + value.lower()
         for tier in sorted(named, key=len, reverse=True):
@@ -225,8 +244,9 @@ def _tier_for(rates: dict, inputs: dict) -> tuple[str, float]:
 
 
 def _seconds_for(provider: dict, inputs: dict) -> float:
+    leaves = _by_leaf(inputs)
     for key in _DURATION_KEYS:
-        value = (inputs or {}).get(key)
+        value = leaves.get(key)
         if isinstance(value, (int, float)) and value > 0:
             return float(value)
         if isinstance(value, str):
@@ -273,21 +293,45 @@ def price_workflow(
         if not rates:
             quote.unpriced.append(class_type)
             continue
-
-        tier, rate = _tier_for(rates, inputs)
-        unit = str(rates.get("_unit") or provider.get("unit") or "per_run")
-        quantity = _seconds_for(provider, inputs) if unit == "per_second" else 1.0
-        quote.items.append(
-            LineItem(
-                node_id=str(node_id),
-                class_type=class_type,
-                provider=str(provider.get("label") or provider.get("id") or ""),
-                model=model,
-                unit=unit,
-                quantity=quantity,
-                rate=rate,
-                credits=rate * quantity,
-                note="" if tier == "_default" else tier,
-            )
-        )
+        quote.items.append(_line_item(str(node_id), class_type, provider, model, rates, inputs))
     return quote
+
+
+def price_model(
+    model: str, seconds: float | None = None, resolution: str = "", table: dict | None = None
+) -> Quote:
+    """Price ONE catalogue model for a job before any graph exists — the number an approval card
+    shows. The same rates, tiers and durations as `price_workflow`, so the card and the run agree.
+    An unknown model comes back in `unpriced`, never as zero."""
+    data = table or load_table()
+    quote = Quote(
+        markup=float(data.get("markup") or 1.0),
+        credits_per_usd=float(data.get("credits_per_usd") or 100.0),
+    )
+    inputs: dict = {"resolution": resolution} if resolution else {}
+    if seconds:
+        inputs["duration"] = seconds
+    for provider in data.get("providers") or []:
+        rates = (provider.get("models") or {}).get(model)
+        if rates:
+            quote.items.append(_line_item("", "", provider, model, rates, inputs))
+            return quote
+    quote.unpriced.append(model)
+    return quote
+
+
+def _line_item(node_id: str, class_type: str, provider: dict, model: str, rates: dict, inputs: dict) -> LineItem:
+    tier, rate = _tier_for(rates, inputs)
+    unit = str(rates.get("_unit") or provider.get("unit") or "per_run")
+    quantity = _seconds_for(provider, inputs) if unit == "per_second" else 1.0
+    return LineItem(
+        node_id=node_id,
+        class_type=class_type,
+        provider=str(provider.get("label") or provider.get("id") or ""),
+        model=model,
+        unit=unit,
+        quantity=quantity,
+        rate=rate,
+        credits=rate * quantity,
+        note="" if tier == "_default" else tier,
+    )

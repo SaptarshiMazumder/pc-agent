@@ -178,14 +178,3 @@ export function useReferenceSlots(
   const slots = mergeSlots(record, recordNewer ? [] : slotsFromThread(items), refs)
   return { slots, free: freeReferences(refs, slots) }
 }
-
-/** The one message that hands filled slots to the agent — sent once all declared slots are
- *  filled, never per file. First person, like the composer, and it names the mapping so the
- *  agent has nothing to guess. */
-export function referencesReadyInstruction(slots: Slot[]): string {
-  const pairs = slots.map((s) => `@${s.role} = ${s.file?.name || '?'}`).join(', ')
-  return (
-    `All reference slots are filled: ${pairs}. ` +
-    `Continue — validate the workflow and run it; comfy_run uploads and wires them in itself.`
-  )
-}

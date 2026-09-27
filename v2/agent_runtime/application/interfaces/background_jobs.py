@@ -122,6 +122,23 @@ class BackgroundJobs(ABC):
             f"and tell the user in one line what is being waited on."
         )
 
+    def running_note(self) -> str:
+        """What is still running, as of NOW — given to the model with each new turn, so "what's
+        going on?" is answered from the tools' latest progress, not from the line it quoted when
+        the job started. Empty when nothing runs."""
+        running = [j for j in self.jobs() if j.state == "running"]
+        if not running:
+            return ""
+        lines = [
+            f"- job {j.id}: {j.tool}, running for {clock(j.elapsed_s())}; latest progress: "
+            f"{j.last_progress or 'none reported yet'}"
+            for j in running
+        ]
+        return (
+            "STILL RUNNING IN THE BACKGROUND, as of this message (fresh — use these, not what you "
+            "said earlier):\n" + "\n".join(lines)
+        )
+
     def already_running_text(self, job: BackgroundJob) -> str:
         """The brake: the same call is already a job."""
         last = job.last_progress or "none yet"

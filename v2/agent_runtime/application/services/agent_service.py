@@ -682,6 +682,10 @@ class AgentService:
         messages.append(user_msg)  # add the new user turn to context
         session.append(user_msg)  # persist it
         system_prompt = self._build_prompt(tools, agent, mode, text)  # identity + bootstrap + tools
+        # THE JOBS STILL RUNNING, AS OF NOW — this turn's only; history keeps none of it.
+        running = background_jobs.running_note() if background_jobs is not None else ""
+        if running:
+            system_prompt += "\n\n" + running
         # @mention delegation (Layer B): with routing="delegate" (or 2+ agents named, i.e. NOT a
         # single-agent direct reroute) the serving agent delegates via message_agent and weaves
         # the replies in. Suppressed when we ALREADY rerouted this turn straight to the one agent

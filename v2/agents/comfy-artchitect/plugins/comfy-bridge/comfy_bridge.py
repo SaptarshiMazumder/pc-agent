@@ -3,13 +3,13 @@
 EVERY REQUEST GOES THROUGH THE HOST. `fetch` is the brokered call: this module never opens a
 socket, never reads an environment variable, never spawns anything.
 
-THE INSTANCE IS PROVISIONED, AND ONLY EVER PROVISIONED. `gpu_ensure` (plugins/vast-bridge) asks
-the platform for this user's machine and writes its address to `.studio/connection.json`; every
-tool here reads that file and nothing else. There is no setting, no pasted URL and no manual
-override — the pasted-URL path (`comfy_connect`) was removed because the sandbox no longer
-fences hosts, so it was the one way this agent could be pointed at a box the platform did not
-rent and does not control. One copy of this agent serves everyone because the FILE is per
-workspace, not because anything in here is per caller.
+WHICH COMFYUI — THE ACCOUNT'S CHOICE. The person chooses once (comfy_connect, asked by the window):
+a GPU rented from the platform, their own Vast machine, or any ComfyUI address — and every chat
+uses it. Until they choose, nothing is rented. `gpu_ensure` (plugins/vast-bridge) writes the rented
+machine's address to `.studio/connection.json`; the choice itself lives in
+`.studio/comfy-connection.json` (ComfyConnectionResolver). On the person's own machine
+nothing is leased or billed, and paid partner nodes carry THEIR Comfy key, never the platform's.
+A hosted daemon dials only public addresses for a URL a person gave (fetch_broker._public_only).
 (`comfy_research`, in its own module, uses the same brokered `fetch` to reach Hugging Face and
 Civitai.)
 
@@ -45,7 +45,14 @@ from agent_runtime.infrastructure.net.outbound import fetch
 import chat_paths
 import reference_slots
 import studio_state
+from account_connection_repository import USER_URL, USER_VAST, AccountConnectionRepository
+from comfy_connect_tool import ComfyConnectTool
+from comfy_connection_resolver import ComfyConnectionResolver
+from manual_model_downloader import ManualModelDownloader
 from gpu_model_download_client import GpuModelDownloadClient
+from gpu_node_pack_install_client import GpuNodePackInstallClient
+from editor_graph_converter import EditorGraphConverter
+import gpu_node_pack_worker
 from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
 from model_installation_service import ModelInstallationService
 from model_download_source_resolver import ModelDownloadSourceResolver
@@ -183,15 +190,20 @@ def _locate_reference(root: Path, chat_dir: Path, path: str) -> str | None:
     return None
 
 
+def _connection_resolver() -> ComfyConnectionResolver:
+    root = Path(current_workspace(".") or ".")
+    return ComfyConnectionResolver(root, AccountConnectionRepository(root))
+
+
 def _override() -> dict | None:
-    """The provisioned connection for this run, or None. {url, auth}: `url` as the platform wrote
-    it, `auth` a header value or '' (a rented box carries none today)."""
-    try:
-        raw = (Path(current_workspace(".") or ".") / _CONN_FILE).read_text(encoding="utf-8")
-        data = json.loads(raw)
-        return data if isinstance(data, dict) and data.get("url") else None
-    except (OSError, ValueError):
-        return None
+    """The account's ComfyUI, or None: {kind, url, auth, portal_url?}. The person's own machine
+    if they connected one, else the rented GPU's handover file — if they approved renting."""
+    return _connection_resolver().current()
+
+
+def _own_connection() -> bool:
+    """The person's own machine: nothing is rented, leased or billed for it."""
+    return _connection_resolver().is_own()
 
 
 def _split_query(base: str) -> tuple[str, str]:
@@ -241,11 +253,9 @@ class _NoInstance:
     ok = False
     status = 0
     text = ""
-    error = (
-        "no GPU is running for this user yet. Call gpu_ensure first — it starts one (or reuses "
-        "the one this user already has) and points every comfy tool at it. Do NOT ask the user "
-        "for a URL."
-    )
+
+    def __init__(self) -> None:
+        self.error = _no_instance_message()
 
     def json(self):
         return {}
@@ -297,8 +307,8 @@ def _lease(seconds: int) -> None:
     acknowledge a lease on a machine already being destroyed. Existing GPU jobs remain
     protected by the reaper's activity probes if the platform is temporarily unreachable."""
     account_id = current_account_id()
-    if not account_id:
-        return
+    if not account_id or _own_connection():
+        return  # the person's own machine: the platform has no lease on it
     response = fetch(
         f"{_ACCOUNTS}/vast/heartbeat",
         method="POST",
@@ -321,6 +331,20 @@ def _lease(seconds: int) -> None:
 _WORK_LEASE_S = 3 * 60
 
 
+def _no_instance_message() -> str:
+    """Why there is nothing to talk to: not chosen yet, or the approved GPU not started."""
+    if _connection_resolver().choice() is None:
+        return (
+            "the user has not chosen where ComfyUI runs yet, so nothing can be uploaded, "
+            "installed or run. " + 'Tell the user plainly, in these words or close to them: "Before I can run this, choose where it runs: rent a GPU on our servers (it uses credits while it runs), or — if you have your own ComfyUI — connect it in Workspace → Connection." Then stop; do not rent anything yourself.'
+        )
+    return (
+        "no GPU is running for this user yet. Call gpu_ensure first — it starts one (or reuses "
+        "the one this user already has) and points every comfy tool at it. Do NOT ask the user "
+        "for a URL."
+    )
+
+
 def _no_instance() -> "ToolResult":
     """The same guidance _NoInstance carries, as a tool result.
 
@@ -329,7 +353,7 @@ def _no_instance() -> "ToolResult":
     They passed "" straight to the broker, which refused with "a fetch request needs a url": true,
     unactionable, and nothing to do with the real problem, which is that no GPU is running.
     """
-    return ToolResult.text(_NoInstance.error, is_error=True)
+    return ToolResult.text(_no_instance_message(), is_error=True)
 
 
 def _get(path: str, timeout_s: float = 30.0):
@@ -350,6 +374,19 @@ def _failed(res, what: str) -> str:
     A transport failure and a 401 need different fixes, and "could not reach ComfyUI" hides
     which one happened.
     """
+    if res.error and _own_connection():
+        return (
+            f"{what}: could not reach the user's OWN machine ({res.error}) — it is not a rented GPU, "
+            "so nothing of ours can restart it. It may have been stopped or destroyed on Vast. Tell "
+            "the user in those words, and that they can start it again or pick another running "
+            "machine (or rent a GPU) in Workspace → Connection; then stop — do not retry, and do "
+            "not call it the rented GPU."
+        )
+    if res.status in (401, 403) and _own_connection():
+        return (
+            f"{what}: the user's ComfyUI refused the login (HTTP {res.status}). Ask them to "
+            "reconnect it in Workspace → Connection with a link that carries its token."
+        )
     if res.error:
         return (
             f"{what}: could not reach the instance ({res.error}). If a GPU was running it may "
@@ -1170,6 +1207,14 @@ _RUN_WAIT_CAP_S = 100.0
 #: substitutes declared names in JSON bodies as it always has in headers, so the key can reach
 #: `extra_data` without this plugin ever seeing it — and without the agent being made trusted.
 _COMFY_KEY_REF = "${COMFY_API_KEY}"
+#: THE PERSON'S OWN Comfy key — the only one a ComfyUI they run ever receives. Theirs to set on the
+#: Connection section; unset, the partner node answers 401 with the name visible.
+_USER_COMFY_KEY_REF = "${USER_COMFY_API_KEY}"
+
+#: Which stored key resolves a Hugging Face / Civitai link: the platform's for its rented GPU, the
+#: person's own for their machine. Neither ever reaches the machine (ModelDownloadSourceResolver).
+_PLATFORM_SOURCE_SECRETS = {"huggingface": "HF_TOKEN", "civitai": "CIVITAI_TOKEN"}
+_USER_SOURCE_SECRETS = {"huggingface": "USER_HF_TOKEN", "civitai": "USER_CIVITAI_TOKEN"}
 
 
 def _api_node_flags(prompt: dict) -> dict[str, bool]:
@@ -1371,7 +1416,10 @@ class ComfyRunTool(Tool):
             inventory = _get("/api/object_info", timeout_s=60.0)
             if not inventory.ok:
                 return ToolResult.text(_failed(inventory, "check model readiness"), is_error=True)
-            missing_models = ModelReadiness(inventory.json()).missing(prompt)
+            readiness = ModelReadiness(inventory.json())
+            # Model names as THIS instance spells them (Krea2\x on Windows, Krea2/x on Linux).
+            prompt = readiness.respell(prompt)
+            missing_models = readiness.missing(prompt)
             if missing_models:
                 return ToolResult.text(
                     "Cannot run: required models are not loadable:\n  " + "\n  ".join(missing_models)
@@ -1397,8 +1445,10 @@ class ComfyRunTool(Tool):
                         "waiting for reference(s). The user adds them in the References panel, "
                         "and this refuses until every slot is filled:\n"
                         + reference_slots.describe(ws, list(roles))
-                        + "\nNothing for you to do about it: say which slots are empty, end the "
-                        "turn, and run again when they are filled.",
+                        + "\nTell the user in one line which slots are still empty (and ask which "
+                        "role a file 'not in any slot' fills, if there is one) and end the turn. "
+                        "Nothing announces files as they are added: run again when the user says "
+                        "they are there.",
                         is_error=True,
                     )
                 names: dict[str, str] = {}
@@ -1427,11 +1477,16 @@ class ComfyRunTool(Tool):
             # PAID PARTNER NODES: the instance says which are paid, the table says how much;
             # price, gate, then submit with the platform's key.
             flags = _api_node_flags(prompt)
-            quote = _quote_for(prompt, flags)
             body: dict = {"prompt": prompt}
             charge_credits = 0
             charge_usd = 0.0
-            if quote is None:
+            if _own_connection():
+                # THE PERSON'S OWN COMFYUI: their Comfy account pays its partner nodes, so there
+                # is nothing to price, gate or charge — and the platform's key must never be sent
+                # to a server the platform does not run.
+                if any(flags.values()):
+                    body["extra_data"] = {"api_key_comfy_org": _USER_COMFY_KEY_REF}
+            elif (quote := _quote_for(prompt, flags)) is None:
                 # Pricing is unavailable. Only a problem if the graph actually uses paid nodes —
                 # and we cannot tell which it is, so refuse only if the table is what failed.
                 import partner_pricing  # re-raised here so the message names the real fault
@@ -1822,13 +1877,16 @@ def _download_ready(request) -> bool:
 async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
     """filename -> loader name, for those of `filenames` a loader lists within the rescan grace."""
     started = time.monotonic()
-    want = {f.lower() for f in filenames}
+    def base(f: str) -> str:
+        return Path(f.replace("\\", "/")).name.lower()
+
+    want = {base(f) for f in filenames}
     found: dict[str, str] = {}
     while True:
         listed = _loadable_names()
         for f in filenames:
-            if f.lower() in listed:
-                found[f] = listed[f.lower()]
+            if base(f) in listed:
+                found[f] = listed[base(f)]
         if len(found) == len(want) or abort.is_set():
             return found
         if time.monotonic() - started >= _LOADABLE_GRACE_S:
@@ -1948,15 +2006,11 @@ class ComfyInstallTool(Tool):
                 if on_update:
                     on_update(ToolResult.text(message))
 
+            conn = _override() or {}
+            own = conn.get("kind") in (USER_VAST, USER_URL)
+
             def connection():
-                response = fetch(
-                    f"{_ACCOUNTS}/vast/download-connection", method="POST", headers=_AUTH,
-                    json={"account_id": current_account_id()}, timeout_s=30,
-                )
-                if not response.ok:
-                    raise ValueError(f"GPU download connection unavailable (HTTP {response.status}); "
-                                     "accounts service must support /vast/download-connection")
-                return response.json()
+                return _portal_connection(conn)
 
             def submit(file, entry):
                 body = {"ui_id": f"agent-{file['filename']}",
@@ -1978,9 +2032,12 @@ class ComfyInstallTool(Tool):
                 )
                 return state
 
-            direct = GpuModelDownloadClient(
+            direct = ManualModelDownloader() if conn.get("kind") == USER_URL else GpuModelDownloadClient(
                 fetch=fetch, connection=connection, current_connection=_override, get=_get,
                 lease=lambda: _lease(_WORK_LEASE_S), ready=_download_ready,
+                # The person's own Vast machine keeps models on its volume; the rented GPU
+                # downloads exactly as it always has.
+                use_volume=conn.get("kind") == USER_VAST,
             )
             selected_sources = {}
             installer = ModelInstallationService(
@@ -1991,7 +2048,9 @@ class ComfyInstallTool(Tool):
                 await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
                 # A Civitai link is resolved HERE, where the platform's key is substituted,
                 # into the signed storage URL the GPU fetches without any credential.
-                resolve_source=ModelDownloadSourceResolver(fetch=fetch).resolve,
+                resolve_source=ModelDownloadSourceResolver(
+                    fetch=fetch, secrets=_USER_SOURCE_SECRETS if own else _PLATFORM_SOURCE_SECRETS,
+                ).resolve,
                 on_source=lambda file: selected_sources.update({file["filename"]: file}),
             )
             installed = await installer.install(files, abort, report)
@@ -2011,17 +2070,39 @@ class ComfyInstallTool(Tool):
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
 
-def _node_catalog() -> dict:
-    """ComfyUI-Manager's custom-NODE-PACK catalog, keyed by pack id. The sibling of
-    `_manager_catalog` (models): same Manager, different registry. Each entry carries `title`,
-    `repository`, `version`/`cnr_latest` and a `state` of installed / not-installed / disabled."""
+def _portal_connection(conn: dict) -> dict:
+    """{portal_url, url, auth} for the machine's Instance Portal — the door our fixed programs go
+    through (model downloads, node packs). The person's Vast machine: as its connection recorded
+    it. The rented GPU: asked of the platform. A ComfyUI connected by address alone has none."""
+    if conn.get("kind") == USER_VAST:
+        return {"portal_url": conn["portal_url"], "url": conn["url"], "auth": conn["auth"]}
+    if conn.get("kind") == USER_URL:
+        raise ValueError("this ComfyUI was connected by its address alone, so nothing can be run on "
+                         "the machine itself")
+    response = fetch(
+        f"{_ACCOUNTS}/vast/download-connection", method="POST", headers=_AUTH,
+        json={"account_id": current_account_id()}, timeout_s=30,
+    )
+    if not response.ok:
+        raise ValueError(f"GPU download connection unavailable (HTTP {response.status}); "
+                         "accounts service must support /vast/download-connection")
+    return response.json()
+
+
+def _node_catalog() -> tuple[dict, str]:
+    """(ComfyUI-Manager's custom-NODE-PACK catalog keyed by pack id, why it could not be read).
+    The sibling of `_manager_catalog` (models): same Manager, different registry. Each entry
+    carries `title`, `repository`, `version`/`cnr_latest` and a `state` of installed /
+    not-installed / disabled. The reason is the real one — a guess ("an old build") sent the
+    agent after the wrong fix."""
     res = _get("/customnode/getlist?mode=cache", timeout_s=90.0)
     if not res.ok:
-        return {}
+        return {}, _failed(res, "read ComfyUI-Manager's node registry (/customnode/getlist)")
     try:
-        return (res.json() or {}).get("node_packs") or {}
+        packs = (res.json() or {}).get("node_packs")
     except ValueError:
-        return {}
+        return {}, "ComfyUI-Manager's node registry answered, but not as JSON"
+    return (packs, "") if packs else ({}, "ComfyUI-Manager's node registry came back empty")
 
 
 def _resolve_pack(catalog: dict, query: str) -> tuple[str, dict] | None:
@@ -2071,11 +2152,13 @@ class ComfyNodeInstallTool(Tool):
     default_max_retries = _WAIT_ATTEMPTS
     description = (
         "Install a ComfyUI CUSTOM NODE PACK on the user's instance — IPAdapter, PuLID, a LoRA "
-        "trainer, video helpers, anything in ComfyUI-Manager's registry — WITHOUT asking the user "
-        "to touch Manager themselves. Give the pack's registry id, its title, or its GitHub URL "
-        "(research and `comfy_validate`'s missing-node report both give you these). It installs "
-        "through ComfyUI-Manager, restarts ComfyUI so the new nodes load, and returns once the "
-        "instance answers again — then comfy_node_spec the class to confirm. This is how you fix "
+        "trainer, video helpers — WITHOUT asking the user to touch Manager themselves. Give the "
+        "pack's registry id, its title, or its GitHub URL (research and `comfy_validate`'s "
+        "missing-node report both give you these). A pack in ComfyUI-Manager's registry installs "
+        "through Manager; one that is NOT listed installs straight from its GitHub/GitLab/"
+        "Hugging Face repository URL, on the machine itself. Either way it restarts ComfyUI so "
+        "the new nodes load and returns once the instance answers again — then comfy_node_spec "
+        "the class to confirm. This is how you fix "
         "a `missing_node_type` / unknown-node-class yourself. Node packs are code: say which one "
         "you are installing and why before you call this."
     )
@@ -2109,30 +2192,35 @@ class ComfyNodeInstallTool(Tool):
             allowed, why = studio_state.node_install_allowed()
             if not allowed:
                 return ToolResult.text(why, is_error=True)
+            # A REPOSITORY LINK can install without Manager's registry — see _install_from_repo.
+            try:
+                gpu_node_pack_worker.repository(query)
+                repo = query
+            except ValueError:
+                repo = ""
             if not _manager_present():
+                if repo:
+                    return await self._install_from_repo(repo, abort, on_update)
                 return ToolResult.text(
-                    "this instance has no ComfyUI-Manager, so custom node packs cannot be "
-                    "installed over its API. Either install ComfyUI-Manager on the instance, or "
-                    "set COMFYUI_MCP_URL to an instance MCP that can install node packs.",
+                    "this instance has no ComfyUI-Manager, so a pack can only be installed from its "
+                    "repository link (https://github.com/<owner>/<repo>) — call again with that.",
                     is_error=True,
                 )
 
-            catalog = _node_catalog()
+            catalog, catalog_error = _node_catalog()
+            found = _resolve_pack(catalog, query) if catalog else None
+            if found is None and repo:
+                return await self._install_from_repo(repo, abort, on_update)
             if not catalog:
-                return ToolResult.text(
-                    "could not read ComfyUI-Manager's node registry from this instance "
-                    "(/customnode/getlist). Manager may be an old build or still starting.",
-                    is_error=True,
-                )
-            found = _resolve_pack(catalog, query)
+                return ToolResult.text(catalog_error, is_error=True)
             if found is None:
                 alts = _pack_candidates(catalog, query)
                 return ToolResult.text(
                     f"no node pack matching {query!r} in this instance's Manager registry "
                     f"({len(catalog)} packs)."
                     + (f" Closest: {'; '.join(alts)}. Call again with an exact id." if alts else "")
-                    + " A pack that is genuinely absent from the registry can only be installed "
-                    "from a raw git URL, which Manager refuses on a remote instance.",
+                    + " A pack that is not in the registry installs from its repository link: "
+                    "call again with https://github.com/<owner>/<repo>.",
                     is_error=True,
                 )
             pack_id, entry = found
@@ -2212,6 +2300,37 @@ class ComfyNodeInstallTool(Tool):
             )
 
 
+    @staticmethod
+    async def _install_from_repo(repo: str, abort, on_update) -> ToolResult:
+        """A pack Manager's registry does not list, cloned and installed ON the machine through
+        its portal (GpuNodePackWorker) — the rented GPU and the person's own Vast machine."""
+        try:
+            portal = _portal_connection(_override() or {})
+        except ValueError as e:
+            _, name = gpu_node_pack_worker.repository(repo)
+            return ToolResult.text(
+                f"{e}. Tell the user to install it themselves: clone {repo} into their ComfyUI's "
+                f"custom_nodes folder (as custom_nodes/{name}), pip install its requirements.txt "
+                "if it has one, and restart ComfyUI — then call comfy_validate again.",
+                is_error=True,
+            )
+
+        def report(message):
+            if on_update:
+                on_update(ToolResult.text(message))
+
+        client = GpuNodePackInstallClient(fetch=fetch, get=_get, lease=lambda: _lease(_WORK_LEASE_S))
+        try:
+            status = await client.install(portal, repo, _WAIT_ATTEMPT_S - 60, abort, report)
+        except ValueError as e:
+            return ToolResult.text(f"install {repo}: {e}", is_error=True)
+        return ToolResult.text(
+            f"installed {repo} into custom_nodes/{status.get('folder')} and restarted ComfyUI — it "
+            "answers again. comfy_node_spec the node class you need to confirm it loaded before "
+            "emitting a workflow that uses it."
+        )
+
+
 class ComfyStudioStateTool(Tool):
     name = "comfy_studio_state"
     label = "Studio telemetry"
@@ -2286,9 +2405,12 @@ class ComfyValidateTool(Tool):
             },
             "reference_workflow_url": {
                 "type": "string",
-                "description": "Raw publisher/ComfyUI reference workflow JSON URL (GitHub or HF). "
-                "Required for a new model stack with separate VAE/text encoders; reused for unchanged stacks. "
-                "The tool fetches it and rejects incompatible companion filenames before authorising installs.",
+                "description": "The workflow that proves the model stack: a raw publisher/ComfyUI "
+                "workflow JSON URL (GitHub or HF), OR — when the user brought the workflow — the path "
+                "of that workflow's .json in their Library (library/uploaded/…, library/saved/…, "
+                "library/suggested/…), which is evidence for every file it names. Required for a new "
+                "model stack with separate VAE/text encoders; reused for unchanged stacks. Files the "
+                "reference does not name are rejected before any install is authorised.",
             },
         },
     }
@@ -2320,12 +2442,6 @@ class ComfyValidateTool(Tool):
                     WorkflowInstallerExporter.invalidate(export_path)
             except (OSError, ValueError):
                 pass  # do not change validation semantics if old export cleanup is unavailable
-            reference_problems = WorkflowReferenceRepository(
-                Path(current_workspace(".") or "."), fetch=fetch,
-            ).check(graph, str(params.get("reference_workflow_url") or "").strip())
-            if reference_problems:
-                return ToolResult.text("Model stack is not verified:\n" + "\n".join(reference_problems), is_error=True)
-
             settled = await _settle_downloads(abort, on_update, "validate")
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
@@ -2389,8 +2505,8 @@ class ComfyValidateTool(Tool):
                     choices = s[0] if isinstance(s, list) and s else None
                     if not isinstance(choices, list) or not isinstance(value, str):
                         continue
-                    if value in choices:
-                        continue
+                    if value in choices or ModelReadiness.spelled(value, choices):
+                        continue  # present — possibly spelled with the other slash; comfy_run respells it
                     # A MISSING WEIGHT IS A SHOPPING-LIST ITEM, NOT AN INVALID VALUE. The field's
                     # NAME says it is a weights slot; what is installed in it says nothing. On a
                     # fresh box the VAE enum is one sentinel, `pixel_space`, so judged by its
@@ -2400,7 +2516,13 @@ class ComfyValidateTool(Tool):
                     # of memory. The model diagnosed that, re-emitted the right file, and was
                     # refused again. Same rule _hide_installed_files already applies.
                     if ModelReadiness.is_model_input(field, choices, value):
-                        missing_files.append(f"{value}  (for {cls}.{field}, node {nid})")
+                        near = ModelReadiness.closest(value, choices)
+                        missing_files.append(
+                            f"{value}  (for {cls}.{field}, node {nid})"
+                            + (f" — this machine has '{near}': if that is the same model, ask the "
+                               "user in one line whether to use it before downloading anything"
+                               if near else "")
+                        )
                         raw_missing.append(str(value))
                     else:
                         legal = ", ".join(str(c) for c in choices[:8])
@@ -2420,6 +2542,21 @@ class ComfyValidateTool(Tool):
                     "\nreference slots (the user fills them in the References panel; comfy_run "
                     "refuses while any is EMPTY):\n" + reference_slots.describe(ws, slot_roles)
                 )
+            # PROOF GUARDS DOWNLOADS, AND ONLY DOWNLOADS. The reference check exists so a file the
+            # agent names is not fetched on a guess; a workflow whose every model is already on
+            # the machine downloads nothing, and demanding proof of it only stood between the
+            # person and a workflow that runs (their own, with a model they chose on the machine).
+            if raw_missing:
+                reference_problems = WorkflowReferenceRepository(
+                    Path(current_workspace(".") or "."), fetch=fetch,
+                ).check(graph, str(params.get("reference_workflow_url") or "").strip())
+                if reference_problems:
+                    return ToolResult.text(
+                        "Model stack is not verified — these files would be downloaded, and nothing "
+                        "yet proves they belong with this model:\n  " + "\n  ".join(raw_missing)
+                        + "\n" + "\n".join(reference_problems),
+                        is_error=True,
+                    )
             # THE RECORD THE INSTALL GATES READ. Written whether or not the graph compiles: a
             # clean validation is also a fact ("nothing to install"), and comfy_install answers
             # from this and nothing else.
@@ -2495,9 +2632,11 @@ class ComfyPriceTool(Tool):
         "What ComfyUI's paid partner nodes cost, in credits. Call it BEFORE choosing between a "
         "paid and a free route, and before the ask (ask_user), so the user is shown real numbers "
         "instead of 'this costs money'. With no arguments it lists every paid provider and model "
-        "available. Give it a workflow name to price that emitted graph exactly, including "
-        "video duration and resolution. The user is charged these credits when the run is "
-        "submitted; nobody has to supply an API key."
+        "available. Give it a `model` from that list (with `seconds` for video and `resolution`) "
+        "to get the exact price of that model for THIS job — the numbers every paid ask_user row "
+        "carries, copied as printed. Give it a workflow name to price that emitted graph exactly. "
+        "The user is charged these credits when the run is submitted; nobody has to supply an "
+        "API key."
     )
     parameters = {
         "type": "object",
@@ -2508,7 +2647,19 @@ class ComfyPriceTool(Tool):
                     "An emitted workflow to price exactly: the path comfy_emit returned, or just"
                     " its name. Omit to list the whole catalogue."
                 ),
-            }
+            },
+            "model": {
+                "type": "string",
+                "description": "A model id exactly as the catalogue lists it, e.g. 'seedance-2-5'.",
+            },
+            "seconds": {
+                "type": "number",
+                "description": "Video length for a per-second model. Omitted: the provider's default length.",
+            },
+            "resolution": {
+                "type": "string",
+                "description": "The tier as the catalogue lists it in brackets, e.g. '720p', '2k', 'high'.",
+            },
         },
     }
 
@@ -2518,6 +2669,9 @@ class ComfyPriceTool(Tool):
 
             table = partner_pricing.load_table()
             rate = _platform_rate()
+            model = str(params.get("model") or "").strip()
+            if model:
+                return self._model_quote(table, rate, model, params)
             name = str(params.get("workflow") or "").strip()
             if not name:
                 return ToolResult.text(
@@ -2559,6 +2713,31 @@ class ComfyPriceTool(Tool):
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_price failed: {type(e).__name__}: {e}", is_error=True)
+
+    @staticmethod
+    def _model_quote(table: dict, rate: float, model: str, params: dict) -> ToolResult:
+        """One model's price for this job: the exact row an approval card shows."""
+        import partner_pricing
+
+        seconds = params.get("seconds")
+        seconds = float(seconds) if isinstance(seconds, (int, float)) and seconds > 0 else None
+        resolution = str(params.get("resolution") or "").strip()
+        quote = partner_pricing.price_model(model, seconds, resolution, table)
+        if not quote.ok:
+            return ToolResult.text(
+                f"no model {model!r} in the price list — call comfy_price with no arguments and "
+                "use an id exactly as it is listed.",
+                is_error=True,
+            )
+        item = quote.items[0]
+        credits = quote.platform_credits(rate)
+        length = f", {item.quantity:g} s" if item.unit == "per_second" else ""
+        tier = f", {item.note}" if item.note else ""
+        return ToolResult.text(
+            f"{model}{tier}{length}: usd={quote.usd:.4f} credits={credits:,} — put exactly these "
+            "numbers on this model's ask_user row.",
+            details={"usd": round(quote.usd, 4), "credits": credits, "credits_per_usd": rate},
+        )
 
     @staticmethod
     def _catalogue(table: dict, rate: float) -> str:
@@ -2659,6 +2838,7 @@ def register(api, ctx):
     api.register_tool(ComfyReferenceAssignTool())
     api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyPriceTool())
+    api.register_tool(ComfyConnectTool())
     api.register_tool(ComfyRunTool())
     api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())
@@ -2667,5 +2847,7 @@ def register(api, ctx):
     # THE LIBRARY — the one folder chats share, read-only for the agent. See library_paths.
     api.register_tool(LibraryFindTool())
     api.register_tool(LibraryReadTool())
-    api.register_tool(LibraryUseTool())
+    api.register_tool(LibraryUseTool(
+        converter=lambda: EditorGraphConverter(get=_get, post=_post) if _override() else None,
+    ))
     api.register_tool(TemplateUseTool())

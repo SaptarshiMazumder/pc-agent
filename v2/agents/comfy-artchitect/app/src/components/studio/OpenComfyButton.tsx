@@ -54,11 +54,24 @@ export interface EngineReadiness {
    ComfyUI itself is the one thing a person may want to do outside this window. Before that it is
    the same button, disabled, saying why — starting, waiting for a GPU, offline — so the control
    never moves and never lies about being clickable. */
-export function OpenComfyButton({ client, engine }: { client?: AgentdClient; engine: EngineReadiness }) {
+export function OpenComfyButton({
+  client,
+  engine,
+  ownUrl = '',
+}: {
+  client?: AgentdClient
+  engine: EngineReadiness
+  /** The person's own ComfyUI (no token in it): opened as is — the platform has no link for it. */
+  ownUrl?: string
+}) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
   const open = () => {
+    if (ownUrl) {
+      window.open(ownUrl, '_blank', 'noopener')
+      return
+    }
     if (!client || busy) return
     const tab = window.open('', '_blank')
     setBusy(true)
@@ -82,7 +95,7 @@ export function OpenComfyButton({ client, engine }: { client?: AgentdClient; eng
         className={`eng-open${live ? ' is-live' : ''}`}
         onClick={open}
         disabled={!live || busy}
-        title={live ? "Open this account's ComfyUI in a new tab" : engine.label}
+        title={live ? (ownUrl ? `Open ${ownUrl} in a new tab` : "Open this account's ComfyUI in a new tab") : engine.label}
       >
         {live ? (
           <>

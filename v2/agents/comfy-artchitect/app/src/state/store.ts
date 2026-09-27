@@ -84,16 +84,6 @@ export interface ChatSession {
    *  sees the machine come ready, this is what tells it to send the continue the user would
    *  otherwise type. Cleared by any send. */
   awaitingGpu: boolean
-  /** Reference media that is ALREADY UPLOADED and still has to be mentioned to the agent, as
-   *  full workspace paths.
-   *
-   *  Adding reference media is two steps — put the file in the workspace, then tell the agent
-   *  where it is — and only the second one has to wait for a turn to end. They used to be one
-   *  action gated on `running`, so the upload waited too: the moment you most want to hand over
-   *  a photo is while the agent is mid-install and about to need it, and that was exactly when
-   *  the button was dead. The file goes up immediately now and this holds the sentence until
-   *  saying it is legal. Cleared by the send that carries it. */
-  pendingReferences: string[]
 }
 
 const EMPTY: ChatSession = {
@@ -105,7 +95,6 @@ const EMPTY: ChatSession = {
   pendingArtifacts: [],
   loadingHistory: false,
   awaitingGpu: false,
-  pendingReferences: [],
 }
 
 export interface AppState {

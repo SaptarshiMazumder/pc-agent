@@ -351,13 +351,19 @@ def install_allowed(filename: str) -> tuple[bool, str]:
     """May `filename` be installed? Only if a validation in this conversation listed it."""
     if not _session():
         return True, ""
-    want = (filename or "").strip().lower()
+    def spelled(value) -> str:
+        return str(value or "").strip().replace("\\", "/").lower()
+
+    want = spelled(filename)
+    base = want.rsplit("/", 1)[-1]
     for name, rec in _validations().items():
         # A VALIDATION WHOSE WORKFLOW IS GONE AUTHORISES NOTHING. The window deletes files
         # directly now (one warning), so a record can outlive its file; the file is the truth.
         if not _workflow_exists(name):
             continue
-        if any(str(f).strip().lower() == want for f in rec.get("missing_files") or []):
+        # Same file whichever slash, and a bare name matches its subfoldered listing.
+        if any(spelled(f) == want or spelled(f).rsplit("/", 1)[-1] == base == want
+               for f in rec.get("missing_files") or []):
             # NAMED BY A VALIDATION — and the ask has been answered. Installing is Phase 3; the
             # ask is 3.5. It does not matter that a download is free: it is the design being
             # built before anyone said yes.

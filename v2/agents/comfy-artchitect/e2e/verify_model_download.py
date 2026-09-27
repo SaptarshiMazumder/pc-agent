@@ -66,7 +66,7 @@ def main():
                                   "host": response.url.host, "keys_used": used}), flush=True)
                 return Response(response)
 
-    request = ModelDownloadRequest(**ModelDownloadSourceResolver(fetch=fetch).resolve(
+    request = ModelDownloadRequest(**ModelDownloadSourceResolver(fetch=fetch, secrets={"huggingface": "HF_TOKEN", "civitai": "CIVITAI_TOKEN"}).resolve(
         {"url": args.url, "filename": args.filename, "kind": args.kind}))
     opener = urllib.request.build_opener(ModelDownloadRedirectPolicy(request.source),
         urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())))

@@ -1,13 +1,105 @@
 {
-  "_comment": "WHAT PAID COMFYUI PARTNER NODES COST, and therefore what we charge for them. Edit this file and redeploy the agent — no code change, which is the whole point of it being data. Prices are ComfyUI credits, taken from https://docs.comfy.org/tutorials/partner-nodes/pricing (~100 credits = $1). They DO drift; re-check this file against that page when Comfy announces changes, and against the account's actual invoice.",
+  "_comment": "WHAT PAID COMFYUI PARTNER NODES COST, and therefore what we charge for them. Edit this file and redeploy the agent — no code change, which is the whole point of it being data. Prices are ComfyUI credits, taken from https://docs.comfy.org/tutorials/partner-nodes/pricing (211 credits = $1 — support.comfy.org 'How credits work in Comfy'; the page's figures are the node badges' USD x 211). They DO drift; re-check this file against that page when Comfy announces changes, and against the account's actual invoice.",
   "_comment_safety": "THE DEFAULT FOR AN UNKNOWN PAID NODE IS TO REFUSE, never to charge nothing — in TWO layers. Here: a class that matches a provider but no model entry is `unpriced` and the run is refused naming the class. In comfy_run: a class that matches NO provider but that the instance itself marks `api_node` is refused too — that is the case this file cannot see (a provider Comfy added last week), and before that check it ran on the platform's balance for free.",
   "_comment_matching": "A node is priced in two steps: its class_type is matched against a provider (`match` = substring of the class name; `match_regex` = regex over the lowercased class name, for the providers whose hosted nodes share a prefix with free local ones), then the MODEL is found — first by `classes` (substrings of the class name, for nodes whose model is their class), then by searching the node's own inputs for one of the provider's model names, else the provider's `default_model`. A model's `_unit` overrides the provider's unit (a per-image model inside a per-second provider). This is deliberately loose about exact class names, because Comfy renames and adds nodes faster than this file can track.",
   "version": 2,
-  "updated": "2026-09-13",
-  "credits_per_usd": 100,
+  "updated": "2026-09-27",
+  "credits_per_usd": 211,
   "_comment_markup": "What we charge on top of what Comfy charges us. It is not profit-taking so much as insurance: the prices below are a snapshot, Comfy's are live, and a table that has drifted low bills us the difference on every run.",
   "markup": 1.3,
+  "_comment_units": "EVERY RATE BELOW IS COMFY CREDITS AT 211 PER DOLLAR, copied from the pricing page. Until 2026-09-27 this file said credits_per_usd=100 while most rows were the page's 211-per-dollar credits (Kling, Veo, BFL image, Ideogram, Seedance 2.5…) and some were USD x 100 (Wan, Nano Banana, Flux 3, Seedream 4.x) — two units under one conversion. Rows the page cannot verify keep their old DOLLAR value (old x 2.11).",
+  "_comment_limits": "WHAT THE MATCHER CANNOT SEE, priced worst-case here and listed in CHANGES.md: booleans (generate_audio is assumed ON), counts (n / number_of_images / reference images are assumed 1), nested durations (model.duration, multi_shot.duration, model.duration_seconds fall back to default_seconds, which is set to the node's MAX duration), and media length (edit/upscale/lip-sync nodes bill the connected clip's length, so default_seconds is the node's documented max input length).",
   "providers": [
+    {
+      "id": "kling-image",
+      "label": "Kling image",
+      "match": [],
+      "match_regex": [
+        "^klingimagegeneration",
+        "^klingomniproimagenode"
+      ],
+      "unit": "per_run",
+      "default_model": "kling-v3-omni-image",
+      "_comment": "Kling 3.0 Image / 3.0 Omni Image. REGEX, not a prefix: 'KlingOmniProImage' is also the start of KlingOmniProImageToVideoNode, which must stay a video. Before 2026-09-27 these matched the per-second Kling video provider and were charged ~5 s of video (88.6 credits) for a 5.91-credit image. x n / series_amount is not multiplied.",
+      "models": {
+        "kling-image-o1": {
+          "4k": 11.82,
+          "_default": 5.91
+        },
+        "kling-v3-omni-image": {
+          "4k": 11.82,
+          "_default": 11.82,
+          "classes": [
+            "KlingOmniProImage"
+          ]
+        },
+        "kling-v3-image": {
+          "_default": 5.91,
+          "classes": [
+            "KlingImageGeneration"
+          ]
+        }
+      }
+    },
+    {
+      "id": "kling-avatar",
+      "label": "Kling Avatar 2.0",
+      "match": [
+        "KlingAvatar"
+      ],
+      "unit": "per_second",
+      "default_seconds": 300,
+      "default_model": "kling-avatar-2",
+      "_comment": "Billed per second of OUTPUT, whose length is the connected audio (2-300 s, nodes_kling.py validate_audio_duration max_duration=300). The graph does not carry the audio length, so a run is quoted at the 300 s maximum until the bridge reads media duration.",
+      "models": {
+        "kling-avatar-2": {
+          "pro": 23.63,
+          "std": 11.82,
+          "_default": 23.63
+        }
+      }
+    },
+    {
+      "id": "kling-motion-control",
+      "label": "Kling Motion Control",
+      "match": [
+        "KlingMotionControl"
+      ],
+      "unit": "per_second",
+      "default_seconds": 30,
+      "default_model": "kling-v3",
+      "_comment": "Per second of output, which follows the reference video (3-30 s). Quoted at 30 s.",
+      "models": {
+        "kling-v3": {
+          "pro": 35.45,
+          "std": 26.59,
+          "_default": 35.45
+        },
+        "kling-v2-6": {
+          "pro": 23.63,
+          "std": 14.77,
+          "_default": 23.63
+        }
+      }
+    },
+    {
+      "id": "kling-edit",
+      "label": "Kling 3.0 Omni Edit Video",
+      "match": [
+        "KlingOmniProEditVideo"
+      ],
+      "unit": "per_second",
+      "default_seconds": 10.05,
+      "default_model": "kling-omni-edit",
+      "_comment": "Per second of output; duration follows the input video (3-10.05 s). Quoted at 10.05 s.",
+      "models": {
+        "kling-omni-edit": {
+          "720p": 26.59,
+          "1080p": 35.45,
+          "_default": 35.45
+        }
+      }
+    },
     {
       "id": "kling",
       "label": "Kling (Kuaishou)",
@@ -15,38 +107,131 @@
         "Kling"
       ],
       "unit": "per_second",
-      "default_seconds": 5,
+      "default_seconds": 15,
       "default_model": "kling-v3",
+      "_comment": "KlingVideoNode carries kling-v3 / kling-3.0-turbo in its inputs; lip-sync and the 2.5/2.6 nodes name no model, hence `classes`. generate_audio is a boolean the matcher cannot read, so audio-ON rates are used. default_seconds 15 = the max: KlingVideoNode nests its duration as multi_shot.duration.",
       "models": {
+        "lipsync (kling)": {
+          "_unit": "per_run",
+          "_default": 14.77,
+          "classes": [
+            "KlingLipSync"
+          ]
+        },
+        "legacy v2.5-turbo pro (kling)": {
+          "_unit": "per_run",
+          "10s": 147.7,
+          "5s": 73.85,
+          "_default": 147.7,
+          "classes": [
+            "KlingTextToVideoNode",
+            "KlingImage2VideoNode",
+            "KlingStartEndFrameNode"
+          ]
+        },
+        "kling-v2-6": {
+          "_default": 29.54,
+          "classes": [
+            "KlingTextToVideoWithAudio",
+            "KlingImageToVideoWithAudio"
+          ]
+        },
+        "kling-omni-v2v": {
+          "720p": 26.59,
+          "1080p": 35.45,
+          "_default": 35.45,
+          "classes": [
+            "KlingOmniProVideoToVideo"
+          ]
+        },
         "kling-video-o1": {
           "720p": 17.72,
           "1080p": 23.63,
-          "_default": 17.72
+          "_default": 23.63
         },
         "kling-3.0-turbo": {
           "720p": 23.63,
           "1080p": 29.54,
-          "_default": 23.63
+          "_default": 29.54
         },
         "kling-v3": {
-          "720p": 17.72,
-          "1080p": 29.54,
-          "_default": 17.72
+          "720p": 26.59,
+          "1080p": 35.45,
+          "4k": 88.62,
+          "_default": 88.62
         },
         "kling-v3-omni": {
-          "720p": 17.72,
-          "1080p": 44.31,
-          "_default": 17.72
-        },
-        "kling-lipsync": {
-          "_unit": "per_run",
-          "_default": 10.0,
-          "classes": [
-            "KlingLipSync"
-          ]
+          "720p": 23.63,
+          "1080p": 29.54,
+          "4k": 88.62,
+          "_default": 88.62
         }
-      },
-      "_comment": "KlingVideoNode carries kling-v3 / kling-3.0-turbo in its inputs; KlingImageToVideoWithAudio is Kling 2.6 and prices as the default. Lip-sync nodes name no model, hence `classes`."
+      }
+    },
+    {
+      "id": "luma-image",
+      "label": "Luma image (Photon / UNI-1)",
+      "match": [],
+      "match_regex": [
+        "^lumaimage(node|modifynode|editnode)"
+      ],
+      "unit": "per_run",
+      "default_model": "uni-1-max",
+      "_comment": "Photon (LumaImageNode, LumaImageModifyNode) and UNI-1 (LumaImageNode2, LumaImageEditNode2). Before 2026-09-27 they matched the per-second Luma video provider. UNI-1 rates include the maximum reference-image surcharge (0.63 x 9 generate / x 8 edit).",
+      "models": {
+        "uni-1-max": {
+          "_default": 26.77
+        },
+        "uni-1": {
+          "_default": 14.2
+        },
+        "photon-flash-1": {
+          "_default": 0.57
+        },
+        "photon-1": {
+          "_default": 2.19
+        }
+      }
+    },
+    {
+      "id": "luma-edit",
+      "label": "Luma Ray 3.2 Video Edit",
+      "match": [
+        "LumaRay32VideoEdit"
+      ],
+      "unit": "per_second",
+      "default_seconds": 18,
+      "default_model": "ray-3.2-edit",
+      "_comment": "Per second of the source clip (upload capped at 18 s in nodes_luma.py). Quoted at 18 s.",
+      "models": {
+        "ray-3.2-edit": {
+          "360p": 22.79,
+          "540p": 30.38,
+          "720p": 45.58,
+          "1080p": 91.15,
+          "_default": 91.15
+        }
+      }
+    },
+    {
+      "id": "luma-reframe",
+      "label": "Luma Ray 3.2 Video Reframe",
+      "match": [
+        "LumaRay32VideoReframe"
+      ],
+      "unit": "per_second",
+      "default_seconds": 30,
+      "default_model": "ray-3.2-reframe",
+      "_comment": "Per second of the source clip (upload capped at 30 s). Quoted at 30 s.",
+      "models": {
+        "ray-3.2-reframe": {
+          "360p": 6.33,
+          "540p": 12.66,
+          "720p": 25.32,
+          "1080p": 75.96,
+          "_default": 75.96
+        }
+      }
     },
     {
       "id": "luma",
@@ -55,17 +240,64 @@
         "Luma"
       ],
       "unit": "per_second",
-      "default_seconds": 5,
-      "default_model": "ray-3.2",
+      "default_seconds": 10,
+      "default_model": "ray-2",
+      "_comment": "The page prices generation PER RUN by duration (5s / 10s, or 5s / 9s for ray-2). Per-second rates here are the dearer of (5s price / 5) and (10s or 9s price / N), so neither duration is under-priced (a 5 s Ray 3.2 clip is over-quoted by 50%). Ray 3.2 Image to Video and Extend always bill the 5 s price, hence their own per-run entry.",
       "models": {
+        "ray-3.2-5s": {
+          "_unit": "per_run",
+          "360p": 12.66,
+          "540p": 31.65,
+          "720p": 63.3,
+          "1080p": 253.2,
+          "_default": 253.2,
+          "classes": [
+            "LumaRay32ImageToVideo",
+            "LumaRay32ExtendVideo"
+          ]
+        },
         "ray-3.2": {
-          "_default": 25.32
+          "360p": 3.8,
+          "540p": 9.5,
+          "720p": 18.99,
+          "1080p": 75.96,
+          "_default": 75.96,
+          "classes": [
+            "LumaRay32"
+          ]
+        },
+        "ray-flash-2": {
+          "540p": 8.44,
+          "720p": 14.35,
+          "1080p": 33.34,
+          "4k": 132.47,
+          "_default": 132.47
         },
         "ray-2": {
-          "_default": 38.44
+          "540p": 24.15,
+          "720p": 43.05,
+          "1080p": 96.13,
+          "4k": 384.49,
+          "_default": 384.49
         },
         "ray-1-6": {
-          "_default": 21.1
+          "_unit": "per_run",
+          "_default": 105.5
+        }
+      }
+    },
+    {
+      "id": "runway-image",
+      "label": "Runway image",
+      "match": [
+        "RunwayTextToImage"
+      ],
+      "unit": "per_run",
+      "default_model": "gen4-image",
+      "_comment": "gen4_image. Before 2026-09-27 it matched the per-second Runway video provider.",
+      "models": {
+        "gen4-image": {
+          "_default": 24.14
         }
       }
     },
@@ -76,14 +308,41 @@
         "Runway"
       ],
       "unit": "per_second",
-      "default_seconds": 5,
+      "default_seconds": 30,
       "default_model": "gen4-turbo",
+      "_comment": "Gen4 nodes carry `duration`. Aleph2 bills the source clip's length (2-30 s), so default_seconds is 30.",
       "models": {
+        "aleph2": {
+          "_default": 84.48,
+          "classes": [
+            "RunwayAleph2"
+          ]
+        },
         "gen4-turbo": {
           "_default": 15.09
+        }
+      }
+    },
+    {
+      "id": "gemini-video",
+      "label": "Google Gemini Omni (video)",
+      "match": [
+        "GeminiVideoOmni"
+      ],
+      "unit": "per_second",
+      "default_seconds": 10,
+      "default_model": "omni-flash-1.1",
+      "_comment": "GeminiVideoOmni / GeminiVideoOmniV2. The length (3-10 s, default 10) is written in the PROMPT, not an input, so every run is quoted at 10 s. Omni Flash (v1) is 720p only.",
+      "models": {
+        "omni-flash-1.1": {
+          "360p": 10.19,
+          "720p": 30.57,
+          "1080p": 45.87,
+          "4k": 91.76,
+          "_default": 91.76
         },
-        "aleph2": {
-          "_default": 84.48
+        "omni-flash": {
+          "_default": 30.57
         }
       }
     },
@@ -96,16 +355,25 @@
       ],
       "unit": "per_second",
       "default_seconds": 8,
-      "default_model": "veo-3.1-fast-generate",
+      "default_model": "veo-3.1-generate",
+      "_comment": "Rates are generate_audio=true (a boolean the matcher cannot read); audio off is cheaper.",
       "models": {
         "veo-3.1-lite": {
-          "_default": 6.33
-        },
-        "veo-3.1-fast-generate": {
+          "720p": 10.55,
+          "1080p": 16.88,
           "_default": 16.88
         },
+        "veo-3.1-fast-generate": {
+          "720p": 21.1,
+          "1080p": 25.32,
+          "4k": 63.3,
+          "_default": 63.3
+        },
         "veo-3.1-generate": {
-          "_default": 42.2
+          "720p": 84.4,
+          "1080p": 84.4,
+          "4k": 126.6,
+          "_default": 126.6
         }
       }
     },
@@ -117,13 +385,50 @@
         "MiniMax"
       ],
       "unit": "per_second",
-      "default_seconds": 6,
+      "default_seconds": 15,
       "default_model": "minimax-h3",
+      "_comment": "H3 nodes nest duration as model.duration (4-15 s), so default_seconds is the 15 s max. Reference-image (12.07/image over 5) and reference-video/token surcharges are NOT included. 'MiniMax H3 Max Turbo' is not on the page and prices as H3 Max (dearer than its badge).",
       "models": {
+        "legacy t2v-01 / i2v-01 (minimax)": {
+          "_unit": "per_run",
+          "_default": 90.73,
+          "classes": [
+            "MinimaxTextToVideoNode",
+            "MinimaxImageToVideoNode",
+            "MinimaxSubjectToVideo"
+          ]
+        },
+        "legacy hailuo-02 (minimax)": {
+          "_unit": "per_run",
+          "768p": 118.16,
+          "1080p": 103.39,
+          "_default": 118.16,
+          "classes": [
+            "MinimaxHailuoVideoNode"
+          ]
+        },
+        "h3 context ir (minimax)": {
+          "_unit": "per_run",
+          "_default": 23.21,
+          "classes": [
+            "MinimaxHailuo03ContextIR"
+          ]
+        },
+        "h3 regenerate to 2k (minimax)": {
+          "_default": 15.09,
+          "classes": [
+            "MinimaxHailuo03Regenerate"
+          ]
+        },
+        "minimax-h3-max": {
+          "480p": 15.09,
+          "768p": 24.14,
+          "_default": 24.14
+        },
         "minimax-h3": {
           "768p": 27.16,
           "2k": 39.22,
-          "_default": 27.16
+          "_default": 39.22
         }
       }
     },
@@ -135,14 +440,42 @@
         "PixVerse"
       ],
       "unit": "per_second",
-      "default_seconds": 5,
+      "default_seconds": 15,
       "default_model": "pixverse-v6",
+      "_comment": "V6 rates are audio ON (model.generate_audio is a boolean). V6 nests duration as model.duration_seconds (1-15 s) -> default_seconds 15. Fusion bills 2x per second of REFERENCE video. v3.5 nodes are per run.",
       "models": {
+        "v3.5 legacy (pixverse)": {
+          "_unit": "per_run",
+          "1080p": 253.2,
+          "720p": 253.2,
+          "540p": 189.9,
+          "360p": 189.9,
+          "_default": 253.2,
+          "classes": [
+            "PixverseTextToVideoNode",
+            "PixverseImageToVideoNode",
+            "PixverseTransitionVideo"
+          ]
+        },
+        "fusion v6 (pixverse)": {
+          "360p": 42.24,
+          "540p": 54.32,
+          "720p": 72.42,
+          "1080p": 138.8,
+          "_default": 138.8,
+          "classes": [
+            "PixverseV6Fusion"
+          ]
+        },
         "pixverse-v6": {
-          "360p": 15.09,
-          "720p": 27.16,
-          "1080p": 54.31,
-          "_default": 27.16
+          "360p": 21.12,
+          "540p": 27.16,
+          "720p": 36.21,
+          "1080p": 69.4,
+          "_default": 69.4,
+          "classes": [
+            "PixverseV6"
+          ]
         }
       }
     },
@@ -153,16 +486,72 @@
         "Vidu"
       ],
       "unit": "per_second",
-      "default_seconds": 5,
-      "default_model": "viduq3-turbo",
+      "default_seconds": 16,
+      "default_model": "viduq2-reference",
+      "_comment": "Q3 nests duration as model.duration (1-16 s) -> default_seconds 16. Q2 bills base + rate x (duration-1); a per-second rate that is never low for any duration is the 1 s BASE, so long Q2 clips are over-quoted. Q1 and Extension / Multi-Frame are per run at their worst case.",
       "models": {
+        "viduq1": {
+          "_unit": "per_run",
+          "_default": 84.4,
+          "classes": [
+            "ViduTextToVideoNode",
+            "ViduImageToVideoNode",
+            "ViduReferenceVideoNode",
+            "ViduStartEndToVideoNode"
+          ]
+        },
+        "viduq2-extend": {
+          "_unit": "per_run",
+          "_default": 158.25,
+          "classes": [
+            "ViduExtendVideo"
+          ]
+        },
+        "viduq2-multiframe": {
+          "_unit": "per_run",
+          "_default": 1566.68,
+          "classes": [
+            "ViduMultiFrameVideo"
+          ]
+        },
+        "viduq2-reference": {
+          "720p": 42.2,
+          "1080p": 94.95,
+          "_default": 94.95,
+          "classes": [
+            "Vidu2ReferenceVideo"
+          ]
+        },
         "viduq3-turbo": {
           "720p": 12.66,
           "1080p": 16.88,
-          "_default": 12.66
+          "_default": 16.88
         },
         "viduq3-pro": {
-          "_default": 31.65
+          "720p": 31.65,
+          "1080p": 33.76,
+          "2k": 42.2,
+          "_default": 42.2
+        },
+        "viduq2-pro-fast": {
+          "720p": 8.44,
+          "1080p": 16.88,
+          "_default": 16.88
+        },
+        "viduq2-turbo": {
+          "720p": 8.44,
+          "1080p": 36.93,
+          "_default": 36.93
+        },
+        "viduq2-pro": {
+          "720p": 15.83,
+          "1080p": 58.03,
+          "_default": 58.03
+        },
+        "viduq2": {
+          "720p": 15.83,
+          "1080p": 21.1,
+          "_default": 21.1
         }
       }
     },
@@ -174,7 +563,9 @@
         "BFL"
       ],
       "unit": "per_run",
+      "default_seconds": 20,
       "default_model": "flux-1.1-pro-ultra",
+      "_comment": "BFL image nodes name no model, so most entries match by `classes`; Flux2ImageNode names 'Flux.2 [pro]' / 'Flux.2 [max]' in its inputs (it used to be pinned to pro by class). Flux.2 rates are the badge's worst case: 4 MP output (2048x2048 max) plus the badge's max reference cost. default_seconds 20 is Flux 3's max duration ('auto' carries no number) and the upscaler's max input length.",
       "models": {
         "flux-1.1-pro-ultra": {
           "_default": 12.66,
@@ -195,45 +586,107 @@
           ]
         },
         "flux-2-pro": {
-          "_default": 16.5,
+          "_default": 41.15,
           "classes": [
-            "Flux2Pro",
-            "Flux2Image"
+            "Flux2Pro"
           ]
         },
         "flux-2-max": {
-          "_default": 31.0,
+          "_default": 84.4,
           "classes": [
             "Flux2Max"
           ]
         },
-        "flux-tools": {
-          "_default": 7.5,
+        "flux-expand-fill": {
+          "_default": 10.55,
           "classes": [
             "FluxProExpand",
-            "FluxProFill",
-            "FluxErase",
+            "FluxProFill"
+          ]
+        },
+        "flux-erase": {
+          "_default": 12.66,
+          "classes": [
+            "FluxErase"
+          ]
+        },
+        "flux-vto": {
+          "_default": 15.83,
+          "classes": [
             "FluxVTO"
+          ]
+        },
+        "flux-3-continuation": {
+          "_unit": "per_second",
+          "720p": 123.71,
+          "1080p": 159.92,
+          "_default": 159.92,
+          "classes": [
+            "Flux3VideoContinuation"
           ]
         },
         "flux-3": {
           "_unit": "per_second",
-          "hd": 24.31,
-          "fhd": 41.47,
-          "_default": 41.47,
+          "720p": 51.29,
+          "1080p": 87.5,
+          "_default": 87.5,
           "classes": [
             "Flux3"
           ]
         },
+        "flux-video-edit": {
+          "_unit": "per_second",
+          "_default": 9.05,
+          "classes": [
+            "FluxVideoEdit"
+          ]
+        },
         "flux-video-upscale": {
           "_unit": "per_second",
-          "_default": 118.8,
+          "creative": 250.67,
+          "precise": 178.93,
+          "_default": 250.67,
           "classes": [
             "FluxVideoUpscale"
           ]
         }
-      },
-      "_comment": "BFL nodes name no model in their inputs, so every model here is matched by `classes` — the class name IS the model. Flux2ProImageNode is DEPRECATED on ComfyUI 0.35; Flux2ImageNode (pro/max by input) and Flux2MaxImageNode are current. Per-image rates are the worst case of each node's own badge (references and megapixels included); Flux 3 video is per second."
+      }
+    },
+    {
+      "id": "recraft-v4-vector",
+      "label": "Recraft V4 vector",
+      "match": [
+        "RecraftV4TextToVector"
+      ],
+      "unit": "per_run",
+      "default_model": "recraftv4_1_pro_vector",
+      "_comment": "Its own provider because the V4 VECTOR node takes the same model names as the V4 image node at different prices. +1.51 style-reference surcharge included. x n not multiplied.",
+      "models": {
+        "recraftv4_1_utility_pro_vector": {
+          "_default": 92.03
+        },
+        "recraftv4_1_pro_vector": {
+          "_default": 92.03
+        },
+        "recraftv4_1_utility_vector": {
+          "_default": 25.65
+        },
+        "recraftv4_1_vector": {
+          "_default": 25.65
+        },
+        "recraftv4_styles_pro_vector": {
+          "_default": 37.72
+        },
+        "recraftv4_styles_vector": {
+          "_default": 16.6
+        },
+        "recraftv4_pro": {
+          "_default": 92.03
+        },
+        "recraftv4": {
+          "_default": 25.65
+        }
+      }
     },
     {
       "id": "recraft",
@@ -242,16 +695,81 @@
         "Recraft"
       ],
       "unit": "per_run",
-      "default_model": "recraft-v4",
+      "default_model": "recraftv4_pro",
+      "_comment": "V3 nodes send recraftv3 without naming it, so they match by class; V4 image names its model. +1.51 style-reference surcharge included on V4. x n not multiplied.",
       "models": {
-        "recraft-v4": {
-          "_default": 52.75
+        "recraft-crisp-upscale": {
+          "_default": 1.21,
+          "classes": [
+            "RecraftCrispUpscale"
+          ]
         },
-        "recraft-v4.1": {
-          "_default": 44.31
+        "recraft-creative-upscale": {
+          "_default": 75.43,
+          "classes": [
+            "RecraftCreativeUpscale"
+          ]
         },
-        "recraft-style": {
-          "_default": 21.1
+        "recraft-utility-3.02": {
+          "_default": 3.02,
+          "classes": [
+            "RecraftVectorizeImage",
+            "RecraftRemoveBackground"
+          ]
+        },
+        "recraft-replace-background": {
+          "_default": 12.07,
+          "classes": [
+            "RecraftReplaceBackground"
+          ]
+        },
+        "recraft-create-style": {
+          "_default": 1.51,
+          "classes": [
+            "RecraftCreateStyle",
+            "RecraftV4CreateStyle"
+          ]
+        },
+        "recraftv3-vector": {
+          "_default": 24.14,
+          "classes": [
+            "RecraftTextToVector"
+          ]
+        },
+        "recraftv3": {
+          "_default": 12.07,
+          "classes": [
+            "RecraftTextToImage",
+            "RecraftImageToImage",
+            "RecraftImageInpainting"
+          ]
+        },
+        "recraftv4_1_utility_pro": {
+          "_default": 64.87
+        },
+        "recraftv4_1_pro": {
+          "_default": 64.87
+        },
+        "recraftv4_1_utility": {
+          "_default": 12.07
+        },
+        "recraftv4_1_flash": {
+          "_default": 3.62
+        },
+        "recraftv4_1": {
+          "_default": 12.07
+        },
+        "recraftv4_styles_pro": {
+          "_default": 31.68
+        },
+        "recraftv4_styles": {
+          "_default": 12.07
+        },
+        "recraftv4_pro": {
+          "_default": 76.94
+        },
+        "recraftv4": {
+          "_default": 13.58
         }
       }
     },
@@ -262,16 +780,44 @@
         "Ideogram"
       ],
       "unit": "per_run",
-      "default_model": "ideogram-v4",
+      "default_model": "ideogram-v3",
+      "_comment": "By class. V3 is not on the pricing page; its rates are the node badge x 211 with a character reference assumed (a connection the matcher cannot see). P-Image is its worst case (HIGH, 2K).",
       "models": {
-        "ideogram-v1": {
-          "_default": 18.1
-        },
         "ideogram-v4": {
-          "_default": 30.17
+          "quality": 30.17,
+          "default": 18.1,
+          "turbo": 9.05,
+          "_default": 30.17,
+          "classes": [
+            "IdeogramV4"
+          ]
+        },
+        "ideogram-v3": {
+          "quality": 60.35,
+          "default": 45.26,
+          "turbo": 30.18,
+          "_default": 60.35,
+          "classes": [
+            "IdeogramV3"
+          ]
         },
         "ideogram-p-image": {
-          "_default": 9.05
+          "_default": 9.05,
+          "classes": [
+            "IdeogramPImage"
+          ]
+        },
+        "ideogram-v2": {
+          "_default": 24.14,
+          "classes": [
+            "IdeogramV2"
+          ]
+        },
+        "ideogram-v1": {
+          "_default": 18.1,
+          "classes": [
+            "IdeogramV1"
+          ]
         }
       }
     },
@@ -285,9 +831,41 @@
       ],
       "unit": "per_run",
       "default_model": "gpt-image-2",
+      "_comment": "GPT Image bills tokens; each quality tier here is the node badge's MAXIMUM for that quality (largest size), USD x 211. Reference images (+up to 3.71 credits each on 2.5) and x n are NOT included.",
       "models": {
+        "gpt-image-2.5-flare": {
+          "medium": 13.42,
+          "xhigh": 95.44,
+          "high": 53.68,
+          "max": 214.7,
+          "low": 5.98,
+          "_default": 214.7
+        },
+        "gpt-image-2.5-sunburst": {
+          "medium": 13.42,
+          "xhigh": 95.44,
+          "high": 53.68,
+          "max": 214.7,
+          "low": 5.98,
+          "_default": 214.7
+        },
         "gpt-image-2": {
-          "_default": 30.0
+          "medium": 45.05,
+          "high": 180.18,
+          "low": 5.01,
+          "_default": 180.18
+        },
+        "gpt-image-1.5": {
+          "medium": 13.09,
+          "high": 46.42,
+          "low": 4.22,
+          "_default": 46.42
+        },
+        "gpt-image-1": {
+          "medium": 14.77,
+          "high": 52.75,
+          "low": 4.22,
+          "_default": 52.75
         },
         "dall-e-3": {
           "_default": 25.32
@@ -303,12 +881,13 @@
       ],
       "unit": "per_run",
       "default_model": "stable-image-ultra",
+      "_comment": "NOT ON THE PRICING PAGE and no Stability node ships in comfy_api_nodes (2026-09). Kept at its old DOLLAR value (old credits x 2.11).",
       "models": {
         "stable-image-ultra": {
-          "_default": 16.0
+          "_default": 33.76
         },
         "stable-image-core": {
-          "_default": 6.0
+          "_default": 12.66
         }
       }
     },
@@ -321,9 +900,43 @@
       "unit": "per_second",
       "default_seconds": 8,
       "default_model": "heygen-avatar",
+      "_comment": "Avatar video bills per second by engine and look type (worst look per engine). Length comes from the script/audio, which the graph does not carry: default_seconds 8 is UNCHANGED and UNVERIFIED.",
       "models": {
+        "heygen-create-avatar": {
+          "_unit": "per_run",
+          "photo": 398.28,
+          "prompt": 301.73,
+          "_default": 398.28,
+          "classes": [
+            "HeyGenCreateAvatar"
+          ]
+        },
+        "heygen-talking-photo": {
+          "_default": 15.09,
+          "classes": [
+            "HeyGenTalkingPhoto"
+          ]
+        },
+        "heygen-video-translate": {
+          "_default": 7.54,
+          "classes": [
+            "HeyGenVideoTranslate"
+          ]
+        },
+        "heygen-tts": {
+          "_default": 0.2,
+          "classes": [
+            "HeyGenTextToSpeech"
+          ]
+        },
         "heygen-avatar": {
-          "_default": 40.0
+          "avatar_iii": 4.98,
+          "avatar_iv": 24.29,
+          "avatar_v": 36.21,
+          "_default": 36.21,
+          "classes": [
+            "HeyGenAvatarVideo"
+          ]
         }
       }
     },
@@ -336,23 +949,64 @@
       ],
       "unit": "per_run",
       "default_model": "elevenlabs-tts",
+      "_comment": "The page bills per 1K characters / per minute (50.64 per 1K chars TTS); this table cannot count either. Kept at its old DOLLAR value (old x 2.11) — UNVERIFIED as a per-run figure.",
       "models": {
         "elevenlabs-tts": {
-          "_default": 25.0
+          "_default": 52.75
+        }
+      }
+    },
+    {
+      "id": "topaz-video",
+      "label": "Topaz video",
+      "match": [
+        "TopazVideo"
+      ],
+      "unit": "per_second",
+      "default_seconds": 60,
+      "default_model": "starlight-astra-creative",
+      "_comment": "The page bills PER SOURCE FRAME. Expressed per second at 60 fps with apo-8 interpolation included, x 60 s (the clip length is not in the graph; there is no cap except Astra 2's 9000 frames). Conservatively high on purpose — a 24 fps 10 s clip is ~15x over-quoted.",
+      "models": {
+        "starlight-astra-creative": {
+          "1080p": 143.4,
+          "2160p": 256.2,
+          "_default": 256.2
+        },
+        "astra-2": {
+          "1080p": 111.6,
+          "2160p": 187.8,
+          "_default": 187.8
+        },
+        "starlight-precise-2-5": {
+          "1080p": 50.4,
+          "2160p": 109.2,
+          "_default": 109.2
+        },
+        "starlight-astra-fast": {
+          "1080p": 34.2,
+          "2160p": 67.8,
+          "_default": 67.8
         }
       }
     },
     {
       "id": "topaz",
-      "label": "Topaz",
+      "label": "Topaz image",
       "match": [
         "Topaz"
       ],
       "unit": "per_run",
-      "default_model": "topaz-upscale",
+      "default_model": "bloom-2",
+      "_comment": "Topaz Image Enhance bills per 8 MP of OUTPUT; output size is two INT inputs (up to 32000 px) the matcher cannot read. Priced at 4 units (32 MP).",
       "models": {
-        "topaz-upscale": {
-          "_default": 20.0
+        "bloom-2": {
+          "_default": 386.2
+        },
+        "reimagine": {
+          "_default": 270.08
+        },
+        "wonder-3-5": {
+          "_default": 96.56
         }
       }
     },
@@ -363,10 +1017,117 @@
         "Tripo"
       ],
       "unit": "per_run",
-      "default_model": "tripo",
+      "default_model": "tripo-p2",
+      "_comment": "By class, each at its worst case (texture detailed/extreme, geometry detailed, quad + smart_low_poly add-ons). Rig Check and Import are free.",
       "models": {
-        "tripo": {
-          "_default": 21.1
+        "tripo-p2": {
+          "_default": 274.3,
+          "classes": [
+            "TripoPSeries"
+          ]
+        },
+        "tripo-p1-image": {
+          "_default": 126.6,
+          "classes": [
+            "TripoP1ImageToModel",
+            "TripoP1MultiviewToModel"
+          ]
+        },
+        "tripo-p1-text": {
+          "_default": 105.5,
+          "classes": [
+            "TripoP1TextToModel"
+          ]
+        },
+        "tripo-image-to-model": {
+          "_default": 179.35,
+          "classes": [
+            "TripoImageToModel"
+          ]
+        },
+        "tripo-multiview-to-model": {
+          "_default": 168.8,
+          "classes": [
+            "TripoMultiviewToModel"
+          ]
+        },
+        "tripo-text-to-model": {
+          "_default": 158.25,
+          "classes": [
+            "TripoTextToModel"
+          ]
+        },
+        "tripo-smart-segment": {
+          "_default": 179.35,
+          "classes": [
+            "TripoSmartSegment"
+          ]
+        },
+        "tripo-mesh-complete": {
+          "_default": 105.5,
+          "classes": [
+            "TripoMeshComplete"
+          ]
+        },
+        "tripo-segment": {
+          "_default": 84.4,
+          "classes": [
+            "TripoSegment"
+          ]
+        },
+        "tripo-texture": {
+          "_default": 63.3,
+          "classes": [
+            "TripoTexture"
+          ]
+        },
+        "tripo-retopology": {
+          "_default": 63.3,
+          "classes": [
+            "TripoRetopology"
+          ]
+        },
+        "tripo-rig-check": {
+          "_default": 0.0,
+          "classes": [
+            "TripoRigCheck"
+          ]
+        },
+        "tripo-rig": {
+          "_default": 52.75,
+          "classes": [
+            "TripoRigNode"
+          ]
+        },
+        "tripo-retarget": {
+          "_default": 21.1,
+          "classes": [
+            "TripoRetarget"
+          ]
+        },
+        "tripo-convert": {
+          "_default": 21.1,
+          "classes": [
+            "TripoConversion"
+          ]
+        },
+        "tripo-image-to-multiview": {
+          "_default": 21.1,
+          "classes": [
+            "TripoImageToMultiview"
+          ]
+        },
+        "tripo-edit-multiview": {
+          "_default": 42.2,
+          "classes": [
+            "TripoEditMultiview"
+          ]
+        },
+        "tripo-import": {
+          "_default": 0.0,
+          "classes": [
+            "TripoImportModel"
+          ]
         }
       }
     },
@@ -377,10 +1138,27 @@
         "Rodin"
       ],
       "unit": "per_run",
-      "default_model": "rodin",
+      "default_model": "rodin-gen-2.5",
+      "_comment": "Gen-2.5 by mode, HighPack (+168.8, a boolean) always included. Gen-2.5 BEFORE Gen-2 in this dict: 'Rodin3D_Gen2' is a prefix of 'Rodin3D_Gen25_…'.",
       "models": {
-        "rodin": {
-          "_default": 25.0
+        "rodin-gen-2.5": {
+          "extreme-high": 485.3,
+          "_default": 485.3,
+          "regular": 327.05,
+          "fast": 327.05,
+          "classes": [
+            "Rodin3D_Gen25"
+          ]
+        },
+        "rodin-gen-2": {
+          "_default": 84.4,
+          "classes": [
+            "Rodin3D_Regular",
+            "Rodin3D_Detail",
+            "Rodin3D_Smooth",
+            "Rodin3D_Sketch",
+            "Rodin3D_Gen2"
+          ]
         }
       }
     },
@@ -393,49 +1171,55 @@
       "unit": "per_second",
       "default_seconds": 5,
       "default_model": "seedance-2-5",
-      "_comment": "Seedance 2.x nodes are ByteDance2TextToVideoNode / ByteDance2FirstLastFrameNode and name the model in their inputs (dreamina-seedance-2-5-…). Comfy bills them by VIDEO TOKENS (3.229–3.530 credits/1K); the per-second rates are its own 5-second 16:9 24fps example divided by five. 2.0/Fast/Mini carry the 2.5 rates — an over-estimate until the page publishes theirs. Seedance 1.x nodes (ByteDanceImageToVideoNode…) are per clip on the page; audio doubles 1.5 Pro, and the rates below already assume audio. Seedream is per image, hence `_unit`.",
+      "_comment": "Seedance 2.x nodes are ByteDance2TextToVideoNode / ByteDance2FirstLastFrameNode and name the model in their inputs (dreamina-seedance-2-5-…). Comfy bills them by VIDEO TOKENS (3.229–3.530 credits/1K); the per-second rates are its own 5-second 16:9 24fps example divided by five. Seedance 2.0 / Fast / Mini now carry their OWN token rates (854x480, 1280x720, 1920x1080, 3840x2160 at 24 fps). A connected reference VIDEO adds its length in tokens and is not included. Seedance 1.x is the page's credits/10 s (upper bound, audio on) / 10. Seedream is per image; x images and the Seedream 5.0 Pro 0.63/extra-image surcharge are not included; 'seedream 5.0 flash' (not on the page) prices as 5.0 lite.",
       "models": {
+        "seedream-layer-separation": {
+          "_unit": "per_run",
+          "_default": 13.58,
+          "classes": [
+            "ByteDanceSeedreamLayerSeparation"
+          ]
+        },
         "seedance-2-5": {
-          "480p": 31.0,
-          "720p": 70.0,
-          "1080p": 172.0,
-          "_default": 172.0
+          "480p": 31.03,
+          "720p": 69.76,
+          "1080p": 171.56,
+          "_default": 171.56
         },
         "seedance-2-0": {
-          "480p": 31.0,
-          "720p": 70.0,
-          "1080p": 172.0,
-          "_default": 172.0
+          "480p": 20.3,
+          "720p": 45.62,
+          "1080p": 112.9,
+          "4k": 234.65,
+          "_default": 234.65
         },
         "seedance-2-0-fast": {
-          "480p": 31.0,
-          "720p": 70.0,
-          "1080p": 172.0,
-          "_default": 172.0
+          "480p": 16.24,
+          "720p": 36.51,
+          "_default": 36.51
         },
         "seedance-2-0-mini": {
-          "480p": 31.0,
-          "720p": 70.0,
-          "1080p": 172.0,
-          "_default": 172.0
+          "480p": 10.15,
+          "720p": 22.81,
+          "_default": 22.81
         },
         "seedance-1-5-pro": {
-          "480p": 4.8,
-          "720p": 10.8,
-          "1080p": 23.6,
-          "_default": 23.6
+          "480p": 5.07,
+          "720p": 10.98,
+          "1080p": 24.9,
+          "_default": 24.9
         },
         "seedance-1-0-pro-fast": {
-          "480p": 1.8,
-          "720p": 4.6,
-          "1080p": 9.8,
-          "_default": 9.8
+          "480p": 2.11,
+          "720p": 4.86,
+          "1080p": 10.34,
+          "_default": 10.34
         },
         "seedance-1-0-pro": {
-          "480p": 4.6,
-          "720p": 11.0,
-          "1080p": 24.4,
-          "_default": 24.4
+          "480p": 5.07,
+          "720p": 11.82,
+          "1080p": 25.75,
+          "_default": 25.75
         },
         "seedream-5-0-pro": {
           "_unit": "per_run",
@@ -445,15 +1229,15 @@
         },
         "seedream-5-0": {
           "_unit": "per_run",
-          "_default": 3.5
+          "_default": 7.39
         },
         "seedream-4-5": {
           "_unit": "per_run",
-          "_default": 4.0
+          "_default": 8.44
         },
         "seedream-4-0": {
           "_unit": "per_run",
-          "_default": 3.0
+          "_default": 6.33
         }
       }
     },
@@ -466,23 +1250,67 @@
       ],
       "unit": "per_run",
       "default_model": "gemini-3-pro-image",
-      "_comment": "GeminiImage2Node is Nano Banana Pro (gemini-3-pro-image-preview) and Nano Banana 2 (gemini-3.1-flash-image); GeminiNanoBanana2 / …V2 are Nano Banana 2 only; GeminiImageNode is the original 2.5-flash Nano Banana. Prices are the nodes' own badges (USD × 100). Gemini TEXT nodes are not matched and must stay that way — they bill by token.",
+      "_comment": "GeminiImage2Node is Nano Banana Pro (gemini-3-pro-image-preview) and Nano Banana 2 (gemini-3.1-flash-image); GeminiNanoBanana2 / …V2 are Nano Banana 2 only; GeminiImageNode is the original 2.5-flash Nano Banana. Nano Banana 2 / Lite / 2.5 are the node badges x 211; Nano Banana Pro is the page's 30.38 credits per 1K output-image tokens x 1120 tokens (1K/2K) or 2000 (4K). Gemini TEXT nodes are not matched and must stay that way — they bill by token.",
       "models": {
         "gemini-3-pro-image": {
-          "4k": 28.8,
-          "_default": 16.08
+          "4k": 60.76,
+          "_default": 60.76,
+          "2k": 34.03,
+          "1k": 34.03
         },
         "gemini-3.1-flash-image": {
-          "1k": 8.35,
-          "2k": 12.17,
-          "4k": 18.48,
-          "_default": 12.17
+          "1k": 17.62,
+          "2k": 25.68,
+          "4k": 39.0,
+          "_default": 39.0
         },
         "gemini-3.1-flash-lite-image": {
-          "_default": 8.35
+          "_default": 8.61
         },
         "gemini-2.5-flash-image": {
-          "_default": 3.9
+          "_default": 8.23
+        }
+      }
+    },
+    {
+      "id": "wan-image",
+      "label": "Wan image (Alibaba, hosted)",
+      "match": [],
+      "match_regex": [
+        "^wan(texttoimage|imagetoimage)api$"
+      ],
+      "unit": "per_run",
+      "default_model": "wan2.5-image",
+      "_comment": "WanTextToImageApi / WanImageToImageApi. Before 2026-09-27 the Wan VIDEO regex matched them and 'wan2.5-t2i-preview' priced as Wan 2.5 video for 8 s.",
+      "models": {
+        "wan2.5-image": {
+          "_default": 6.33
+        }
+      }
+    },
+    {
+      "id": "wan3",
+      "label": "Wan 3.0 (Alibaba, hosted)",
+      "match": [],
+      "match_regex": [
+        "^wan3[a-z]*api$"
+      ],
+      "unit": "per_second",
+      "default_seconds": 30,
+      "default_model": "wan3.0-video-prime",
+      "_comment": "Wan3ImageToVideoApi / Wan3ReferenceToVideoApi nest duration as model.duration ('auto' or 2-30 s); the reference node bills up to 30 s. So every Wan 3 run is quoted at 30 s. Page prices are pre-discount (30% off through 2026-09-30).",
+      "models": {
+        "wan3.0-video-prime": {
+          "480p": 20.52,
+          "720p": 42.24,
+          "1080p": 84.48,
+          "_default": 84.48
+        },
+        "wan3.0-video": {
+          "480p": 15.09,
+          "720p": 30.17,
+          "1080p": 60.35,
+          "_default": 60.35
         }
       }
     },
@@ -495,48 +1323,475 @@
         "^happyhorse[a-z]*api$"
       ],
       "unit": "per_second",
-      "default_seconds": 8,
-      "default_model": "wan3.0-video-prime",
-      "_comment": "REGEX, NOT PREFIX: ComfyUI's LOCAL Wan 2.x nodes (WanImageToVideo, WanVaceToVideo, Wan22ImageToVideoLatent…) are free and share the prefix. The hosted ones all end in 'Api' (Wan3ReferenceToVideoApi, Wan3ImageToVideoApi, Wan2ImageToVideoApi…) and name the model in their inputs (wan3.0-video, wan3.0-video-prime, wan2.7-i2v…). Wan 3.0 has no open weights (2026-09): hosted is the only way to run it. Rates are USD/s × 100 by resolution.",
+      "default_seconds": 20,
+      "default_model": "happyhorse-1.0",
+      "_comment": "REGEX, NOT PREFIX: ComfyUI's LOCAL Wan 2.x nodes (WanImageToVideo, WanVaceToVideo, Wan22ImageToVideoLatent…) are free and share the prefix. The hosted ones all end in 'Api' (Wan3ReferenceToVideoApi, Wan3ImageToVideoApi, Wan2ImageToVideoApi…) and name the model in their inputs (wan3.0-video, wan3.0-video-prime, wan2.7-i2v…). Wan 3.0 has no open weights (2026-09): hosted is the only way to run it. Rates are page credits/s by resolution. Wan 3 has its own provider above. The 2.7 / HappyHorse nodes nest duration as model.duration (2-15 s; continuation / reference add up to 5 s of input), hence default_seconds 20.",
       "models": {
-        "wan3.0-video-prime": {
-          "480p": 9.72,
-          "720p": 20.02,
-          "1080p": 40.04,
-          "_default": 40.04
-        },
-        "wan3.0-video": {
-          "480p": 7.15,
-          "720p": 14.3,
-          "1080p": 28.6,
-          "_default": 28.6
-        },
         "wan2.7": {
-          "720p": 20.02,
-          "1080p": 25.74,
-          "_default": 25.74
+          "720p": 21.1,
+          "1080p": 31.65,
+          "_default": 31.65
         },
         "wan2.6": {
-          "480p": 5.0,
-          "720p": 10.0,
-          "1080p": 15.0,
-          "_default": 15.0
+          "720p": 21.1,
+          "1080p": 31.65,
+          "_default": 31.65
         },
         "wan2.5": {
-          "480p": 5.0,
-          "720p": 10.0,
-          "1080p": 15.0,
-          "_default": 15.0
+          "480p": 10.55,
+          "720p": 21.1,
+          "1080p": 31.65,
+          "_default": 31.65
         },
         "happyhorse-1.1": {
-          "720p": 20.02,
-          "1080p": 25.74,
-          "_default": 25.74
+          "720p": 42.24,
+          "1080p": 54.31,
+          "_default": 54.31
         },
         "happyhorse-1.0": {
-          "720p": 14.0,
-          "1080p": 24.0,
-          "_default": 24.0
+          "720p": 29.54,
+          "1080p": 50.64,
+          "_default": 50.64
+        }
+      }
+    },
+    {
+      "id": "grok-image",
+      "label": "xAI Grok Imagine image",
+      "match": [
+        "GrokImage"
+      ],
+      "unit": "per_run",
+      "default_model": "grok-imagine-image-2.0",
+      "_comment": "Worst case per model: medium quality, edit input charge included. x number_of_images not multiplied.",
+      "models": {
+        "grok-imagine-image-quality": {
+          "2k": 16.88,
+          "1k": 12.66,
+          "_default": 16.88
+        },
+        "grok-imagine-image-2.0": {
+          "2k": 18.99,
+          "1k": 14.77,
+          "_default": 18.99
+        },
+        "grok-imagine-image-pro": {
+          "_default": 15.2
+        },
+        "grok-imagine-image": {
+          "_default": 5.49
+        }
+      }
+    },
+    {
+      "id": "grok-video",
+      "label": "xAI Grok Imagine video",
+      "match": [
+        "GrokVideo"
+      ],
+      "unit": "per_second",
+      "default_seconds": 10,
+      "default_model": "grok-imagine-video-1.5",
+      "_comment": "GrokVideoNode carries `duration` (1-15 s); the reference node nests it (model.duration, 2-10 s) -> default_seconds 10. Input-image charge (3.02 on 1.5) not included. Reference rates are the badge's 1.5 rates x 211 (the page lists only grok-imagine-video). Edit and Extend are per run at their worst case.",
+      "models": {
+        "edit (grok-imagine-video)": {
+          "_unit": "per_run",
+          "_default": 220.29,
+          "classes": [
+            "GrokVideoEdit"
+          ]
+        },
+        "extend (grok-imagine-video)": {
+          "_unit": "per_run",
+          "_default": 196.16,
+          "classes": [
+            "GrokVideoExtend"
+          ]
+        },
+        "reference (grok-imagine-video)": {
+          "480p": 24.14,
+          "720p": 42.25,
+          "_default": 42.25,
+          "classes": [
+            "GrokVideoReference"
+          ]
+        },
+        "grok-imagine-video-1.5": {
+          "480p": 24.14,
+          "720p": 42.24,
+          "1080p": 75.43,
+          "_default": 75.43
+        },
+        "grok-imagine-video": {
+          "480p": 10.55,
+          "720p": 14.77,
+          "_default": 14.77
+        }
+      }
+    },
+    {
+      "id": "openrouter-image",
+      "label": "OpenRouter image",
+      "match": [
+        "OpenRouterImage"
+      ],
+      "unit": "per_run",
+      "default_model": "microsoft/mai-image-2.6",
+      "_comment": "Token-billed. Output = W x H / 1024 tokens (1K ~1024, 1.5K 2304; aspect 'auto' always renders 1.5K) at the page's output rate, plus 1K prompt tokens. Reference images (up to 5 x ~4352 tokens) NOT included. OpenRouterLLMNode is deliberately not matched.",
+      "models": {
+        "microsoft/mai-image-2.6-flash": {
+          "1.5k": 13.74,
+          "auto": 13.74,
+          "1k": 6.4,
+          "_default": 13.74
+        },
+        "microsoft/mai-image-2.6": {
+          "1.5k": 27.93,
+          "auto": 27.93,
+          "1k": 13.25,
+          "_default": 27.93
+        }
+      }
+    },
+    {
+      "id": "meta-muse",
+      "label": "Meta Muse Image",
+      "match": [
+        "MetaMuse"
+      ],
+      "unit": "per_run",
+      "default_model": "muse-image",
+      "_comment": "MetaMuseImageTextToImageApi / MetaMuseImageEditApi, per image.",
+      "models": {
+        "muse-image": {
+          "_default": 3.017
+        }
+      }
+    },
+    {
+      "id": "reve",
+      "label": "Reve",
+      "match": [
+        "ReveImage"
+      ],
+      "unit": "per_run",
+      "default_model": "reve-edit",
+      "_comment": "Base rates with the 4x upscale (upscale_factor is an INT the matcher cannot read). test_time_scaling > 1 and remove-background can raise the API charge. Reve's public API wound down 2026-08-14.",
+      "models": {
+        "reve-edit-fast": {
+          "_default": 2.11
+        },
+        "reve-remix-fast": {
+          "_default": 2.11
+        },
+        "reve-create": {
+          "_default": 16.08
+        },
+        "reve-edit": {
+          "_default": 20.91
+        },
+        "reve-remix": {
+          "_default": 20.91
+        }
+      }
+    },
+    {
+      "id": "qwen-image",
+      "label": "Qwen Image 3 (hosted)",
+      "match": [],
+      "match_regex": [
+        "^qwenimage(texttoimage|edit)api$"
+      ],
+      "unit": "per_run",
+      "default_model": "qwen-image-3.0-pro",
+      "_comment": "REGEX: ComfyUI's LOCAL Qwen-Image nodes are free. Pro is the 2K rate (size is INT width/height); the edit node's 3 x 0.91 reference charge included. x n not multiplied.",
+      "models": {
+        "qwen-image-3.0-pro": {
+          "_default": 25.36
+        },
+        "qwen-image-3.0": {
+          "_default": 11.78
+        }
+      }
+    },
+    {
+      "id": "krea",
+      "label": "Krea 2 (hosted)",
+      "match": [
+        "Krea2Image"
+      ],
+      "unit": "per_run",
+      "default_model": "krea-2-large",
+      "_comment": "Worst case per model (moodboard).",
+      "models": {
+        "krea-2-medium-turbo": {
+          "_default": 4.22
+        },
+        "krea-2-medium": {
+          "_default": 8.44
+        },
+        "krea-2-large": {
+          "_default": 14.77
+        }
+      }
+    },
+    {
+      "id": "magnific",
+      "label": "Magnific",
+      "match": [
+        "Magnific"
+      ],
+      "unit": "per_run",
+      "default_model": "magnific-precise",
+      "_comment": "Upscalers bill per 2x step by the step's input megapixels, which the graph does not carry; each scale_factor tier is the node badge's MAXIMUM x 211.",
+      "models": {
+        "magnific-creative": {
+          "16x": 250.46,
+          "8x": 214.17,
+          "4x": 178.09,
+          "2x": 108.67,
+          "_default": 250.46,
+          "classes": [
+            "MagnificImageUpscalerCreative"
+          ]
+        },
+        "magnific-precise": {
+          "16x": 645.66,
+          "8x": 609.58,
+          "4x": 537.0,
+          "2x": 431.5,
+          "_default": 645.66,
+          "classes": [
+            "MagnificImageUpscalerPrecise"
+          ]
+        },
+        "magnific-skin-enhancer": {
+          "flexible": 94.95,
+          "faithful": 78.07,
+          "creative": 61.19,
+          "_default": 94.95,
+          "classes": [
+            "MagnificImageSkinEnhancer"
+          ]
+        },
+        "magnific-style-relight": {
+          "_default": 23.21,
+          "classes": [
+            "MagnificImageStyleTransfer",
+            "MagnificImageRelight"
+          ]
+        }
+      }
+    },
+    {
+      "id": "bria-video",
+      "label": "Bria video",
+      "match": [],
+      "match_regex": [
+        "^bria(removevideo|transparentvideo|videoeraser|videogreenscreen|videoreplace)"
+      ],
+      "unit": "per_second",
+      "default_seconds": 60,
+      "default_model": "bria-video",
+      "_comment": "Per second of the source clip (max 60 s, nodes_bria.py). Quoted at 60 s. No Bria video UPSCALE node exists in ComfyUI (2026-09).",
+      "models": {
+        "bria-video-eraser": {
+          "_default": 13.58,
+          "classes": [
+            "BriaVideoEraser"
+          ]
+        },
+        "bria-video": {
+          "_default": 10.55,
+          "classes": [
+            "BriaRemoveVideo",
+            "BriaTransparentVideo",
+            "BriaVideoGreenScreen",
+            "BriaVideoReplace"
+          ]
+        }
+      }
+    },
+    {
+      "id": "bria",
+      "label": "Bria image",
+      "match": [
+        "Bria"
+      ],
+      "unit": "per_run",
+      "default_model": "bria-12",
+      "_comment": "By class.",
+      "models": {
+        "bria-remove-background": {
+          "_default": 3.8,
+          "classes": [
+            "BriaRemoveImageBackground"
+          ]
+        },
+        "bria-gen-fill": {
+          "_default": 9.05,
+          "classes": [
+            "BriaGenFill"
+          ]
+        },
+        "bria-fibo-edit": {
+          "_default": 8.44,
+          "classes": [
+            "BriaImageEdit"
+          ]
+        },
+        "bria-6": {
+          "_default": 6.03,
+          "classes": [
+            "BriaEraser",
+            "BriaExpandImage",
+            "BriaIncreaseResolution"
+          ]
+        },
+        "bria-12": {
+          "_default": 12.07
+        }
+      }
+    },
+    {
+      "id": "hitpaw-video",
+      "label": "HitPaw video",
+      "match": [
+        "HitPawVideo"
+      ],
+      "unit": "per_second",
+      "default_seconds": 3600,
+      "default_model": "generative-model",
+      "_comment": "Per second of the source clip (0.5 s - 1 h, nodes_hitpaw.py), by output resolution and SOURCE fps. Both are unknowable from the graph: rates are the >=120 fps column and runs are quoted at 3600 s. 'original' resolution is priced as the model's largest.",
+      "models": {
+        "ultra-hd-model": {
+          "720p": 19.41,
+          "1080p": 25.32,
+          "2k/qhd": 32.92,
+          "4k/uhd": 42.83,
+          "8k": 55.7,
+          "original": 55.7,
+          "_default": 55.7
+        },
+        "generative-model": {
+          "720p": 18.99,
+          "1080p": 31.65,
+          "2k/qhd": 47.48,
+          "4k/uhd": 71.32,
+          "original": 71.32,
+          "_default": 71.32
+        },
+        "restore-model": {
+          "720p": 12.66,
+          "1080p": 18.99,
+          "2k/qhd": 24.69,
+          "4k/uhd": 32.07,
+          "8k": 41.78,
+          "original": 41.78,
+          "_default": 41.78
+        }
+      }
+    },
+    {
+      "id": "hitpaw-image",
+      "label": "HitPaw image",
+      "match": [
+        "HitPawGeneralImage"
+      ],
+      "unit": "per_run",
+      "default_model": "generative",
+      "_comment": "By output megapixels (unknown) -> the 24-34 MP row.",
+      "models": {
+        "generative-portrait": {
+          "_default": 12.66
+        },
+        "generative": {
+          "_default": 31.65
+        }
+      }
+    },
+    {
+      "id": "wavespeed-video",
+      "label": "WaveSpeed FlashVSR",
+      "match": [
+        "WavespeedFlashVSR"
+      ],
+      "unit": "per_second",
+      "default_seconds": 600,
+      "default_model": "flashvsr",
+      "_comment": "Per second of the source clip (5-600 s, nodes_wavespeed.py). Quoted at 600 s.",
+      "models": {
+        "flashvsr": {
+          "720p": 2.532,
+          "1080p": 3.798,
+          "2k": 5.064,
+          "4k": 6.752,
+          "_default": 6.752
+        }
+      }
+    },
+    {
+      "id": "wavespeed-image",
+      "label": "WaveSpeed image upscale",
+      "match": [
+        "WavespeedImageUpscale"
+      ],
+      "unit": "per_run",
+      "default_model": "ultimate",
+      "models": {
+        "seedvr2": {
+          "_default": 2.11
+        },
+        "ultimate": {
+          "_default": 12.66
+        }
+      }
+    },
+    {
+      "id": "sync",
+      "label": "sync.so",
+      "match": [
+        "SyncLipSync",
+        "SyncTalkingImage"
+      ],
+      "unit": "per_second",
+      "default_seconds": 600,
+      "default_model": "sync-3",
+      "_comment": "Per second of output, which follows the connected audio (max 600 s, nodes_sync_so.py). Quoted at 600 s.",
+      "models": {
+        "sync-3": {
+          "_default": 40.13
+        }
+      }
+    },
+    {
+      "id": "ltx",
+      "label": "Lightricks LTX (hosted)",
+      "match": [
+        "LtxApi"
+      ],
+      "unit": "per_second",
+      "default_seconds": 20,
+      "default_model": "ltx-2-5-fast",
+      "_comment": "LtxApi25TextToVideo / ImageToVideo / AudioToVideo. 'LtxApi', not 'LTX': ComfyUI's LOCAL LTXV nodes are free. Duration is nested (model.duration, up to 20 s on Fast) -> default_seconds 20; Audio to Video follows the audio length.",
+      "models": {
+        "ltx-2-5-pro": {
+          "1280x720": 36.21,
+          "720x1280": 36.21,
+          "1920x1080": 51.29,
+          "1080x1920": 51.29,
+          "_default": 51.29
+        },
+        "ltx-2-5-fast": {
+          "1280x720": 27.16,
+          "720x1280": 27.16,
+          "1920x1080": 39.22,
+          "1080x1920": 39.22,
+          "2560x1440": 57.33,
+          "1440x2560": 57.33,
+          "3840x2160": 90.52,
+          "2160x3840": 90.52,
+          "_default": 90.52
         }
       }
     }

@@ -104,7 +104,7 @@ the classic half-applied result.
 **Upscale** — `UpscaleModelLoader` + `ImageUpscaleWithModel` after `VAEDecode`, or a second
 `KSampler` pass at higher resolution with low `denoise`.
 
-**ControlNet** — `ControlNetLoader` + `ControlNetApply` between the text encode and the sampler;
+**ControlNet** — `ControlNetLoader` + `ControlNetApplyAdvanced` (never the deprecated `ControlNetApply`; add `SetUnionControlNetType` for a union model) between the text encode and the sampler;
 the hint image comes from `LoadImage` through whatever preprocessor that pack provides.
 
 `SaveImage` writes to the instance's output folder and is what makes a run produce anything.
@@ -159,6 +159,185 @@ workspace and they render in the chat as artifacts, so the user sees the result 
 their instance. (`type` matters: `SaveImage` outputs are `output`, `PreviewImage` writes
 `temp`.) A first run on a cold model can take minutes; a timeout means still-running, not
 failed.
+
+## QUALITY LADDERS — pick from these first (researched 2026-09-27)
+
+THESE LADDERS OVERRIDE EVERY OLDER TABLE BELOW when they disagree. They rank models by the QUALITY
+of what they produce for one job, from leaderboards (Artificial Analysis, arena.ai, OpenArt Arena)
+and what creator platforms (Higgsfield, OpenArt, Krea, fal) put in front of paying users. The
+older tables below keep node wiring, VRAM and settings detail; use them for HOW, these for WHICH.
+
+HOW TO USE A LADDER:
+- The card OFFERS the top rung of the job's ladder and marks it recommended, unless the user set a
+  budget, asked for free/open only, or declined it. It also shows the next one or two paid rungs
+  and the best free rung. Cheaper is never a reason to lead with a lower rung.
+- "reachable" = a ComfyUI partner node exists AND partner-nodes.json prices it (comfy_price shows
+  it). Confirm the exact class with comfy_node_search before emitting; the class names here are the
+  documented ones as of this date.
+- Prices are provider cost in Comfy credits (100 = $1) before our markup; comfy_price is the truth.
+- A licence flag is binding: NC = non-commercial; TERRITORY = not usable everywhere; say it on the
+  card when it applies and never pick an NC or territory-barred model for an ad or client job.
+- Re-check a ladder (web_search the leaderboards) when this date is more than two months old.
+
+### VIDEO
+
+**Text-to-video**
+| rung | model | why | notes |
+|---|---|---|---|
+| 1 | Gemini Omni Flash 1.1 (Google, GA Aug 2026) — node GeminiVideoOmni | arena T2V #1, AA with-audio #1; 3–10 s/call, extend to ~40 s, up to 4K, native audio | 30.6/45.9/91.8 cr/s at 720p/1080p/4K |
+| 2 | FLUX 3 Video (BFL) — Flux3* nodes | arena T2V #3; up to 20 s, audio, 720p/1080p | 51.3/87.5 cr/s |
+| 2 | Seedance 2.5 (ByteDance) — ByteDance2* nodes | OpenArt overall #1; 4–30 s single take with shot cues, audio, lip-synced dialogue | ComfyUI node is 480p/720p ONLY (4K is Higgsfield's own upscale) |
+| 3 | Wan 3.0 / 3.0 Prime (Alibaba, hosted) — Wan3*Api | AA no-audio #1; up to 30 s, 1080p, audio; cheaper | inputs nest under `model.` (model.duration) |
+| 3 | MiniMax H3 (hosted) | AA with-audio #3; good value | |
+| free | LTX-2.5 22B distilled int8 (native templates) | best open T2V with audio; 5 s 1280x704 ≈ 43 s on the 5090 | LTX community licence (free < $10M revenue); >10 s runs out of memory; the Dev checkpoint blurs in stock templates |
+| free | Wan 2.2 T2V A14B fp8 + lightx2v 4-step | Apache, no territory/revenue limits, no audio | |
+Veo 3.1 is now mid-table and expensive — offer it only when asked. Sora's API is SHUT DOWN (2026-09-24).
+
+**Image-to-video (one start frame)**
+| rung | model | why | notes |
+|---|---|---|---|
+| 1 | MiniMax H3 / H3 Max (hosted) | arena I2V #1 (57k votes), AA with-audio #1/#2 | 27.2 cr/s |
+| 1 | Gemini Omni Flash 1.1 | arena I2V #2 | 30.6 cr/s 720p |
+| 2 | Wan 3.0 (hosted) | arena I2V #3; optional last frame | 30.2/60.4 cr/s |
+| 2 | Seedance 2.5 | arena I2V #4; strongest identity + motion together | 480p/720p |
+| 3 | Grok Imagine Video 1.5 (xAI), FLUX 3 | cheap/fast tier | Kling 3.0 Pro has fallen to ~arena #19 |
+| free | LTX-2.5 distilled int8 | fastest open with audio (8 s 720p ≈ 80 s) | free < $10M |
+| free | Wan 2.2 I2V A14B fp8 + lightx2v | safest commercial open pick | Apache |
+| free (restricted) | MiniMax H3 open weights (pruned int8 ~20 GB; FastH3 V2 8-step) | open I2V #1 | TERRITORY: local use barred in US/EU/UK/KR; >$20M revenue needs a licence; product must credit "MiniMax H3" |
+
+**Reference-to-video (keep 1–3 characters/products consistent)**
+| rung | model | why |
+|---|---|---|
+| 1 | Seedance 2.5 | up to 20 image + 6 video + 6 audio refs; identity holds across scenes; Higgsfield's flagship |
+| 2 | Wan 3.0 R2V (Wan3ReferenceToVideoApi) | 10 image + 5 video + 5 audio refs, `@Image1` tags, 30 s |
+| 2 | Gemini Omni Flash (reference_to_video) | 14 images + 3 videos |
+| 3 | Kling 3.0 Omni Elements; MiniMax H3 (9 img/3 vid/3 audio) | strongest human characters (Kling) |
+| free | Wan VACE 2.2 Fun / Phantom 14B (native), LTX-2.3 ID-LoRA (face + voice) | Apache / LTX licence |
+
+**Multi-shot / storyboard-to-video**
+| rung | model | why |
+|---|---|---|
+| 1 | Seedance 2.5 | OpenArt Film #1; 30 s continuous take with shot cues in the prompt |
+| 2 | Kling 3.0 Omni | up to 6 cuts in 15 s, voice binding |
+| 2 | Gemini Omni Flash | extend in 10 s steps to ~40 s, conversational re-edit |
+| 3 | Wan 3.0 / 2.7 (hosted), FLUX 3 + continuation | 30 s; auto transitions |
+| free | LTX-2.5 native multishot / FLF2V; Wan 2.2 FLF2V (WanFirstLastFrameToVideo), chained | LTX is the only open model with native multishot |
+
+**Talking head / lip-sync**
+| rung | model | why |
+|---|---|---|
+| 1 | Seedance 2.5 (spoken line in the prompt) | OpenArt Lip Sync #1; 10+ languages |
+| 2 | Kling Avatar 2.0 (KlingAvatarNode) | photo + 2–300 s of audio; long talking heads |
+| 2 | sync.so sync-3 / lipsync-2-pro | best for re-syncing real footage (dubbing), up to 4K |
+| 3 | HeyGen Avatar IV; native dialogue in Omni / Veo 3.1 / Kling 3.0 | |
+| free | InfiniteTalk (native WanInfiniteTalkToVideo, template video_wan2_1_infinitetalk) | unlimited length, several speakers via masks, Apache |
+| free | LTX-2.3 IA2V / ID-LoRA / LipDub; LongCat-Video-Avatar 1.5 (MIT, wrapper) | custom-audio lip-sync on LTX-2.5 is reported broken |
+Wan 2.2 S2V is superseded — do not lead with it.
+
+**Motion / pose transfer, character replacement (driving video)**
+| rung | model | why |
+|---|---|---|
+| 1 | Kling 3.0 Motion Control | 3–30 s driving clip, element binding keeps the face |
+| 2 | Wan 3.0 / Seedance 2.5 / MiniMax H3 video edit | arena video-edit #1/#2/#3 |
+| 3 | Runway Aleph 2 | |
+| free | Wan-Animate-2 14B (native WanAnimate2ToVideo + WanAnimate2Cache, Apache) | best open character ANIMATION; reads the driving video directly |
+| free | Wan 2.2 Animate v1 Mix mode (WanAnimateToVideo + DWPose) | still the pick for REPLACING a character inside existing footage |
+| free | SCAIL (multi-person, 3D-consistent pose); LTX IC-LoRA Union | |
+
+**Video upscale / enhance**
+| rung | model | why |
+|---|---|---|
+| 1 | Topaz Astra 2 / Starlight Precise 2.6 | best overall; Starlight is made for AI footage; billed PER FRAME |
+| 2 | FLUX Video Upscale | faithful + creative, to 4K |
+| free | SeedVR2 7B / 7B-sharp / 3B int8 (native, templates "SeedVR2 … Upscale Video") | most faithful open |
+| free | FlashVSR v1.1 | fastest for long clips (wrappers are softer than the paper) |
+
+### IMAGE
+
+**Text-to-image, photoreal**
+| rung | model | why |
+|---|---|---|
+| 1 | GPT Image 2.5 Sunburst (OpenAI, Sep 2026) — OpenAIGPTImageNodeV2, model gpt-image-2.5-sunburst | #1 on AA and arena; to 3840x2160; 16 refs; mask; quality tiers low…max |
+| 2 | GPT Image 2.5 Flare; GPT Image 2 (high) | #2/#3 |
+| 2 | Nano Banana Pro (Gemini 3 Pro Image) | micro-detail portraits (pores, hair), native 4K |
+| 3 | Seedream 5.0 Pro (4K product realism); Reve 2.1; Grok Imagine Image 2.0; MAI-Image-2.6 (max ~1.5K) | |
+| free | Qwen-Image-2512, Z-Image-Turbo (skin texture) | Apache |
+| free (NC) | Qwen-Image-2.1 (native ≥0.37; int8 ~16 GB, ~6 s) | open #1 but NON-COMMERCIAL |
+| free | Krea 2 Turbo | licence: free only under $1M revenue AND 50 seats |
+Higgsfield Soul 2.0 and Midjourney V8 lead for editorial looks but have no API here — say so if asked.
+
+**Text-to-image, stylised / design / typography**
+| rung | model | why |
+|---|---|---|
+| 1 | GPT Image 2.5 Sunburst/Flare | best dense text and layout, transparent backgrounds |
+| 2 | Reve 2.1 | plans layout first, precise type, 4K |
+| 2 | Ideogram 4.0 | layout by bounding box, strong OCR |
+| 3 | Recraft V4.1 | the only true SVG/vector output |
+| free | Anima (anime, 2B; images commercial, model NC) ; Illustrious/NoobAI-XL family (largest LoRA ecosystem); Qwen-2512 / Z-Image Base for painterly | |
+
+**Image editing / image-to-image**
+| rung | model | why |
+|---|---|---|
+| 1 | GPT Image 2.5 Sunburst | AA edit #1, arena edit #1; mask; 16 refs |
+| 2 | GPT Image 2; MAI-Image-2.6; Grok Imagine 2.0 | |
+| 2 | Meta Muse Image | cheapest top-tier editor (~3 cr) |
+| 3 | Seedream 5.0 Pro, Nano Banana 2 / Pro | |
+| free | Qwen-Image-Edit-2511 + Lightning 4-step (Apache) | best commercial open editor |
+| free (NC) | Qwen-Image-2.1 edit template | open #1, non-commercial |
+| free | FLUX.2 klein 4B (Apache, fast drafts) | |
+
+**Same person in new scenes (identity / "AI influencer")**
+| rung | model | why |
+|---|---|---|
+| 1 | Nano Banana Pro | consensus identity lock across scene changes; 14 refs; 4K |
+| 2 | Seedream 5.0 Pro | fewest likeness refusals; 10 refs |
+| 2 | GPT Image 2.5 Sunburst | preserves identity across iterations; OpenAI softens/refuses some real faces |
+| 3 | Nano Banana 2 (bulk frames); Qwen-Image-3.0-Pro (ordered refs) | |
+| free | Qwen-Image-Edit-2511 (1–3 refs, Apache); FLUX.2 klein + PuLID-Flux2 (InsightFace is NC) | |
+| free (NC) | Qwen-Image-2.1 multi-ref (10) + BFS head-swap LoRA | |
+A long series with one face is best done with a trained LoRA (the skill's Training section).
+
+**Put a product / garment on a person (try-on)**
+| rung | model | why |
+|---|---|---|
+| 1 | FLUX Virtual Try-On (FluxVTONode) | purpose-built, takes styling prompts |
+| 1 | Nano Banana Pro with person + garment refs | best for STYLED campaign shots |
+| 2 | GPT Image 2.5, Seedream 5.0 Pro | |
+| free | Qwen-Image-Edit-2511 + "Clothes Try On" LoRA (+ Outfit Extractor); FLUX.2 klein 4B + "Attach Outfit" LoRA | commercial-safe |
+| free (NC) | Qwen-Image-2.1 (matched a commercial try-on API on 6 of 8 pairs) | |
+Kling Kolors VTON was REMOVED from ComfyUI (Aug 2026). FASHN has no node here.
+
+**Image → storyboard (consistent panels)**
+| rung | model | why |
+|---|---|---|
+| 1 | GPT Image 2 / 2.5 with n=1–8 in one call | a continuity-locked set from one call |
+| 2 | Nano Banana 2 for panels, Pro for hero frames | cheap per frame, 14 refs |
+| 3 | Seedream 5 sequential group generation (check the node exposes it) | |
+| free | Qwen-Image-Edit-2511 + Multiple-Angles LoRA (96 camera poses) + Next-Scene LoRA + Lightning | Apache; Civitai "Continuous Storyboard" workflow |
+
+**Pose transfer / pose control**
+| rung | model | why |
+|---|---|---|
+| 1 | Nano Banana 2 / GPT Image 2(.5) with subject + pose-reference images | no paid pose-specific model leads |
+| 2 | FLUX.2 pro/max | controlled multi-source composition |
+| free | Z-Image-Turbo Fun ControlNet Union 2.1 (native ModelPatchLoader → ZImageFunControlnet; template image_z_image_turbo_fun_union_controlnet) | exact skeleton control, Apache |
+| free | Qwen-Edit-2511 + AnyPose LoRA (pose from a photo, no skeleton) | Apache |
+| free | SDXL: xinsir union-promax with ControlNetApplyAdvanced + SetUnionControlNetType + DWPose | NOT the deprecated ControlNetApply |
+
+**Image upscale / enhance**
+| rung | model | why |
+|---|---|---|
+| 1 | Magnific Precise V2 / Skin Enhancer / Creative | creative detail leader; Skin Enhancer for portraits |
+| 1 | Topaz Wonder 3.5 / Bloom 2 | fidelity leader, to 8K |
+| 2 | Recraft Crisp (cheapest faithful); Nano Banana Pro 4K re-render | |
+| free | SeedVR2 7B int8 (native template "SeedVR2 7B Int8: Upscale Image") | most faithful |
+| free | 4x pixel upscaler → Ultimate SD Upscale tiled detailer with Z-Image-Turbo at denoise 0.25–0.35 | real detail at 4K+ |
+| free (NC) | SUPIR | best at 1–2K, weak at 4K |
+
+### NOT AVAILABLE HERE (name them only to explain)
+Midjourney, Higgsfield Soul/Soul ID/Popcorn/Genjutsu/Cinema Studio, FASHN, Runway Gen-4.5/Act-Two,
+OmniHuman 1.5, Hedra, VEED Fabric, Sora 2 (retired), MAGI-2 and Cosmos3-Super (too big for 32 GB),
+FLUX 3 open weights (not shipped), open Wan 2.5/2.6/2.7/3.0 (not released — hosted only).
 
 ## Field guide — where the sweep starts (2026-09-14)
 
@@ -250,7 +429,7 @@ Below the floor: Below the floor for advert typography today: SD1.5 / SDXL / SD3
 
 | pick | why | how it is reached |
 |---|---|---|
-| **Seedance 2.5 / 2.0** | the consistency model: 2.0 takes 9 images + 3 videos + 3 audio; 2.5 goes to 30s and 4K; a spoken line in the prompt lip-syncs | `ByteDance2FirstLastFrameNode` (first/last frame + refs), `ByteDance2TextToVideoNode` |
+| **Seedance 2.5 / 2.0** | the consistency model: 2.0 takes 9 images + 3 videos + 3 audio; 2.5 goes to 30 s; the ComfyUI node renders 480p/720p ONLY (4K is a platform upscale elsewhere); a spoken line in the prompt lip-syncs | `ByteDance2FirstLastFrameNode` (first/last frame + refs), `ByteDance2TextToVideoNode` |
 | **Wan 3.0 / 3.0 Prime** | arena #1 (2026-08); reference images, videos AND audio in one node; up to 30s. Hosted only — no open weights | `Wan3ReferenceToVideoApi`, `Wan3ImageToVideoApi` |
 | **Veo 3.1** | the safest all-rounder; synced dialogue and 48 kHz speech; 4–8s | `Veo3VideoGenerationNode`, `Veo3FirstLastFrameNode` (models `veo-3.1-generate` / `-fast-generate` / `-lite`) |
 | **Kling 3.0 Omni / Turbo** | multi-shot storyboards in one node, native audio, lip-sync in five languages; Turbo is the value pick | `KlingVideoNode` (`kling-v3`, `kling-3.0-turbo`); `KlingImageToVideoWithAudio` is Kling **2.6** — not v3 |

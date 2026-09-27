@@ -1,0 +1,43 @@
+{
+  "id": "user-tutorial-workflow",
+  "agent_id": "comfy-artchitect",
+  "goal": "A workflow the USER brought (a YouTube tutorial's editor-format save in their Library, with custom node packs and foldered model names) is set up AS IT IS on their own machine and run: converted by the machine's ComfyUI, its node packs installed from their repositories, its own model list installed, and a render brought back — without cutting it into pieces, swapping its models or handing work back to the user.",
+  "turns": [
+    {
+      "text": "Use my Library workflow \"charsheet_krea_ltx25_msr\" in this chat. The setup notes are in my Library too (setup_readme, start_here, models_checklist). Set it up on my machine exactly as the tutorial has it and run it with the photo I added.",
+      "reference_media": [
+        {
+          "role": "photo",
+          "path": "assets/usecase/redhead.jpg"
+        }
+      ]
+    },
+    "Build it as proposed. Install everything it needs yourself and run it.",
+    "Yes — where the machine already has a model under a near-identical name, use that one. Carry on and run it."
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "library_use"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_run"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_download"
+    },
+    {
+      "name": "max_turns",
+      "n": 60
+    }
+  ],
+  "max_turns": 60
+}

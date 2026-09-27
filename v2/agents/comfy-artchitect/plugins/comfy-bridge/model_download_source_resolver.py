@@ -7,24 +7,39 @@ from model_download_request import ModelDownloadRequest
 
 
 class ModelDownloadSourceResolver:
-    PROVIDERS = {
-        "civitai.com": ("civitai", "CIVITAI_TOKEN"),
-        "huggingface.co": ("huggingface", "HF_TOKEN"),
-    }
+    #: host -> source. Which stored key answers each source is the caller's (`secrets`): the
+    #: platform's for its rented GPU, the person's own for their machine.
+    PROVIDERS = {"civitai.com": "civitai", "huggingface.co": "huggingface"}
     CIVITAI_QUERY = {"type", "format", "size", "fp", "fileId", "modelVersionId", "quantType"}
 
-    def __init__(self, *, fetch):
+    def __init__(self, *, fetch, secrets: dict):
         self.fetch = fetch
+        self.secrets = secrets
+
+    @staticmethod
+    def _refusal(source: str, secret: str, login_tried: bool) -> str:
+        """What a refused download means, in words the agent can pass on. The code cannot see
+        whether the key is set (the host holds it), so it says what to check, not a guess."""
+        if not login_tried:
+            return " This response does not establish that the provider key is missing or invalid."
+        site = "Hugging Face" if source == "huggingface" else "Civitai"
+        if secret.startswith("USER_"):
+            return (f" The runtime tried {secret}. The file needs a {site} login, and on the user's own machine that is THEIR "
+                    f"{site} token: ask them to add it in Workspace → Connection → Keys (if they have "
+                    f"not) and to accept the model's licence on its {site} page with that account. "
+                    "Or find the same file on a mirror that needs no login.")
+        return (f" The runtime tried {secret}. The file needs a {site} login and the platform's account has no access to it "
+                f"(its licence may not be accepted). Pick another source or another model.")
 
     def resolve(self, file: dict, timeout_s: float = 30.0) -> dict:
         # Validate before making even the metadata request, including userinfo and port.
         request = ModelDownloadRequest(**file)
         url = request.url
         parsed = urlsplit(url)
-        provider = self.PROVIDERS.get(parsed.hostname)
-        if provider is None:
+        source = self.PROVIDERS.get(parsed.hostname)
+        if source is None:
             return file  # Public HTTPS downloads never receive either platform key.
-        source, secret = provider
+        secret = self.secrets[source]
         if source == "civitai":
             if (not re.fullmatch(r"/api/download/models/\d+/?", parsed.path)
                     or set(parse_qs(parsed.query, keep_blank_values=True)) - self.CIVITAI_QUERY):
@@ -47,10 +62,8 @@ class ModelDownloadSourceResolver:
         final = str(res.url or url)
         host = urlsplit(final).hostname or parsed.hostname
         if not res.ok:
-            auth_note = (f" The runtime tried {secret}; check its validity and this account's file access."
-                         if auth_attempted and host == parsed.hostname else
-                         " This response does not establish that the provider key is missing or invalid.")
-            raise ValueError(f"{request.filename}: HTTP {res.status} from {host} resolving the file.{auth_note}")
+            raise ValueError(f"{request.filename}: HTTP {res.status} from {host} resolving the file."
+                             + self._refusal(source, secret, auth_attempted and host == parsed.hostname))
         # Validate the final URL too. The key is confined to the broker's request
         # headers; only the resulting signed storage link crosses to the GPU.
         try:

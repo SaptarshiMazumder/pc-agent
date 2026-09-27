@@ -390,7 +390,7 @@ def installer(**overrides):
                 manager_busy=lambda: False, queued_recently=lambda _: False, mark_queued=Mock(),
                 wait_manager=AsyncMock(return_value="idle"),
                 await_loadable=AsyncMock(side_effect=lambda names, abort: {n: n for n in names}), lease=Mock(),
-                direct=SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
+                direct=SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
     args.update(overrides)
     return ModelInstallationService(**args)
 
@@ -442,7 +442,7 @@ async def test_failed_direct_download_cancels_manager_wait_not_the_gpu_job():
             manager_cancelled.set()
     other = request("vae.safetensors", "vae")
     service = installer(catalog=lambda: [{"filename": other.filename}], wait_manager=manager,
-                        direct=SimpleNamespace(start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404")),
+                        direct=SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404")),
                                                active=Mock(return_value=False)))
     with pytest.raises(ValueError, match="404"):
         await asyncio.wait_for(service.install([request().as_dict(), other.as_dict()], asyncio.Event(), lambda _: None), 1)
@@ -465,7 +465,7 @@ async def test_tool_falls_back_from_manager_400(monkeypatch, tmp_path):
     monkeypatch.setattr(comfy_bridge, "_loadable_names", lambda: {})
     monkeypatch.setattr(comfy_bridge, "_lease", lambda _: None)
     monkeypatch.setattr(comfy_bridge, "_manager_busy", lambda: False)
-    direct = SimpleNamespace(start=Mock(), wait=AsyncMock(), active=Mock(return_value=False))
+    direct = SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(), active=Mock(return_value=False))
     monkeypatch.setattr(comfy_bridge, "GpuModelDownloadClient", lambda **kwargs: direct)
     monkeypatch.setattr(comfy_bridge, "_await_loadable", AsyncMock(return_value={request().filename: request().filename}))
     monkeypatch.setattr(comfy_bridge, "_post", lambda *a, **k: response({"error": "Invalid model install request"}, 400))
@@ -521,19 +521,39 @@ def test_reference_is_fetched_and_reused_only_for_same_stack(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bad_companions_clear_previous_install_permission_before_instance_io(tmp_path, monkeypatch):
+async def test_bad_companions_for_a_download_clear_permission_and_authorise_nothing(tmp_path, monkeypatch):
+    # PROOF GUARDS DOWNLOADS: the machine lists no such files, so they would be downloaded —
+    # and a wrong companion is refused, with the previous install permission already gone.
     path = tmp_path / "stills.api.json"
     path.write_text(json.dumps(graph("ae.safetensors")))
-    forget = Mock()
-    get = Mock(side_effect=AssertionError("must reject before contacting GPU"))
+    forget, mark = Mock(), Mock()
+    loaders = {"UNETLoader": {"input": {"required": {"unet_name": [[]]}}},
+               "VAELoader": {"input": {"required": {"vae_name": [[]]}}},
+               "CLIPLoader": {"input": {"required": {"clip_name": [[]]}}}}
     monkeypatch.setattr(comfy_bridge.studio_state, "forget_validated", forget)
+    monkeypatch.setattr(comfy_bridge.studio_state, "mark_validated", mark)
     monkeypatch.setattr(comfy_bridge, "current_workspace", lambda *a: str(tmp_path))
     monkeypatch.setattr(comfy_bridge, "fetch", lambda *a, **k: response(graph()))
-    monkeypatch.setattr(comfy_bridge, "_get", get)
+    monkeypatch.setattr(comfy_bridge, "_get", lambda *a, **k: response(loaders))
+    monkeypatch.setattr(comfy_bridge, "_settle_downloads", AsyncMock(return_value=""))
     result = await comfy_bridge.ComfyValidateTool().execute("test", {
         "workflow_path": str(path), "reference_workflow_url": "https://raw.githubusercontent.com/org/repo/main/qwen.json",
     }, asyncio.Event())
     assert result.is_error
     assert "VAE mismatch" in result.content[0].text
     forget.assert_called_once()
-    get.assert_not_called()
+    mark.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_no_proof_is_asked_when_every_model_is_already_on_the_machine(tmp_path, monkeypatch):
+    path = tmp_path / "stills.api.json"
+    path.write_text(json.dumps(graph("ae.safetensors")))
+    listed = {"UNETLoader": {"input": {"required": {"unet_name": [[request().filename]]}}},
+              "VAELoader": {"input": {"required": {"vae_name": [["ae.safetensors"]]}}},
+              "CLIPLoader": {"input": {"required": {"clip_name": [["qwen_2.5_vl_7b_fp8_scaled.safetensors"]]}}}}
+    monkeypatch.setattr(comfy_bridge, "current_workspace", lambda *a: str(tmp_path))
+    monkeypatch.setattr(comfy_bridge, "_get", lambda *a, **k: response(listed))
+    monkeypatch.setattr(comfy_bridge, "_settle_downloads", AsyncMock(return_value=""))
+    result = await comfy_bridge.ComfyValidateTool().execute("test", {"workflow_path": str(path)}, asyncio.Event())
+    assert "Model stack is not verified" not in result.content[0].text

@@ -21,14 +21,21 @@ from model_download_request import ModelDownloadRequest
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
 from gpu_download_activity import GpuDownloadActivity
 from model_download_resume_state import ModelDownloadResumeState
+from model_storage_setup import ModelStorageSetup
 
 if os.name == "posix":
     import fcntl
 
 
 class GpuModelDownloadWorker:
-    def __init__(self, root: Path, *, opener=None, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, root: Path, *, opener=None, clock=time.monotonic, sleep=time.sleep,
+                 use_volume=False, storage=None):
         self.root = root.resolve()
+        #: Where models go: ComfyUI's own models/ — or, on the person's own Vast machine with a
+        #: volume attached, the volume (ModelStorageSetup), so they outlive the machine.
+        self.use_volume = use_volume
+        self.storage = storage or (lambda: ModelStorageSetup.for_machine(self.root))
+        self.models = self.root / "models"
         # A test's fake opener, or None: then each download gets a fresh opener carrying the
         # redirect policy its SOURCE calls for (Hugging Face storage, or Civitai's).
         self.opener = opener
@@ -37,6 +44,10 @@ class GpuModelDownloadWorker:
 
     def run(self, payload: dict, attempt_id: str = "") -> None:
         request = ModelDownloadRequest(**payload)
+        if self.use_volume:
+            # BEFORE the status folder exists: pointing ComfyUI at the volume may restart it, and
+            # ComfyUI empties its temp folder on start. Unchanged after the first time.
+            self.models = Path(self.storage().ensure()["models_dir"])
         status_dir = self.root / "temp" / "agentd-model-downloads"
         status_dir.mkdir(parents=True, exist_ok=True)
         activity = GpuDownloadActivity(
@@ -73,14 +84,17 @@ class GpuModelDownloadWorker:
                        http_status=error.code if isinstance(error, urllib.error.HTTPError) else None)
 
     def download(self, request: ModelDownloadRequest, report) -> None:
-        models = (self.root / "models").resolve()
+        models = self.models.resolve()
         if not models.is_dir():
             raise ValueError("ComfyUI models directory does not exist")
         folder = (models / request.directory).resolve()
         if not folder.is_relative_to(models):
             raise ValueError("Model directory escapes ComfyUI models")
+        target = (folder / request.filename).resolve()
+        if not target.is_relative_to(folder):
+            raise ValueError("Model file escapes its models folder")
+        folder = target.parent  # a subfoldered name (Krea2/lora.safetensors) lands in that subfolder
         folder.mkdir(parents=True, exist_ok=True)
-        target = folder / request.filename
         if target.is_symlink():
             raise ValueError("Refusing a symlink model destination")
         if target.exists():

@@ -1,0 +1,22 @@
+{
+  "id": "usecase-storyboard-to-video",
+  "agent_id": "comfy-artchitect",
+  "goal": "MODEL CHOICE BY USE CASE, with no model named by the user. The run stops at the agent's approval card; what is judged afterwards is WHICH models the card offered and pre-selected for this job (read from the ask_user arguments in the trace), against the quality ladder for the use case.",
+  "turns": [
+    "Turn this storyboard into one video with cuts between the shots. Shot 1: wide shot of a food truck at sunset. Shot 2: close-up of hands flipping a burger. Shot 3: a customer takes a bite and laughs. Shot 4: the truck's sign lights up as night falls."
+  ],
+  "checks": [
+    {
+      "name": "tool_called",
+      "tool": "ask_user"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 40
+    }
+  ],
+  "max_turns": 40
+}

@@ -164,6 +164,7 @@ def fetch(
     save_path: str = "",
     timeout_s: float = DEFAULT_TIMEOUT_S,
     max_bytes: int = DEFAULT_MAX_BYTES,
+    public_only: bool = False,
 ) -> Response:
     """Perform one HTTP request. Never raises — a failure comes back as `Response.error`.
 
@@ -185,6 +186,10 @@ def fetch(
     size. A response bigger than ``max_bytes`` is refused whole, never truncated — a clipped
     PNG is a corrupt PNG, which is worse than an honest error. On a non-2xx status nothing is
     written (an error page saved as `render.png` would LOOK downloaded).
+
+    ``public_only`` refuses every hop — redirects included — whose host is not on the public
+    internet (PublicAddressPolicy). The hosted broker sets it for addresses that are not the
+    platform's own.
     """
     import httpx
 
@@ -202,7 +207,8 @@ def fetch(
             params = None
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
         deadline = time.monotonic() + timeout_s
-        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+        hooks = {"request": [_public_only_hook()]} if public_only else {}
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, event_hooks=hooks) as client:
             if save_path:
                 return _download(client, method, _resolved(url), req_headers, save_path, max_bytes)
             # AN UPLOAD STREAMS FROM DISK: httpx reads a file object in chunks for multipart,
@@ -231,6 +237,17 @@ def fetch(
                     upload.close()
     except Exception as e:  # noqa: BLE001 — a transport failure is the tool's error, not a crash
         return Response(error=f"{type(e).__name__}: {e}", url=url)
+
+
+def _public_only_hook():
+    from agent_runtime.infrastructure.net.public_address_policy import PublicAddressPolicy
+
+    policy = PublicAddressPolicy()
+
+    def check(request) -> None:
+        policy.check(request.url.host)
+
+    return check
 
 
 def _text_response(r, max_bytes: int, deadline: float) -> Response:

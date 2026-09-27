@@ -49,6 +49,8 @@ function patch(
  *  tool-end event carries a result's text and error flag but not its `details`, so the text is
  *  what there is to read here; a prefix on our own sentence is the least fragile form of that. */
 const GPU_READY_PREFIX = 'GPU ready at '
+/** …and when the account runs its own ComfyUI: nothing to wait for either. */
+const OWN_COMFY_PREFIX = 'This account uses its own ComfyUI'
 
 /** Did this turn's LAST gpu_ensure end without a usable machine? False when the turn never
  *  asked for one — a turn that did not want a GPU has nothing to resume for. */
@@ -56,7 +58,8 @@ function endedWaitingForGpu(items: ThreadItem[]): boolean {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
     if (it.kind === 'tool' && it.name === 'gpu_ensure' && it.done) {
-      return !it.isError && !String(it.result || '').startsWith(GPU_READY_PREFIX)
+      const said = String(it.result || '')
+      return !it.isError && !said.startsWith(GPU_READY_PREFIX) && !said.startsWith(OWN_COMFY_PREFIX)
     }
   }
   return false

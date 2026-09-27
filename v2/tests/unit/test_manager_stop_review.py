@@ -131,3 +131,29 @@ def test_a_wait_verdict_ends_the_run_and_the_brief_carries_why_it_stopped():
     assert "WHY THE DEVELOPER STOPPED" in rendered
     assert "reference slots empty" in rendered
     assert pm.briefs[0].checkpoint == FINISH
+
+
+def test_an_answered_approval_card_is_the_approval():
+    """Replays 2026-09-27: the plan was drafted before the card, the person answered the card,
+    and the manager model read the answer as not-yet-approved — so it waited forever."""
+    from agent_runtime.domain.deliverable_contract import PENDING_APPROVAL
+    from agent_runtime.domain.messages import ToolCallContent
+
+    class _NeverApproves(_AlwaysSendBack):
+        async def draft_contract(self, brief):
+            raise AssertionError("an answered card needs no second opinion")
+
+    svc, _, store = _service(_NeverApproves())
+    svc._approval_tool = "ask_user"
+    store.ledger = ManagerLedger(contract=DeliverableContract(
+        goal=CONTRACT.goal, criteria=CONTRACT.criteria, needs_approval=True, status=PENDING_APPROVAL,
+    ), awaiting_user=True)
+    svc._ledger = store.ledger
+    messages = [
+        UserMessage(content="a two-character scene"),
+        AssistantMessage(content=[ToolCallContent(id="a1", name="ask_user", arguments={})]),
+        UserMessage(content="Approved: Wan 2.2 local. Declined: Seedance 2.5."),
+    ]
+    said = asyncio.run(svc.on_start(messages))
+    assert "approved" in (said or "").lower()
+    assert store.ledger.contract.active and not store.ledger.awaiting_user

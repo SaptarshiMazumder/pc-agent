@@ -45,6 +45,17 @@ from agent_runtime.infrastructure.net.outbound import fetch
 #: order. The contract is the PATH and the {url, auth} shape — see comfy_bridge._override.
 _CONN_FILE = ".studio/connection.json"
 
+#: WHERE THE ACCOUNT CHOSE TO RUN COMFYUI (comfy-bridge's comfy_connect): {kind: rented} is the
+#: person's approval to rent; their own machine means nothing is rented; no file means they have
+#: not chosen, and nothing is rented either. Same path as comfy-bridge's
+#: AccountConnectionRepository — duplicated for the reason _CONN_FILE is.
+_CHOICE_FILE = ".studio/comfy-connection.json"
+
+
+def _account_choice() -> dict | None:
+    path = Path(current_workspace(".") or ".") / _CHOICE_FILE
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
 
 #: THE CREDENTIAL AS A NAME, NOT A VALUE. The host substitutes this at the moment the request
 #: leaves, so this plugin cannot read it, keep it, or send it anywhere else — the same rule
@@ -177,6 +188,21 @@ class GpuEnsureTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
+            choice = _account_choice()
+            if choice is None:
+                # NO RENTING WITHOUT A YES. The window is asking where ComfyUI should run.
+                return ToolResult.text(
+                    "The user has not chosen where ComfyUI runs yet, and nothing is rented until "
+                    "they do. Keep designing; when a machine is needed: " + 'Tell the user plainly, in these words or close to them: "Before I can run this, choose where it runs: rent a GPU on our servers (it uses credits while it runs), or — if you have your own ComfyUI — connect it in Workspace → Connection." Then stop; do not rent anything yourself.',
+                    details={"ready": False, "choose": True},
+                )
+            if choice.get("kind") != "rented":
+                label = str(choice.get("label") or choice.get("url") or "")
+                return ToolResult.text(
+                    f"This account uses its own ComfyUI ({label}) — nothing is rented, and every "
+                    "comfy tool already points there. Do not call gpu_ensure again.",
+                    details={"ready": False, "own": True, "detail": label},
+                )
             account_id = current_account_id()
             if not account_id:
                 return _unavailable("gpu_ensure")

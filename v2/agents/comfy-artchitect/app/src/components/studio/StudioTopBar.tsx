@@ -23,6 +23,8 @@ import { useLibraryFlash } from '../../state/use-library-flash'
 import type { StudioState } from './useStudioState'
 import type { GpuWarmup } from './useGpuWarmup'
 import { OpenComfyButton, type EngineReadiness } from './OpenComfyButton'
+import { connectionTitle } from './ConnectionSection'
+import type { ComfyConnection } from './useComfyConnection'
 import { useInstanceProbe } from './useInstanceProbe'
 
 /** "2 min ago" — a cache is only meaningful with its age attached. */
@@ -37,13 +39,17 @@ function InstanceChip({
   state,
   client,
   gpu,
+  connection,
 }: {
   state: StudioState
   client?: AgentdClient
   /** The window's one GPU poller — owned by App, which also resumes a waiting turn from it. */
   gpu: GpuWarmup
+  /** Where the account's ComfyUI runs — the rented GPU, the person's own, or not chosen yet. */
+  connection: ComfyConnection
 }) {
-  const probe = useInstanceProbe(client)
+  const own = connection.kind === 'user_vast' || connection.kind === 'user_url'
+  const probe = useInstanceProbe(client, connection.kind ? `${connection.kind}:${connection.label}` : '')
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
   const inst = state.instance
@@ -74,9 +80,17 @@ function InstanceChip({
      and saying why before), the caret on the right opens the details that used to be the chip's.
      A GPU still coming up is NOT "offline" — it is the honest label for the first minutes of
      every session now that the machine is pre-warmed. */
-  const ready = probe.state === 'live' || gpu.state === 'ready'
+  // ON THE PERSON'S OWN MACHINE the probe alone decides — a rented GPU another chat keeps
+  // warm says nothing about it.
+  const ready = probe.state === 'live' || (!own && gpu.state === 'ready')
   const engine: EngineReadiness = ready
-    ? { ready: true, label: 'Engine ready', pending: false }
+    ? { ready: true, label: own ? `${connectionTitle(connection.kind)} ready` : 'Engine ready', pending: false }
+    : !connection.kind
+      ? { ready: false, label: connection.loaded ? 'Choose where to run' : 'Checking engine…', pending: !connection.loaded }
+    : own
+      ? probe.state === 'probing'
+        ? { ready: false, label: 'Checking your ComfyUI…', pending: true }
+        : { ready: false, label: 'Your ComfyUI is not answering', pending: false }
     : gpu.state === 'starting'
       ? { ready: false, label: 'Engine starting…', pending: true }
       : gpu.state === 'waiting'
@@ -88,7 +102,7 @@ function InstanceChip({
   return (
     <div className="sb-inst" ref={wrap}>
       <div className={`eng${ready ? ' is-live' : ''}`}>
-        <OpenComfyButton client={client} engine={engine} />
+        <OpenComfyButton client={client} engine={engine} ownUrl={own ? connection.label : ''} />
         <button
           className="eng-more"
           onClick={() => setOpen((v) => !v)}
@@ -118,7 +132,7 @@ function InstanceChip({
             </button>
           </div>
 
-          {gpu.state === 'ready' && gpu.url && (
+          {!own && gpu.state === 'ready' && gpu.url && (
             /* THE LINK THE USER ASKED FOR: their instance, in a new tab — ComfyUI's own web UI
                on the rented machine, the one place they can watch a queue and outputs
                directly. The Vast console is the platform's account, not theirs, so it is not
@@ -133,7 +147,7 @@ function InstanceChip({
               open ComfyUI ↗
             </a>
           )}
-          {gpu.state === 'ready' && gpu.creditsPerHour > 0 && (
+          {!own && gpu.state === 'ready' && gpu.creditsPerHour > 0 && (
             /* WHAT IT COSTS, where the thing that costs it is. The person's credits pay for the
                machine by the minute now; a rate they can see is the difference between a bill
                and a surprise. */
@@ -141,7 +155,7 @@ function InstanceChip({
               about {gpu.creditsPerHour.toLocaleString()} credits an hour while it runs
             </p>
           )}
-          {gpu.state === 'waiting' && (
+          {!own && gpu.state === 'waiting' && (
             <p className="sb-note">{gpu.error || 'no GPU free this minute — asking again'}</p>
           )}
 
@@ -152,8 +166,9 @@ function InstanceChip({
             <>
               <p className="sb-err st-mono">{probe.error || 'the instance did not answer'}</p>
               <p className="sb-note">
-                The GPU is started for you and usually takes a few minutes to answer. Nothing to
-                set or paste — if it stays down, the agent will say so in the chat.
+                {own
+                  ? 'Check that your ComfyUI is running — or switch to a rented GPU in Workspace → Connection.'
+                  : 'The GPU is started for you and usually takes a few minutes to answer — if it stays down, the agent will say so in the chat.'}
               </p>
             </>
           ) : (
@@ -202,10 +217,12 @@ export function StudioTopBar({
   panel,
   onPanel,
   attention = false,
+  connection,
 }: {
   state: StudioState
   client?: AgentdClient
   gpu: GpuWarmup
+  connection: ComfyConnection
   credits: number | null
   onCredits: () => void
   panel: StudioPanel
@@ -243,7 +260,7 @@ export function StudioTopBar({
 
       <span className="sb-spacer" />
 
-      <InstanceChip state={state} client={client} gpu={gpu} />
+      <InstanceChip state={state} client={client} gpu={gpu} connection={connection} />
 
       <button className="sb-credits" onClick={onCredits} title="Credits">
         {credits != null ? `${credits.toLocaleString()} cr` : '—'}

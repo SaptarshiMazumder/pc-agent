@@ -30,7 +30,13 @@ export interface InstanceProbe {
   test: () => void
 }
 
-export function useInstanceProbe(client: AgentdClient | undefined, auto = true): InstanceProbe {
+/** `machine` changes whenever the account's ComfyUI does, so switching machines re-tests instead
+ *  of showing the last one; "" = nothing chosen yet, nothing to test. */
+export function useInstanceProbe(
+  client: AgentdClient | undefined,
+  machine: string,
+  auto = true,
+): InstanceProbe {
   const [state, setState] = useState<ProbeState>('unknown')
   const [detail, setDetail] = useState('')
   const [error, setError] = useState('')
@@ -70,8 +76,8 @@ export function useInstanceProbe(client: AgentdClient | undefined, auto = true):
   // Test once when the window opens, so the panel is honest before anyone clicks. Cheap (one
   // HTTP call to the user's own box) and it is the only way the panel can open telling the truth.
   useEffect(() => {
-    if (auto && client) test()
-  }, [auto, client, test])
+    if (auto && client && machine) test()
+  }, [auto, client, test, machine])
 
   return { state, detail, error, at, test }
 }

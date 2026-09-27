@@ -3,23 +3,34 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import shlex
 import time
 import uuid
-from pathlib import Path
 from urllib.parse import urlencode
 
+from gpu_command_bundle import GpuCommandBundle
 from model_download_request import ModelDownloadRequest
 from gpu_model_download_failure import GpuModelDownloadFailure
 from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
 
 
 class GpuModelDownloadClient:
+    #: A downloader that runs on the machine — ModelInstallationService may route Hugging Face and
+    #: Civitai files here (ManualModelDownloader is the one that cannot).
+    available = True
+
+    #: Everything the worker needs on the machine, shipped with it.
+    MODULES = ("model_download_request", "model_download_redirect_policy", "gpu_download_activity",
+               "model_download_resume_state", "model_storage_detector", "comfy_process_control",
+               "model_storage_setup",
+               "gpu_model_download_worker")
+
     def __init__(self, *, fetch, connection, current_connection, get, lease,
-                 ready, sleep=asyncio.sleep, clock=time.monotonic):
+                 ready, use_volume=False, sleep=asyncio.sleep, clock=time.monotonic):
         self._fetch = fetch
+        #: The person's own Vast machine: models go to its volume if it has one. Never on the
+        #: platform's rented GPU, whose behaviour stays exactly as it was.
+        self._use_volume = use_volume
         self._connection = connection
         self._current_connection = current_connection
         self._get = get
@@ -30,27 +41,16 @@ class GpuModelDownloadClient:
         self._portal = None
         self._attempts = {}
 
-    @staticmethod
-    def command(request: ModelDownloadRequest, attempt_id: str = "") -> str:
-        modules = {}
-        for name in ("model_download_request", "model_download_redirect_policy", "gpu_download_activity",
-                     "model_download_resume_state", "gpu_model_download_worker"):
-            modules[name] = Path(__file__).with_name(name + ".py").read_text(encoding="utf-8")
-        bundle = base64.b64encode(json.dumps(modules).encode()).decode()
-        payload = base64.b64encode(json.dumps(request.as_dict()).encode()).decode()
-        # All source is ours; data is base64 JSON, never interpolated as shell/Python code.
-        code = (
-            "import base64,json,os,sys,types;from pathlib import Path;"
-            f"sources=json.loads(base64.b64decode('{bundle}'));"
-            "\nfor name,source in sources.items():\n"
-            " module=types.ModuleType(name);sys.modules[name]=module;exec(compile(source,name,'exec'),module.__dict__)\n"
-            "root=Path(os.environ.get('WORKSPACE','/workspace'))/'ComfyUI'\n"
-            f"sys.modules['gpu_model_download_worker'].GpuModelDownloadWorker(root).run(json.loads(base64.b64decode('{payload}')), {attempt_id!r})\n"
-            # Provisioner caches completed commands; retries must execute and acquire the
-            # worker lock even when a previous attempt wrote a failure status and exited 0.
-            f"# invocation {uuid.uuid4().hex}\n"
+    @classmethod
+    def command(cls, request: ModelDownloadRequest, attempt_id: str = "", use_volume: bool = False) -> str:
+        # Every retry executes (GpuCommandBundle stamps each invocation) and takes the worker's
+        # lock, even when a previous attempt wrote a failure status and exited 0.
+        return GpuCommandBundle.command(
+            cls.MODULES,
+            "sys.modules['gpu_model_download_worker'].GpuModelDownloadWorker(root, use_volume=data['use_volume'])"
+            ".run(data['request'], data['attempt_id'])",
+            {"request": request.as_dict(), "attempt_id": attempt_id, "use_volume": bool(use_volume)},
         )
-        return "python3 -c " + shlex.quote(code)
 
     def start(self, request: ModelDownloadRequest) -> None:
         if self._portal is None:
@@ -67,7 +67,7 @@ class GpuModelDownloadClient:
                 return  # worker still owns the download; no provisioning command duplication
         attempt_id = uuid.uuid4().hex
         self._attempts[request.job_id] = attempt_id
-        manifest = {"version": 1, "post_commands": [self.command(request, attempt_id)],
+        manifest = {"version": 1, "post_commands": [self.command(request, attempt_id, self._use_volume)],
                     "on_failure": {"action": "continue", "max_retries": 0}}
         response = self._fetch(
             conn["portal_url"].rstrip("/") + "/capabilities/provision", method="POST",

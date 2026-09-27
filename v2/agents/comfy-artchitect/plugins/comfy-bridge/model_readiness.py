@@ -72,14 +72,66 @@ class ModelReadiness:
                 entry = specs.get(field)
                 choices = entry[0] if isinstance(entry, list) and entry else None
                 if (isinstance(choices, list) and self.is_model_input(field, choices, value)
-                        and value not in choices):
+                        and value not in choices and not self.spelled(value, choices)):
                     missing.append(f"{value} (node {node_id}, {node_class}.{field})")
         return missing
+
+    @staticmethod
+    def spelled(value, choices):
+        """How this instance lists the SAME FILE `value` names, when it lists it differently —
+        else None. The same file is the same name: with the other slash (a Windows-made workflow
+        on a Linux ComfyUI), or in another folder (`qwen-image/qwen_image_vae.safetensors` for
+        `qwen_image_vae.safetensors`, `lora.safetensors` for `Krea2/lora.safetensors`) — which is
+        what a person does in the editor when a workflow from elsewhere names a file they have.
+        Only when exactly one listed file has that name; two are a choice, not a spelling."""
+        if not isinstance(value, str) or not isinstance(choices, list):
+            return None
+        want = value.replace("\\", "/")
+        base = want.rsplit("/", 1)[-1]
+        same_path = [c for c in choices if isinstance(c, str) and c != value and c.replace("\\", "/") == want]
+        if same_path:
+            return same_path[0]
+        same_name = [c for c in choices if isinstance(c, str) and c != value
+                     and c.replace("\\", "/").rsplit("/", 1)[-1] == base]
+        return same_name[0] if len(same_name) == 1 else None
+
+    @staticmethod
+    def closest(value, choices):
+        """The listed file whose name is nearest `value` — a hint for a person, never a swap."""
+        import difflib
+
+        names = [c for c in choices if isinstance(c, str) and c.lower().endswith(ModelReadiness.EXTENSIONS)]
+        base = value.replace("\\", "/").rsplit("/", 1)[-1]
+        found = difflib.get_close_matches(base, [n.replace("\\", "/").rsplit("/", 1)[-1] for n in names],
+                                          n=1, cutoff=0.8)
+        if not found:
+            return None
+        return next(n for n in names if n.replace("\\", "/").rsplit("/", 1)[-1] == found[0])
+
+    def respell(self, graph):
+        """The graph with every model name written the way THIS instance lists it — what it
+        will accept on /prompt. Only slash direction changes; a different file never does."""
+        out = {}
+        for node_id, node in graph.items():
+            spec = self.catalogue.get(node.get("class_type")) if isinstance(node, dict) else None
+            if not isinstance(spec, dict):
+                out[node_id] = node
+                continue
+            specs = self.input_specs(spec)
+            inputs = dict(node.get("inputs") or {})
+            for field, value in inputs.items():
+                entry = specs.get(field)
+                choices = entry[0] if isinstance(entry, list) and entry else None
+                spelling = self.spelled(value, choices)
+                if spelling:
+                    inputs[field] = spelling
+            out[node_id] = {**node, "inputs": inputs}
+        return out
 
     def contains(self, request):
         fields = self.DIRECTORY_FIELDS[request.directory]
         return any(
-            PurePosixPath(value.replace("\\", "/")).name == request.filename
+            PurePosixPath(value.replace("\\", "/")).name == request.basename
             for _, field, choices in self.model_enums() if field in fields
             for value in choices
         )

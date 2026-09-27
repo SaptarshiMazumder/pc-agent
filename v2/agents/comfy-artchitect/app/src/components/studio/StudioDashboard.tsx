@@ -23,6 +23,8 @@ import type { AgentdClient } from '@agentd/client'
 import type { LibrarySaveOutcome } from '../../agentd/library'
 
 import type { GpuWarmup } from './useGpuWarmup'
+import type { ComfyConnection } from './useComfyConnection'
+import { ConnectionSection, connectionTitle } from './ConnectionSection'
 
 import type { Artifact } from '../../agentd/artifacts'
 import type { LibraryItem } from '../../agentd/library'
@@ -48,6 +50,7 @@ const inReferences = (a: Artifact): boolean => /[\\/]references[\\/]/.test(a.pat
 export function StudioDashboard({
   client,
   gpu,
+  connection,
   running,
   artifacts,
   slots,
@@ -68,6 +71,8 @@ export function StudioDashboard({
 }: {
   client: AgentdClient | undefined
   gpu: GpuWarmup
+  /** Where the account's ComfyUI runs (App owns it: the GPU warm-up reads it too). */
+  connection: ComfyConnection
   running: boolean
   /** Everything the agent wrote this session — the Workspace's whole content. */
   artifacts: Artifact[]
@@ -164,6 +169,7 @@ export function StudioDashboard({
         state={state}
         client={client}
         gpu={gpu}
+        connection={connection}
         credits={credits}
         onCredits={onCredits}
         panel={panel}
@@ -195,6 +201,11 @@ export function StudioDashboard({
         ) : (
           <>
             <div className={`ws${selected ? ' is-narrow' : ''}`}>
+              {/* WHERE THE ACCOUNT'S COMFYUI RUNS — folded, saying the answer; the chat itself
+                  asks while nothing is chosen (ConnectionPrompt). */}
+              <WorkspaceSection title="Connection" count={connectionTitle(connection.kind)} defaultOpen={false}>
+                <ConnectionSection client={client} connection={connection} />
+              </WorkspaceSection>
               {!artifacts.length && !hasInputs ? (
                 <div className="op-empty">
                   <b>Nothing here yet</b>

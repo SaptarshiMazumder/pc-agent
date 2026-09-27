@@ -1,4 +1,6 @@
-/* Start this user's GPU the moment the window opens, not when the agent first needs it.
+/* Start this user's GPU the moment the window opens, not when the agent first needs it — once
+ * they have chosen "Rent a GPU" (useComfyConnection); `enabled` is false until then, and for
+ * their own machine. Nothing is rented without that yes.
  *
  * WHY EAGER, WHEN LAZY WAS THE EARLIER CHOICE. Lazy is cheaper on paper: research and workflow
  * design need no hardware, so a machine started at session open is idle for the first few
@@ -145,16 +147,17 @@ export function useGpuWarmup(
     // Poll ONLY while something is still coming up — booting, or waiting for the market. Once
     // ready — or once the platform has said it cannot — there is nothing a timer can learn, and
     // an idle window should cost nothing.
-    if (state !== 'starting' && state !== 'waiting') return
+    if (!enabled || (state !== 'starting' && state !== 'waiting')) return
     const t = setInterval(ask, state === 'waiting' ? WAIT_POLL_MS : POLL_MS)
     return () => clearInterval(t)
-  }, [state, ask])
+  }, [enabled, state, ask])
 
   useEffect(() => {
     // THE HEARTBEAT. Ready machine, active chat: once a minute, say so. The moment the chat goes
     // quiet — no human, no run — this stops, and ten minutes later the platform reaps the
     // machine. That is the rule, measured by what matters rather than by tool names.
-    if (state !== 'ready' || !active || !client) return
+    // A chat on the person's own machine keeps nothing of ours alive.
+    if (!enabled || state !== 'ready' || !active || !client) return
     let stopped = false
     const touch = async () => {
       try {
@@ -179,7 +182,7 @@ export function useGpuWarmup(
       stopped = true
       clearInterval(t)
     }
-  }, [state, active, client])
+  }, [enabled, state, active, client])
 
   return { state, url, openUrl, error, hourlyUsd, creditsPerHour, refresh: ask }
 }

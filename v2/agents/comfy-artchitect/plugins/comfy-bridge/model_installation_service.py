@@ -1,9 +1,15 @@
 """Choose an installation backend and confirm completion, independent of tool transport."""
 
 import asyncio
+from pathlib import PurePosixPath
 
 from model_download_request import ModelDownloadRequest
 from gpu_model_download_failure import GpuModelDownloadFailure
+
+
+def _base(filename: str) -> str:
+    """The key the loader inventory uses: the file's own name, lowercased, folder dropped."""
+    return PurePosixPath(filename.replace("\\", "/")).name.lower()
 
 
 class ModelInstallationService:
@@ -28,8 +34,8 @@ class ModelInstallationService:
     async def install(self, files, abort, report):
         catalog = self.catalog()
         listed = self.loadable()
-        present = {f["filename"]: listed[f["filename"].lower()]
-                   for f in files if f["filename"].lower() in listed}
+        present = {f["filename"]: listed[_base(f["filename"])]
+                   for f in files if _base(f["filename"]) in listed}
         plans = []
         for file in files:
             if file["filename"] in present:
@@ -60,7 +66,8 @@ class ModelInstallationService:
                 elif self.queued_recently(filename) and self.manager_busy() is not False:
                     waiting.append(filename)
                     manager_files[filename] = file
-                elif entry is None or (request is not None and request.source in ("civitai", "huggingface")):
+                elif entry is None or (self.direct.available and request is not None
+                                       and request.source in ("civitai", "huggingface")):
                     reason = "absent from Manager catalogue" if entry is None else "provider download link resolved"
                     report(f"{filename}: {reason}; using GPU-side downloader")
                     self.direct.start(request)

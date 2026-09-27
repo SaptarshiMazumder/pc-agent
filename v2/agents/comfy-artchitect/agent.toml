@@ -13,7 +13,7 @@
 # pretending it can fix it.
 
 name = "Comfy Penguin"
-version = "1.67.0"
+version = "1.69.0"
 description = "An AI image and video studio: describe what you want and it picks the best model, sets it up on a cloud GPU, renders it, fixes whatever breaks, and hands you a reusable workflow to run again in one click or in your own ComfyUI."
 tagline = "describe · render · keep the workflow"
 color = "#7C5CFF"
@@ -68,38 +68,46 @@ allow = [
 # tenant clamp already confines every write to the caller's own slice, whatever the agent asked
 # for. Only the two builders declare roots, because they legitimately write into OTHER agents.
 
-# NO URL, NO CREDENTIAL, NOTHING TO FILL IN. The instance is PROVISIONED for this user by the
-# platform (plugins/vast-bridge 竊・the accounts service), and its address is handed to the comfy
-# tools through .studio/connection.json. Asking someone to rent a GPU, find its URL and paste it
-# was the friction this agent exists to remove, and a setting nobody should ever need to touch is
-# worse than no setting: it invites a stale value that silently shadows the real instance.
+# WHERE COMFYUI RUNS — THE ACCOUNT'S CHOICE, AND NOTHING IS RENTED WITHOUT IT. The window asks
+# once (every chat uses the answer; Workspace -> Connection changes it): a GPU the platform rents
+# (plugins/vast-bridge -> the accounts service, address handed over in .studio/connection.json;
+# credits while it runs), the person's own Vast machine (its Instance Portal link — works exactly
+# like the rented GPU, installs included, models on its volume if it has one), or any ComfyUI
+# address (models install only through Manager or by hand). comfy-bridge/comfy_connect_tool.py
+# records it; a hosted daemon dials only public addresses for it (fetch_broker._public_only).
 #
-# THERE IS NO ESCAPE HATCH EITHER. `comfy_connect` 窶・a URL pasted in chat, written to the same
-# file 窶・was removed: the sandbox does not fence hosts, so it was the one way this agent could be
-# pointed at a machine the platform neither rented nor controls. ComfyUI runs on the provisioned
-# instance or it does not run.
+# THE PLATFORM'S KEYS NEVER GO TO A MACHINE IT DOES NOT RUN. Its Comfy account key pays partner
+# nodes on the rented GPU only; its Hugging Face / Civitai tokens resolve downloads for the rented
+# GPU only. On the person's own machine the three settings below are used instead — optional,
+# stored per account, substituted by the host so the plugin never holds a value. Unset, a paid
+# partner node on their ComfyUI answers 401 and a gated download says the token is missing.
+# HF_TOKEN / CIVITAI_TOKEN / COMFY_API_KEY stay undeclared on purpose: an undeclared name falls
+# through to the daemon's own environment, where the platform's live.
 
-# RESEARCH CREDENTIALS, both optional. `comfy_research` reads model cards and reference
-# workflows from Hugging Face and Civitai; public models need no token. A gated model
-# (FLUX.1-dev, SD3.5) hides its files until the account that accepted its license presents a
-# token 窶・so without this field those models simply report "gated", which is true but unhelpful.
-# NOTHING FOR THE USER TO FILL IN 窶・this agent has no settings at all, and that is the point.
-#
-# It used to ask for a ComfyUI URL, auth headers, provider API keys, a Hugging Face token and a
-# Civitai token. Every one of those was the user doing a job the platform can do:
-#
-#   * the INSTANCE is rented on demand (plugins/vast-bridge) and its address handed straight to
-#     the comfy tools, so there is no URL and no credential to type
-#   * PAID MODELS are ComfyUI partner nodes authenticated by one platform-held account key, so
-#     there is no per-provider key to collect
-#   * HF_TOKEN / CIVITAI_TOKEN are deliberately NOT DECLARED HERE. A declared name resolves per
-#     ACCOUNT, which is exactly what put the burden on the user; an undeclared one falls through
-#     to the daemon's own environment, where the platform's tokens live. comfy-bridge still names
-#     them under [sandbox] secrets, so the host substitutes them into gated Hugging Face and
-#     Civitai requests and the plugin never handles a value.
-#
-# The two optional MCP servers went with them: instance-mcp pointed at a user's own box, and
-# comfy-cloud at comfy.org's GPUs. Both answered "the user has to bring their own compute",
-# which is no longer a question anyone asks here.
-#
-# The rule this enforces lives in AGENTS.md: never ask the user for an API key, for anything.
+[[settings]]
+key      = "USER_VAST_API_KEY"
+label    = "Your Vast API key"
+kind     = "secret"
+required = false
+help     = "Connects your own Vast machines: paste it once (Vast → Account → Keys), then pick a machine. Used only to find your machines."
+
+[[settings]]
+key      = "USER_COMFY_API_KEY"
+label    = "Your Comfy API key"
+kind     = "secret"
+required = false
+help     = "Only for your own ComfyUI: pays for paid models (Kling, Seedance, …) from your Comfy account. Get it at platform.comfy.org."
+
+[[settings]]
+key      = "USER_HF_TOKEN"
+label    = "Your Hugging Face token"
+kind     = "secret"
+required = false
+help     = "Only for your own ComfyUI: downloads gated Hugging Face models with your account."
+
+[[settings]]
+key      = "USER_CIVITAI_TOKEN"
+label    = "Your Civitai token"
+kind     = "secret"
+required = false
+help     = "Only for your own ComfyUI: downloads Civitai models that need a login."

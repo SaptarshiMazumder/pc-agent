@@ -162,6 +162,7 @@ class SandboxFetchBroker:
         """One `fetch_request` -> the `fetch_response` to write back. Never raises."""
         request_id = str(request.get("id") or "")
         started = time.monotonic()
+        public_only = self._public_only(str(request.get("url") or ""))
         try:
             url, headers, secret_values = self._authorize(request)
         except _Refused as refusal:
@@ -217,6 +218,7 @@ class SandboxFetchBroker:
             form_fields=request.get("form_fields") or None,
             save_path=save_path,
             timeout_s=self._clock(transfer=bool(file_path or save_path)),
+            public_only=public_only,
             # A media download legitimately dwarfs a text response; the text clamp would refuse
             # every video. 200MB is a generous ceiling for a rendered output, not a policy knob.
             max_bytes=max(self._max_bytes, 200 * 1024 * 1024) if save_path else self._max_bytes,
@@ -231,6 +233,21 @@ class SandboxFetchBroker:
         return self._reply(request_id, res, outcome="ok" if not res.error else "error")
 
     # ------------------------------------------------------------------ policy
+
+    def _public_only(self, raw_url: str) -> bool:
+        """A HOSTED daemon dials only the public internet — except the platform's own address.
+
+        A URL a person typed (their own ComfyUI) is dialled from the server, where a private
+        address is the server's own internals (PublicAddressPolicy says why). The platform's
+        address is the one private host a plugin legitimately reaches, and it is only ever named
+        as `${AGENTD_ACCOUNTS_URL}` — so a URL that starts with that name is the platform's.
+        A desktop dials from the person's own machine: nothing to protect, localhost allowed.
+        """
+        from agent_runtime.domain.agent_availability import is_hosted
+
+        if not is_hosted(self._config):
+            return False
+        return not raw_url.strip().startswith("${AGENTD_ACCOUNTS_URL}")
 
     def _readable(self, path: str):
         """The resolved path IF this run may read it; raises _Refused otherwise.
