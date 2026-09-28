@@ -20,6 +20,12 @@
  * comfy_install / comfy_run proceed. It is worded for the model: the services approved and
  * declined by name, and every answer beside its question.
  *
+ * A MODEL IS AN OPTION FOR A STEP. Options carrying the same `step` (a workflow's role) are
+ * alternatives for it: grouped under that step, one pick each, and the answer cannot be sent until
+ * every step has one. A flat list of checkboxes read as "tick whichever you like" — a person ticked
+ * the try-on alone, the campaign step went unanswered, and the agent asked about four replacement
+ * models in a row. Options without a step stay plain checkboxes, as before.
+ *
  * ANSWERED IS A FACT OF THE THREAD, not of this component: a user message after the call means the
  * question was answered — by this button or by typing — and the panel shows as such after a reload
  * too. `sent` covers the moment between the click and that message landing.
@@ -36,6 +42,8 @@ interface Service {
   name: string
   purpose: string
   credits: number
+  /** The workflow step this option is for; "" = an optional extra with no step. */
+  step: string
 }
 interface Question {
   question: string
@@ -90,7 +98,9 @@ export function AskPanel({
   const args = item.args as Record<string, unknown>
   const title = text(args.title)
   const services = rows<Service>(args.services, (r) =>
-    text(r.name) ? { name: text(r.name), purpose: text(r.purpose), credits: num(r.credits) } : null,
+    text(r.name)
+      ? { name: text(r.name), purpose: text(r.purpose), credits: num(r.credits), step: text(r.step) }
+      : null,
   )
   const questions = rows<Question>(args.questions, (r) =>
     text(r.question) ? { question: text(r.question), default: text(r.default) } : null,
@@ -113,10 +123,23 @@ export function AskPanel({
   const [other, setOther] = useState('')
   const closed = sent || answered || !onDecide
 
+  /* THE STEPS, in the order they are built: the workflows' order first, then any step the
+     workflows do not name, in the order its options came. */
+  const stepNames = [
+    ...workflows.map((w) => w.name).filter((n) => services.some((s) => s.step === n)),
+    ...services.map((s) => s.step).filter((n, i, all) => n && all.indexOf(n) === i),
+  ].filter((n, i, all) => all.indexOf(n) === i)
+  const stepLabel = (name: string): string => workflows.find((w) => w.name === name)?.does || name
+  const missing = stepNames.filter((n) => !services.some((s, i) => s.step === n && picked.has(i)))
+
+  // ONE PICK PER STEP: ticking an option clears the step's other options; a plain option toggles.
   const toggle = (i: number): void =>
     setPicked((prev) => {
       const next = new Set(prev)
-      if (!next.delete(i)) next.add(i)
+      if (next.delete(i)) return next
+      const step = services[i].step
+      if (step) services.forEach((s, j) => s.step === step && next.delete(j))
+      next.add(i)
       return next
     })
 
@@ -134,6 +157,17 @@ export function AskPanel({
         (yes.length ? `Approved: ${yes.map((s) => s.name).join(', ')}.` : 'Approved: none.') +
           (declined.length ? ` Declined: ${declined.map((s) => s.name).join(', ')}.` : ''),
       )
+      // THE PICK FOR EVERY STEP, said outright: each step is answered, so there is nothing left
+      // to find a replacement for.
+      if (stepNames.length) {
+        lines.push(
+          'Chosen for each step: ' +
+            stepNames
+              .map((n) => `${n} → ${services.filter((s, i) => s.step === n && picked.has(i)).map((s) => s.name).join(', ') || '(none)'}`)
+              .join('; ') +
+            '.',
+        )
+      }
       // A DECLINE IS ABOUT THAT SERVICE. Said in the answer itself, so no model reads "no to
       // Seedance" as "no to anything paid": the only thing that switches a job to free is the
       // person saying so — which is exactly what the Other box is for.
@@ -166,6 +200,28 @@ export function AskPanel({
           ? 'Build with these answers'
           : 'Keep the defaults and build'
 
+  const row = (s: Service, i: number) => (
+    <label key={i} className={`approve-row${picked.has(i) ? ' is-on' : ''}`}>
+      <input
+        type={s.step ? 'radio' : 'checkbox'}
+        name={s.step ? `step-${item.id}-${s.step}` : undefined}
+        checked={picked.has(i)}
+        onChange={() => toggle(i)}
+        onClick={() => s.step && picked.has(i) && toggle(i)}
+        disabled={closed}
+      />
+      <span className="approve-text">
+        <span className="approve-name">{s.name}</span>
+        {s.purpose && <span className="approve-for">{s.purpose}</span>}
+      </span>
+      <span className={`approve-price${s.credits > 0 ? '' : ' is-free'}`}>{price(s)}</span>
+    </label>
+  )
+
+  /* A STEP WITHOUT A PICK IS AN UNANSWERED QUESTION — the answer is not sent with one open,
+     unless the person wrote something else instead (the Other box is always an answer). */
+  const blocked = missing.length > 0 && !other.trim()
+
   /* THE RUNNING TOTAL of what is ticked — display only, the same credits each row already
      shows, added up so the decision reads as one number. */
   const tickedCredits = services.reduce((n, s, i) => (picked.has(i) ? n + s.credits : n), 0)
@@ -183,16 +239,23 @@ export function AskPanel({
             These models use more credits. Tick the ones you want — the agent builds around your
             answer.
           </p>
-          {services.map((s, i) => (
-            <label key={i} className={`approve-row${picked.has(i) ? ' is-on' : ''}`}>
-              <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} disabled={closed} />
-              <span className="approve-text">
-                <span className="approve-name">{s.name}</span>
-                {s.purpose && <span className="approve-for">{s.purpose}</span>}
-              </span>
-              <span className={`approve-price${s.credits > 0 ? '' : ' is-free'}`}>{price(s)}</span>
-            </label>
+          {stepNames.map((n, k) => (
+            <div key={n} className="ask-step">
+              <p className="ask-step-head">
+                <span>
+                  Step {k + 1} · {stepLabel(n)} — pick one
+                </span>
+                <span className={`ask-step-req${missing.includes(n) ? ' is-missing' : ''}`}>required</span>
+              </p>
+              {services.map((s, i) => (s.step === n ? row(s, i) : null))}
+            </div>
           ))}
+          {services.some((s) => !s.step) && (
+            <div className="ask-step">
+              {stepNames.length > 0 && <p className="ask-step-head">Optional extras</p>}
+              {services.map((s, i) => (s.step ? null : row(s, i)))}
+            </div>
+          )}
         </div>
       )}
       {questions.length > 0 && (
@@ -261,7 +324,10 @@ export function AskPanel({
             )}
           </span>
         )}
-        <button className="approve-go" onClick={confirm} disabled={closed}>
+        {!closed && blocked && (
+          <span className="ask-missing">Pick one for: {missing.map(stepLabel).join(', ')}</span>
+        )}
+        <button className="approve-go" onClick={confirm} disabled={closed || blocked}>
           <Check size={14} strokeWidth={2.2} />
           {label}
         </button>

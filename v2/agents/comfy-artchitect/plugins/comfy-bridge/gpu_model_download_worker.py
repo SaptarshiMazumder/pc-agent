@@ -20,7 +20,9 @@ from urllib.parse import urlsplit
 from model_download_request import ModelDownloadRequest
 from model_download_redirect_policy import ModelDownloadRedirectPolicy
 from gpu_download_activity import GpuDownloadActivity
+from gpu_download_progress_index import GpuDownloadProgressIndex
 from model_download_resume_state import ModelDownloadResumeState
+from parallel_range_download import ParallelRangeDownload
 from model_storage_setup import ModelStorageSetup
 
 if os.name == "posix":
@@ -53,6 +55,7 @@ class GpuModelDownloadWorker:
         activity = GpuDownloadActivity(
             status_dir, lock=lambda file: fcntl.flock(file, fcntl.LOCK_EX),
         )
+        progress = GpuDownloadProgressIndex(status_dir, lock=lambda file: fcntl.flock(file, fcntl.LOCK_EX))
         status_path = status_dir / f"{request.job_id}.json"
         lock_path = status_dir / f"{request.job_id}.lock"
         # Locks are kernel-owned: a killed process cannot leave a permanent stale lock.
@@ -68,6 +71,7 @@ class GpuModelDownloadWorker:
                 temporary = status_path.with_suffix(".tmp")
                 temporary.write_text(json.dumps(data), encoding="utf-8")
                 temporary.replace(status_path)
+                progress.update(request.job_id, data)
                 # Keep the reaper's existing activity vocabulary stable across deployments.
                 activity.update(request.job_id, "downloading" if state == "retrying" else state)
             try:
@@ -103,6 +107,28 @@ class GpuModelDownloadWorker:
         partial = target.with_suffix(target.suffix + ".agentd-part")
         if partial.is_symlink():
             raise ValueError("Refusing a symlink partial download")
+        # A BIG FILE GOES OVER MANY CONNECTIONS (ParallelRangeDownload): one left by an earlier
+        # run is picked up; otherwise the first response decides.
+        split = (ParallelRangeDownload.saved(partial, request.source_id, clock=self.clock, sleep=self.sleep)
+                 or self._single_stream(request, partial, target, folder, report))
+        if split is None:
+            return
+        opener = self.opener or urllib.request.build_opener(ModelDownloadRedirectPolicy(request.source))
+        try:
+            split.run(request.url, request.headers(), opener.open, report,
+                      free_bytes=shutil.disk_usage(folder).free - 256 * 1024 * 1024)
+            report("verifying", received=split.total, total=split.total)
+            self.verify(partial)
+        except ValueError:
+            split.discard()
+            raise
+        partial.replace(target)
+        split.forget()
+
+    def _single_stream(self, request: ModelDownloadRequest, partial: Path, target: Path, folder: Path,
+                       report) -> ParallelRangeDownload | None:
+        """One connection — or, when the first response shows a big file served in byte ranges,
+        the split download to run instead (returned; nothing written). None = done."""
         resume = ModelDownloadResumeState(partial, request.source_id)
         try:
             for attempt in range(3):
@@ -114,7 +140,13 @@ class GpuModelDownloadWorker:
                     http_request = urllib.request.Request(
                         request.url, headers={**request.headers(), **resume.headers()})
                     with opener.open(http_request, timeout=60) as response:
-                        size = resume.accept(getattr(response, "status", 200), response.headers)
+                        status = getattr(response, "status", 200)
+                        size = resume.accept(status, response.headers)
+                        split = ParallelRangeDownload.plan(partial, request.source_id, status, response.headers,
+                                                           clock=self.clock, sleep=self.sleep)
+                        if split is not None:
+                            resume.reset()
+                            return split
                         if size is not None and size <= 8:
                             raise ValueError("Source advertised an empty model file")
                         if "text/html" in str(response.headers.get("Content-Type", "")).lower():
@@ -149,7 +181,7 @@ class GpuModelDownloadWorker:
                     self.verify(partial)
                     partial.replace(target)
                     resume.path.unlink(missing_ok=True)
-                    return
+                    return None
                 except urllib.error.HTTPError as error:
                     if error.code == 416 and resume.offset:
                         resume.reset()

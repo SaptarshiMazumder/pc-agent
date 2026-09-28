@@ -50,6 +50,8 @@ import { useLibraryFlash } from './state/use-library-flash'
 import { ChatImageTooBigPrompt } from './components/ChatImageTooBigPrompt'
 
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
+import { InstallProgressPanel } from './components/InstallProgressPanel'
+import { useStudioState } from './components/studio/useStudioState'
 import { ContextRing } from './components/ContextRing'
 import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
@@ -70,6 +72,7 @@ import { collectWorkflows } from './components/workflows/WorkflowCard'
 import { chatWorkflowFiles } from './components/workflows/WorkflowItem'
 import { SaveTemplatePrompt } from './components/library/SaveTemplatePrompt'
 import { saveChatAsTemplate, useTemplateMessage } from './agentd/library-template'
+import { readSetupGuide, type SetupGap, type SetupGuide } from './agentd/template-setup-guide'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useComfyConnection } from './components/studio/useComfyConnection'
 import { ConnectionPrompt } from './components/studio/ConnectionPrompt'
@@ -199,6 +202,8 @@ export default function App() {
   // WHERE THE ACCOUNT'S COMFYUI RUNS. Nothing is rented without the person's yes: the warm-up
   // runs only once they chose "Rent a GPU", and never for their own machine.
   const connection = useComfyConnection(client, connected)
+  /* THE ONE STUDIO POLL — the dashboard and the install panel above the composer both read it. */
+  const studio = useStudioState(client ?? undefined, session.running)
   const gpu = useGpuWarmup(client, connection.kind === 'rented', humanHere || anyRunning)
 
   /* THE "CONTINUE" BUTTON, PRESSED BY CODE. A turn that ends while the machine is still
@@ -325,13 +330,13 @@ export default function App() {
         `keep its settings, then validate it, price it and ask. I'll fill the slots.`,
     )
   }, [setView])
-  /* A TEMPLATE STARTS A NEW CHAT, with its brief in the box, unsent: the agent brings every
-     workflow in with template_use, sets up the inputs and says what it does. */
+  /* A TEMPLATE STARTS A NEW CHAT AND SENDS ITS OPENING MESSAGE: the agent brings every workflow
+     in with template_use, sets up the inputs and says what it makes and costs. */
   const onUseTemplate = useCallback((item: LibraryItem) => {
     const { newSession, seedComposer } = useApp.getState()
     newSession(true)
     setView('chat')
-    seedComposer(useTemplateMessage(item))
+    seedComposer(useTemplateMessage(item), true)
   }, [setView])
 
   /* SAVE AS TEMPLATE: every workflow this chat built (run file, ComfyUI file, installer), the
@@ -339,16 +344,32 @@ export default function App() {
   const [templatePrompt, setTemplatePrompt] = useState(false)
   const [templateBusy, setTemplateBusy] = useState(false)
   const [templateError, setTemplateError] = useState('')
+  /* THE SETUP GUIDE the chat adds up to, worked out when the dialog opens — its gaps are what
+     the dialog asks links for. */
+  const [templateSetup, setTemplateSetup] = useState<{ guide: SetupGuide; gaps: SetupGap[] } | null>(null)
+  const [templateSetupError, setTemplateSetupError] = useState('')
   const chatWorkflows = useMemo(() => {
     const dir = `/${chatDirFor('workflows', currentKey)}/`
     return chatWorkflowFiles(files.filter((a) => a.path.replace(/\\/g, '/').includes(dir)))
   }, [files, currentKey])
   const openTemplatePrompt = useCallback(() => {
     setTemplateError('')
+    setTemplateSetup(null)
+    setTemplateSetupError('')
     setTemplatePrompt(true)
-  }, [])
+    if (!client) return
+    const manifests = chatWorkflows.flatMap((wf) =>
+      wf.installer
+        .filter((a) => a.name.endsWith('.manifest.json'))
+        .map((a) => relOfChatFile(a.path, currentKey) || '')
+        .filter(Boolean),
+    )
+    readSetupGuide(client, manifests)
+      .then(setTemplateSetup)
+      .catch((e) => setTemplateSetupError(String((e as Error)?.message || e)))
+  }, [client, chatWorkflows, currentKey])
   const saveTemplate = useCallback(
-    async (name: string, description: string) => {
+    async (name: string, description: string, setup: SetupGuide) => {
       if (!client) return
       setTemplateBusy(true)
       setTemplateError('')
@@ -365,6 +386,7 @@ export default function App() {
             workflows: chatWorkflows,
             inputs: slots.map((sl) => ({ role: sl.role, what: sl.what })),
             thumbnail,
+            setup,
             relOf: (a) => relOfChatFile(a.path, currentKey) || '',
           },
           { chat: currentKey, title: chatTitleOf(currentKey) },
@@ -934,6 +956,7 @@ export default function App() {
 
               <div className="st-convo-foot">
                 <ConnectionPrompt client={client ?? undefined} connection={connection} />
+                <InstallProgressPanel state={studio} />
                 <BackgroundJobsStrip jobs={session.jobs} sessionKey={currentKey} client={client} />
                 <Composer
                   running={session.running}
@@ -989,6 +1012,7 @@ export default function App() {
                 >
                 <StudioDashboard
                   client={client ?? undefined}
+                  state={studio}
                   connection={connection}
                   gpu={gpu}
                   running={session.running}
@@ -1029,7 +1053,9 @@ export default function App() {
           workflowCount={chatWorkflows.length}
           busy={templateBusy}
           error={templateError}
-          onSave={(name, description) => void saveTemplate(name, description)}
+          setup={templateSetup}
+          setupError={templateSetupError}
+          onSave={(name, description, setup) => void saveTemplate(name, description, setup)}
           onClose={() => setTemplatePrompt(false)}
         />
       )}

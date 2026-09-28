@@ -33,7 +33,9 @@ def service(**overrides):
                   queued_recently=lambda _: False, mark_queued=Mock(),
                   wait_manager=AsyncMock(return_value="idle"),
                   await_loadable=AsyncMock(side_effect=[{}, {model().filename: model().filename}]),
-                  lease=Mock(), direct=SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
+                  # Manager's recovery guards matter where the machine has no downloader of its own
+                  # (available=False): with one, every .safetensors skips Manager altogether.
+                  lease=Mock(), direct=SimpleNamespace(available=False, start=Mock(), wait=AsyncMock(), active=Mock(return_value=False)))
     values.update(overrides)
     return ModelInstallationService(**values)
 

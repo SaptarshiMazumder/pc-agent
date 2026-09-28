@@ -18,6 +18,12 @@ from gpu_node_pack_worker import GpuNodePackWorker
 REPO = "https://github.com/OsamaAtiq12/ComfyUI-Krea-MultiShot-Stills"
 
 
+@pytest.fixture(autouse=True)
+def _no_install_panel_writes(monkeypatch):
+    """The install panel's rows go to the workspace's studio file; a test has none."""
+    monkeypatch.setattr(comfy_bridge.studio_state, "set_install_progress", lambda kind, rows: None)
+
+
 @pytest.mark.parametrize("bad", ["http://github.com/a/b", "https://evil.com/a/b", "https://github.com/a",
                                  "https://github.com/a/b/../c", "https://user@github.com/a/b",
                                  "https://github.com:8443/a/b"])
@@ -82,10 +88,11 @@ def test_a_pack_missing_from_the_registry_installs_from_its_repository(monkeypat
     monkeypatch.setattr(comfy_bridge.studio_state, "node_install_allowed", lambda: (True, ""))
     monkeypatch.setattr(comfy_bridge, "_manager_present", lambda: True)
     monkeypatch.setattr(comfy_bridge, "_node_catalog", lambda: ({"other": {"title": "Other"}}, ""))
-    from_repo = AsyncMock(return_value="installed")
+    installed = comfy_bridge.ToolResult.text("installed")
+    from_repo = AsyncMock(return_value=installed)
     monkeypatch.setattr(comfy_bridge.ComfyNodeInstallTool, "_install_from_repo", from_repo)
     result = asyncio.run(comfy_bridge.ComfyNodeInstallTool().execute("t", {"pack": REPO}, asyncio.Event()))
-    assert result == "installed"
+    assert result is installed
     assert from_repo.call_args.args[0] == REPO
 
 

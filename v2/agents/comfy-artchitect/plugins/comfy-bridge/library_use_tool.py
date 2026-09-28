@@ -205,6 +205,7 @@ class LibraryUseTool(Tool):
         try:
             studio_state.mark_emitted()
             studio_state.mark_first_emit(name)
+            studio_state.forget_template_step(name)
         except Exception:  # noqa: BLE001 — bookkeeping must not fail the copy
             pass
         roles = list(reference_slots.roles_in(api))

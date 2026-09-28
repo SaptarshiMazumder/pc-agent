@@ -66,9 +66,11 @@ class ModelInstallationService:
                 elif self.queued_recently(filename) and self.manager_busy() is not False:
                     waiting.append(filename)
                     manager_files[filename] = file
-                elif entry is None or (self.direct.available and request is not None
-                                       and request.source in ("civitai", "huggingface")):
-                    reason = "absent from Manager catalogue" if entry is None else "provider download link resolved"
+                # EVERY .safetensors GOES THROUGH OUR DOWNLOADER when the machine has one: it splits
+                # a big file over many connections, where Manager fetches one file at a time over
+                # one. Manager keeps only what our downloader refuses (non-safetensors formats).
+                elif entry is None or (self.direct.available and request is not None):
+                    reason = "absent from Manager catalogue" if entry is None else "downloading on the GPU directly"
                     report(f"{filename}: {reason}; using GPU-side downloader")
                     self.direct.start(request)
                     self.on_source({"filename": request.filename, "url": request.origin_url or request.url,

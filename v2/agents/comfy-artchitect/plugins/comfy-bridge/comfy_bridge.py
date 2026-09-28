@@ -2038,6 +2038,8 @@ class ComfyInstallTool(Tool):
                 # The person's own Vast machine keeps models on its volume; the rented GPU
                 # downloads exactly as it always has.
                 use_volume=conn.get("kind") == USER_VAST,
+                # Each poll's per-file progress, for the window's install panel.
+                on_progress=lambda rows: studio_state.set_install_progress("models", rows),
             )
             selected_sources = {}
             installer = ModelInstallationService(
@@ -2180,6 +2182,18 @@ class ComfyNodeInstallTool(Tool):
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        # THE INSTALL PANEL shows each pack while it installs and how it ended. A git install
+        # reports no percentage, so a pack has a state only.
+        query = str(params.get("pack") or "").strip()
+        if query:
+            studio_state.set_install_progress("node_packs", [{"name": query, "state": "installing"}])
+        result = await self._execute(params, abort, on_update)
+        if query:
+            studio_state.set_install_progress(
+                "node_packs", [{"name": query, "state": "failed" if result.is_error else "done"}])
+        return result
+
+    async def _execute(self, params, abort, on_update):
         try:
             query = str(params.get("pack") or "").strip()
             if not query:
@@ -2192,15 +2206,18 @@ class ComfyNodeInstallTool(Tool):
             allowed, why = studio_state.node_install_allowed()
             if not allowed:
                 return ToolResult.text(why, is_error=True)
-            # A REPOSITORY LINK can install without Manager's registry — see _install_from_repo.
+            # A REPOSITORY LINK INSTALLS FROM THE REPOSITORY, on the machine — never through
+            # Manager. Manager adds nothing once the link is known, and it failed a template's
+            # install outright (HTTP 500, "Server got itself in trouble") while the repository
+            # was fine. Manager is only for a pack named by its registry id or title.
             try:
                 gpu_node_pack_worker.repository(query)
                 repo = query
             except ValueError:
                 repo = ""
+            if repo:
+                return await self._install_from_repo(repo, abort, on_update)
             if not _manager_present():
-                if repo:
-                    return await self._install_from_repo(repo, abort, on_update)
                 return ToolResult.text(
                     "this instance has no ComfyUI-Manager, so a pack can only be installed from its "
                     "repository link (https://github.com/<owner>/<repo>) — call again with that.",
@@ -2209,8 +2226,6 @@ class ComfyNodeInstallTool(Tool):
 
             catalog, catalog_error = _node_catalog()
             found = _resolve_pack(catalog, query) if catalog else None
-            if found is None and repo:
-                return await self._install_from_repo(repo, abort, on_update)
             if not catalog:
                 return ToolResult.text(catalog_error, is_error=True)
             if found is None:
@@ -2302,16 +2317,22 @@ class ComfyNodeInstallTool(Tool):
 
     @staticmethod
     async def _install_from_repo(repo: str, abort, on_update) -> ToolResult:
-        """A pack Manager's registry does not list, cloned and installed ON the machine through
-        its portal (GpuNodePackWorker) — the rented GPU and the person's own Vast machine."""
+        """One pack from its repository — see _install_from_repos."""
+        return await ComfyNodeInstallTool._install_from_repos([repo], abort, on_update)
+
+    @staticmethod
+    async def _install_from_repos(repos: list[str], abort, on_update) -> ToolResult:
+        """Packs cloned and installed ON the machine through its portal (GpuNodePackWorker) —
+        the rented GPU and the person's own Vast machine — in ONE job: clones at once, then each
+        pack's requirements, then one ComfyUI restart for all of them."""
         try:
             portal = _portal_connection(_override() or {})
         except ValueError as e:
-            _, name = gpu_node_pack_worker.repository(repo)
+            names = ", ".join(f"custom_nodes/{gpu_node_pack_worker.repository(r)[1]}" for r in repos)
             return ToolResult.text(
-                f"{e}. Tell the user to install it themselves: clone {repo} into their ComfyUI's "
-                f"custom_nodes folder (as custom_nodes/{name}), pip install its requirements.txt "
-                "if it has one, and restart ComfyUI — then call comfy_validate again.",
+                f"{e}. Tell the user to install it themselves: clone {', '.join(repos)} into their "
+                f"ComfyUI's custom_nodes folder (as {names}), pip install each requirements.txt "
+                "if there is one, and restart ComfyUI — then call comfy_validate again.",
                 is_error=True,
             )
 
@@ -2319,15 +2340,32 @@ class ComfyNodeInstallTool(Tool):
             if on_update:
                 on_update(ToolResult.text(message))
 
+        by_folder = {gpu_node_pack_worker.repository(r)[1]: r for r in repos}
+
+        def panel(packs: dict) -> None:
+            # The install panel names a pack by the link it came from.
+            studio_state.set_install_progress(
+                "node_packs", [{"name": by_folder.get(f, f), "state": s} for f, s in packs.items()])
+
         client = GpuNodePackInstallClient(fetch=fetch, get=_get, lease=lambda: _lease(_WORK_LEASE_S))
         try:
-            status = await client.install(portal, repo, _WAIT_ATTEMPT_S - 60, abort, report)
+            status = await client.install(portal, repos, _WAIT_ATTEMPT_S - 60, abort, report, on_packs=panel)
         except ValueError as e:
-            return ToolResult.text(f"install {repo}: {e}", is_error=True)
+            return ToolResult.text(f"install {', '.join(repos)}: {e}", is_error=True)
+        # WHERE THEY CAME FROM, kept: without the record the workflow's installer (and a
+        # template's setup guide) would name these packs "source unknown".
+        export_warning = ""
+        dependencies = WorkflowDependencyRepository(Path(current_workspace(".") or "."))
+        for folder, repo in by_folder.items():
+            try:
+                dependencies.record_node_pack(repo, folder)
+            except (OSError, ValueError) as e:
+                export_warning = f" (a source could not be recorded for installers: {e})"
+        folders = status.get("folders") or [status.get("folder")]
         return ToolResult.text(
-            f"installed {repo} into custom_nodes/{status.get('folder')} and restarted ComfyUI — it "
-            "answers again. comfy_node_spec the node class you need to confirm it loaded before "
-            "emitting a workflow that uses it."
+            f"installed {', '.join(repos)} into custom_nodes/{', custom_nodes/'.join(map(str, folders))}"
+            f"{export_warning} and restarted ComfyUI once — it answers again. comfy_node_spec the node "
+            "class you need to confirm it loaded before emitting a workflow that uses it."
         )
 
 
@@ -2542,20 +2580,21 @@ class ComfyValidateTool(Tool):
                     "\nreference slots (the user fills them in the References panel; comfy_run "
                     "refuses while any is EMPTY):\n" + reference_slots.describe(ws, slot_roles)
                 )
-            # PROOF GUARDS DOWNLOADS, AND ONLY DOWNLOADS. The reference check exists so a file the
-            # agent names is not fetched on a guess; a workflow whose every model is already on
-            # the machine downloads nothing, and demanding proof of it only stood between the
-            # person and a workflow that runs (their own, with a model they chose on the machine).
+            # THE REFERENCE CHECK IS A NOTE, NEVER A GATE. It compares the companion files (VAE,
+            # text encoders) with a publisher's workflow — a quality hint. It used to refuse the
+            # install list until one publisher workflow matched, and a workflow combining two
+            # model families (Krea + LTX), or one whose file the user swapped, can never match
+            # one: the agent hunted "proof" for an hour and gave up, every time. Downloads stay
+            # safe without it — safetensors only, real links only, every file verified.
+            stack_note = ""
             if raw_missing:
                 reference_problems = WorkflowReferenceRepository(
                     Path(current_workspace(".") or "."), fetch=fetch,
                 ).check(graph, str(params.get("reference_workflow_url") or "").strip())
                 if reference_problems:
-                    return ToolResult.text(
-                        "Model stack is not verified — these files would be downloaded, and nothing "
-                        "yet proves they belong with this model:\n  " + "\n  ".join(raw_missing)
-                        + "\n" + "\n".join(reference_problems),
-                        is_error=True,
+                    stack_note = (
+                        "\nnote — companion files not confirmed by a publisher workflow (a hint, not "
+                        "a blocker; install and run as usual): " + " | ".join(reference_problems)
                     )
             # THE RECORD THE INSTALL GATES READ. Written whether or not the graph compiles: a
             # clean validation is also a fact ("nothing to install"), and comfy_install answers
@@ -2619,6 +2658,8 @@ class ComfyValidateTool(Tool):
                 lines.append(downloading)
             if slots_note:
                 lines.append(slots_note.strip())
+            if stack_note:
+                lines.append(stack_note.strip())
             return ToolResult.text("\n".join(lines), is_error=True)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_validate failed: {type(e).__name__}: {e}", is_error=True)
@@ -2814,6 +2855,14 @@ def _workflow_path(name: str):
     return root / f"{folder}/{stem}.api.json"
 
 
+def _machine_nodes() -> dict:
+    """The machine's /api/object_info — every node class it has loaded, with its inputs."""
+    res = _get("/api/object_info", timeout_s=60.0)
+    if not res.ok:
+        raise ValueError(_failed(res, "read the machine's nodes"))
+    return res.json() or {}
+
+
 def register(api, ctx):
     # Imported by bare name: the loader puts this plugin's folder on sys.path, so siblings are
     # top-level modules here rather than a package.
@@ -2824,6 +2873,8 @@ def register(api, ctx):
     from library_read_tool import LibraryReadTool
     from library_use_tool import LibraryUseTool
     from template_use_tool import TemplateUseTool
+    from template_setup_tool import TemplateSetupTool
+    from template_setup_guide_tool import TemplateSetupGuideTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2851,3 +2902,12 @@ def register(api, ctx):
         converter=lambda: EditorGraphConverter(get=_get, post=_post) if _override() else None,
     ))
     api.register_tool(TemplateUseTool())
+    # A TEMPLATE'S MACHINE SETUP drives the same two install tools the agent would, from the
+    # links the template's setup guide carries — see template_setup_tool.
+    api.register_tool(TemplateSetupTool(
+        object_info=_machine_nodes,
+        install_packs=ComfyNodeInstallTool._install_from_repos,
+        install_models=lambda files, abort, on_update: ComfyInstallTool().execute(
+            "", {"files": files}, abort, on_update),
+    ))
+    api.register_tool(TemplateSetupGuideTool())

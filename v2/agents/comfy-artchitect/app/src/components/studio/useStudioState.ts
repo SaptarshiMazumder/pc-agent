@@ -48,12 +48,40 @@ export interface StudioState {
   } | null
   runs?: StudioRun[]
   renders?: StudioRender[]
+  /** Model downloads and node-pack installs (studio_state.set_install_progress). */
+  installs?: { models?: StudioInstall[]; node_packs?: StudioInstall[] }
+}
+
+export interface StudioInstall {
+  name: string
+  /** starting | downloading | retrying | verifying | installing | done | failed */
+  state: string
+  received?: number | null
+  total?: number | null
+  bytes_per_second?: number | null
+  error?: string | null
+  /** Seconds since the epoch — the plugin's clock. */
+  updated_at: number
 }
 
 const POLL_MS = 5_000
+/** While something installs, its bar moves every two seconds rather than every five. */
+const INSTALL_POLL_MS = 2_000
+const ENDED = new Set(['done', 'failed'])
 
+/** Is anything still installing? A row not updated for 3 minutes has stopped reporting. */
+export function installing(state: StudioState): boolean {
+  const now = Date.now() / 1000
+  return [...(state.installs?.models || []), ...(state.installs?.node_packs || [])].some(
+    (r) => !ENDED.has(r.state) && now - r.updated_at < 180,
+  )
+}
+
+/* ONE POLLER for the whole window: App calls this once and hands the state to the dashboard and
+   to the install panel above the composer. */
 export function useStudioState(client: AgentdClient | undefined, running: boolean): StudioState {
   const [state, setState] = useState<StudioState>({})
+  const fast = installing(state)
   // The poll must not stack requests when one is slow — one in flight, ever.
   const busy = useRef(false)
 
@@ -79,14 +107,14 @@ export function useStudioState(client: AgentdClient | undefined, running: boolea
     }
 
     void pull()
-    const t = setInterval(pull, POLL_MS)
+    const t = setInterval(pull, fast ? INSTALL_POLL_MS : POLL_MS)
     return () => {
       stop = true
       clearInterval(t)
     }
     // `running` in the deps on purpose: a run starting or ending is the moment the state is
     // most likely to have changed, so flipping it re-pulls immediately instead of on the tick.
-  }, [client, running])
+  }, [client, running, fast])
 
   return state
 }

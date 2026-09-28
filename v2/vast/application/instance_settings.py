@@ -109,8 +109,10 @@ class InstanceSettings:
     #: this.
     min_cuda: float = 13.0
     #: Mbps down. Every run pulls multi-GB weights, so a slow host is not cheap, it is a longer
-    #: bill for the same work.
-    min_inet_down: int = 100
+    #: bill for the same work. 1000: a video workflow's ~60 GB is ~8 minutes at 1 Gbps and over
+    #: an hour at 100 Mbps — the models download over many connections now, so the host's own
+    #: line is the limit.
+    min_inet_down: int = 1000
 
     #: THE FLOOR ON HOW MODERN THE CARD IS, as a number every card reports. 750 = Turing (RTX 20xx,
     #: T4, Quadro RTX): the first generation with fp16 tensor cores, and the oldest thing worth

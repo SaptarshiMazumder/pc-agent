@@ -55,13 +55,17 @@ class WorkflowInstallerExporter:
         if not target.is_relative_to(self.workspace / "workflows") or not target.name.endswith(".api.json"):
             raise ValueError("Installer exports must accompany an emitted workflow inside workflows/")
         builder = WorkflowInstallerManifest()
-        recorded = WorkflowDependencyRepository(self.workspace).models()
-        initial = builder.build(graph, catalogue, recorded, [], {})
+        dependencies = WorkflowDependencyRepository(self.workspace)
+        recorded = dependencies.models()
+        # Packs this workspace installed from their repositories are known without Manager: a
+        # pack Manager does not list stays resolved in the installer (and a template's guide).
+        installed_packs = dependencies.node_packs()
+        initial = builder.build(graph, catalogue, recorded, [], installed_packs)
         models = (self._catalogue("/externalmodel/getlist?mode=cache", "models", [])
                   if any(item.startswith("Model source") for item in initial["unresolved"]) else [])
         packs = (self._catalogue("/customnode/getlist?mode=cache", "node_packs", {})
                  if any(item.startswith("Node pack source") for item in initial["unresolved"]) else {})
-        manifest = builder.build(graph, catalogue, recorded, models, packs)
+        manifest = builder.build(graph, catalogue, recorded, models, {**installed_packs, **packs})
         manifest["workflow"] = target.name
         manifest["generator"] = "comfy-workflow-installer"
         name = target.name.removesuffix(".api.json")

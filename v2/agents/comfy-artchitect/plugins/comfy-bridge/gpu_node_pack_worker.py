@@ -9,8 +9,14 @@ install the pack's requirements into ComfyUI's own Python, run its install.py if
 restart ComfyUI so the nodes load. Only repositories on the hosts below, only an owner/repo path —
 the URL is checked here, on the machine, as well as by the plugin.
 
-Progress is a small JSON file in ComfyUI's temp folder (read over /api/view); the final answer is
-written after the restart, because ComfyUI empties that folder when it starts.
+SEVERAL PACKS, ONE RESTART. A template names every pack it needs; installed one call at a time
+each paid for its own ComfyUI restart (about a minute each). Given a list, the clones run at once
+(each writes its own folder), the requirement installs run one after another (two pip runs on one
+Python environment corrupt each other), and ComfyUI restarts once, after the last.
+
+Progress is a small JSON file in ComfyUI's temp folder (read over /api/view) - the whole job's
+state and each pack's (`packs`: {folder: state}); the final answer is written after the restart,
+because ComfyUI empties that folder when it starts.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -56,32 +63,55 @@ class GpuNodePackWorker:
         venv = Path(os.environ.get("VENV_DIR", "/venv/main")) / "bin" / "python"
         self._python = python or (str(venv) if venv.exists() else sys.executable)
 
-    def run(self, url: str, job: str) -> None:
+    def run(self, urls, job: str) -> None:
+        """Install one pack (a URL) or several (a list), then restart ComfyUI once."""
+        packs: dict[str, str] = {}
+
         def report(state: str, **fields) -> None:
             folder = self.root / "temp" / STATUS_DIR
             folder.mkdir(parents=True, exist_ok=True)
-            data = {"state": state, "updated_at": time.time(), **fields}
+            data = {"state": state, "updated_at": time.time(), "packs": dict(packs), **fields}
             (folder / f"{job}.json").write_text(json.dumps(data), encoding="utf-8")
 
         try:
-            clone, name = repository(url)
-            dest = self.root / "custom_nodes" / name
-            if dest.exists():
-                report("installing", note="already on the machine; requirements re-checked")
-            else:
-                report("cloning")
-                self._step(["git", "clone", "--depth", "1", clone, str(dest)], timeout=900)
-            if (dest / "requirements.txt").is_file():
+            targets = [repository(u) for u in ([urls] if isinstance(urls, str) else list(urls))]
+            if not targets:
+                raise ValueError("no node pack to install")
+            for _, name in targets:
+                packs[name] = "queued"
+
+            def fetch(target) -> None:
+                clone, name = target
+                dest = self.root / "custom_nodes" / name
+                if not dest.exists():
+                    packs[name] = "cloning"
+                    self._step(["git", "clone", "--depth", "1", clone, str(dest)], timeout=900)
+
+            report("cloning")
+            with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
+                for future in [pool.submit(fetch, t) for t in targets]:
+                    future.result()
+            for _, name in targets:
+                dest = self.root / "custom_nodes" / name
+                packs[name] = "installing"
                 report("installing")
-                self._step([self._python, "-m", "pip", "install", "-r", str(dest / "requirements.txt")],
-                           timeout=1800)
-            if (dest / "install.py").is_file():
-                self._step([self._python, "install.py"], timeout=1800, cwd=str(dest))
+                if (dest / "requirements.txt").is_file():
+                    self._step([self._python, "-m", "pip", "install", "-r", str(dest / "requirements.txt")],
+                               timeout=1800)
+                if (dest / "install.py").is_file():
+                    self._step([self._python, "install.py"], timeout=1800, cwd=str(dest))
+                packs[name] = "installed"
             report("restarting")
             self._control.restart()
             self._control.wait_ready()
-            report("done", folder=name)
+            for name in packs:
+                packs[name] = "done"
+            names = [name for _, name in targets]
+            report("done", folder=names[0], folders=names)
         except Exception as error:  # noqa: BLE001 — the answer the plugin reads
+            for name, state in packs.items():
+                if state not in ("installed", "queued"):
+                    packs[name] = "failed"
             report("failed", error=f"{type(error).__name__}: {str(error)[:400]}")
 
     def _step(self, command: list[str], *, timeout: float, cwd: str | None = None) -> None:

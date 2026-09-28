@@ -1,0 +1,7 @@
+{
+  "format": "comfy-penguin-setup",
+  "version": 1,
+  "node_packs": [],
+  "models": [],
+  "notes": "Runs on ComfyUI's paid partner nodes only: no node pack or model file to install."
+}

@@ -1,0 +1,42 @@
+{
+  "id": "template-krea-ltx",
+  "agent_id": "comfy-artchitect",
+  "goal": "The user's saved Krea/LTX template (tpl_9721acc894a1, with a complete setup guide) is used exactly as the Templates button starts it: brought in, briefed with its credits, and on 'go' set up from its setup guide by template_setup — node packs from their repositories, models from their links — and run AS IT IS, with no approval card, no research, no workflow rewritten and no link built from memory, until a render comes back.",
+  "turns": [
+    {
+      "text": "Use my template \"Krea LTX Workflow Setup- Little messed up but works\" (id tpl_9721acc894a1). Tell me briefly what it makes, which inputs to add, and what a run costs.",
+      "reference_media": [
+        {
+          "role": "photo",
+          "path": "assets/usecase/redhead.jpg"
+        }
+      ]
+    },
+    "go"
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "template_use"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "template_setup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_run"
+    },
+    {
+      "name": "max_turns",
+      "n": 40
+    }
+  ],
+  "max_turns": 40
+}

@@ -70,9 +70,13 @@ def normalise(params: dict) -> tuple[dict | None, str]:
                 f"service {name!r} has no price. Every paid service needs `usd` and `credits` — "
                 "exact numbers from comfy_price, never a guess."
             )
-        if any(s["name"].lower() == name.lower() for s in services):
-            return None, f"service {name!r} is listed twice."
-        services.append({"name": name, "purpose": purpose, "usd": round(usd, 4), "credits": int(round(credits))})
+        step = _text(raw.get("step"))
+        if any(s["name"].lower() == name.lower() and s.get("step", "") == step for s in services):
+            return None, f"service {name!r} is listed twice" + (f" for step '{step}'." if step else ".")
+        row = {"name": name, "purpose": purpose, "usd": round(usd, 4), "credits": int(round(credits))}
+        if step:
+            row["step"] = step
+        services.append(row)
 
     questions: list[dict] = []
     for i, raw in enumerate(_rows(params, "questions"), 1):
@@ -144,7 +148,8 @@ def render(ask: dict) -> str:
     if ask["services"]:
         lines.append("Paid services (unticked until the user ticks them):")
         for s in ask["services"]:
-            lines.append(f"  {s['name']} — {s['purpose']} — ≈${s['usd']:.2f} · {s['credits']:,} credits")
+            step = f"[step {s['step']}] " if s.get("step") else ""
+            lines.append(f"  {step}{s['name']} — {s['purpose']} — ≈${s['usd']:.2f} · {s['credits']:,} credits")
     if ask["questions"]:
         lines.append("Questions (the default in brackets):")
         for i, q in enumerate(ask["questions"], 1):
@@ -198,6 +203,16 @@ class AskUserTool(Tool):
                         "purpose": {"type": "string", "description": "What it does in this job, e.g. 'the final talking-head video'."},
                         "usd": {"type": "number", "description": "Dollars for this job's use of it, as comfy_price printed."},
                         "credits": {"type": "integer", "description": "The same in platform credits, as comfy_price printed."},
+                        "step": {
+                            "type": "string",
+                            "description": (
+                                "The workflow step this option is for — the role name from "
+                                "`workflows` (e.g. 'tryon', 'campaign'). Options for the same step "
+                                "are alternatives: the user picks ONE per step, and cannot answer "
+                                "until every step has a pick. Include the free route of a step as "
+                                "an option of that step. Omit for a single optional extra."
+                            ),
+                        },
                     },
                 },
             },

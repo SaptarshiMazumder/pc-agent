@@ -409,21 +409,22 @@ async def test_uncatalogued_qwen_automatically_uses_gpu():
 
 
 @pytest.mark.asyncio
-async def test_catalogued_file_stays_on_manager():
+async def test_catalogued_safetensors_downloads_on_the_gpu_not_through_manager():
+    """Manager fetches one file at a time over one connection; ours splits a big file."""
     entry = {"filename": request().filename, "url": "https://publisher.example/model.safetensors"}
-    observed = Mock()
-    service = installer(catalog=lambda: [entry], on_source=observed)
+    service = installer(catalog=lambda: [entry])
     await service.install([request().as_dict()], asyncio.Event(), lambda _: None)
-    service.submit.assert_called_once_with(request().as_dict(), entry)
-    service.start_manager.assert_called_once()
-    service.direct.start.assert_not_called()
-    assert observed.call_args.args[0]["url"] == entry["url"]
+    service.submit.assert_not_called()
+    service.direct.start.assert_called_once_with(request())
 
 
 @pytest.mark.asyncio
 async def test_manager_400_falls_back_to_direct_download():
+    # Manager is only used where the machine has no downloader of its own.
     service = installer(catalog=lambda: [{"filename": request().filename}],
-                        submit=Mock(side_effect=ValueError("HTTP 400: Invalid model install request")))
+                        submit=Mock(side_effect=ValueError("HTTP 400: Invalid model install request")),
+                        direct=SimpleNamespace(available=False, start=Mock(), wait=AsyncMock(),
+                                               active=Mock(return_value=False)))
     progress = []
     result = await service.install([request().as_dict()], asyncio.Event(), progress.append)
     service.wait_manager.assert_not_awaited()
@@ -442,7 +443,7 @@ async def test_failed_direct_download_cancels_manager_wait_not_the_gpu_job():
             manager_cancelled.set()
     other = request("vae.safetensors", "vae")
     service = installer(catalog=lambda: [{"filename": other.filename}], wait_manager=manager,
-                        direct=SimpleNamespace(available=True, start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404")),
+                        direct=SimpleNamespace(available=False, start=Mock(), wait=AsyncMock(side_effect=ValueError("HTTP 404")),
                                                active=Mock(return_value=False)))
     with pytest.raises(ValueError, match="404"):
         await asyncio.wait_for(service.install([request().as_dict(), other.as_dict()], asyncio.Event(), lambda _: None), 1)
@@ -521,9 +522,9 @@ def test_reference_is_fetched_and_reused_only_for_same_stack(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bad_companions_for_a_download_clear_permission_and_authorise_nothing(tmp_path, monkeypatch):
-    # PROOF GUARDS DOWNLOADS: the machine lists no such files, so they would be downloaded —
-    # and a wrong companion is refused, with the previous install permission already gone.
+async def test_unconfirmed_companions_are_a_note_and_never_block_the_install_list(tmp_path, monkeypatch):
+    # THE REFERENCE CHECK IS A NOTE: a companion no publisher workflow confirms is said, and
+    # the install list still stands (the old permission is still cleared first).
     path = tmp_path / "stills.api.json"
     path.write_text(json.dumps(graph("ae.safetensors")))
     forget, mark = Mock(), Mock()
@@ -539,10 +540,10 @@ async def test_bad_companions_for_a_download_clear_permission_and_authorise_noth
     result = await comfy_bridge.ComfyValidateTool().execute("test", {
         "workflow_path": str(path), "reference_workflow_url": "https://raw.githubusercontent.com/org/repo/main/qwen.json",
     }, asyncio.Event())
-    assert result.is_error
-    assert "VAE mismatch" in result.content[0].text
+    assert "VAE mismatch" in result.content[0].text and "not a blocker" in result.content[0].text
     forget.assert_called_once()
-    mark.assert_not_called()
+    mark.assert_called_once()
+    assert "ae.safetensors" in mark.call_args.args[1]
 
 
 @pytest.mark.asyncio

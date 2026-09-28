@@ -17,7 +17,7 @@ from gpu_command_bundle import GpuCommandBundle
 from gpu_node_pack_worker import STATUS_DIR
 
 _MODULES = ("comfy_process_control", "gpu_node_pack_worker")
-_ENTRY = "sys.modules['gpu_node_pack_worker'].GpuNodePackWorker(root).run(data['repo'], data['job'])"
+_ENTRY = "sys.modules['gpu_node_pack_worker'].GpuNodePackWorker(root).run(data['repos'], data['job'])"
 _POLL_S = 5.0
 _LEASE_EVERY_S = 90.0
 
@@ -30,11 +30,15 @@ class GpuNodePackInstallClient:
         self._sleep = sleep
         self._clock = clock
 
-    async def install(self, portal: dict, repo: str, wait_s: float, abort=None, report=None) -> dict:
-        """The worker's final status ({state: done, folder}) — ValueError when it failed or ran out of time."""
-        job = hashlib.sha256(f"{repo}:{time.time_ns()}".encode()).hexdigest()[:24]
+    async def install(self, portal: dict, repos, wait_s: float, abort=None, report=None,
+                      on_packs=None) -> dict:
+        """Install one repository or a list of them in ONE job (one ComfyUI restart). The worker's
+        final status ({state: done, folder, folders}) - ValueError when it failed or ran out of
+        time. `on_packs` gets each pack's state ({folder: state}) as it changes."""
+        repos = [repos] if isinstance(repos, str) else list(repos)
+        job = hashlib.sha256(f"{repos}:{time.time_ns()}".encode()).hexdigest()[:24]
         manifest = {"version": 1,
-                    "post_commands": [GpuCommandBundle.command(_MODULES, _ENTRY, {"repo": repo, "job": job})],
+                    "post_commands": [GpuCommandBundle.command(_MODULES, _ENTRY, {"repos": repos, "job": job})],
                     "on_failure": {"action": "continue", "max_retries": 0}}
         res = self._fetch(portal["portal_url"].rstrip("/") + "/capabilities/provision", method="POST",
                           headers={"Authorization": portal["auth"]},
@@ -49,6 +53,8 @@ class GpuNodePackInstallClient:
                 raise ValueError("stopped waiting; the install may still finish on the machine")
             status = self._status(job)
             state = (status or {}).get("state", "")
+            if on_packs and (status or {}).get("packs"):
+                on_packs(status["packs"])
             if state == "done":
                 return status
             if state == "failed":

@@ -7,6 +7,8 @@
  *     library/<saved|uploaded>/templates/<slug>/
  *         template.json            the manifest below — the contract
  *         workflows/<role>.api.json, <role>.json, install_<role>.py, install_<role>.manifest.json
+ *         setup.json               the SETUP GUIDE: every node pack and model, with its link
+ *                                  (template-setup-guide.ts) — what template_setup installs from
  *         thumb.<ext>              optional
  *
  * THE MANIFEST IS THE CONTRACT, not this code. A downloaded template is that folder zipped; an
@@ -24,6 +26,7 @@ import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
 import type { AgentdClient } from '@agentd/client'
 
 import { fileUrl, type Artifact } from './artifacts'
+import { TEMPLATE_SETUP, type SetupGuide } from './template-setup-guide'
 import {
   copy,
   KIND_DIR,
@@ -71,6 +74,9 @@ export interface TemplateManifest {
   created: string
   from?: { chat: string; title: string }
   thumbnail?: string
+  /** The setup guide's file (TEMPLATE_SETUP). Absent on a template saved before guides: the
+   *  agent then works its sources out itself. */
+  setup?: string
   inputs: TemplateInput[]
   steps: TemplateStep[]
 }
@@ -116,6 +122,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
     created: String(m.created || ''),
     ...(m.from ? { from: { chat: String(m.from.chat || ''), title: String(m.from.title || '') } } : {}),
     ...(m.thumbnail && safeRel(String(m.thumbnail)) ? { thumbnail: String(m.thumbnail) } : {}),
+    ...(m.setup === TEMPLATE_SETUP ? { setup: TEMPLATE_SETUP } : {}),
     inputs: Array.isArray(m.inputs)
       ? m.inputs
           .map((i) => ({ role: String(i?.role || '').replace(/^@/, '').trim(), what: String(i?.what || '') }))
@@ -129,7 +136,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
  *  absolute path, nothing that would land outside its own folder when unpacked. */
 function safeRel(rel: string): boolean {
   if (!rel || rel.startsWith('/') || rel.includes('\\') || rel.split('/').includes('..')) return false
-  return rel === TEMPLATE_MANIFEST || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
+  return rel === TEMPLATE_MANIFEST || rel === TEMPLATE_SETUP || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
 }
 
 function templateDir(item: LibraryItem): string {
@@ -163,6 +170,8 @@ export async function saveChatAsTemplate(
     workflows: ChatWorkflowFiles[]
     inputs: TemplateInput[]
     thumbnail?: Artifact
+    /** The setup guide, complete — the Save dialog does not save with a gap left open. */
+    setup: SetupGuide
     /** Workspace-relative path of each chat file, which is what the daemon copies by. */
     relOf: (a: Artifact) => string
   },
@@ -194,6 +203,8 @@ export async function saveChatAsTemplate(
     await copy(client, args.relOf(args.thumbnail), `${dir}/${thumbnail}`, true)
   }
 
+  await upload(client, dir, TEMPLATE_SETUP, utf8Base64(JSON.stringify(args.setup, null, 2) + '\n'), true)
+
   const at = nowIso()
   const manifest: TemplateManifest = {
     format: TEMPLATE_FORMAT,
@@ -203,6 +214,7 @@ export async function saveChatAsTemplate(
     created: at,
     from,
     ...(thumbnail ? { thumbnail } : {}),
+    setup: TEMPLATE_SETUP,
     inputs: args.inputs,
     steps,
   }
@@ -346,6 +358,7 @@ function manifestFiles(manifest: TemplateManifest): string[] {
   return [
     ...manifest.steps.flatMap((s) => [s.api, ...(s.ui ? [s.ui] : []), ...s.installer]),
     ...(manifest.thumbnail ? [manifest.thumbnail] : []),
+    ...(manifest.setup ? [manifest.setup] : []),
   ]
 }
 
@@ -433,8 +446,7 @@ export async function installSuggestedTemplate(client: AgentdClient, entry: Sugg
  *  with `template_use`, which copies every workflow and declares the inputs, then explains. */
 export function useTemplateMessage(item: LibraryItem): string {
   return (
-    `Use my template "${item.name}" (id ${item.id}): bring it in with template_use and set up its inputs. ` +
-    `Then tell me briefly what it does and which inputs to add on the Inputs tab to run it as it is — ` +
-    `or ask me what I want to change.`
+    `Use my template "${item.name}" (id ${item.id}). Tell me briefly what it makes, which inputs ` +
+    `to add, and what a run costs.`
   )
 }

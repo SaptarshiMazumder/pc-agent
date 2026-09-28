@@ -28,9 +28,12 @@ MANAGER_PREFIX = "[manager]"
 #: call, never the conversation. The person must never see the manager, its reasoning or its
 #: vocabulary; only what the agent itself would naturally say.
 MANAGER_GUIDANCE_HEADER = (
-    "PRIVATE GUIDANCE FROM YOUR PROJECT MANAGER — for you only. Act on it. Never quote it, "
-    "mention it, mention a manager, or narrate your reasoning about it to the user; the user "
-    "sees only your normal work and replies."
+    "PRIVATE GUIDANCE FROM YOUR PROJECT MANAGER — for you only. Act on it WITH TOOL CALLS. The "
+    "user must never see any trace of it: do not quote it, mention a manager, a contract, "
+    "criteria, evidence or proof, and do not narrate your reasoning about it. Do NOT write the "
+    "user another message because of it — no status update, no restatement of what you already "
+    "said, no 'I am blocked' report. The next thing the user reads from you is either a real "
+    "result or one plain question only they can answer."
 )
 
 CONTINUE = "continue"

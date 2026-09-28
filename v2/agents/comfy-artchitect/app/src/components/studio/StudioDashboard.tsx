@@ -39,7 +39,7 @@ import { OutputsGrid } from './OutputsGrid'
 import { WorkflowPanel } from './WorkflowPanel'
 import { WorkspaceSection } from './WorkspaceSection'
 import { StudioTopBar, type StudioPanel } from './StudioTopBar'
-import { useStudioState } from './useStudioState'
+import type { StudioState } from './useStudioState'
 import { collectWorkflows } from '../workflows/WorkflowCard'
 
 import './studio.css'
@@ -49,6 +49,7 @@ const inReferences = (a: Artifact): boolean => /[\\/]references[\\/]/.test(a.pat
 
 export function StudioDashboard({
   client,
+  state,
   gpu,
   connection,
   running,
@@ -70,6 +71,8 @@ export function StudioDashboard({
   onSaveTemplate,
 }: {
   client: AgentdClient | undefined
+  /** The one studio-state poll (App owns it; the install panel reads it too). */
+  state: StudioState
   gpu: GpuWarmup
   /** Where the account's ComfyUI runs (App owns it: the GPU warm-up reads it too). */
   connection: ComfyConnection
@@ -102,7 +105,6 @@ export function StudioDashboard({
   /** Keep every workflow of this chat as one template (asks for its name first). */
   onSaveTemplate?: () => void
 }) {
-  const state = useStudioState(client, running)
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
   const selectionSeq = useApp((s) => s.selectionSeq)

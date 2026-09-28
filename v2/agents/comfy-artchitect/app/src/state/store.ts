@@ -190,9 +190,10 @@ export interface AppState {
   /* Text put INTO the composer from somewhere else — a suggestion, or "edit and resend" on a
      message you already sent.
      AN OBJECT, not a bare string: editing the SAME message twice would otherwise set an identical
-     value, the effect watching it would not re-run, and the second click would do nothing. */
-  composerSeed: { text: string } | null
-  seedComposer: (text: string | null) => void
+     value, the effect watching it would not re-run, and the second click would do nothing.
+     `send`: sent at once instead of left in the box (a template's opening message). */
+  composerSeed: { text: string; send: boolean } | null
+  seedComposer: (text: string | null, send?: boolean) => void
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -337,7 +338,7 @@ export const useApp = create<AppState>((set) => ({
     }),
 
   composerSeed: null,
-  seedComposer: (text) => set({ composerSeed: text === null ? null : { text } }),
+  seedComposer: (text, send = false) => set({ composerSeed: text === null ? null : { text, send } }),
 
   replaceLast: (key, item) =>
     set((s) => {

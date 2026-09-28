@@ -78,7 +78,7 @@
 .lib-note:hover { color: var(--text); }
 .lib-note-input {
   width: 100%; padding: 2px 6px; border: 1px solid var(--border2); border-radius: var(--r-sm, 6px);
-  background: var(--bg); color: var(--text); font: inherit; font-size: var(--fs-tiny);
+  background: var(--bg3); color: var(--text); font: inherit; font-size: var(--fs-control); font-size: var(--fs-tiny);
 }
 
 .lib-actions { flex: none; display: flex; align-items: center; gap: 6px; }
@@ -93,7 +93,7 @@
 .lib-btn-del:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .lib-select {
   max-width: 150px; padding: 4px 6px; border: 1px solid var(--border2); border-radius: var(--r-sm, 6px);
-  background: var(--bg); color: var(--text); font: inherit; font-size: var(--fs-tiny);
+  background: var(--bg3); color: var(--text); font: inherit; font-size: var(--fs-control); font-size: var(--fs-tiny);
 }
 
 /* ── phones ───────────────────────────────────────────────────────────────────────────────── */
@@ -187,3 +187,21 @@
 /* Untitled panel (the Library page): the refresh spinner sits in the corner instead of a title line. */
 .lib { position: relative; }
 .lib-refreshing-float { position: absolute; top: 0; right: 0; }
+
+/* THE SETUP GUIDE in the Save-as-template dialog: each unsourced pack/model as a link field. */
+.tpl-setup { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; overflow-y: auto; }
+.tpl-setup-head { font-size: var(--fs-small); color: var(--dim); }
+.tpl-setup-note { margin: 0; font-size: var(--fs-small); color: var(--faint); }
+.tpl-setup-note.is-error { color: var(--danger); }
+.tpl-gap { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-small); }
+.tpl-gap-name { display: flex; justify-content: space-between; gap: 10px; color: var(--text); font-family: var(--mono); overflow-wrap: anywhere; }
+.tpl-gap-name em { flex: none; font-style: normal; font-family: inherit; color: var(--faint); }
+.tpl-gap-row { display: flex; gap: 6px; }
+.tpl-gap-row input, .tpl-gap-row select {
+  min-width: 0; padding: 8px 10px; border: 1px solid var(--border2); border-radius: var(--r-input);
+  background: var(--bg3); color: var(--text); font: inherit; font-size: var(--fs-control);
+}
+.tpl-gap-row input { flex: 1; }
+.tpl-gap-row input:focus, .tpl-gap-row select:focus { outline: none; border-color: var(--accent-edge); }
+.tpl-gap-bad { color: var(--warn); font-size: 11px; }
+@media (max-width: 560px) { .tpl-gap-row { flex-direction: column; } }

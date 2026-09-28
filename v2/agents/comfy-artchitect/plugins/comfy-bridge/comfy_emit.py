@@ -30,6 +30,7 @@ from agent_runtime.application.run_context import current_workspace
 
 import chat_paths
 import reference_slots
+import studio_state
 from workflow_link import WorkflowLink
 from workflow_installer_exporter import WorkflowInstallerExporter
 
@@ -102,12 +103,32 @@ class ComfyEmitTool(Tool):
                 "type": "string",
                 "description": "One line on what this workflow does; kept beside the files.",
             },
+            "user_asked": {
+                "type": "string",
+                "description": (
+                    "Only when rewriting a step that came from a TEMPLATE: the user's own words "
+                    "asking for this change. A template step is never rewritten to get it running."
+                ),
+            },
         },
     }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             name = _slug(str(params.get("name") or ""))
+            # A TEMPLATE STEP RUNS AS IT IS. The agent rewrote one to get around a node it had
+            # not installed, picked mismatched model files from memory, and failed four runs in
+            # a row. Only the person's own request changes a template's step — and a NEW workflow
+            # beside the template's (the same design under another name) is the same rewrite.
+            if studio_state.template_steps() and not str(params.get("user_asked") or "").strip():
+                return ToolResult.text(
+                    "this chat runs a template, and a template runs as it is — no workflow is written "
+                    "to make it run, under its step's name or a new one. Set the machine up with "
+                    "template_setup (and work out only the gaps it names), then comfy_run its steps. "
+                    "If the USER asked for a change or a new workflow, call again with user_asked "
+                    "set to their words.",
+                    is_error=True,
+                )
             nodes = params.get("nodes")
             if not isinstance(nodes, list) or not nodes:
                 return ToolResult.text("nodes must be a non-empty array", is_error=True)
@@ -151,8 +172,6 @@ class ComfyEmitTool(Tool):
             # comfy_download brought it back. Anything else — the instance's example.png, a
             # remembered filename, a guess — is the graph quietly reading a file the user never
             # gave it, which is the failure rule 14 exists to stop. Checked here, one round trip.
-            import studio_state
-
             known = set(studio_state.uploaded_in_session()) | {
                 Path(rel).name for rel in studio_state.downloaded_in_session()
             }
@@ -227,12 +246,12 @@ class ComfyEmitTool(Tool):
 
             # THE DESIGN NOW EXISTS, which is what unlocks comfy_inventory — see studio_state.
             try:
-                import studio_state
-
                 studio_state.mark_emitted()
                 # And WHEN this name first existed here — what decides whether a checkpoint
                 # presented later covers it (studio_state.checkpoint_answered).
                 studio_state.mark_first_emit(name)
+                # A rewritten template step is a new design: it goes through the ask again.
+                studio_state.forget_template_step(name)
             except Exception:  # noqa: BLE001 — a telemetry miss must not fail the emit
                 pass
 

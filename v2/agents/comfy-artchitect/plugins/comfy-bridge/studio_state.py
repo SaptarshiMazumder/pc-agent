@@ -70,6 +70,33 @@ def set_instance(**fields) -> None:
         pass
 
 
+#: What the window's install panel shows: every model download and node-pack install, by name,
+#: with its state and — for a download — bytes, total and speed. Kept after it ends so the panel
+#: can say "done" or "failed"; the window hides what ended a while ago.
+_INSTALL_KINDS = ("models", "node_packs")
+_MAX_INSTALL_ROWS = 40
+
+
+def set_install_progress(kind: str, rows: list[dict]) -> None:
+    """Merge rows (each with a `filename` or `name`) into the install panel's list of `kind`."""
+    if kind not in _INSTALL_KINDS:
+        raise ValueError(f"unknown install kind {kind!r}")
+    try:
+        state = _load()
+        installs = state.get("installs") or {}
+        mine = {r.get("name"): r for r in installs.get(kind) or [] if isinstance(r, dict)}
+        now = time.time()
+        for row in rows:
+            name = str(row.get("name") or row.get("filename") or "")
+            if name:
+                mine[name] = {**{k: v for k, v in row.items() if k != "filename"}, "name": name, "updated_at": now}
+        installs[kind] = sorted(mine.values(), key=lambda r: r.get("updated_at") or 0)[-_MAX_INSTALL_ROWS:]
+        state["installs"] = installs
+        _save(state)
+    except OSError:
+        pass  # telemetry, not truth — the install itself must not care
+
+
 def run_started(workflow: str, prompt_id: str, checkpoint: str, steps) -> None:
     try:
         state = _load()
@@ -399,8 +426,51 @@ def node_install_allowed() -> tuple[bool, str]:
     )
 
 
+# A TEMPLATE STEP, UNCHANGED, NEEDS NO ASK. The user chose a finished setup and was told what it
+# costs; asking them to approve its models again is the approval loop templates exist to skip.
+# The mark is per conversation and per step, and rewriting the step (comfy_emit, library_use
+# under the same name) removes it — a changed step is a new design and goes through the ask.
+_TEMPLATE_FILE = ".studio/template_steps.json"
+
+
+def _template_steps() -> set[str]:
+    session = _session()
+    if not session:
+        return set()
+    return set((_read_json(_TEMPLATE_FILE).get("sessions") or {}).get(session) or [])
+
+
+def template_steps() -> set[str]:
+    """This conversation's steps that came from a template, unchanged."""
+    return _template_steps()
+
+
+def mark_template_step(name: str) -> None:
+    """`name` was brought in unchanged from a template (template_use)."""
+    session = _session()
+    if not session or not name:
+        return
+    data = _read_json(_TEMPLATE_FILE)
+    sessions = data.get("sessions") or {}
+    mine = [n for n in (sessions.get(session) or []) if n != name] + [name]
+    sessions[session] = mine
+    _write_json(_TEMPLATE_FILE, {"sessions": _prune(sessions)})
+
+
+def forget_template_step(name: str) -> None:
+    """`name` was rewritten — it is no longer the template's step."""
+    session = _session()
+    if not session or name not in _template_steps():
+        return
+    data = _read_json(_TEMPLATE_FILE)
+    sessions = data.get("sessions") or {}
+    sessions[session] = [n for n in (sessions.get(session) or []) if n != name]
+    _write_json(_TEMPLATE_FILE, {"sessions": sessions})
+
+
 def checkpoint_answered(name: str) -> tuple[bool, str]:
-    """May `name` run (or be installed for)? Only after the user has ANSWERED the ask.
+    """May `name` run (or be installed for)? Only after the user has ANSWERED the ask — or when
+    it is a template's step, unchanged (see _TEMPLATE_FILE).
 
     The daemon stamps `presented_at` the moment `ask_user` returns — the ask is a tool call, not
     a block of prose — and `answered_at` when the next user message arrives. The ask comes BEFORE
@@ -409,6 +479,8 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
     """
     session = _session()
     if not session:
+        return True, ""
+    if name in _template_steps():
         return True, ""
     rec = ((_read_json(_CHECKPOINT_FILE).get("sessions") or {}).get(session) or {})
     presented = float(rec.get("presented_at") or 0.0)

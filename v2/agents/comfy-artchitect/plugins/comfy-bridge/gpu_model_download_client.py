@@ -21,12 +21,14 @@ class GpuModelDownloadClient:
 
     #: Everything the worker needs on the machine, shipped with it.
     MODULES = ("model_download_request", "model_download_redirect_policy", "gpu_download_activity",
-               "model_download_resume_state", "model_storage_detector", "comfy_process_control",
+               "gpu_download_progress_index",
+               "model_download_resume_state", "parallel_range_download", "model_storage_detector",
+               "comfy_process_control",
                "model_storage_setup",
                "gpu_model_download_worker")
 
     def __init__(self, *, fetch, connection, current_connection, get, lease,
-                 ready, use_volume=False, sleep=asyncio.sleep, clock=time.monotonic):
+                 ready, use_volume=False, sleep=asyncio.sleep, clock=time.monotonic, on_progress=None):
         self._fetch = fetch
         #: The person's own Vast machine: models go to its volume if it has one. Never on the
         #: platform's rented GPU, whose behaviour stays exactly as it was.
@@ -40,6 +42,9 @@ class GpuModelDownloadClient:
         self._clock = clock
         self._portal = None
         self._attempts = {}
+        #: Each poll's rows — {filename, state, received, total, bytes_per_second, error} — for
+        #: the window's install progress (studio_state). None: nobody is showing them.
+        self._on_progress = on_progress
 
     @classmethod
     def command(cls, request: ModelDownloadRequest, attempt_id: str = "", use_volume: bool = False) -> str:
@@ -91,6 +96,25 @@ class GpuModelDownloadClient:
             result = response.json()
         except ValueError:
             return None
+        return self._judge(request, result)
+
+    def statuses(self, requests: list[ModelDownloadRequest]) -> dict:
+        """Every job's status in ONE read of the GPU's progress index (GpuDownloadProgressIndex)
+        — one request per poll however many files download, where one per file ran the sandbox's
+        request budget out mid-install. A worker from before the index: one read per file."""
+        query = urlencode({"filename": "progress.json", "type": "temp",
+                           "subfolder": "agentd-model-downloads", "t": time.time_ns()})
+        response = self._get("/api/view?" + query, timeout_s=15)
+        try:
+            jobs = response.json().get("jobs") if response.ok else None
+        except (ValueError, AttributeError):
+            jobs = None
+        if not isinstance(jobs, dict):
+            return {r.job_id: self.status(r) for r in requests}
+        return {r.job_id: self._judge(r, jobs.get(r.job_id)) for r in requests}
+
+    def _judge(self, request: ModelDownloadRequest, result) -> dict | None:
+        """A status record, if it is this request's and current; None otherwise."""
         if not isinstance(result, dict) or result.get("state") not in (
             "starting", "downloading", "retrying", "verifying", "done", "failed",
         ):
@@ -125,11 +149,18 @@ class GpuModelDownloadClient:
         last_seen = {job_id: started for job_id in pending}
         reported = {}
         last_report = ""
+        rows = {}
         while pending:
             if abort is not None and abort.is_set():
                 raise ValueError("Stopped waiting; GPU downloads may continue. No install success confirmed.")
+            now = self.statuses(list(pending.values()))
             for job_id, request in list(pending.items()):
-                status = self.status(request)
+                status = now.get(job_id)
+                if status is not None:
+                    rows[job_id] = {"filename": request.filename, "state": status.get("state"),
+                                    "received": status.get("received"), "total": status.get("total"),
+                                    "bytes_per_second": status.get("bytes_per_second"),
+                                    "error": status.get("error")}
                 if status is None:
                     if self._clock() - last_seen[job_id] > 120:
                         if self._reconcile(request, on_update):
@@ -141,6 +172,8 @@ class GpuModelDownloadClient:
                 last_seen[job_id] = self._clock()
                 state = status.get("state")
                 if state == "failed":
+                    if self._on_progress:
+                        self._on_progress(list(rows.values()))
                     raise GpuModelDownloadFailure(request, status.get("error", "unknown error"),
                                                   status.get("http_status"))
                 if state != "done" and time.time() - float(status.get("updated_at", 0)) > 180:
@@ -163,6 +196,11 @@ class GpuModelDownloadClient:
                 reported[job_id] = progress
                 if state == "done":
                     del pending[job_id]
+            if self._on_progress:
+                for job_id in rows:
+                    if job_id not in pending and rows[job_id].get("state") != "failed":
+                        rows[job_id]["state"] = "done"
+                self._on_progress(list(rows.values()))
             summary = "\n".join(reported.values())
             if summary != last_report and on_update:
                 on_update(summary)

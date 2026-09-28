@@ -132,11 +132,20 @@ export function Composer({
   const seed = useApp((s) => s.composerSeed)
   useEffect(() => {
     if (!seed) return
+    // A SEED TO SEND goes straight out, and is cleared so a remount cannot send it twice. Not
+    // connected or mid-run: it lands in the box instead, for the person to send.
+    if (seed.send && connected && !running) {
+      useApp.getState().seedComposer(null)
+      onSend(seed.text)
+      return
+    }
     setText(seed.text)
     const el = areaRef.current
     if (!el) return
     el.focus()
     requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length))
+    // Keyed on the seed alone: a seed is acted on once, when it arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed])
   /* GROW TO FIT — KEYED ON THE VALUE, not on typing.
    *

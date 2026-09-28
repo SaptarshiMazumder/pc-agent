@@ -64,7 +64,9 @@ def test_storage_403_does_not_claim_provider_auth_failed(url, provider, secret):
 
 @pytest.mark.parametrize("url,provider,secret", LINKS)
 def test_denied_even_with_key_reports_attempt_not_missing_secret(url, provider, secret):
-    fetch = Mock(return_value=Response(status=403, url=url))
+    # The repository exists (Hugging Face's public model API answers 200) — the file is gated.
+    fetch = Mock(side_effect=lambda u, **k: Response(status=200, url=u) if "/api/models/" in u
+                 else Response(status=403, url=url))
     with pytest.raises(ValueError, match="runtime tried " + secret):
         ModelDownloadSourceResolver(fetch=fetch, secrets={"huggingface": "HF_TOKEN", "civitai": "CIVITAI_TOKEN"}).resolve(file(url))
 
