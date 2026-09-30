@@ -40,6 +40,7 @@ import library_paths
 import reference_slots
 import studio_state
 from editor_graph_converter import EditorGraphConverter
+from fixed_design_shape import FixedDesignShape
 from library_index import LibraryIndex, LibraryItem
 from workflow_reference_repository import WorkflowReferenceRepository
 from workflow_summary import WorkflowSummary
@@ -206,8 +207,11 @@ class LibraryUseTool(Tool):
             studio_state.mark_emitted()
             studio_state.mark_first_emit(name)
             studio_state.forget_template_step(name)
+            studio_state.mark_fixed_design()
         except Exception:  # noqa: BLE001 — bookkeeping must not fail the copy
             pass
+        # Not swallowed: without the shape a re-emit could rewrite the user's design unnoticed.
+        studio_state.mark_fixed_shape(name, FixedDesignShape.of(api).to_json())
         roles = list(reference_slots.roles_in(api))
         slots = ""
         if roles:
@@ -217,6 +221,24 @@ class LibraryUseTool(Tool):
                 "Library (library_use a reference with as=<role>); comfy_run REFUSES while any "
                 "is EMPTY:\n" + reference_slots.describe(ws, roles, {})
             )
+        # A LOADER STILL READING THE WORKFLOW'S OWN EXAMPLE FILE is where the user's file goes. The
+        # agent, told of no slot, once decided the user's start frame was "missing" while it sat in
+        # this chat's references, and asked for it three times. So: which loaders, which files.
+        examples = [
+            f"node {nid} {e.get('class_type')}.{field} = {value!r}"
+            for nid, e in api.items() if isinstance(e, dict) and str(e.get("class_type") or "").startswith("Load")
+            for field, value in (e.get("inputs") or {}).items()
+            if field in reference_slots._SLOT_FIELDS and isinstance(value, str) and reference_slots.role_of(value) is None
+        ]
+        refs_dir = reference_slots.folder(ws)
+        have = sorted(p.name for p in refs_dir.iterdir() if p.is_file() and not p.name.startswith(".")) if refs_dir.is_dir() else []
+        if examples:
+            slots += (
+                "\nloaders reading the workflow's OWN example file — to feed the user's file, set it to "
+                "'@<role>' and re-emit (an input change; comfy_run uploads and wires it):\n  "
+                + "\n  ".join(examples)
+                + "\nfiles already in this chat's references: " + (", ".join(have) if have else "none")
+            )
         origin = f"{item.name} v{item.latest_version}" if item.kind == "workflow" else item.name
         return ToolResult.text(
             f"brought {origin} into this chat as workflow '{name}'"
@@ -224,9 +246,11 @@ class LibraryUseTool(Tool):
             + (f"\n  import this: {ui_rel}" if ui_rel else "\n  (no editor json was saved with it)")
             + slots
             + "\nIt is this chat's workflow now, and its model files are proven by it: "
-            "comfy_validate it WITHOUT reference_workflow_url and install what validate lists. To "
-            "change it, re-emit it under the same name with comfy_emit; then comfy_validate, "
-            "comfy_price and the ask as for any design.",
+            "comfy_validate it WITHOUT reference_workflow_url and install what validate lists. "
+            "It runs AS IT IS: its nodes and wiring stay. To set an input (prompt, image, size, "
+            "length, a value the machine does not offer), re-emit it under the same name with "
+            "every node and link unchanged — comfy_emit refuses anything else. Only a change the "
+            "USER asked for rewires it (comfy_emit with user_asked = their words).",
             details={"workflow": name, "api": api_rel, "ui": ui_rel, "item": item.id},
         )
 

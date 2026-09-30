@@ -440,6 +440,63 @@ def _template_steps() -> set[str]:
     return set((_read_json(_TEMPLATE_FILE).get("sessions") or {}).get(session) or [])
 
 
+# A DESIGN SOMEONE ELSE FIXED. A chat that brought in a template or a Library workflow runs that
+# design's own models and settings: nothing suggests other weights or settings there (the model
+# profiles still hand over a prompt format, for a prompt that gets written). Per conversation.
+_FIXED_FILE = ".studio/fixed_design_chats.json"
+
+
+def mark_fixed_design() -> None:
+    session = _session()
+    if not session:
+        return
+    data = _read_json(_FIXED_FILE)
+    sessions = [s for s in data.get("sessions") or [] if s != session] + [session]
+    _write_json(_FIXED_FILE, {"sessions": sessions[-_MAX_SESSIONS:]})
+
+
+def fixed_design() -> bool:
+    """Did this conversation bring in a template or a Library workflow?"""
+    session = _session()
+    return bool(session) and session in (_read_json(_FIXED_FILE).get("sessions") or [])
+
+
+# A SERVED DESIGN KEEPS ITS NODES AND WIRING (fixed_design_shape). Recorded per conversation and
+# per workflow name by template_use and library_use; comfy_emit compares every re-emit with it.
+_SHAPES_FILE = ".studio/fixed_shapes.json"
+
+
+def mark_fixed_shape(name: str, shape: dict) -> None:
+    session = _session()
+    if not session or not name:
+        return
+    data = _read_json(_SHAPES_FILE)
+    sessions = data.get("sessions") or {}
+    mine = dict(sessions.get(session) or {})
+    mine[name] = shape
+    sessions[session] = mine
+    _write_json(_SHAPES_FILE, {"sessions": _prune(sessions)})
+
+
+def fixed_shapes() -> dict[str, dict]:
+    """This conversation's served designs: {workflow name: shape}."""
+    session = _session()
+    if not session:
+        return {}
+    return dict((_read_json(_SHAPES_FILE).get("sessions") or {}).get(session) or {})
+
+
+def forget_fixed_shape(name: str) -> None:
+    """The user asked for `name` to change — it is an ordinary design from now on."""
+    session = _session()
+    if not session or name not in fixed_shapes():
+        return
+    data = _read_json(_SHAPES_FILE)
+    sessions = data.get("sessions") or {}
+    sessions[session] = {n: s for n, s in (sessions.get(session) or {}).items() if n != name}
+    _write_json(_SHAPES_FILE, {"sessions": sessions})
+
+
 def template_steps() -> set[str]:
     """This conversation's steps that came from a template, unchanged."""
     return _template_steps()

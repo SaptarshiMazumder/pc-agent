@@ -28,6 +28,9 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 _MAX_ROWS = 8
 #: The same rule as the comfy plugin's reference_slots.ROLE_RE — a role is a filename stem.
 _ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+#: A question about a prompt must carry the prompt; fewer words than this is a "yes", not one.
+_PROMPT_RE = re.compile(r"\bprompt\b", re.IGNORECASE)
+_MIN_PROMPT_WORDS = 8
 
 
 def _text(value) -> str:
@@ -86,7 +89,17 @@ def normalise(params: dict) -> tuple[dict | None, str]:
         if not default:
             return None, (
                 f"question {question!r} has no default. Every question carries the answer you "
-                "will use if the user says nothing — that is what makes a one-word reply enough."
+                "will use if the user says nothing — that is what makes a one-word reply enough. "
+                "When the question asks them to approve a text (a prompt), that FULL text is the "
+                "default — keep it there, do not shorten the question to 'use the prompt?'."
+            )
+        # A PROMPT IS APPROVED BY READING IT. After a refused ask the agent re-asked "Use the
+        # displayed LTX-2 prompt exactly as written? [yes]" — and the prompt was displayed nowhere.
+        if _PROMPT_RE.search(question) and len(default.split()) < _MIN_PROMPT_WORDS:
+            return None, (
+                f"question {question!r} asks about a prompt, but its default ({default!r}) is not "
+                "the prompt. Put the FULL prompt in `default`, so the user reads what will run and "
+                "an edit replaces it."
             )
         questions.append({"question": question, "default": default})
 
@@ -229,7 +242,13 @@ class AskUserTool(Tool):
                     "required": ["question", "default"],
                     "properties": {
                         "question": {"type": "string"},
-                        "default": {"type": "string", "description": "The answer you will use if the user says nothing."},
+                        "default": {
+                            "type": "string",
+                            "description": (
+                                "The answer you will use if the user says nothing. For a prompt "
+                                "question, the FULL prompt itself."
+                            ),
+                        },
                     },
                 },
             },

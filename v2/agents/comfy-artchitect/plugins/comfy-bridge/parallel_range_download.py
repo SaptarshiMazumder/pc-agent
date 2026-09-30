@@ -20,6 +20,7 @@ after the last part lands, exactly as for a single-stream download.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import queue
@@ -39,6 +40,13 @@ PART_SIZE = 128 * 1024 * 1024
 CONNECTIONS = 16
 _RETRYABLE = (408, 429, 500, 502, 503, 504)
 _STRONG_ETAG = re.compile(r'"[^"\r\n]+"')
+
+
+def _no_room(needed: int, free: int) -> str:
+    gb = 1024 ** 3
+    return (f"Not enough disk on the machine for this model: it needs {needed / gb:.1f} GB more "
+            f"and {max(free, 0) / gb:.1f} GB is free. Free space (or use a machine with a larger disk) "
+            "and install again.")
 
 
 class ParallelRangeDownload:
@@ -112,11 +120,10 @@ class ParallelRangeDownload:
         bytes are wrong — ValueError — then the caller discards them)."""
         start_received = self.received
         if free_bytes < self.total - start_received:
-            raise ValueError("Not enough GPU disk space for this model")
+            raise ValueError(_no_room(self.total - start_received, free_bytes))
         fd = os.open(self.partial, os.O_RDWR | os.O_CREAT, 0o644)
         try:
-            if os.fstat(fd).st_size != self.total:
-                os.ftruncate(fd, self.total)
+            self._reserve(fd, free_bytes)
             todo: queue.Queue = queue.Queue()
             for part in self.parts:
                 if part[2] < part[1] - part[0] + 1:
@@ -144,6 +151,24 @@ class ParallelRangeDownload:
             raise self._errors[0]
         if self.received != self.total:
             raise OSError(f"Incomplete download: {self.received} of {self.total} bytes")
+
+    def _reserve(self, fd: int, free_bytes: int) -> None:
+        """CLAIM THE WHOLE FILE ON DISK BEFORE THE FIRST BYTE. A sparse file takes space only as
+        it is written, so other downloads running beside it could use the room up: a 19.5 GB
+        model ran out at 96%, and with the disk full the worker could not even write that it had
+        failed. Reserved up front, a shortage is refused at once, with the numbers. A filesystem
+        that cannot reserve (some container overlays) falls back to the sparse file."""
+        if not hasattr(os, "posix_fallocate"):  # not Linux: nothing to reserve with
+            os.ftruncate(fd, self.total)
+            return
+        try:
+            os.posix_fallocate(fd, 0, self.total)
+        except OSError as error:
+            if error.errno == errno.ENOSPC:
+                raise ValueError(_no_room(self.total - self.received, free_bytes)) from error
+            if error.errno not in (errno.EOPNOTSUPP, errno.EINVAL, errno.ENOSYS):
+                raise
+            os.ftruncate(fd, self.total)
 
     def _worker(self, todo: queue.Queue, fd: int, url: str, headers: dict, open_url) -> None:
         while not self._stop.is_set():

@@ -3,7 +3,7 @@
   "version": 1,
   "name": "AI influencer — product marketing",
   "description": "A photo of a person and a photo of a product become a styled social post of them wearing it, then a talking vertical reel.",
-  "created": "2026-09-28T09:00:00.000Z",
+  "created": "2026-09-28T15:00:00.000Z",
   "thumbnail": "thumb.webp",
   "inputs": [
     {
@@ -40,5 +40,6 @@
       "slots": []
     }
   ],
-  "setup": "setup.json"
+  "setup": "setup.json",
+  "about": "about.json"
 }

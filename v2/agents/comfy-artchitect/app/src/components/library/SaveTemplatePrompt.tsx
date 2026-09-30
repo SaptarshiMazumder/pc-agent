@@ -8,12 +8,17 @@
  * (template-setup-guide.ts). What the chat's installer lists could not source is listed here as a
  * field for that link, and the template is not saved with one left empty: a template with a hole
  * is one the agent has to guess its way through later.
+ *
+ * AND ITS ABOUT. A model-written draft of what the template does, in full (template-about.ts),
+ * arrives while the dialog is open and is edited in place; what it makes and how it works must be
+ * there before it saves.
  */
 
 import { LayoutTemplate, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import type { TemplateAbout } from '../../agentd/template-about'
 import {
   gapKey,
   linkProblem,
@@ -22,6 +27,7 @@ import {
   type SetupGap,
   type SetupGuide,
 } from '../../agentd/template-setup-guide'
+import { aboutComplete, TemplateAboutEditor } from './TemplateAboutEditor'
 
 export function SaveTemplatePrompt({
   defaultName,
@@ -30,6 +36,8 @@ export function SaveTemplatePrompt({
   error,
   setup,
   setupError,
+  about: drafted,
+  aboutError,
   onSave,
   onClose,
 }: {
@@ -42,13 +50,33 @@ export function SaveTemplatePrompt({
   setup: { guide: SetupGuide; gaps: SetupGap[] } | null
   /** Why the guide could not be worked out — the template cannot be saved without one. */
   setupError: string
-  onSave: (name: string, description: string, setup: SetupGuide) => void
+  /** The model-written draft of the about; null while it is being written. */
+  about: TemplateAbout | null
+  /** Why the draft could not be written — the person then writes the about themselves. */
+  aboutError: string
+  onSave: (name: string, description: string, setup: SetupGuide, about: TemplateAbout) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(defaultName)
   const [description, setDescription] = useState('')
   const [links, setLinks] = useState<Record<string, string>>({})
   const [kinds, setKinds] = useState<Record<string, string>>({})
+  /* THE ABOUT, as the person edits it: the draft when it arrives, or empty fields to write when
+     it could not be drafted. */
+  const [about, setAbout] = useState<TemplateAbout | null>(null)
+  useEffect(() => {
+    if (drafted) {
+      setAbout(drafted)
+      setDescription((d) => d || drafted.makes)
+    }
+  }, [drafted])
+  useEffect(() => {
+    if (aboutError)
+      setAbout((a) =>
+        a || { format: 'comfy-penguin-about', version: 1, makes: '', how_it_works: '', inputs: [],
+               you_can_change: [], example: null, needs: {}, limits: [] },
+      )
+  }, [aboutError])
   const gaps = setup?.gaps || []
   const open = gaps.filter((g) => linkProblem(g, links[gapKey(g)] || '') || (g.type === 'model' && !g.kind && !kinds[gapKey(g)]))
 
@@ -60,7 +88,7 @@ export function SaveTemplatePrompt({
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, onClose])
 
-  const ok = name.trim().length > 0 && !busy && !!setup && !open.length
+  const ok = name.trim().length > 0 && !busy && !!setup && !open.length && aboutComplete(about)
   return createPortal(
     <div className="cr-veil" onClick={busy ? undefined : onClose}>
       <form
@@ -71,7 +99,8 @@ export function SaveTemplatePrompt({
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault()
-          if (ok && setup) onSave(name.trim(), description.trim(), withLinks(setup.guide, gaps, links, kinds))
+          if (ok && setup && about)
+            onSave(name.trim(), description.trim(), withLinks(setup.guide, gaps, links, kinds), about)
         }}
       >
         <div className="cr-prompt-head">
@@ -150,6 +179,19 @@ export function SaveTemplatePrompt({
             </>
           )}
         </div>
+        <div className="tpl-setup">
+          <span className="tpl-setup-head">About this template</span>
+          {aboutError && (
+            <p className="tpl-setup-note is-error">
+              The draft could not be written ({aboutError}) — write what it makes and how it works yourself.
+            </p>
+          )}
+          {!about ? (
+            <p className="tpl-setup-note">Writing a description of what this template does…</p>
+          ) : (
+            <TemplateAboutEditor about={about} onChange={setAbout} />
+          )}
+        </div>
         <p className={`cr-prompt-note${error ? ' is-error' : ''}`}>
           {error ||
             `Keeps all ${workflowCount} workflow${workflowCount === 1 ? '' : 's'} of this chat, their installers, ` +
@@ -157,7 +199,15 @@ export function SaveTemplatePrompt({
         </p>
         <div className="cr-prompt-actions">
           <button type="submit" className="prime-btn" disabled={!ok}>
-            {busy ? 'Saving…' : open.length ? `Add ${open.length} link${open.length === 1 ? '' : 's'} to save` : 'Save template'}
+            {busy
+              ? 'Saving…'
+              : open.length
+                ? `Add ${open.length} link${open.length === 1 ? '' : 's'} to save`
+                : !about
+                  ? 'Writing the description…'
+                  : !aboutComplete(about)
+                    ? 'Describe what it makes and how it works'
+                    : 'Save template'}
           </button>
         </div>
       </form>

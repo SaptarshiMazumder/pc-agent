@@ -31,6 +31,7 @@ from agent_runtime.application.run_context import current_workspace
 import chat_paths
 import reference_slots
 import studio_state
+from fixed_design_shape import FixedDesignShape
 from workflow_link import WorkflowLink
 from workflow_installer_exporter import WorkflowInstallerExporter
 
@@ -106,8 +107,10 @@ class ComfyEmitTool(Tool):
             "user_asked": {
                 "type": "string",
                 "description": (
-                    "Only when rewriting a step that came from a TEMPLATE: the user's own words "
-                    "asking for this change. A template step is never rewritten to get it running."
+                    "Only when changing the nodes or wiring of a workflow that came from a "
+                    "TEMPLATE or the LIBRARY, or adding a workflow beside one: the user's own "
+                    "words asking for this change. Setting its inputs needs no user_asked; a "
+                    "served design is never rewired to get it running."
                 ),
             },
         },
@@ -116,19 +119,7 @@ class ComfyEmitTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             name = _slug(str(params.get("name") or ""))
-            # A TEMPLATE STEP RUNS AS IT IS. The agent rewrote one to get around a node it had
-            # not installed, picked mismatched model files from memory, and failed four runs in
-            # a row. Only the person's own request changes a template's step — and a NEW workflow
-            # beside the template's (the same design under another name) is the same rewrite.
-            if studio_state.template_steps() and not str(params.get("user_asked") or "").strip():
-                return ToolResult.text(
-                    "this chat runs a template, and a template runs as it is — no workflow is written "
-                    "to make it run, under its step's name or a new one. Set the machine up with "
-                    "template_setup (and work out only the gaps it names), then comfy_run its steps. "
-                    "If the USER asked for a change or a new workflow, call again with user_asked "
-                    "set to their words.",
-                    is_error=True,
-                )
+            user_asked = str(params.get("user_asked") or "").strip()
             nodes = params.get("nodes")
             if not isinstance(nodes, list) or not nodes:
                 return ToolResult.text("nodes must be a non-empty array", is_error=True)
@@ -166,6 +157,35 @@ class ComfyEmitTool(Tool):
                         )
                     if link is not None:
                         entry["inputs"][field] = link.as_input()
+
+            # A SERVED DESIGN KEEPS ITS NODES AND WIRING (fixed_design_shape). A template step or
+            # a Library workflow is re-emitted only to set its inputs; the agent once rewrote one
+            # from memory, dropped its sampler and rendered grey. A new workflow beside it is the
+            # same rewrite under another name. Only the person's own request changes either.
+            shapes = studio_state.fixed_shapes()
+            if shapes and not user_asked:
+                if name not in shapes:
+                    return ToolResult.text(
+                        f"this chat runs a design it was given ({', '.join(sorted(shapes))}), and it "
+                        f"runs as it is — no new workflow '{name}' is written beside it. Set its "
+                        "inputs by re-emitting it under its own name. If the USER asked for a new "
+                        "workflow, call again with user_asked set to their words.",
+                        is_error=True,
+                    )
+                diffs = FixedDesignShape.from_json(shapes[name]).differences(api)
+                if diffs:
+                    return ToolResult.text(
+                        f"'{name}' came from a template or the Library: its nodes and wiring stay as "
+                        "they are; only input values change. This emit changed its structure:\n  "
+                        + "\n  ".join(diffs[:20])
+                        + (f"\n  … and {len(diffs) - 20} more" if len(diffs) > 20 else "")
+                        + f"\nRe-emit every node of {name}.api.json with the same id, class and "
+                        "links, changing only values. A value the machine does not accept is "
+                        "fixed as a value; a missing node class is a pack to install. If the "
+                        "design itself is broken, tell the user what and ask — their words go in "
+                        "user_asked.",
+                        is_error=True,
+                    )
 
             # A LOADER READS A SLOT OR AN UPLOAD, NEVER A NAME THE MODEL TYPED. `@role` is the
             # slot; a literal is allowed only if comfy_upload returned it this conversation or
@@ -252,6 +272,9 @@ class ComfyEmitTool(Tool):
                 studio_state.mark_first_emit(name)
                 # A rewritten template step is a new design: it goes through the ask again.
                 studio_state.forget_template_step(name)
+                # The user asked for it to change: an ordinary design from here on.
+                if user_asked:
+                    studio_state.forget_fixed_shape(name)
             except Exception:  # noqa: BLE001 — a telemetry miss must not fail the emit
                 pass
 

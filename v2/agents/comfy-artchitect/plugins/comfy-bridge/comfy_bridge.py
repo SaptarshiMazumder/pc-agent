@@ -61,6 +61,7 @@ from workflow_link import WorkflowLink
 import node_input_schema
 from workflow_reference_repository import WorkflowReferenceRepository
 from workflow_dependency_repository import WorkflowDependencyRepository
+from model_profile_catalog import ModelProfileCatalog
 from workflow_installer_exporter import WorkflowInstallerExporter
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
@@ -2506,6 +2507,10 @@ class ComfyValidateTool(Tool):
             # checked here, with the right one named, and a deprecated class is refused outright:
             # its successor is what goes in the graph (rule 20).
             bad_inputs: list[str] = []
+            # A DEPRECATED NODE IN A SERVED DESIGN still runs, and it is not the agent's to swap
+            # (fixed_design_shape): rule 20 is for designs the agent builds. There it is a note.
+            served = (studio_state.fixed_shapes().get(_workflow_name(path)) or {})
+            deprecated_notes: list[str] = []
             for nid, entry in graph.items():
                 if not isinstance(entry, dict):
                     continue
@@ -2515,7 +2520,9 @@ class ComfyValidateTool(Tool):
                     unknown_nodes.append(f"node {nid}: class '{cls}' does not exist here")
                     raw_unknown.append(str(cls))
                     continue
-                if node_input_schema.deprecated(spec):
+                if node_input_schema.deprecated(spec) and (served.get(str(nid)) or {}).get("class") == cls:
+                    deprecated_notes.append(f"node {nid} ({cls})")
+                elif node_input_schema.deprecated(spec):
                     bad_inputs.append(
                         f"node {nid}: class '{cls}' is DEPRECATED here — comfy_node_search "
                         f"'{cls}' names its successor; use that class"
@@ -2603,6 +2610,18 @@ class ComfyValidateTool(Tool):
                 studio_state.mark_validated(_workflow_name(path), raw_missing, raw_unknown)
             except Exception:  # noqa: BLE001 — the report still goes out
                 pass
+            # WHAT IS KNOWN ABOUT RUNNING THIS MODEL WELL, for THIS machine — the weights that
+            # fit it, the settings that keep quality, the model's own prompt format (see
+            # model_profile). Advice in the report, never a refusal.
+            profile_note = ModelProfileCatalog.shipped().notes_for(
+                graph, *_machine_gpu(), fixed_design=studio_state.fixed_design())
+            if profile_note:
+                stack_note = stack_note + "\n" + profile_note
+            if deprecated_notes:
+                stack_note += (
+                    "\nnote — deprecated but still runs, kept because this design was given as it "
+                    "is: " + ", ".join(deprecated_notes)
+                )
             if not (unknown_nodes or missing_files or bad_enums or bad_links or bad_inputs):
                 artifacts, export_note = [], ""
                 try:
@@ -2620,7 +2639,7 @@ class ComfyValidateTool(Tool):
                     f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
                     "and every model file it names is loadable. Safe to comfy_run."
                     + (f"\n{downloading}" if downloading else "")
-                    + slots_note + export_note,
+                    + slots_note + export_note + stack_note,
                     artifacts=artifacts,
                 )
             lines = ["the workflow does NOT compile against this instance:"]
@@ -2855,6 +2874,14 @@ def _workflow_path(name: str):
     return root / f"{folder}/{stem}.api.json"
 
 
+def _machine_gpu() -> tuple[str, float]:
+    """(GPU name, VRAM in GB) of the connected machine — ("", 0) when it does not say."""
+    res = _get("/api/system_stats", timeout_s=15.0)
+    devices = (res.json() or {}).get("devices") or [] if res.ok else []
+    first = devices[0] if devices and isinstance(devices[0], dict) else {}
+    return str(first.get("name") or ""), int(first.get("vram_total") or 0) / (1024 ** 3)
+
+
 def _machine_nodes() -> dict:
     """The machine's /api/object_info — every node class it has loaded, with its inputs."""
     res = _get("/api/object_info", timeout_s=60.0)
@@ -2875,6 +2902,7 @@ def register(api, ctx):
     from template_use_tool import TemplateUseTool
     from template_setup_tool import TemplateSetupTool
     from template_setup_guide_tool import TemplateSetupGuideTool
+    from template_about_draft_tool import TemplateAboutDraftTool
 
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
@@ -2911,3 +2939,4 @@ def register(api, ctx):
             "", {"files": files}, abort, on_update),
     ))
     api.register_tool(TemplateSetupGuideTool())
+    api.register_tool(TemplateAboutDraftTool(ctx.config))

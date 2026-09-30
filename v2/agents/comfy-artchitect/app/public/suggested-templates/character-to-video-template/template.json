@@ -3,7 +3,7 @@
   "version": 1,
   "name": "Two characters → a fight video",
   "description": "Two character photos become two designed fighters and a generated setting, then one short cinematic fight clip.",
-  "created": "2026-09-28T09:00:00.000Z",
+  "created": "2026-09-28T15:00:00.000Z",
   "thumbnail": "thumb.webp",
   "inputs": [
     {
@@ -61,5 +61,6 @@
       "slots": []
     }
   ],
-  "setup": "setup.json"
+  "setup": "setup.json",
+  "about": "about.json"
 }

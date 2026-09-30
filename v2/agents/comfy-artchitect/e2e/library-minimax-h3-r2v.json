@@ -1,0 +1,43 @@
+{
+  "id": "library-minimax-h3-r2v",
+  "agent_id": "comfy-artchitect",
+  "goal": "The user's uploaded Library workflow video_minimax_h3_r2v (ComfyUI's MiniMax H3 reference-to-video template, editor format, open weights) is brought into a chat, converted by the machine, its four model files downloaded from the links in its own notes, its two reference images filled with the photos the user added, and run as it is until a video comes back — ready to be saved as a template.",
+  "turns": [
+    {
+      "text": "Use my Library workflow \"video_minimax_h3_r2v\" in this chat and run it as it is, with the two photos I added as its two reference images.",
+      "reference_media": [
+        {
+          "role": "picture_1",
+          "path": "assets/usecase/redhead.jpg"
+        },
+        {
+          "role": "picture_2",
+          "path": "assets/usecase/jacket.jpg"
+        }
+      ]
+    },
+    "Yes, go ahead as proposed. Install what it needs and run it.",
+    "Carry on and run it."
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "library_use"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "comfy_run"
+    },
+    {
+      "name": "max_turns",
+      "n": 50
+    }
+  ],
+  "max_turns": 50
+}

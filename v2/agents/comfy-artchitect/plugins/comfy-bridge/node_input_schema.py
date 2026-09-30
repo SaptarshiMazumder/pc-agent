@@ -59,7 +59,15 @@ class InputKey:
 
 
 def _is_socket(entry) -> bool:
-    return isinstance(entry, list) and bool(entry) and isinstance(entry[0], str) and entry[0] not in _PRIMITIVES and entry[0] not in (DYNAMIC_COMBO, AUTOGROW)
+    # A UNION OF PRIMITIVES ("FLOAT,INT") is a widget that also takes a link — LTX-2's
+    # LTXVEmptyLatentAudio.frame_rate. Read as a socket, its plain 25.0 was refused as "must be a
+    # link" on a graph ComfyUI runs as it is.
+    if not (isinstance(entry, list) and entry and isinstance(entry[0], str)):
+        return False
+    head = entry[0]
+    if head in (DYNAMIC_COMBO, AUTOGROW):
+        return False
+    return not all(part.strip() in _PRIMITIVES for part in head.split(","))
 
 
 def _example_for(entry, name: str):

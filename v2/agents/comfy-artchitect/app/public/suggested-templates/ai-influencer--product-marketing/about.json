@@ -1,0 +1,33 @@
+{
+  "format": "comfy-penguin-about",
+  "version": 1,
+  "makes": "From a photo of a person and a photo of a jacket (or another product): three vertical social posts of them wearing it, then a 4-second talking reel.",
+  "how_it_works": "Seedream 5.0 Pro makes three 9:16 photos — a street shot, a mirror selfie and a close detail shot — keeping the person's face from the first photo and the exact product from the second. Seedance 2.5 then animates the mirror selfie into a 4-second reel with sound.",
+  "inputs": [
+    {
+      "role": "model",
+      "what": "The person — their face and look carry into every post and the reel.",
+      "tips": "A clear, front-facing photo, face fully visible."
+    },
+    {
+      "role": "garment",
+      "what": "The product to wear — its colour, cut, zips and details are kept.",
+      "tips": "A clean photo of the product alone, flat or on a hanger, with the details visible."
+    }
+  ],
+  "you_can_change": [
+    "The three photo scenes (street, mirror, detail) and the reel's moment.",
+    "Reel length (4 s as shipped) and 720p / 9:16 format."
+  ],
+  "example": {
+    "prompt": "A woman in a jacket: a daylight street post, a mirror selfie, a zip-and-collar detail shot, then a reel from the selfie.",
+    "result": "Three 9:16 photos and a 4-second 720p reel with sound."
+  },
+  "needs": {
+    "runs_on": "paid partner models (Seedream 5.0 Pro, Seedance 2.5)",
+    "credits": "paid — the exact credits are shown before it runs"
+  },
+  "limits": [
+    "The reel starts from the mirror selfie, so that post sets the reel's look."
+  ]
+}

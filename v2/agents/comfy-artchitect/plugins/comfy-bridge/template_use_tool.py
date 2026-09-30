@@ -33,8 +33,10 @@ import chat_paths
 import library_paths
 import reference_slots
 import studio_state
+from fixed_design_shape import FixedDesignShape
 from library_index import LibraryIndex
 from library_template import LibraryTemplate, TemplateInput
+from template_about import TemplateAbout
 from template_setup_guide import FILE as SETUP_FILE, TemplateSetupGuide
 from workflow_summary import WorkflowSummary
 
@@ -116,6 +118,8 @@ class TemplateUseTool(Tool):
                 pass
             # Not swallowed: without the mark the step would stop for an ask it should not need.
             studio_state.mark_template_step(role)
+            studio_state.mark_fixed_design()
+            studio_state.mark_fixed_shape(role, FixedDesignShape.of(graph).to_json())
             steps_text.append(f"{n}. {role}  ({folder}/{role}.api.json)")
             brought.append({"role": role, "api": f"{folder}/{role}.api.json"})
 
@@ -140,6 +144,14 @@ class TemplateUseTool(Tool):
             "comfy_install / comfy_node_install exactly what it names (no ask), comfy_run."
         )
 
+        # THE ABOUT, for the agent to answer "can it do three characters?" from — not to recite:
+        # the brief stays short. A template without one is answered from its workflows.
+        about, _ = TemplateAbout.load(template.folder)
+        about_text = (
+            "\n\nABOUT THIS TEMPLATE (answer the user's questions from this; do not recite it in the brief):\n"
+            + about.text()
+        ) if about is not None else ""
+
         # A template saved before its chat declared inputs still has slots in its graphs.
         inputs = template.inputs or [TemplateInput(role=r) for r in all_slots]
         inputs_text = (
@@ -151,6 +163,7 @@ class TemplateUseTool(Tool):
             + "\n".join(steps_text)
             + (f"\n\nwhat it makes: {template.description}" if template.description else "")
             + f"\n\ninputs the user fills on the Inputs tab (comfy_run refuses while any is empty):\n{inputs_text}"
+            + about_text
             + f"\n\nNOW: {setup}. Then tell the "
             "user in a few short lines: what the template makes, the inputs to add on the Inputs tab, "
             "and the credits a run costs — and that they add the inputs and say go, or say what to "

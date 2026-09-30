@@ -8,6 +8,7 @@
  *         template.json            the manifest below — the contract
  *         workflows/<role>.api.json, <role>.json, install_<role>.py, install_<role>.manifest.json
  *         setup.json               the SETUP GUIDE: every node pack and model, with its link
+ *         about.json               the ABOUT: what it does, in full (template-about.ts)
  *                                  (template-setup-guide.ts) — what template_setup installs from
  *         thumb.<ext>              optional
  *
@@ -26,6 +27,7 @@ import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
 import type { AgentdClient } from '@agentd/client'
 
 import { fileUrl, type Artifact } from './artifacts'
+import { TEMPLATE_ABOUT, type TemplateAbout } from './template-about'
 import { TEMPLATE_SETUP, type SetupGuide } from './template-setup-guide'
 import {
   copy,
@@ -77,6 +79,8 @@ export interface TemplateManifest {
   /** The setup guide's file (TEMPLATE_SETUP). Absent on a template saved before guides: the
    *  agent then works its sources out itself. */
   setup?: string
+  /** The about's file (TEMPLATE_ABOUT). Absent on a template saved before abouts. */
+  about?: string
   inputs: TemplateInput[]
   steps: TemplateStep[]
 }
@@ -123,6 +127,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
     ...(m.from ? { from: { chat: String(m.from.chat || ''), title: String(m.from.title || '') } } : {}),
     ...(m.thumbnail && safeRel(String(m.thumbnail)) ? { thumbnail: String(m.thumbnail) } : {}),
     ...(m.setup === TEMPLATE_SETUP ? { setup: TEMPLATE_SETUP } : {}),
+    ...(m.about === TEMPLATE_ABOUT ? { about: TEMPLATE_ABOUT } : {}),
     inputs: Array.isArray(m.inputs)
       ? m.inputs
           .map((i) => ({ role: String(i?.role || '').replace(/^@/, '').trim(), what: String(i?.what || '') }))
@@ -136,7 +141,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
  *  absolute path, nothing that would land outside its own folder when unpacked. */
 function safeRel(rel: string): boolean {
   if (!rel || rel.startsWith('/') || rel.includes('\\') || rel.split('/').includes('..')) return false
-  return rel === TEMPLATE_MANIFEST || rel === TEMPLATE_SETUP || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
+  return rel === TEMPLATE_MANIFEST || rel === TEMPLATE_SETUP || rel === TEMPLATE_ABOUT || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
 }
 
 function templateDir(item: LibraryItem): string {
@@ -172,6 +177,8 @@ export async function saveChatAsTemplate(
     thumbnail?: Artifact
     /** The setup guide, complete — the Save dialog does not save with a gap left open. */
     setup: SetupGuide
+    /** The about, as the person left it in the dialog. */
+    about: TemplateAbout
     /** Workspace-relative path of each chat file, which is what the daemon copies by. */
     relOf: (a: Artifact) => string
   },
@@ -204,6 +211,7 @@ export async function saveChatAsTemplate(
   }
 
   await upload(client, dir, TEMPLATE_SETUP, utf8Base64(JSON.stringify(args.setup, null, 2) + '\n'), true)
+  await upload(client, dir, TEMPLATE_ABOUT, utf8Base64(JSON.stringify(args.about, null, 2) + '\n'), true)
 
   const at = nowIso()
   const manifest: TemplateManifest = {
@@ -215,6 +223,7 @@ export async function saveChatAsTemplate(
     from,
     ...(thumbnail ? { thumbnail } : {}),
     setup: TEMPLATE_SETUP,
+    about: TEMPLATE_ABOUT,
     inputs: args.inputs,
     steps,
   }
@@ -359,6 +368,7 @@ function manifestFiles(manifest: TemplateManifest): string[] {
     ...manifest.steps.flatMap((s) => [s.api, ...(s.ui ? [s.ui] : []), ...s.installer]),
     ...(manifest.thumbnail ? [manifest.thumbnail] : []),
     ...(manifest.setup ? [manifest.setup] : []),
+    ...(manifest.about ? [manifest.about] : []),
   ]
 }
 

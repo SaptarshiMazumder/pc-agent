@@ -14,7 +14,7 @@
  * adding a template is files, not code.
  */
 
-import { ArrowRight, LayoutTemplate, Loader2 } from 'lucide-react'
+import { ArrowRight, Info, LayoutTemplate, Loader2 } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
@@ -27,8 +27,10 @@ import {
   type SuggestedTemplate,
   type TemplateManifest,
 } from '../../agentd/library-template'
+import { readAbout, type TemplateAbout } from '../../agentd/template-about'
 import { LandingShot } from '../landing/LandingShot'
 import { MediaKindTag } from '../media/MediaKindTag'
+import { TemplateAboutPanel } from './TemplateAboutPanel'
 
 import './templates.css'
 
@@ -92,6 +94,15 @@ function SuggestedTemplateCard({
   const [manifest, setManifest] = useState<TemplateManifest | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [about, setAbout] = useState<TemplateAbout | null>(null)
+  const showAbout = async (): Promise<void> => {
+    if (!manifest?.about) return
+    try {
+      setAbout(await readAbout(`suggested-templates/${entry.slug}/${manifest.about}`))
+    } catch (e) {
+      setError(String((e as Error)?.message || e))
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -179,7 +190,13 @@ function SuggestedTemplateCard({
           {busy ? <Loader2 size={14} strokeWidth={1.9} className="ld-spin" /> : <LayoutTemplate size={14} strokeWidth={1.9} />}
           {busy ? 'Setting up…' : 'Use this template'}
         </button>
+        {manifest?.about && (
+          <button type="button" className="wp-btn tp-about" onClick={() => void showAbout()}>
+            <Info size={14} strokeWidth={1.9} /> About this template
+          </button>
+        )}
       </div>
+      {about && <TemplateAboutPanel name={entry.title} about={about} onClose={() => setAbout(null)} />}
     </article>
   )
 }

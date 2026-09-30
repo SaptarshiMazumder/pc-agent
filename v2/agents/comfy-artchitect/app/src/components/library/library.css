@@ -205,3 +205,13 @@
 .tpl-gap-row input:focus, .tpl-gap-row select:focus { outline: none; border-color: var(--accent-edge); }
 .tpl-gap-bad { color: var(--warn); font-size: 11px; }
 @media (max-width: 560px) { .tpl-gap-row { flex-direction: column; } }
+
+/* THE ABOUT in the Save-as-template dialog (TemplateAboutEditor). */
+.tpl-about { display: flex; flex-direction: column; gap: 10px; }
+.tpl-about-input { display: flex; flex-direction: column; gap: 4px; }
+.tpl-about-input input, .tpl-about-needs input {
+  min-width: 0; padding: 8px 10px; border: 1px solid var(--border2); border-radius: var(--r-input);
+  background: var(--bg3); color: var(--text); font: inherit; font-size: var(--fs-control);
+}
+.tpl-about-input input:focus { outline: none; border-color: var(--accent-edge); }
+.tpl-about-needs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }

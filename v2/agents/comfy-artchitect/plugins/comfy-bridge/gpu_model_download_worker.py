@@ -84,8 +84,28 @@ class GpuModelDownloadWorker:
                            "a refusal does not establish that a provider key is missing or invalid"
                            if isinstance(error, urllib.error.HTTPError)
                            else str(error)[:400])
-                report("failed", error=f"{type(error).__name__}: {message}",
-                       http_status=error.code if isinstance(error, urllib.error.HTTPError) else None)
+                failed = {"error": f"{type(error).__name__}: {message}",
+                          "http_status": error.code if isinstance(error, urllib.error.HTTPError) else None}
+                try:
+                    report("failed", **failed)
+                except OSError:
+                    # A FAILURE IS ALWAYS SAID. With the disk full the worker could not write that
+                    # it had failed, so the job went silent at 96% and the plugin waited minutes for
+                    # a download that had died. Free this job's half-written file, then say it.
+                    self.discard_partial(request)
+                    report("failed", **failed)
+
+    def discard_partial(self, request: ModelDownloadRequest) -> None:
+        """Remove this request's half-written file and its resume records — nothing else."""
+        models = self.models.resolve()
+        target = (models / request.directory / request.filename).resolve()
+        if not target.is_relative_to(models):
+            return
+        partial = target.with_suffix(target.suffix + ".agentd-part")
+        for path in (partial, partial.with_suffix(partial.suffix + ".json"),
+                     partial.with_suffix(partial.suffix + ".segments.json")):
+            if not path.is_symlink():
+                path.unlink(missing_ok=True)
 
     def download(self, request: ModelDownloadRequest, report) -> None:
         models = self.models.resolve()

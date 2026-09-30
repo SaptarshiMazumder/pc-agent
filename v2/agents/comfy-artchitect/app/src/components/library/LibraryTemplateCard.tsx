@@ -6,14 +6,16 @@
  * a "Workflows" toggle: the template is used as a whole, so its steps carry no Use buttons.
  */
 
-import { ChevronDown, Download, LayoutTemplate, Trash2 } from 'lucide-react'
+import { ChevronDown, Download, Info, LayoutTemplate, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 
-import { thumbnailUrl, type Artifact } from '../../agentd/artifacts'
+import { fileUrl, thumbnailUrl, type Artifact } from '../../agentd/artifacts'
 import type { LibraryItem } from '../../agentd/library'
 import { downloadTemplate, readTemplate, type TemplateManifest } from '../../agentd/library-template'
+import { readAbout, type TemplateAbout } from '../../agentd/template-about'
+import { TemplateAboutPanel } from '../templates/TemplateAboutPanel'
 import { WorkflowItem } from '../workflows/WorkflowItem'
 
 export function LibraryTemplateCard({
@@ -33,6 +35,17 @@ export function LibraryTemplateCard({
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  /* THE ABOUT, read when asked for — most cards are never opened. */
+  const [about, setAbout] = useState<TemplateAbout | null>(null)
+  const showAbout = async (): Promise<void> => {
+    const file = data?.manifest.about ? data.files.get(data.manifest.about) : undefined
+    if (!file) return
+    try {
+      setAbout(await readAbout(fileUrl(file.path)))
+    } catch (e) {
+      setError(String((e as Error)?.message || e))
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -104,6 +117,11 @@ export function LibraryTemplateCard({
         <button type="button" className="wp-btn" disabled={!m || downloading} onClick={() => void download()}>
           <Download size={14} strokeWidth={1.9} /> {downloading ? 'Zipping…' : 'Download'}
         </button>
+        {m?.about && (
+          <button type="button" className="wp-btn" onClick={() => void showAbout()}>
+            <Info size={14} strokeWidth={1.9} /> About this template
+          </button>
+        )}
         {m && (
           <button type="button" className="wp-btn" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
             <ChevronDown size={14} strokeWidth={1.9} className={open ? 'tpl-chev is-open' : 'tpl-chev'} /> Workflows
@@ -128,6 +146,7 @@ export function LibraryTemplateCard({
           })}
         </div>
       )}
+      {about && <TemplateAboutPanel name={item.name} about={about} onClose={() => setAbout(null)} />}
     </section>
   )
 }

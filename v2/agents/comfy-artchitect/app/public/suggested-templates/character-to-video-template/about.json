@@ -1,0 +1,33 @@
+{
+  "format": "comfy-penguin-about",
+  "version": 1,
+  "makes": "From photos of two people: each redesigned as a kung-fu fighter, a generated temple courtyard, then one 7-second cinematic fight clip.",
+  "how_it_works": "Nano Banana 2 designs a new fighter look for each person, keeping only their face and identity (not their clothes), and generates an empty abandoned temple courtyard. Wan 3.0 then makes one continuous 7-second 1080p fight in that courtyard, using the two fighters and the setting as its references.",
+  "inputs": [
+    {
+      "role": "character_a",
+      "what": "The first fighter's face and identity (their original outfit is not kept).",
+      "tips": "A clear photo of one adult, face fully visible."
+    },
+    {
+      "role": "character_b",
+      "what": "The second fighter's face and identity.",
+      "tips": "Clearly different from character A, so the two are not mixed up."
+    }
+  ],
+  "you_can_change": [
+    "The fighters' designs and the setting (the temple prompt).",
+    "The fight's choreography and camera in the video prompt; 7 s at 1080p, 16:9, as shipped."
+  ],
+  "example": {
+    "prompt": "Two women redesigned as kung-fu fighters, an overgrown Japanese temple courtyard, one continuous fight.",
+    "result": "Two character designs, a background, and a 7-second 1080p fight clip without sound."
+  },
+  "needs": {
+    "runs_on": "paid partner models (Nano Banana 2, Wan 3.0)",
+    "credits": "paid — the exact credits are shown before it runs"
+  },
+  "limits": [
+    "The video has no sound (audio off in the Wan 3.0 step)."
+  ]
+}

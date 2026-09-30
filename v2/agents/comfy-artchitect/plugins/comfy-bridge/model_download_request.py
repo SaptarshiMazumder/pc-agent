@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,20 @@ class ModelDownloadRequest:
 
     @property
     def source_id(self) -> str:
-        return hashlib.sha256((self.origin_url or self.url).encode()).hexdigest()
+        """The FILE, not the spelling of its link: a Hugging Face link with and without
+        `?download=true` is one file, and a retry that dropped the switch was refused as
+        "another source already owns this destination"."""
+        return hashlib.sha256(self.same_file_url(self.origin_url or self.url).encode()).hexdigest()
+
+    #: Query switches that only say "download it" — never which file.
+    DOWNLOAD_SWITCHES = frozenset({"download"})
+
+    @classmethod
+    def same_file_url(cls, url: str) -> str:
+        parts = urlsplit(url)
+        query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                 if k.lower() not in cls.DOWNLOAD_SWITCHES]
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     def as_dict(self) -> dict:
         return {"filename": self.filename, "url": self.url, "kind": self.kind,

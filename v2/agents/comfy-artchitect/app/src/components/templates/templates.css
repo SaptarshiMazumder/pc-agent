@@ -59,3 +59,19 @@
   .tp-page { grid-template-columns: 1fr; padding: 0 16px 32px; }
   .tp-out { width: 100px; height: 168px; }
 }
+
+/* "ABOUT THIS TEMPLATE" (TemplateAboutPanel) — the template's about.json, read in full. */
+.ta-panel { width: min(640px, calc(100vw - 32px)); }
+.ta-body { display: flex; flex-direction: column; gap: 14px; max-height: min(70vh, 720px); overflow-y: auto; padding-right: 4px; }
+.ta-body section { display: flex; flex-direction: column; gap: 6px; }
+.ta-body h4 { margin: 0; font-size: var(--fs-small); font-weight: 600; color: var(--dim); }
+.ta-body p, .ta-body li { margin: 0; font-size: var(--fs-small); color: var(--text); line-height: 1.5; }
+.ta-body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.ta-body code { font-family: var(--mono); color: var(--accent-text); }
+.ta-makes { font-size: var(--fs-control) !important; }
+.ta-tip { display: block; color: var(--faint); }
+.ta-example { font-family: var(--mono); font-size: 12px !important; color: var(--dim) !important; white-space: pre-wrap; }
+.ta-needs { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.ta-needs dt { font-size: 11px; color: var(--faint); }
+.ta-needs dd { margin: 0; font-size: var(--fs-small); color: var(--text); }
+.tp-about { margin-top: 6px; }

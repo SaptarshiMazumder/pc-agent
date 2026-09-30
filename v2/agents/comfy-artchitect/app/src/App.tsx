@@ -73,6 +73,7 @@ import { chatWorkflowFiles } from './components/workflows/WorkflowItem'
 import { SaveTemplatePrompt } from './components/library/SaveTemplatePrompt'
 import { saveChatAsTemplate, useTemplateMessage } from './agentd/library-template'
 import { readSetupGuide, type SetupGap, type SetupGuide } from './agentd/template-setup-guide'
+import { draftAbout, type TemplateAbout } from './agentd/template-about'
 import { useGpuWarmup } from './components/studio/useGpuWarmup'
 import { useComfyConnection } from './components/studio/useComfyConnection'
 import { ConnectionPrompt } from './components/studio/ConnectionPrompt'
@@ -348,6 +349,9 @@ export default function App() {
      the dialog asks links for. */
   const [templateSetup, setTemplateSetup] = useState<{ guide: SetupGuide; gaps: SetupGap[] } | null>(null)
   const [templateSetupError, setTemplateSetupError] = useState('')
+  /* THE ABOUT, model-drafted from the chat when the dialog opens (template_about_draft). */
+  const [templateAbout, setTemplateAbout] = useState<TemplateAbout | null>(null)
+  const [templateAboutError, setTemplateAboutError] = useState('')
   const chatWorkflows = useMemo(() => {
     const dir = `/${chatDirFor('workflows', currentKey)}/`
     return chatWorkflowFiles(files.filter((a) => a.path.replace(/\\/g, '/').includes(dir)))
@@ -356,20 +360,32 @@ export default function App() {
     setTemplateError('')
     setTemplateSetup(null)
     setTemplateSetupError('')
+    setTemplateAbout(null)
+    setTemplateAboutError('')
     setTemplatePrompt(true)
     if (!client) return
-    const manifests = chatWorkflows.flatMap((wf) =>
-      wf.installer
-        .filter((a) => a.name.endsWith('.manifest.json'))
-        .map((a) => relOfChatFile(a.path, currentKey) || '')
-        .filter(Boolean),
-    )
-    readSetupGuide(client, manifests)
+    const rel = (a: { path: string }): string => relOfChatFile(a.path, currentKey) || ''
+    const manifestsOf = (wf: (typeof chatWorkflows)[number]): string[] =>
+      wf.installer.filter((a) => a.name.endsWith('.manifest.json')).map(rel).filter(Boolean)
+    readSetupGuide(client, chatWorkflows.flatMap(manifestsOf))
       .then(setTemplateSetup)
       .catch((e) => setTemplateSetupError(String((e as Error)?.message || e)))
-  }, [client, chatWorkflows, currentKey])
+    draftAbout(client, {
+      name: chatTitleOf(currentKey),
+      description: '',
+      steps: chatWorkflows.map((wf) => ({
+        role: wf.role,
+        api: rel(wf.api),
+        ...(wf.ui ? { ui: rel(wf.ui) } : {}),
+        manifests: manifestsOf(wf),
+      })),
+      inputs: slots.map((sl) => ({ role: sl.role, what: sl.what })),
+    })
+      .then(setTemplateAbout)
+      .catch((e) => setTemplateAboutError(String((e as Error)?.message || e)))
+  }, [client, chatWorkflows, currentKey, slots, chatTitleOf])
   const saveTemplate = useCallback(
-    async (name: string, description: string, setup: SetupGuide) => {
+    async (name: string, description: string, setup: SetupGuide, about: TemplateAbout) => {
       if (!client) return
       setTemplateBusy(true)
       setTemplateError('')
@@ -387,6 +403,7 @@ export default function App() {
             inputs: slots.map((sl) => ({ role: sl.role, what: sl.what })),
             thumbnail,
             setup,
+            about,
             relOf: (a) => relOfChatFile(a.path, currentKey) || '',
           },
           { chat: currentKey, title: chatTitleOf(currentKey) },
@@ -1055,7 +1072,9 @@ export default function App() {
           error={templateError}
           setup={templateSetup}
           setupError={templateSetupError}
-          onSave={(name, description, setup) => void saveTemplate(name, description, setup)}
+          about={templateAbout}
+          aboutError={templateAboutError}
+          onSave={(name, description, setup, about) => void saveTemplate(name, description, setup, about)}
           onClose={() => setTemplatePrompt(false)}
         />
       )}

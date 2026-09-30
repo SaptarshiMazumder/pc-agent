@@ -110,8 +110,9 @@ class WorkflowSummary:
         lines = [
             f"EDITOR-format graph (what ComfyUI's editor saves): {len(nodes)} nodes, "
             f"{len(g.get('links') or [])} links.",
-            "comfy_run needs the API format. If this item has no .api.json beside it, ask the "
-            "user for the API export from ComfyUI — never convert by hand (rule 7).",
+            "comfy_run needs the API format, and library_use makes it: the machine's ComfyUI "
+            "converts the editor file into this chat's workflow. No API export is needed from "
+            "the user — never convert by hand (rule 7).",
         ]
         for n in sorted(nodes, key=lambda n: int(n.get("id") or 0)):
             title = str(n.get("title") or "")
