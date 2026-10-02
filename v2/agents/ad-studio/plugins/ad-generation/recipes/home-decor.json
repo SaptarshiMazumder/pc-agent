@@ -1,0 +1,41 @@
+{
+  "title": "Home decor",
+  "covers": "things for the home: vases, lamps, candles, cushions and throws, rugs, mirrors, wall art and prints, ceramics, tableware, planters, small furniture, decorative objects",
+  "formats": ["interior-styling", "macro-detail"],
+  "aspect_ratio": "9:16",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "hook",
+      "direction": "The product styled in a beautiful, lived-in interior, seen from a slightly wide angle; the product is the clear focal point of the room.",
+      "cast": false,
+      "shows_product": true,
+      "animate": true,
+      "duration_s": 5
+    },
+    {
+      "id": "s2",
+      "purpose": "detail",
+      "direction": "Close-up of the product's most beautiful detail — texture, glaze, weave, finish — with light moving across it.",
+      "cast": false,
+      "shows_product": true,
+      "animate": true,
+      "duration_s": 5
+    },
+    {
+      "id": "s3",
+      "purpose": "payoff",
+      "direction": "A lifestyle moment in the same room: a hand touches, lights, or places the product; the product fully visible and centred.",
+      "cast": false,
+      "shows_product": true,
+      "animate": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 2,
+  "max_still_attempts": 3,
+  "max_clip_attempts": 2,
+  "resolution": "720p",
+  "budget_usd": 12,
+  "gates": ["brief", "stills", "clips"]
+}

@@ -216,6 +216,7 @@ class SandboxFetchBroker:
             file_path=file_path,
             file_field=str(request.get("file_field") or "file"),
             form_fields=request.get("form_fields") or None,
+            raw_body=bool(request.get("raw_body")),
             save_path=save_path,
             timeout_s=self._clock(transfer=bool(file_path or save_path)),
             public_only=public_only,

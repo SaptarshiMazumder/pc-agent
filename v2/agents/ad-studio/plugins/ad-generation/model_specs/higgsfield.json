@@ -1,0 +1,72 @@
+{
+  "_about": "Higgsfield developer API job types (GET /developer/v2alpha/job_types/<id> is the source). Cost is NOT here: every accepted job returns the credits it charged; agent.toml's usd_per_credit converts them.",
+
+  "seedance_2_5": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "references": "image_references",
+      "duration": "duration",
+      "resolution": "resolution",
+      "aspect_ratio": "aspect_ratio",
+      "audio": "generate_audio"
+    },
+    "fixed": {"mode": "omni_reference", "bitrate_mode": "standard"},
+    "resolutions": ["480p", "720p", "1080p"],
+    "source": "job_types/seedance_2_5"
+  },
+  "kling3_0": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio",
+      "audio": "sound"
+    },
+    "audio_values": {"true": "on", "false": "off"},
+    "fixed": {"mode": "std"},
+    "source": "job_types/kling3_0"
+  },
+  "kling3_0_pro": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio",
+      "audio": "sound"
+    },
+    "audio_values": {"true": "on", "false": "off"},
+    "fixed": {"mode": "pro"},
+    "job_type": "kling3_0",
+    "source": "job_types/kling3_0 (mode pro)"
+  },
+  "minimax_h3": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "references": "image_references",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "source": "job_types/minimax_h3"
+  },
+
+  "nano_banana_pro": {
+    "kind": "image",
+    "fields": {"prompt": "prompt", "references": "image_references", "aspect_ratio": "aspect_ratio"},
+    "fixed": {"resolution": "2k"},
+    "max_references": 14,
+    "source": "job_types/nano_banana_pro"
+  },
+  "seedream_v5_pro": {
+    "kind": "image",
+    "fields": {"prompt": "prompt", "references": "image_references", "aspect_ratio": "aspect_ratio"},
+    "fixed": {"resolution": "2k"},
+    "max_references": 14,
+    "source": "job_types/seedream_v5_pro"
+  }
+}

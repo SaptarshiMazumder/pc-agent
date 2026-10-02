@@ -1,0 +1,85 @@
+# Ad Studio — product photos in, scroll-stopping ad stills and clips out.
+#
+# THE STILL LOCKS THE LOOK, THE CLIP ANIMATES IT. Every shot is made as an image first (face,
+# outfit, product, light — settled where a retry costs cents), checked against the product
+# photos, and only then animated. That is the recipe that produced the good results in Comfy
+# Penguin's AI-influencer template, without ComfyUI in between.
+#
+# THE GENERATION BACKENDS ARE CONFIG. Each tool's provider and model is set below and can be
+# overridden per call; what each model takes and costs is data in
+# plugins/ad-generation/model_specs/. Swapping Seedance for Kling is an edit here, not code.
+
+name = "Ad Studio"
+version = "0.1.0"
+# No project manager: the steps are fixed by the recipe in code (campaign_run), so there is no
+# plan for a manager to review — only a pipeline it could second-guess.
+managed = false
+description = "Turns product photos into ad campaigns: reads the product, writes the brief, keeps a cast of recurring AI models, generates the stills and animates them into vertical video clips."
+tagline = "product in · ad out"
+color = "#E0457B"
+suggestions = [
+  "Make an ad for the bag in these photos",
+  "Make an ad for this product with one of our existing models",
+  "Create our first cast member: a model for everyday fashion",
+  "Three street-walk shots for these earrings",
+]
+
+# Shared tools it may reach, beyond its own ad-generation tools (implicitly allowed).
+#   ls / read          find the photos the user attached (uploads/) and read a campaign's files
+#   show_files         its output is images and clips; it shows them
+#   update_plan        a campaign is many steps and the user watches it
+#   web_search/fetch   read a product page the user links to
+# The gate question is its own campaign_ask (a checkpoint the daemon stamps), not the shared
+# ask_user: that one is written for ComfyUI jobs and its fields mean nothing here.
+[tools]
+allow = ["ls", "read", "show_files", "update_plan", "web_search", "web_fetch"]
+
+# Which backend each generation tool uses — fal to start. To move to BytePlus (half fal's price
+# for Seedance), switch all three together: provider = "byteplus", with models
+# "dola-seedream-5-0-pro-260628" (cast_create, keyframe_generate) and
+# "dreamina-seedance-2-5-260628" (shot_animate). Together, because BytePlus's Seedance accepts
+# faces only from images its own models made on the same account
+# (docs.byteplus.com/en/docs/ModelArk/1520757).
+[plugins.ad-generation.tools.cast_create]
+provider = "fal"
+model = "bytedance/seedream/v5/pro/edit"
+
+[plugins.ad-generation.tools.keyframe_generate]
+provider = "fal"
+model = "bytedance/seedream/v5/pro/edit"
+variants = 2
+
+# A targeted edit of one still (the user says what; only that changes): Gemini's image model,
+# Nano Banana Pro, on fal.
+[plugins.ad-generation.tools.still_fix]
+provider = "fal"
+model = "fal-ai/nano-banana-pro/edit"
+
+# CLIPS ON HIGGSFIELD: its developer API bills the subscription's credits at the same prices the
+# web UI shows - Kling 3 std 5 s silent = 6.25 cr, Seedance 2.5 720p 5 s silent = 35 cr - and its
+# Seedance accepts a cast member's face (fal's refuses every photoreal face). Each job returns
+# the credits it charged, so the cost is exact. Models: kling3_0, kling3_0_pro, seedance_2_5
+# (takes reference images: the cast sheet and the other stills ride along), minimax_h3.
+# To go back to fal: provider = "fal", model = "fal-ai/kling-video/v3/standard/image-to-video".
+[plugins.ad-generation.tools.shot_animate]
+provider = "higgsfield"
+model = "kling3_0"
+resolution = "720p"
+# Silent ads: music is added in the edit.
+audio = false
+
+# Higgsfield has no API key: its CLI login (`higgsfield auth login`) stores an OAuth access token
+# (~24 h) and a refresh token. HIGGSFIELD_ACCESS_TOKEN alone works until it expires; with
+# HIGGSFIELD_REFRESH_TOKEN and the client_id below, the plugin refreshes it itself.
+# usd_per_credit = the plan's price over its monthly credits (Plus: $59 / 1200 = 0.049;
+# annual $47 / 1200 = 0.039). `workspace` is discovered from the account when left empty.
+[plugins.ad-generation.providers.higgsfield]
+usd_per_credit = 0.049
+client_id = ""
+workspace = ""
+
+# THE PROVIDER KEYS ARE THE MACHINE'S, NOT DECLARED HERE. FAL_KEY is set in the app's global
+# Settings (the fal.ai field); BYTEPLUS_API_KEY likewise once that field exists. Declaring them
+# as [[settings]] would make them per-agent values — and the agent Settings tab has no fields for
+# those yet, while a declared name never falls back to the machine-wide one (run_context.
+# current_setting_value). The plugin still lists both as secrets, so its code never holds them.

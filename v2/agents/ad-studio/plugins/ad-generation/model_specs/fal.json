@@ -1,0 +1,47 @@
+{
+  "fal-ai/nano-banana-pro/edit": {
+    "kind": "image",
+    "without_references": "fal-ai/nano-banana-pro",
+    "fields": {"prompt": "prompt", "references": "image_urls", "count": "num_images", "aspect_ratio": "aspect_ratio"},
+    "fixed": {"resolution": "2K", "output_format": "png"},
+    "max_count": 4,
+    "price": {"per_image": 0.15},
+    "source": "https://fal.ai/models/fal-ai/nano-banana-pro/edit/llms.txt"
+  },
+  "bytedance/seedream/v5/pro/edit": {
+    "kind": "image",
+    "without_references": "bytedance/seedream/v5/pro/text-to-image",
+    "fields": {"prompt": "prompt", "references": "image_urls", "count": "num_images", "size": "image_size"},
+    "sizes": {
+      "9:16": {"width": 1152, "height": 2048},
+      "16:9": {"width": 2048, "height": 1152},
+      "1:1": {"width": 1536, "height": 1536},
+      "4:5": {"width": 1368, "height": 1712},
+      "3:4": {"width": 1328, "height": 1776}
+    },
+    "max_count": 6,
+    "price": {"per_image": 0.0675, "per_extra_reference": 0.0045},
+    "source": "https://fal.ai/models/bytedance/seedream/v5/pro/edit/llms.txt"
+  },
+  "bytedance/seedance-2.5/image-to-video": {
+    "kind": "video",
+    "fields": {"prompt": "prompt", "first_frame": "image_url", "resolution": "resolution", "duration": "duration", "audio": "generate_audio"},
+    "duration_type": "string",
+    "price": {"per_second": {"480p": 0.2205, "720p": 0.473, "1080p": 1.164}},
+    "source": "https://fal.ai/models/bytedance/seedance-2.5/image-to-video/api"
+  },
+  "fal-ai/kling-video/v3/pro/image-to-video": {
+    "kind": "video",
+    "fields": {"prompt": "prompt", "first_frame": "start_image_url", "duration": "duration", "audio": "generate_audio"},
+    "duration_type": "string",
+    "price": {"per_second": {"any": 0.112}, "audio_factor": 1.5},
+    "source": "https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video/llms.txt"
+  },
+  "fal-ai/kling-video/v3/standard/image-to-video": {
+    "kind": "video",
+    "fields": {"prompt": "prompt", "first_frame": "start_image_url", "duration": "duration", "audio": "generate_audio"},
+    "duration_type": "string",
+    "price": {"per_second": {"any": 0.084}, "audio_factor": 1.5},
+    "source": "https://fal.ai/models/fal-ai/kling-video/v3/standard/image-to-video"
+  }
+}

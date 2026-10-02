@@ -161,6 +161,7 @@ def fetch(
     file_path: str = "",
     file_field: str = "file",
     form_fields: dict | None = None,
+    raw_body: bool = False,
     save_path: str = "",
     timeout_s: float = DEFAULT_TIMEOUT_S,
     max_bytes: int = DEFAULT_MAX_BYTES,
@@ -171,6 +172,10 @@ def fetch(
     Never raising is not defensiveness: this is called from inside a tool's `execute`, where an
     exception becomes a crashed tool call instead of an answer the model can act on. The caller
     checks `.ok` and reports; that is the contract every tool in this codebase already follows.
+
+    ``raw_body`` with ``file_path`` sends the file AS the request body — no multipart — the
+    shape a storage presigned PUT (S3, GCS) takes; the caller sets ``Content-Type``. The file
+    still streams from disk on this side, and crosses the sandbox as a path.
 
     ``file_path`` UPLOADS A LOCAL FILE as multipart/form-data — the shape browser file inputs
     and endpoints like ComfyUI's ``/upload/image`` expect, which a string body cannot carry
@@ -217,7 +222,7 @@ def fetch(
             try:
                 files = (
                     {file_field: (Path(file_path).name, upload, guess_mime(Path(file_path)))}
-                    if upload
+                    if upload and not raw_body
                     else None
                 )
                 with client.stream(
@@ -229,7 +234,7 @@ def fetch(
                     # below is only used when no file rides along.
                     files=files,
                     data={str(k): str(v) for k, v in form_fields.items()} if files and form_fields else None,
-                    content=_resolved(data) if data and not files else None,
+                    content=upload if (upload and raw_body) else (_resolved(data) if data and not files else None),
                 ) as r:
                     return _text_response(r, max_bytes, deadline)
             finally:

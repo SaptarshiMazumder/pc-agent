@@ -1,0 +1,29 @@
+# ad-generation — product photos in, ad stills and clips out, on fal and BytePlus.
+#
+# THE PROVIDERS ARE ADAPTERS, THE MODELS ARE DATA. Each generation tool reads its provider and
+# model from agent.toml ([plugins.ad-generation.tools.<tool>]) or from the call itself; what a
+# model's request looks like and what it costs lives in model_specs/<provider>.json.
+#
+# THE KEYS ARE NAMES. FAL_KEY and BYTEPLUS_API_KEY are the machine's keys (the app's global
+# Settings), listed below; the host substitutes each `${…}` at request time, so this code never
+# holds one.
+
+id          = "ad-generation"
+name        = "Ad Generation"
+kind        = "native"
+entry       = "ad_generation_plugin:register"
+description = "Read a product, write an ad brief, create recurring AI models, generate keyframes and animate them into clips — on fal or BytePlus."
+
+[sandbox]
+# The providers' APIs and the hosts their results are served from.
+net = [
+  "queue.fal.run", "fal.run", "*.fal.media", "fal.media",
+  "ark.ap-southeast.bytepluses.com", "*.bytepluses.com", "*.volces.com", "*.byteplus.com",
+  # Higgsfield's developer API, its upload bucket, its result CDNs, and Clerk for the token refresh.
+  "fnf-api-gw.higgsfield.ai", "upload.higgsfield.ai", "cdn.higgsfield.ai", "*.cloudfront.net", "clerk.higgsfield.ai",
+]
+# HIGGSFIELD_*: the CLI login's OAuth tokens (there is no API key) — see higgsfield_session.py.
+secrets = ["FAL_KEY", "BYTEPLUS_API_KEY", "HIGGSFIELD_ACCESS_TOKEN", "HIGGSFIELD_REFRESH_TOKEN"]
+# .studio/checkpoint.json: the daemon's record of when an ask was shown and answered — what
+# lets campaign_run past a gate.
+workspace = ["campaigns", "cast", "uploads", ".studio/checkpoint.json"]
