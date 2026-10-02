@@ -76,7 +76,8 @@
         "node": "16",
         "input": "file",
         "type": "VIDEO",
-        "note": "an ALREADY-PREPARED control signal (pose skeleton, depth, canny edges). Raw footage needs a preprocessor first: Canny is native (insert a Canny node between 17 and 9); pose/depth need the comfyui_controlnet_aux / ComfyUI-DepthAnythingV2 packs (Phase 2)"
+        "note": "an ALREADY-PREPARED control signal (pose skeleton, depth, canny edges). Raw footage needs a preprocessor first: Canny is native (insert a Canny node between 17 and 9); pose/depth need the comfyui_controlnet_aux / ComfyUI-DepthAnythingV2 packs (Phase 2)",
+        "prepared": "pose, depth or canny video"
       }
     },
     "outputs": {

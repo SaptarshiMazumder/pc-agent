@@ -24,6 +24,7 @@ from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     USER_DATA_DIRS,
+    USER_DATA_FILES,
     AgentSpec,
     agent_id_from_session_key,
     invalid_new_agent_id,
@@ -420,7 +421,11 @@ class FileAgentRegistry:
                 # one line to whoever wonders where it went. Pure data folders stay silent;
                 # there is one per agent anybody has ever chatted with.
                 try:
-                    residue = [i.name for i in d.iterdir() if i.name not in USER_DATA_DIRS]
+                    residue = [
+                        i.name
+                        for i in d.iterdir()
+                        if i.name not in USER_DATA_DIRS and i.name not in USER_DATA_FILES
+                    ]
                 except OSError:
                     residue = []
                 if residue:
@@ -1204,7 +1209,7 @@ class FileAgentRegistry:
                 # user's own subtrees are left standing. Nothing re-lists the agent afterwards:
                 # the scan requires an agent.toml, and that is gone.
                 for item in sorted(def_dir.iterdir()):
-                    if item.name in USER_DATA_DIRS:
+                    if item.name in USER_DATA_DIRS or item.name in USER_DATA_FILES:
                         continue
                     if item.is_dir():
                         shutil.rmtree(item, ignore_errors=True)

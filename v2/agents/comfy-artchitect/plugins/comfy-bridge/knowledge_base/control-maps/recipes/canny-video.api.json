@@ -1,0 +1,95 @@
+{
+  "recipe": {
+    "id": "canny-video",
+    "task": "control-map",
+    "variant": "raw clip -> native Canny on every frame -> edge video at the clip's fps",
+    "from_template": "native Canny per frame; clip I/O as in the native video templates",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "low_threshold": {
+        "node": "20",
+        "input": "low_threshold"
+      },
+      "high_threshold": {
+        "node": "20",
+        "input": "high_threshold"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the raw clip"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "3",
+        "type": "VIDEO"
+      }
+    },
+    "files": [],
+    "defaults_note": "Edges per frame for a control-video input (Wan Fun Control, VACE). Frame count and fps are the clip's. Edges keep layout and motion; they also keep fine detail the restyle may want to drop - depth is looser.",
+    "family": "control-maps",
+    "packs": [],
+    "verify": [
+      "built 2026-10-02 from the native chains the official templates use; verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "16": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "20": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "low_threshold": 0.4,
+        "high_threshold": 0.8
+      }
+    },
+    "2": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "20",
+          0
+        ],
+        "fps": [
+          "16",
+          2
+        ],
+        "bit_depth": "auto"
+      }
+    },
+    "3": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "2",
+          0
+        ],
+        "filename_prefix": "control/canny_video",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

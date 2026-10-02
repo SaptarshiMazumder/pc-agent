@@ -1,0 +1,68 @@
+{
+  "id": "bench-portrait-4k-skin",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org template templates_hellorob_facegen_skindetail_upscale (Z-Image-Turbo -> face detail pass -> SeedVR2 4K)",
+    "steps": [
+      "text -> portrait (Z-Image-Turbo)",
+      "face/skin detail pass at low denoise (optional)",
+      "upscale to 4K (SeedVR2)"
+    ],
+    "must": [
+      "a photoreal portrait model",
+      "an upscale stage to 4K reading the portrait (stage:)",
+      "review on the base portrait"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Make a realistic close-up headshot of a woman with freckles and real skin texture, at 4K."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

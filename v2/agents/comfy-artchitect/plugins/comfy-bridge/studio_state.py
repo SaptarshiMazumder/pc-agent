@@ -25,6 +25,7 @@ from pathlib import Path
 from agent_runtime.application.run_context import current_run_context, current_workspace
 
 import chat_paths
+from pipeline_card import PipelineCard
 
 #: Newest-first caps. The dashboard shows a page of each; history beyond that is scrollback.
 _MAX_RUNS = 50
@@ -262,6 +263,8 @@ _FIRST_EMITS_FILE = ".studio/first_emits.json"
 #: daemon sees the transcript — it knows when a turn ended on a checkpoint and when the user
 #: answered — and the tools see the file.
 _CHECKPOINT_FILE = ".studio/checkpoint.json"
+#: The approval card pipeline_present built for this chat's pipeline, per session (pipeline_card).
+_CARD_FILE = ".studio/pipeline_card.json"
 _MAX_SESSIONS = 200
 
 
@@ -338,6 +341,12 @@ def _validations() -> dict:
     return (_read_json(_VALIDATED_FILE).get("sessions") or {}).get(session) or {}
 
 
+def validation(name: str) -> dict:
+    """What the last LIVE comfy_validate of `name` found in this conversation: {missing_files,
+    unknown_classes, at}, or {} when it was never validated against a box."""
+    return dict(_validations().get(name) or {})
+
+
 def validated_names() -> set[str]:
     """The workflows comfy_validate has passed in THIS conversation, by role name — the set whose
     install gate is armed. Read by comfy_delete to know that deleting one is not just losing a
@@ -398,9 +407,10 @@ def install_allowed(filename: str) -> tuple[bool, str]:
             return (True, name) if ok else (False, f"'{filename}' is on '{name}'s install list, but nothing is installed before the ask is answered. {why}")
     return False, (
         f"no validated workflow in this conversation names '{filename}' as a missing file, so it "
-        "will not be installed. The order is comfy_emit → comfy_validate → comfy_install, and "
-        "validate's missing-file list is the ONLY shopping list (hard rule 3). Validate the "
-        "workflow that needs this file; if validate does not name it, the graph does not need it."
+        "will not be installed. The order is design → ask → validate on the GPU → install "
+        "(pipeline_provision does the last two), and validate's missing-file list is the ONLY "
+        "shopping list. Validate the workflow that needs this file; if validate does not name it, "
+        "the graph does not need it."
     )
 
 
@@ -531,7 +541,7 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
 
     The daemon stamps `presented_at` the moment `ask_user` returns — the ask is a tool call, not
     a block of prose — and `answered_at` when the next user message arrives. The ask comes BEFORE
-    the emit (AGENTS.md 3.5), so the only question is whether this conversation's latest ask has
+    anything is installed or run, so the only question is whether this conversation's latest ask has
     an answer. A new ask resets the answer, so a new job in the same chat waits for its own yes.
     """
     session = _session()
@@ -543,10 +553,8 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
     presented = float(rec.get("presented_at") or 0.0)
     answered = float(rec.get("answered_at") or 0.0)
     how = (
-        "Call `ask_user` (AGENTS.md 3.5) with the paid services and their exact dollars and "
-        "credits from comfy_price, the brief-check questions with your defaults, and the "
-        "workflow(s) by role name — then end the turn. Build and run only in the turn AFTER the "
-        "user answers."
+        "Call `ask_user` — for a design, with exactly the arguments pipeline_present returns — "
+        "then end the turn. Install and run only in the turn AFTER the user answers."
     )
     if not presented:
         return False, f"'{name}': no ask has been presented in this conversation. {how}"
@@ -555,7 +563,44 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
             f"'{name}': the ask was presented but the user has not answered it. Do nothing more "
             "this turn — the answer arrives as their next message."
         )
+    rec_card = _card()
+    card = PipelineCard(rec_card.get("card") or {}, rec_card.get("stages"))
+    if name in card.stage_names:
+        if "presented" not in rec:
+            return False, (
+                f"'{name}': this daemon records only THAT the ask was answered, not what it showed, so "
+                "the approved card cannot be checked against the design. The daemon is older than this "
+                "agent — it must be restarted; say so to the user."
+            )
+        changed = card.differences((rec.get("presented") or {}).get("ask"))
+        if changed:
+            return False, (
+                f"'{name}': the card the person answered is not the one pipeline_present built — it "
+                f"changed {'; '.join(changed)}. They approved something else. Call pipeline_present, "
+                "then ask_user with EXACTLY its arguments, and end the turn."
+            )
     return True, ""
+
+
+def record_card(card: dict, stages: list[str]) -> None:
+    """The approval card pipeline_present just built for this conversation, and the stages it covers
+    (see PipelineCard)."""
+    session = _session()
+    if not session:
+        return
+    data = _read_json(_CARD_FILE)
+    sessions = data.get("sessions") or {}
+    sessions[session] = {"card": card, "stages": list(stages)}
+    _write_json(_CARD_FILE, {"sessions": _prune(sessions)})
+
+
+def presented_stages() -> set[str]:
+    """The stages the last approval card of this conversation covers ({} when none was built)."""
+    return set(_card().get("stages") or [])
+
+
+def _card() -> dict:
+    return dict(((_read_json(_CARD_FILE).get("sessions") or {}).get(_session()) or {}))
 
 
 # ─────────────────────────────── what this conversation brought back ───────────────────────────

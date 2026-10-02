@@ -17,6 +17,14 @@ class ModelSpecBook:
     def __init__(self, specs_dir: Path) -> None:
         self._dir = specs_dir
 
+    def models(self, kind: str) -> list[tuple[str, str, dict]]:
+        """Every model of `kind` across the providers: (provider, model, spec)."""
+        out = []
+        for path in sorted(self._dir.glob("*.json")):
+            book = json.loads(path.read_text(encoding="utf-8"))
+            out += [(path.stem, m, e) for m, e in book.items() if isinstance(e, dict) and e.get("kind") == kind]
+        return out
+
     def spec(self, provider: str, model: str, kind: str) -> dict:
         path = self._dir / f"{provider}.json"
         if not path.is_file():

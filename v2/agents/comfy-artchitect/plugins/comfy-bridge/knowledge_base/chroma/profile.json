@@ -1048,5 +1048,19 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "Chroma1-HD",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "radiance",
+        "short_name": "Chroma1-Radiance"
+      },
+      {
+        "match": "flash",
+        "short_name": "Chroma1-Flash"
+      }
+    ]
   }
 }

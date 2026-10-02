@@ -1,0 +1,76 @@
+{
+  "recipe": {
+    "id": "frame-from-video",
+    "task": "frame-from-video",
+    "variant": "one frame of a clip as an image: LoadVideo -> GetVideoComponents -> ImageFromBatch -> SaveImage",
+    "from_template": "native video I/O as in the official video templates; ImageFromBatch (core) picks the frame",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "frame": {
+        "node": "1",
+        "input": "batch_index",
+        "note": "0 = the first frame; -1 = the last"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the clip"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [],
+    "family": "video-assembly",
+    "packs": [],
+    "defaults_note": "For work that starts from the person's own clip: its first frame restyled or edited (an image stage), then used as the start frame of a video stage that follows the clip's motion; or the last frame to continue a clip.",
+    "verify": [
+      "built 2026-10-02; verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "16": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "1": {
+      "class_type": "ImageFromBatch",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "batch_index": 0,
+        "length": 1
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "1",
+          0
+        ],
+        "filename_prefix": "frames/frame"
+      }
+    }
+  }
+}

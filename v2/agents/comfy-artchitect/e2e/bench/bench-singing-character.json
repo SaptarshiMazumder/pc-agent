@@ -1,0 +1,67 @@
+{
+  "id": "bench-singing-character",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org template templates-wan2_1_infinitetalk_music (vocal separation -> wav2vec -> Wan 2.1 InfiniteTalk) / free audio-driven routes: LTX-2.3 image+audio to video, MiniMax H3 ref with audio",
+    "steps": [
+      "song -> (vocals isolated)",
+      "image + audio -> lip-synced video"
+    ],
+    "must": [
+      "the user's audio drives the mouth (an audio-input route)",
+      "the image is the identity/first frame",
+      "length follows the song"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Here's a picture of my cartoon character and a short song. Make a video of the character singing along to the song, mouth in sync."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

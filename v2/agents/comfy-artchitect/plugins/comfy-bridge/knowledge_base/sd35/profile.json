@@ -1467,5 +1467,19 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "SD3.5 Large",
+    "restriction": "free under $1M annual revenue",
+    "recipes": [
+      {
+        "match": "medium",
+        "short_name": "SD3.5 Medium"
+      },
+      {
+        "match": "turbo",
+        "short_name": "SD3.5 Large Turbo"
+      }
+    ]
   }
 }

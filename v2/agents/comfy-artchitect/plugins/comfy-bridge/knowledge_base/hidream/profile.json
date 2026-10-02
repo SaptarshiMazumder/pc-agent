@@ -1392,5 +1392,15 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "HiDream-I1",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "^edit",
+        "short_name": "HiDream-E1"
+      }
+    ]
   }
 }

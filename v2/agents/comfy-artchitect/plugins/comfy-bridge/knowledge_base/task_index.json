@@ -1,0 +1,1685 @@
+{
+  "format": "comfy-penguin-task-index",
+  "version": 1,
+  "compiled": "2026-10-02",
+  "method": "Per task, best first: public leaderboards with open-weights views (Artificial Analysis, arena.ai, OpenArt) as of Sep/Oct 2026, then official claims, then community comparisons. Figures read through a summarising fetch; spot-check before quoting exact numbers. Where no board covers a pair of families the order is marked as inference in `why`.",
+  "tasks": {
+    "t2i-photoreal": [
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image t2i-2512",
+        "why": "Top in-scope arena Portraits score, #2 Photoreal, Apache-2.0",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/photorealistic",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "20B; fp8 20.4 GB",
+          "slow (~20 steps)"
+        ],
+        "recipe": "t2i-2512"
+      },
+      {
+        "family": "z-image",
+        "recipe_hint": "z-image turbo",
+        "why": "Ties Qwen 2512 on Portraits (1142 vs 1143); fastest strong photoreal model",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "6B; <16 GB",
+          "narrow style range"
+        ],
+        "recipe": "t2i-turbo"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "Best in-scope Photoreal score (1143) but non-commercial and heavy",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/photorealistic",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "~35 GB fp8 + ~18 GB text encoder on disk; offload on 32 GB"
+        ],
+        "recipe": "t2i-dev"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image t2i-2.1",
+        "why": "#1 open on AA overall T2I; no people-category evidence",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial (Qwen Research License)",
+          "~33 GB package"
+        ],
+        "recipe": "t2i-2-1"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "Portraits 1092 / Photoreal 1091",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "~29 GB bf16"
+        ],
+        "recipe": "t2i-klein-9b-base"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "Portraits 1054; small and fast",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-klein-4b-base"
+      },
+      {
+        "family": "chroma",
+        "recipe_hint": "chroma 1-HD",
+        "why": "Uncensored Apache-2.0 FLUX-schnell derivative; no leaderboard data",
+        "evidence": [
+          {
+            "src": "https://localaimaster.com/blog/chroma-local-guide",
+            "date": "2026",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "8.9B"
+        ],
+        "recipe": "t2i-hd"
+      },
+      {
+        "family": "hidream",
+        "recipe_hint": "hidream i1-full",
+        "why": "AA I1-Dev 873; official HPS above FLUX.1-dev; community calls it surpassed",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://huggingface.co/HiDream-ai/HiDream-I1-Full",
+            "date": "2025-05-28",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "MIT",
+          "17B"
+        ],
+        "recipe": "t2i-i1-full"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 krea-dev",
+        "why": "AA 844; community: gritty realism",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-krea-dev"
+      },
+      {
+        "family": "sdxl",
+        "recipe_hint": "sdxl photoreal fine-tune (Juggernaut/RealVis)",
+        "why": "Community photoreal favourites on low VRAM; base SDXL AA 678",
+        "evidence": [
+          {
+            "src": "https://www.aiphotogenerator.net/blog/2026/02/best-stable-diffusion-models-2026",
+            "date": "2026-02",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "low VRAM",
+          "a fine-tune checkpoint on sdxl t2i-base"
+        ],
+        "recipe": "t2i-base"
+      },
+      {
+        "family": "sd35",
+        "recipe_hint": "sd35 large",
+        "why": "Portraits 941; AA 839",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated"
+        ],
+        "recipe": "t2i-large"
+      }
+    ],
+    "t2i-general": [
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image t2i-2.1",
+        "why": "#1 open on AA T2I (1034)",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "~33 GB package"
+        ],
+        "recipe": "t2i-2-1"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "AA 1000; arena Overall 1146, Art 1150",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "~53 GB disk incl. text encoder"
+        ],
+        "recipe": "t2i-dev"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image t2i-2512",
+        "why": "AA ~999; arena 1125, Art 1131; very versatile",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/art",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "fp8 20.4 GB"
+        ],
+        "recipe": "t2i-2512"
+      },
+      {
+        "family": "z-image",
+        "recipe_hint": "z-image turbo",
+        "why": "AA 941; arena 1084",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "limited style range"
+        ],
+        "recipe": "t2i-turbo"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "AA 941; arena 1070",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-klein-9b-base"
+      },
+      {
+        "family": "z-image",
+        "recipe_hint": "z-image base",
+        "why": "AA 877 (single fetch; verify); better non-photo styles than Turbo per community",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/text-to-image/arena/leaderboard-text",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-base"
+      },
+      {
+        "family": "hidream",
+        "recipe_hint": "hidream i1-dev",
+        "why": "AA 873",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "MIT",
+          "17B"
+        ],
+        "recipe": "t2i-i1-dev"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "AA 863; arena 1030",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-klein-4b-base"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 krea-dev",
+        "why": "AA 844; artistic styles",
+        "evidence": [
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-krea-dev"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 dev",
+        "why": "AA 841",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-dev"
+      },
+      {
+        "family": "sd35",
+        "recipe_hint": "sd35 large",
+        "why": "AA 839; arena 938",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated"
+        ],
+        "recipe": "t2i-large"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 schnell",
+        "why": "AA 802",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-schnell"
+      },
+      {
+        "family": "chroma",
+        "recipe_hint": "chroma 1-HD",
+        "why": "No leaderboard; community: artistic/experimental, uncensored",
+        "evidence": [
+          {
+            "src": "https://localaimaster.com/blog/chroma-local-guide",
+            "date": "2026",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-hd"
+      },
+      {
+        "family": "sdxl",
+        "recipe_hint": "sdxl fine-tune (Illustrious for anime)",
+        "why": "AA SDXL 1.0 678; fine-tunes are community picks for niche styles",
+        "evidence": [
+          {
+            "src": "https://www.aiphotogenerator.net/blog/2026/02/best-stable-diffusion-models-2026",
+            "date": "2026-02",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "low VRAM",
+          "a fine-tune checkpoint on sdxl t2i-base"
+        ],
+        "recipe": "t2i-base"
+      }
+    ],
+    "t2i-text": [
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "Best in-scope arena Text Rendering (1158)",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "heavy"
+        ],
+        "recipe": "t2i-dev"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image t2i-2512",
+        "why": "Text Rendering 1123; best commercial-safe text model",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-2512"
+      },
+      {
+        "family": "z-image",
+        "recipe_hint": "z-image turbo",
+        "why": "Text Rendering 1061",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-turbo"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "Text Rendering 1058",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-klein-9b-base"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "Text Rendering 1015",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2i-klein-4b-base"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 dev",
+        "why": "Text Rendering 963",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "t2i-dev"
+      },
+      {
+        "family": "sd35",
+        "recipe_hint": "sd35 large",
+        "why": "Text Rendering 922",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated"
+        ],
+        "recipe": "t2i-large"
+      }
+    ],
+    "edit": [
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2.1",
+        "why": "#1 open on AA Image Editing (1074)",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "~33 GB package"
+        ],
+        "recipe": "edit-2-1"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2511",
+        "why": "AA 1021; arena 1234; best commercial-safe editor",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://arena.ai/leaderboard/image-edit",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "20B"
+        ],
+        "recipe": "edit-2511"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "AA 1013; arena 1225",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "edit-klein-9b-base"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "AA 1000; arena 1225",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "heavy"
+        ],
+        "recipe": "edit-dev"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2509",
+        "why": "AA 981",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-2509"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "AA 948; arena 1187",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-klein-4b-base"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 kontext-dev",
+        "why": "AA 856; arena 1149",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "kontext-edit"
+      },
+      {
+        "family": "hidream",
+        "recipe_hint": "hidream e1.1",
+        "why": "AA 808",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "MIT"
+        ],
+        "recipe": "edit-e1-1"
+      }
+    ],
+    "edit-identity": [
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2511",
+        "why": "Arena edit Portraits 1224; official identity/character-consistency upgrade",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/portraits",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://huggingface.co/Qwen/Qwen-Image-Edit-2511",
+            "date": "2026-10-02",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-2511"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2.1",
+        "why": "#1 open AA edit overall; identity category not sourced",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial"
+        ],
+        "recipe": "edit-2-1"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "Arena edit Portraits 1214",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/portraits",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "edit-klein-9b-base"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "Arena edit Portraits 1194; up to 8 references",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/portraits",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "heavy"
+        ],
+        "recipe": "edit-dev"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "Arena edit Portraits 1172",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/portraits",
+            "date": "2026-09-29",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-klein-4b-base"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 kontext-dev",
+        "why": "AA edit 856; not on Portraits board",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "kontext-edit"
+      }
+    ],
+    "compose-multi-image": [
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-9b",
+        "why": "Arena Multi-Image Edit 1213, top in scope",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "edit-klein-9b-base-multi"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 dev",
+        "why": "Arena Multi 1202; up to 8 references",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated",
+          "heavy"
+        ],
+        "recipe": "edit-dev-multi"
+      },
+      {
+        "family": "qwen-image",
+        "recipe_hint": "qwen-image edit-2511",
+        "why": "Arena Multi 1173; official multi-person fusion; best commercial-safe",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://huggingface.co/Qwen/Qwen-Image-Edit-2511",
+            "date": "2026-10-02",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-2511-multi-image"
+      },
+      {
+        "family": "flux-2",
+        "recipe_hint": "flux-2 klein-4b",
+        "why": "Arena Multi 1167",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "edit-klein-4b-base-multi"
+      },
+      {
+        "family": "flux-1",
+        "recipe_hint": "flux-1 kontext-dev",
+        "why": "Arena Multi 1034",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "non-commercial",
+          "gated"
+        ],
+        "recipe": "kontext-edit-multi-ref"
+      }
+    ],
+    "t2v": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 fl2va-t2v",
+        "why": "#1 open on arena T2V (1460) and AA T2V (1139)",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/text-to-video",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk (pruned int8)",
+          "768p local cap"
+        ],
+        "recipe": "t2v-fl2va"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 t2v-2.5",
+        "why": "#2 open on AA T2V (950/944); placement above arena-only models INFERRED",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/text-to-video",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "community licence <$10M revenue",
+          "22B; int8/NVFP4 builds; from 16 GB"
+        ],
+        "recipe": "t2v-2.5"
+      },
+      {
+        "family": "kandinsky-5",
+        "recipe_hint": "kandinsky-5 t2v-pro",
+        "why": "Arena T2V 1175±21 (few votes); official SBS beats Wan 2.2 A14B on quality/motion",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://arxiv.org/html/2511.14993v2",
+            "date": "2025-11",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "MIT",
+          "19B; 24 GB with offload",
+          "Pro has no Comfy template (pending)"
+        ],
+        "recipe": ""
+      },
+      {
+        "family": "hunyuanvideo-1.5",
+        "recipe_hint": "hunyuanvideo-1.5 t2v",
+        "why": "Arena T2V 1169±16",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes EU/UK/South Korea",
+          "8.3B; 14 GB with offload"
+        ],
+        "recipe": "t2v-720p"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 t2v-2.3",
+        "why": "AA T2V 895/854",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/text-to-video",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "community licence <$10M revenue"
+        ],
+        "recipe": "t2v-2.3"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 t2v-a14b",
+        "why": "Arena T2V 1132±15; safest licence",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "two 14B experts, fp8"
+        ],
+        "recipe": "t2v-14b"
+      },
+      {
+        "family": "kandinsky-5",
+        "recipe_hint": "kandinsky-5 t2v-lite",
+        "why": "Arena T2V 1113±18",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "MIT",
+          "small"
+        ],
+        "recipe": "t2v-lite-5s"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 ti2v-5b",
+        "why": "Not on boards; fits 8 GB",
+        "evidence": [
+          {
+            "src": "https://docs.comfy.org/tutorials/video/wan/wan2_2",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "t2v-5b"
+      }
+    ],
+    "i2v": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 fl2va-i2v",
+        "why": "#1 overall on arena I2V (1495); #1 open AA I2V (1181)",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/image-to-video/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk",
+          "768p local cap"
+        ],
+        "recipe": "i2v-fl2va"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 i2v-2.5",
+        "why": "AA I2V 1038/1007, above LTX-2 (923); placement vs arena-only models INFERRED",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/image-to-video/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "<$10M revenue"
+        ],
+        "recipe": "i2v-2.5"
+      },
+      {
+        "family": "hunyuanvideo-1.5",
+        "recipe_hint": "hunyuanvideo-1.5 i2v",
+        "why": "Arena I2V 1198±16",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes EU/UK/South Korea",
+          "14 GB with offload"
+        ],
+        "recipe": "i2v-720p"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 i2v-a14b",
+        "why": "Arena I2V 1170±10",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/image-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "i2v-14b"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 i2v-2.3",
+        "why": "AA I2V 949/946",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/image-to-video/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "<$10M revenue"
+        ],
+        "recipe": "i2v-2.3"
+      },
+      {
+        "family": "kandinsky-5",
+        "recipe_hint": "kandinsky-5 i2v-pro",
+        "why": "Not on I2V boards; official SBS claim vs Wan 2.2 A14B",
+        "evidence": [
+          {
+            "src": "https://arxiv.org/html/2511.14993v2",
+            "date": "2025-11",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "MIT",
+          "24 GB with offload",
+          "Pro has no Comfy template (pending)"
+        ],
+        "recipe": ""
+      }
+    ],
+    "flf2v": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 fl2va-flf",
+        "why": "Native first-last-frame mode; strongest I2V model (proxy, no FLF board)",
+        "evidence": [
+          {
+            "src": "https://github.com/iSk2y/awesome-minimax-h3",
+            "date": "2026-08",
+            "class": "COMMUNITY"
+          },
+          {
+            "src": "https://arena.ai/leaderboard/image-to-video",
+            "date": "2026-09-21",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk"
+        ],
+        "recipe": "flf2v-fl2va"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 flf2v-2.5",
+        "why": "First/last-frame listed; #2 open I2V on AA (proxy)",
+        "evidence": [
+          {
+            "src": "https://comfyui-wiki.com/en/news/2026-08-11-ltx-2-5-open-weights-release",
+            "date": "2026-08-11",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "<$10M revenue"
+        ],
+        "recipe": "flf2v-2.5"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 flf2v-a14b",
+        "why": "Official ComfyUI FLF2V 14B template; arena I2V 1170 (proxy)",
+        "evidence": [
+          {
+            "src": "https://docs.comfy.org/tutorials/video/wan/wan2_2",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0"
+        ],
+        "recipe": "flf2v-14b"
+      }
+    ],
+    "reference-video": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 ref2va",
+        "why": "Up to 9 ref images + 3 videos + 3 audio; strongest open video model overall",
+        "evidence": [
+          {
+            "src": "https://github.com/iSk2y/awesome-minimax-h3",
+            "date": "2026-08",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk"
+        ],
+        "recipe": "r2v-ref2va"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 animate-14b",
+        "why": "Character image + driving video (animate/replace); official 'TOP performance' claim",
+        "evidence": [
+          {
+            "src": "https://huggingface.co/Wan-AI/Wan2.2-Animate-14B",
+            "date": "2025-09-19",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "needs three node packs (pending)"
+        ],
+        "recipe": ""
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 multishot-2.5",
+        "why": "Native multishot with consistent characters (claim); likeness LoRA/IC-LoRA",
+        "evidence": [
+          {
+            "src": "https://comfyui-wiki.com/en/news/2026-08-11-ltx-2-5-open-weights-release",
+            "date": "2026-08-11",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "<$10M revenue"
+        ],
+        "recipe": "ingredients-2.3"
+      }
+    ],
+    "talking-head": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 ref2va-audio",
+        "why": "Only open model on OpenArt Lip Sync board (#4/5, 1000); takes reference audio",
+        "evidence": [
+          {
+            "src": "https://openart.ai/arena",
+            "date": "2026-09-15",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk"
+        ],
+        "recipe": "r2v-ref2va"
+      },
+      {
+        "family": "wan-2.2",
+        "recipe_hint": "wan-2.2 s2v-14b",
+        "why": "Audio+image to lip-synced video; official claim beats Hunyuan-Avatar/OmniHuman (no numbers)",
+        "evidence": [
+          {
+            "src": "https://huggingface.co/Wan-AI/Wan2.2-S2V-14B",
+            "date": "2025-08-26",
+            "class": "OFFICIAL-CLAIM"
+          }
+        ],
+        "constraints": [
+          "Apache-2.0",
+          "slow (~9 min / 5 s 720p on 80 GB GPU)",
+          "no recipe yet (pending)"
+        ],
+        "recipe": ""
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 a2v-2.5",
+        "why": "Audio-to-video supported; no lip-sync score",
+        "evidence": [
+          {
+            "src": "https://comfyui-wiki.com/en/news/2026-08-11-ltx-2-5-open-weights-release",
+            "date": "2026-08-11",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "<$10M revenue"
+        ],
+        "recipe": "ia2v-2.3"
+      }
+    ],
+    "video-with-audio": [
+      {
+        "family": "minimax-h3",
+        "recipe_hint": "minimax-h3 fl2va",
+        "why": "#1 open on AA T2V-with-audio (1139) and I2V-with-audio (1181); 32 kHz stereo",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/text-to-video",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/image-to-video/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "licence excludes USA/EU/UK/Korea",
+          "~40 GB disk"
+        ],
+        "recipe": "t2v-fl2va"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 t2v-2.5 / i2v-2.5",
+        "why": "AA T2V-audio 950/944, I2V-audio 1038/1007",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/text-to-video",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "<$10M revenue"
+        ],
+        "recipe": "t2v-2.5"
+      },
+      {
+        "family": "ltx-2",
+        "recipe_hint": "ltx-2 t2v-2.3 / i2v-2.3",
+        "why": "AA T2V-audio 895/854, I2V-audio 949/946",
+        "evidence": [
+          {
+            "src": "https://artificialanalysis.ai/video/leaderboard/image-to-video/open-weights",
+            "date": "2026-10-02",
+            "class": "LEADERBOARD"
+          }
+        ],
+        "constraints": [
+          "<$10M revenue"
+        ],
+        "recipe": "t2v-2.3"
+      }
+    ],
+    "upscale-image": [
+      {
+        "family": "seedvr2",
+        "recipe_hint": "seedvr2 image",
+        "why": "Comfy names SeedVR2 among best for product photography; diffusion detail",
+        "evidence": [
+          {
+            "src": "https://blog.comfy.org/p/upscaling-in-comfyui",
+            "date": "2026-02-06",
+            "class": "COMFY"
+          },
+          {
+            "src": "https://www.apatero.com/blog/seedvr2-upscaler-comfyui-complete-video-resolution-guide-2025",
+            "date": "2025",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "8 GB min, 12 GB+ recommended"
+        ],
+        "recipe": "upscale-image-7b"
+      },
+      {
+        "family": "upscale-models",
+        "recipe_hint": "esrgan-class 4x-UltraSharp / RealESRGAN",
+        "why": "10-20x faster; enhancement only",
+        "evidence": [
+          {
+            "src": "https://www.apatero.com/blog/seedvr2-upscaler-comfyui-complete-video-resolution-guide-2025",
+            "date": "2025",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "tiny VRAM"
+        ],
+        "recipe": "upscale-image-photo-ultrasharp"
+      }
+    ],
+    "upscale-video": [
+      {
+        "family": "seedvr2",
+        "recipe_hint": "seedvr2 video",
+        "why": "Comfy: most accurate results, excellent character consistency",
+        "evidence": [
+          {
+            "src": "https://docs.comfy.org/tutorials/utility/video-upscale",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "slow (~312 s for 10 s 720p->1080p)",
+          "8-12 GB+"
+        ],
+        "recipe": "upscale-video-7b"
+      },
+      {
+        "family": "flashvsr",
+        "recipe_hint": "flashvsr",
+        "why": "Comfy speed pick (~41 s for 10 s 720p->1080p); near-SeedVR2 quality",
+        "evidence": [
+          {
+            "src": "https://docs.comfy.org/tutorials/utility/video-upscale",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          },
+          {
+            "src": "https://upsampler.com/blog/seedvr-vs-flashvsr-ai-video-super-resolution-2026",
+            "date": "2026",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "6-10 GB VRAM"
+        ],
+        "recipe": "upscale-video-4x"
+      },
+      {
+        "family": "upscale-models",
+        "recipe_hint": "esrgan-class per-frame",
+        "why": "No temporal awareness -> flicker",
+        "evidence": [
+          {
+            "src": "https://www.apatero.com/blog/seedvr2-upscaler-comfyui-complete-video-resolution-guide-2025",
+            "date": "2025",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "fast",
+          "flickers"
+        ],
+        "recipe": "upscale-video-frames-2x"
+      }
+    ],
+    "join-clips": [
+      {
+        "family": "video-assembly",
+        "recipe": "join-2",
+        "recipe_hint": "join-N / join-N-audio by clip count",
+        "why": "how the official templates deliver one video from several clips",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates-6-key-frames.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "same frame size for every clip",
+          "pick join-N-audio when the clips have sound"
+        ]
+      }
+    ],
+    "stack-clips": [
+      {
+        "family": "video-assembly",
+        "recipe": "stack-2",
+        "recipe_hint": "stack-N by clip count",
+        "why": "the official split-stack delivery: several clips in one frame",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/template_rob_split_stack_qwen_multi_wan22.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "same frame count for every clip"
+        ]
+      }
+    ],
+    "multi-angle": [
+      {
+        "family": "qwen-image",
+        "recipe": "edit-2511-angle",
+        "recipe_hint": "edit-2511-angle (one stage per angle)",
+        "why": "the official Comfy-Org multi-angle template's model: a camera-angle LoRA on Qwen-Image-Edit 2511, 96 poses",
+        "evidence": [
+          {
+            "src": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA",
+            "date": "2026-10-02",
+            "class": "OFFICIAL"
+          },
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates-1_click_multiple_character_angles-v1.0.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "one camera angle per stage",
+          "prompt in the LoRA's '<sks> …' format",
+          "~21 GB of edit model"
+        ]
+      }
+    ],
+    "control-map": [
+      {
+        "family": "control-maps",
+        "recipe": "depth-video",
+        "recipe_hint": "depth-video / canny-video / depth-image / canny-image",
+        "why": "the native preprocessors the official control and restyle templates use",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_shane_video_restyle.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "pose needs a custom pack",
+          "per-frame depth shimmers slightly"
+        ]
+      }
+    ],
+    "t2i-360": [
+      {
+        "family": "qwen-image",
+        "recipe": "t2i-2512-360",
+        "recipe_hint": "t2i-2512-360, then seedvr2 upscale-image",
+        "why": "the official Comfy-Org 360 skybox template: Qwen-Image-2512 + the qwen-360-diffusion LoRA at 2048x1024",
+        "evidence": [
+          {
+            "src": "https://huggingface.co/ProGamerGov/qwen-360-diffusion",
+            "date": "2026-10-02",
+            "class": "OFFICIAL"
+          },
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_text_prompt_to_360hdr.app.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "2:1 at 2048x1024",
+          "bf16 base (~41 GB) - not fp8_e4m3fn",
+          "upscale as a next stage for a skybox"
+        ]
+      }
+    ],
+    "video-character-replace": [
+      {
+        "family": "wan-2.2",
+        "recipe": "animate-replace-14b",
+        "recipe_hint": "animate-replace-14b",
+        "why": "Wan 2.2 Animate: the person in a video replaced by a character image; motion, expression, background and light stay the video's (official Comfy-Org template)",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/template_purz_wan22_animate_auto_character_replace.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "custom node packs (setup installs them)",
+          "one clearly visible person works best",
+          "~18 GB fp8 model"
+        ]
+      }
+    ],
+    "motion-transfer": [
+      {
+        "family": "wan-2.2",
+        "recipe": "animate-move-14b",
+        "recipe_hint": "animate-move-14b",
+        "why": "Wan 2.2 Animate: a still character performs the motion and expression of a video, in the image's own scene",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_purz_wan22_animate_auto_full_scene.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "custom node pack (setup installs it)"
+        ]
+      }
+    ],
+    "video-object-replace": [
+      {
+        "family": "wan-2.1-vace",
+        "recipe": "object-replace-sam3-vace-14b-prompt",
+        "recipe_hint": "object-replace-sam3-vace-14b(-prompt)",
+        "why": "SAM3 masks the object through the clip, VACE repaints only the mask (official Comfy-Org 'Change Any Objects')",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_shane_change_any_objects.json",
+            "date": "2026-10-02",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "needs the ComfyUI-SAM3 pack pinned at commit 978bb763 - its latest renamed the inputs this graph uses, and setup installs only a pack's latest"
+        ]
+      }
+    ],
+    "frame-from-video": [
+      {
+        "family": "video-assembly",
+        "recipe": "frame-from-video",
+        "recipe_hint": "frame-from-video",
+        "why": "native: a clip's frame as an image for an image stage",
+        "evidence": [
+          {
+            "src": "comfy_extras/nodes_video.py + nodes_images.py (core)",
+            "date": "2026-10-02",
+            "class": "OFFICIAL"
+          }
+        ],
+        "constraints": []
+      }
+    ]
+  }
+}

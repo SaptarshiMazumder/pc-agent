@@ -27,6 +27,7 @@ log = logging.getLogger("agentd")
 logging.getLogger().setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 PUBLISH_ROUTE = "/registry/publish"
+UPLOAD_ROUTE = "/registry/publish/upload"
 ADMIN_PENDING_ROUTE = "/registry/admin/pending"
 ADMIN_CREATORS_ROUTE = "/registry/admin/creators"
 ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
@@ -38,9 +39,12 @@ ADMIN_UNLIST_ROUTE = "/registry/admin/unlist"
 
 
 def build_services():
-    """Wire the intake AND admin services from environment. They share every adapter — same
-    tables, same store, same lock — because they are two doors into one registry."""
+    """Wire the intake, admin and upload services from environment. They share every adapter —
+    same tables, same store, same lock — because they are doors into one registry."""
     import boto3
+    from botocore.config import Config
+
+    from agent_runtime.application.services.package_upload_service import PackageUploadService
 
     from agent_runtime.application.services.publish_intake_service import PublishIntakeService
     from agent_runtime.application.services.roster_admin_service import RosterAdminService
@@ -49,6 +53,7 @@ def build_services():
     from agent_runtime.infrastructure.publish.index_store import DynamoIndexLock, S3IndexStore
     from agent_runtime.infrastructure.publish.parked_store import S3ParkedStore
     from agent_runtime.infrastructure.publish.root_vault import DynamoRootKeyVault
+    from agent_runtime.infrastructure.publish.s3_upload_slots import S3UploadSlots
     from agent_runtime.infrastructure.publish.signer import DirectoryBundleSigner, KmsEnvelopeSigner
 
     def required(name: str) -> str:
@@ -115,7 +120,18 @@ def build_services():
         intake=intake,
         parker=parker,
     )
-    return intake, admin
+    # The upload form is signed for the bucket's REGIONAL virtual-host endpoint: the author's
+    # client posts to whatever url this produces, and the global endpoint answers a bucket outside
+    # us-east-1 with a redirect a form upload does not follow.
+    presigner = boto3.client(
+        "s3",
+        region_name=required("AWS_REGION"),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
+    uploads = PackageUploadService(
+        authenticator=authenticator, slots=S3UploadSlots(presigner, bucket)
+    )
+    return intake, admin, uploads
 
 
 def _product_service(store):
@@ -176,28 +192,45 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
     path = _path(event)
     if _is_admin_route(path):
         return _admin(event, path)
+    if path.endswith(UPLOAD_ROUTE):
+        return _upload_slot(event)
     if not path.endswith(PUBLISH_ROUTE):
         return _json(404, {"message": f"no route {path}"})
     if _method(event) != "POST":
-        return _json(405, {"message": "POST a multipart form with a `package` file"})
+        return _json(405, {"message": "POST {upload_key} as JSON, or a multipart `package` file"})
 
+    token = _bearer(event)
     try:
-        fields, files, filenames = _parse_multipart(event)
+        if _is_json(event):
+            # THE NORMAL PATH: the package was uploaded to a slot (see _upload_slot), because a
+            # load-balanced Lambda cannot receive a body over 1 MB.
+            body = _json_body(event)
+            _, _, uploads = services()
+            refusal, package = uploads.claim(token, str(body.get("upload_key") or ""))
+            if refusal:
+                return _json(refusal.status, refusal.body())
+            submission = Submission(
+                package=package,
+                token=token,
+                bundle_id=str(body.get("bundle_id") or ""),
+                filename=str(body.get("filename") or ""),
+            )
+        else:
+            # The package inline — still accepted for small packages from older clients.
+            fields, files, filenames = _parse_multipart(event)
+            submission = Submission(
+                package=files.get("package") or files.get("bundle") or b"",
+                token=token,
+                bundle_id=fields.get("bundle_id", ""),
+                # The PACKAGE part's own name — never "whichever file part came last".
+                filename=(
+                    fields.get("filename", "")
+                    or filenames.get("package", "")
+                    or filenames.get("bundle", "")
+                ),
+            )
     except ValueError as e:
         return _json(BAD_REQUEST, {"message": str(e)})
-
-    package = files.get("package") or files.get("bundle") or b""
-    submission = Submission(
-        package=package,
-        token=_bearer(event),
-        bundle_id=fields.get("bundle_id", ""),
-        # The PACKAGE part's own name — never "whichever file part came last".
-        filename=(
-            fields.get("filename", "")
-            or filenames.get("package", "")
-            or filenames.get("bundle", "")
-        ),
-    )
     try:
         result = service().submit(submission)
     except TimeoutError as e:
@@ -207,6 +240,37 @@ def handler(event, context=None):  # noqa: ARG001 — Lambda signature
         log.exception("publish failed")
         return _json(SERVER_ERROR, {"message": "the publish service failed. Nothing was published."})
     return _json(result.status, result.body())
+
+
+def _upload_slot(event) -> dict:
+    """`POST /registry/publish/upload` -> {upload: {url, fields, key, expires_in}}."""
+    from agent_runtime.application.interfaces.publish_intake import SERVER_ERROR
+
+    if _method(event) != "POST":
+        return _json(405, {"message": "POST this route"})
+    _, _, uploads = services()
+    try:
+        refusal, slot = uploads.reserve(_bearer(event))
+    except Exception:  # noqa: BLE001 — never leak a traceback to a caller
+        log.exception("upload slot failed")
+        return _json(SERVER_ERROR, {"message": "could not prepare an upload. Nothing was published."})
+    if refusal:
+        return _json(refusal.status, refusal.body())
+    return _json(
+        200,
+        {
+            "upload": {
+                "url": slot.url,
+                "fields": slot.fields,
+                "key": slot.key,
+                "expires_in": slot.expires_in,
+            }
+        },
+    )
+
+
+def _is_json(event) -> bool:
+    return "application/json" in str(_headers(event).get("content-type") or "").lower()
 
 
 def _is_admin_route(path: str) -> bool:
@@ -228,7 +292,7 @@ def _admin(event, path: str) -> dict:
     from agent_runtime.application.interfaces.publish_intake import SERVER_ERROR
 
     token = _bearer(event)
-    _, admin = services()
+    _, admin, _ = services()
     try:
         if path.endswith(ADMIN_PENDING_ROUTE):
             if _method(event) != "GET":

@@ -108,13 +108,15 @@
       "start_image": {
         "node": "15",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "first"
       },
       "end_image": {
         "node": "18",
         "input": "image",
         "type": "IMAGE",
-        "note": "same aspect as start_image"
+        "note": "same aspect as start_image",
+        "frame": "last"
       }
     },
     "outputs": {

@@ -1,0 +1,216 @@
+{
+  "schema": 2,
+  "id": "wan-2.1-vace",
+  "name": "Wan 2.1 VACE 14B (video editing)",
+  "publisher": "Wan-AI (Alibaba)",
+  "license": {
+    "name": "Apache-2.0 (Wan 2.1 VACE weights); SAM 3 under Meta's SAM 3 licence",
+    "commercial": true,
+    "notes": "the masking model (SAM 3) carries its own licence",
+    "src": [
+      "S-TPL-SHANE",
+      "S-TPL-INDEX",
+      "S-GH-WVW"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "video"
+  ],
+  "tasks": [
+    "video-object-replace"
+  ],
+  "stage": {
+    "takes": [
+      "@video",
+      "@reference (optional variant)"
+    ],
+    "gives": [
+      "VIDEO"
+    ],
+    "note": "edits INSIDE a clip: only the masked object is regenerated, every other pixel is the source's"
+  },
+  "cannot": [
+    {
+      "what": "run here until pinned pack installs exist (see the recipes' `blocked`)",
+      "src": "S-TPL-SHANE"
+    }
+  ],
+  "comfyui": {
+    "min": "0.20.0"
+  },
+  "files": [
+    {
+      "name": "wan2.1_vace_14B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34675323640,
+      "precision": "fp16 (loaded as bf16, quantization disabled)",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_vace_14B_fp16.safetensors",
+      "license": "apache-2.0 (Comfy-Org/Wan_2.1_ComfyUI_repackaged card; Wan-AI/Wan2.1-VACE-14B card apache-2.0)",
+      "recipes": [
+        "object-replace-sam3-vace-14b"
+      ],
+      "bytes_src": "S-HF-HEAD",
+      "variant": "vace-14b",
+      "note": "loaded by WanVideoModelLoader (the full VACE model, no separate VACE module); 34.7 GB",
+      "src": "S-TPL-SHANE"
+    },
+    {
+      "name": "umt5-xxl-enc-bf16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 11361845464,
+      "precision": "bf16",
+      "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/umt5-xxl-enc-bf16.safetensors",
+      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
+      "recipes": [
+        "object-replace-sam3-vace-14b"
+      ],
+      "bytes_src": "S-HF-HEAD",
+      "note": "WanVideoWrapper's own T5 loader needs this encoder-only file (not the native umt5_xxl_*)",
+      "src": "S-TPL-SHANE"
+    },
+    {
+      "name": "Wan2_1_VAE_bf16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253806278,
+      "precision": "bf16",
+      "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_bf16.safetensors",
+      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
+      "recipes": [
+        "object-replace-sam3-vace-14b"
+      ],
+      "bytes_src": "S-HF-HEAD",
+      "src": "S-TPL-SHANE"
+    },
+    {
+      "name": "Wan21_CausVid_14B_T2V_lora_rank32_v2.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 204551064,
+      "precision": "rank32",
+      "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_14B_T2V_lora_rank32_v2.safetensors",
+      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
+      "recipes": [
+        "object-replace-sam3-vace-14b"
+      ],
+      "bytes_src": "S-HF-HEAD",
+      "note": "CausVid distill LoRA at 0.7: the template samples 8 steps at cfg 1 with it",
+      "src": "S-TPL-SHANE"
+    },
+    {
+      "name": "sam3.pt",
+      "role": "segmentation",
+      "folder": "sam3",
+      "bytes": 3450062241,
+      "precision": "fp32 checkpoint",
+      "url": "https://huggingface.co/1038lab/sam3/resolve/main/sam3.pt",
+      "license": "other - Meta SAM 3 license (1038lab/sam3 mirrors the official weights; its card carries Meta's gated license form, the mirror itself is not gated)",
+      "recipes": [
+        "object-replace-sam3-vace-14b"
+      ],
+      "bytes_src": "S-HF-HEAD",
+      "note": "NOT in the template's properties.models. ComfyUI-SAM3 @978bb76 auto-downloads it from 1038lab/sam3 on first run when models/sam3/sam3.pt is missing.",
+      "src": [
+        "S-TPL-SHANE",
+        "S-GH-SAM3"
+      ]
+    },
+    {
+      "name": "sam3.safetensors",
+      "role": "segmentation",
+      "folder": "sam3",
+      "bytes": 3449860632,
+      "precision": "safetensors",
+      "url": "https://huggingface.co/apozz/sam3-safetensors/resolve/main/sam3.safetensors",
+      "license": "other - Meta SAM 3 license (mirror)",
+      "recipes": [],
+      "bytes_src": "S-HF-HEAD",
+      "note": "ONLY if ComfyUI-SAM3 is installed at main instead of the pinned commit: main's LoadSAM3Model auto-downloads this fixed file from apozz/sam3-safetensors.",
+      "src": "S-GH-SAM3"
+    }
+  ],
+  "selection": [
+    {
+      "task": "video-inpaint",
+      "mode": "object-replace",
+      "recipe": "object-replace-sam3-vace-14b",
+      "why": "replace one named object in a video ('the cup in her hand' -> 'a red can') and leave every other pixel: SAM3 finds and tracks it by text, VACE repaints only the mask, the result is composited onto the original frames",
+      "status": "needs packs (Phase 2): ComfyUI-WanVideoWrapper, ComfyUI-SAM3 PINNED at 978bb76, ComfyUI-KJNodes, ComfyUI_essentials; large VRAM (fp16 14B, template is cloud-only)",
+      "src": "S-TPL-SHANE"
+    }
+  ],
+  "params": {},
+  "rules": [],
+  "prompting": {},
+  "pitfalls": [
+    {
+      "symptom": "SAM3 nodes fail with unknown inputs",
+      "cause": "ComfyUI-SAM3 installed at main",
+      "fix": "pin commit 978bb763",
+      "src": "S-TPL-SHANE"
+    }
+  ],
+  "sources": {
+    "S-TPL-SHANE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/templates_shane_change_any_objects.json",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "saved as templates/templates_shane_change_any_objects.json (+ .recipe.md)"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "minComfyUIVersion, requiresCustomNodes"
+    },
+    "S-GH-WVW": {
+      "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "nodes.py, nodes_model_loading.py, nodes_sampler.py at main 088128b; raw/animate_vace/ (local copies)"
+    },
+    "S-GH-SAM3": {
+      "url": "https://github.com/PozzettiAndrea/ComfyUI-SAM3",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "nodes/load_model.py + nodes/sam3_video_nodes.py at 978bb76 and at main de0ff5d; raw/animate_vace/ (local copies)"
+    },
+    "S-GH-KJ": {
+      "url": "https://raw.githubusercontent.com/kijai/ComfyUI-KJNodes/main/nodes/mask_nodes.py",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "raw/animate_vace/ (local copies)"
+    },
+    "S-GH-ESS": {
+      "url": "https://github.com/cubiq/ComfyUI_essentials",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "image.py, mask.py at main; raw/animate_vace/ (local copies)"
+    },
+    "S-GH-IMGFILT": {
+      "url": "https://raw.githubusercontent.com/spacepxl/ComfyUI-Image-Filters/main/nodes.py",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "ImageConstant inputs width,height,batch_size,red,green,blue (replaced by native EmptyImage)"
+    },
+    "S-REGISTRY": {
+      "url": "https://api.comfy.org/nodes/<cnr_id>",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "repository URL per cnr_id"
+    },
+    "S-HF-HEAD": {
+      "url": "https://huggingface.co (curl -sI -L <url> | X-Linked-Size)",
+      "accessed": "2026-10-02",
+      "class": "official",
+      "note": "byte sizes, 2026-10-02"
+    }
+  },
+  "card": {
+    "short_name": "Wan 2.1 VACE",
+    "restriction": ""
+  }
+}

@@ -32,6 +32,8 @@ class CampaignProgress:
     outcomes: dict[str, ShotOutcome] = field(default_factory=dict)
     sheet: str = ""  # the shoot sheet's path, when the recipe makes one
     sheet_score: int = 0
+    session: str = ""  # the chat that started it — how a window finds its own campaign
+    video: str = ""  # "provider/model" the user chose for the clips; "" = the configured default
 
     def to_dict(self) -> dict:
         return {
@@ -44,6 +46,8 @@ class CampaignProgress:
             "outcomes": {k: v.to_dict() for k, v in self.outcomes.items()},
             "sheet": self.sheet,
             "sheet_score": self.sheet_score,
+            "session": self.session,
+            "video": self.video,
         }
 
     @classmethod
@@ -58,4 +62,6 @@ class CampaignProgress:
             outcomes={k: ShotOutcome.from_dict(v) for k, v in (data.get("outcomes") or {}).items()},
             sheet=str(data.get("sheet") or ""),
             sheet_score=int(data.get("sheet_score") or 0),
+            session=str(data.get("session") or ""),
+            video=str(data.get("video") or ""),
         )

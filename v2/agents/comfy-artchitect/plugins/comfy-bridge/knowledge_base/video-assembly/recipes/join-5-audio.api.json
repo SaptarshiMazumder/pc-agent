@@ -1,0 +1,244 @@
+{
+  "recipe": {
+    "id": "join-5-audio",
+    "task": "join-clips",
+    "variant": "5 clips end to end with their sound joined in the same order: LoadVideo -> GetVideoComponents -> BatchImagesNode -> CreateVideo (fps of clip 1) -> SaveVideo",
+    "from_template": "templates-6-key-frames (BatchImagesNode -> CreateVideo -> SaveVideo joins the five FLF2V segments); clip I/O as in the native video templates",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {},
+    "inputs": {
+      "clip_1": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the first clip; its fps is the joined video's"
+      },
+      "clip_2": {
+        "node": "16",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 2 in order"
+      },
+      "clip_3": {
+        "node": "17",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 3 in order"
+      },
+      "clip_4": {
+        "node": "18",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 4 in order"
+      },
+      "clip_5": {
+        "node": "19",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 5 in order"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "3",
+        "type": "VIDEO"
+      }
+    },
+    "files": [],
+    "defaults_note": "Every clip must have the same frame size (BatchImagesNode stacks frames of one size) - make them in one size, or upscale/resize first. A segment chain that shares its boundary frames (FLF2V a->b, b->c) repeats that frame once at each join; at 16-24 fps it reads as a short hold. Audio variant: every clip must carry sound (audio-video models); a silent clip has no audio to join.",
+    "family": "video-assembly",
+    "packs": [],
+    "verify": [
+      "built 2026-10-02 from the official templates' node chain; offline structural check: see verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_1"
+      }
+    },
+    "31": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "16": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_2"
+      }
+    },
+    "32": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "16",
+          0
+        ]
+      }
+    },
+    "17": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_3"
+      }
+    },
+    "33": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "17",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_4"
+      }
+    },
+    "34": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "18",
+          0
+        ]
+      }
+    },
+    "19": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_5"
+      }
+    },
+    "35": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "19",
+          0
+        ]
+      }
+    },
+    "1": {
+      "class_type": "BatchImagesNode",
+      "inputs": {
+        "images.image0": [
+          "31",
+          0
+        ],
+        "images.image1": [
+          "32",
+          0
+        ],
+        "images.image2": [
+          "33",
+          0
+        ],
+        "images.image3": [
+          "34",
+          0
+        ],
+        "images.image4": [
+          "35",
+          0
+        ]
+      }
+    },
+    "52": {
+      "class_type": "AudioConcat",
+      "inputs": {
+        "audio1": [
+          "31",
+          1
+        ],
+        "audio2": [
+          "32",
+          1
+        ],
+        "direction": "after"
+      }
+    },
+    "53": {
+      "class_type": "AudioConcat",
+      "inputs": {
+        "audio1": [
+          "52",
+          0
+        ],
+        "audio2": [
+          "33",
+          1
+        ],
+        "direction": "after"
+      }
+    },
+    "54": {
+      "class_type": "AudioConcat",
+      "inputs": {
+        "audio1": [
+          "53",
+          0
+        ],
+        "audio2": [
+          "34",
+          1
+        ],
+        "direction": "after"
+      }
+    },
+    "55": {
+      "class_type": "AudioConcat",
+      "inputs": {
+        "audio1": [
+          "54",
+          0
+        ],
+        "audio2": [
+          "35",
+          1
+        ],
+        "direction": "after"
+      }
+    },
+    "2": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "1",
+          0
+        ],
+        "fps": [
+          "31",
+          2
+        ],
+        "bit_depth": "auto",
+        "audio": [
+          "55",
+          0
+        ]
+      }
+    },
+    "3": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "2",
+          0
+        ],
+        "filename_prefix": "video/joined",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

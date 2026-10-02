@@ -35,11 +35,14 @@ export interface Slot {
   workflows: string[]
   /** The file filling it, or null while empty. */
   file: Artifact | null
+  /** A pipeline STAGE fills this slot ("keyframe.image") — not the person. Null for their own inputs. */
+  fedBy: string | null
 }
 
 interface Declared {
   what: string
   workflows: string[]
+  fedBy: string | null
 }
 
 const norm = (p: string): string => p.replace(/\\/g, '/')
@@ -91,10 +94,11 @@ export async function readSlotRecord(refs: Artifact[]): Promise<Record<string, D
   if (!data || typeof data !== 'object') return {}
   const out: Record<string, Declared> = {}
   for (const [role, v] of Object.entries(data as Record<string, unknown>)) {
-    const d = (v || {}) as { what?: unknown; workflows?: unknown }
+    const d = (v || {}) as { what?: unknown; workflows?: unknown; fed_by?: unknown }
     out[role] = {
       what: String(d.what || ''),
       workflows: Array.isArray(d.workflows) ? d.workflows.map(String) : [],
+      fedBy: d.fed_by ? String(d.fed_by) : null,
     }
   }
   return out
@@ -121,12 +125,16 @@ export function mergeSlots(
     if (!order.includes(role)) order.push(role)
     if (d.what && !what[role]) what[role] = d.what
   }
-  return order.map((role) => ({
+  /* THE PERSON'S INPUTS FIRST, then the ones a step makes: "what is it waiting on from me" is
+     answered by the top of the list. */
+  const slots = order.map((role) => ({
     role,
     what: what[role] || '',
     workflows: record[role]?.workflows || [],
     file: files.get(role) || null,
+    fedBy: record[role]?.fedBy || null,
   }))
+  return [...slots.filter((s) => !s.fedBy), ...slots.filter((s) => s.fedBy)]
 }
 
 /** Files in the chat's folder that fill no slot — added before the roles were known, or extra. */

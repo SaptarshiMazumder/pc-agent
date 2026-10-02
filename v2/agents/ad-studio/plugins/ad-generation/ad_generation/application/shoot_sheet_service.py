@@ -35,7 +35,7 @@ class ShootSheetService:
         self._instructions = instructions
 
     def make(
-        self, campaign_id: str, cast_name: str, correction: str, provider: str, model: str
+        self, campaign_id: str, cast_name: str, correction: str, provider: str, model: str, max_usd: float = 0.0
     ) -> tuple[GeneratedMedia, MediaVerdict]:
         member = self._cast.get(cast_name)
         look = self._store.brief(campaign_id).look
@@ -52,6 +52,7 @@ class ShootSheetService:
             aspect_ratio="16:9",
             variants=1,
             out_stem=self._store.sheet_stem(campaign_id),
+            max_usd=max_usd,
         )
         sheet = self._generators.image(provider).generate(request)[0]
         self._store.record(campaign_id, sheet)

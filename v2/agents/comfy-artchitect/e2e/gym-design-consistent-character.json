@@ -1,0 +1,23 @@
+{
+  "id": "gym-design-consistent-character",
+  "agent_id": "comfy-artchitect",
+  "goal": "Phase 1 only — the DESIGN. A plain brief for a video of one real woman (from a photo she will add) that must look like the same person throughout. The agent must pick free models itself from its knowledge base (no question about which model), split the job into as many stages as consistency needs — a step that locks her identity before the video, with earlier stages feeding later ones — make the whole design hold, write full prompts, and present it on the approval card. It stops at the ask: nothing is installed, provisioned or run. The deliverable is judged by reading the stage workflows: right models, right wiring, prompts that describe exactly the requested shot.",
+  "turns": [
+    {
+      "text": "Make me a short video of a woman in a gym. It opens on an extreme close-up of her face — sweaty, focused — then the camera slowly pulls back to reveal her doing a heavy deadlift. It's for Instagram. She has to look exactly like the woman in the photo I'll add, the same person the whole way through."
+    }
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_called", "tool": "kb_lookup" },
+    { "name": "tool_succeeded", "tool": "pipeline_plan" },
+    { "name": "tool_says", "tool": "pipeline_plan", "pattern": "stage:[a-z0-9_]+\\.[a-z0-9_]+" },
+    { "name": "tool_succeeded", "tool": "pipeline_present" },
+    { "name": "call_order", "first": "pipeline_present", "then": "ask_user" },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "tool_never_says", "tools": ["pipeline_provision", "pipeline_run", "comfy_install", "comfy_run", "comfy_emit"], "pattern": "." },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 1 }
+  ],
+  "max_turns": 1
+}

@@ -1,0 +1,200 @@
+{
+  "recipe": {
+    "id": "t2i-2512-360",
+    "task": "t2i-360",
+    "variant": "Qwen-Image-2512 bf16 + qwen-360-diffusion 2512 v2 LoRA (1.0), 2048x1024 equirectangular, 50 steps, cfg 4, empty negative",
+    "from_template": "templates_text_prompt_to_360hdr.app.json (the generation half; its SeedVR2 3B upscale is the seedvr2 family's upscale-image recipe as the next stage)",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "start with 'equirectangular 360 image, ' (the template's prefix; card triggers: 'equirectangular', '360 image', '360 panorama'), then the scene and its medium/style"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "the official 2512 negative (verbatim, without the trailing full stop as the template has it)"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "3-3.1 in every template; 'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.'"
+      },
+      "width": {
+        "node": "6",
+        "input": "width",
+        "note": "native table: 1328x1328, 1664x928, 928x1664, 1472x1104, 1104x1472, 1584x1056, 1056x1584"
+      },
+      "height": {
+        "node": "6",
+        "input": "height"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2512_bf16.safetensors",
+      "qwen-360-diffusion-2512-int8-bf16-v2.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "defaults_note": "A 360 equirectangular panorama: the left edge joins the right, top and bottom are the poles. Card: 2:1 at 2048x1024 for best results (other 2:1 sizes 'may cause the model to struggle with proper horizons'); name the medium/style (photograph, oil painting, illustration); for people say head/face and footwear. Upscale after (seedvr2) for a skybox. The template runs bf16 - the card warns fp8_e4m3fn transformers give grid artifacts with this LoRA.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (same 20.4 GB fp8 class as Qwen-Image: expect the 24 GB figures)",
+      "time_s": null,
+      "src": "S-DOCS-QI"
+    },
+    "family": "qwen-image",
+    "packs": [],
+    "inputs": {},
+    "verify": [
+      "built 2026-10-02 from the template graph + the LoRA card; verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2512_bf16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "shift": 3.1
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "equirectangular 360 image, a quiet lakeside with pine trees and crystal blue lake. Captured during a sunset, the sun is in the frame with many clouds nearby"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 2048,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 50,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "360_2k"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "qwen-360-diffusion-2512-int8-bf16-v2.safetensors",
+        "strength_model": 1.0
+      }
+    }
+  }
+}

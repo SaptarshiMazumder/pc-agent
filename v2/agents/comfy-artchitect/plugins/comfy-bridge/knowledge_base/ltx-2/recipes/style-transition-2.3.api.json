@@ -113,13 +113,15 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the 'before' style/scene"
+        "note": "the 'before' style/scene",
+        "frame": "first"
       },
       "end_image": {
         "node": "18",
         "input": "image",
         "type": "IMAGE",
-        "note": "the 'after' style/scene"
+        "note": "the 'after' style/scene",
+        "frame": "last"
       }
     },
     "outputs": {

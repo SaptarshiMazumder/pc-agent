@@ -1,0 +1,82 @@
+{
+  "recipe": {
+    "id": "canny-image",
+    "task": "control-map",
+    "variant": "raw image -> 1 MP -> native Canny edge map",
+    "from_template": "native Canny as in the official canny templates (controlnet sd35-canny, qwen control-union-lora)",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "low_threshold": {
+        "node": "20",
+        "input": "low_threshold"
+      },
+      "high_threshold": {
+        "node": "20",
+        "input": "high_threshold"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the raw photo or frame"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [],
+    "defaults_note": "Edges for a canny/union control input. Thresholds as the canny templates use (0.4/0.8 node default).",
+    "family": "control-maps",
+    "packs": [],
+    "verify": [
+      "built 2026-10-02 from the native chains the official templates use; verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "20": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "30",
+          0
+        ],
+        "low_threshold": 0.4,
+        "high_threshold": 0.8
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "20",
+          0
+        ],
+        "filename_prefix": "control/canny"
+      }
+    }
+  }
+}

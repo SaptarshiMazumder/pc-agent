@@ -75,7 +75,11 @@ export const openable = (agents: AgentRow[]): AgentRow[] =>
    older daemon sends neither field, and greying every Publish on that absence would turn a
    missing feature into a broken one. */
 export const publishable = (a: AgentRow | null): boolean =>
-  !!a && a.mine !== false && a.origin !== 'installed' && a.origin !== 'curated'
+  !!a &&
+  a.mine !== false &&
+  a.origin !== 'installed' &&
+  a.origin !== 'curated' &&
+  a.origin !== 'web-app'
 
 export const publishBlockReason = (a: AgentRow | null): string =>
   a && a.mine === false

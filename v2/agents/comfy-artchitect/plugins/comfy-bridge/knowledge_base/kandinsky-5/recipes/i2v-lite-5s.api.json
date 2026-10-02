@@ -85,7 +85,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "force-scaled to width x height (lanczos, center crop) - 'aspect ratio of result is close to start image ratio and area is close to 768*512' (template note)"
+        "note": "force-scaled to width x height (lanczos, center crop) - 'aspect ratio of result is close to start image ratio and area is close to 768*512' (template note)",
+        "frame": "first"
       }
     },
     "outputs": {

@@ -1,0 +1,133 @@
+{
+  "schema": 2,
+  "id": "video-assembly",
+  "name": "Clip assembly (ComfyUI core nodes)",
+  "publisher": "Comfy-Org (ComfyUI core)",
+  "license": {
+    "name": "GPL-3.0 (ComfyUI core nodes; no model weights)",
+    "commercial": true,
+    "notes": "these graphs load no model: each clip keeps the licence of the model that made it",
+    "src": [
+      "S-NODES-VIDEO"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "assemble"
+  ],
+  "tasks": [
+    "join-clips",
+    "stack-clips",
+    "frame-from-video"
+  ],
+  "stage": {
+    "takes": [
+      "@clip_1 .. @clip_N (VIDEO, from earlier stages)"
+    ],
+    "gives": [
+      "VIDEO"
+    ],
+    "note": "a final ASSEMBLY stage: the clips earlier stages made, end to end or side by side, as one file"
+  },
+  "cannot": [
+    {
+      "what": "join clips of different frame sizes (BatchImagesNode needs one size)",
+      "src": "S-NODES-SCHEMA"
+    },
+    {
+      "what": "cross-fade or transition between clips - a hard join only; a smooth move between shots is a first-last-frame stage",
+      "src": "S-TPL-6KF"
+    }
+  ],
+  "comfyui": {
+    "min": "0.4.0"
+  },
+  "files": [],
+  "selection": [
+    {
+      "task": "join-clips",
+      "recipe": "join-N (N = number of clips, 2-6)",
+      "why": "what the official keyframes template does to deliver one video",
+      "src": [
+        "S-TPL-6KF"
+      ]
+    },
+    {
+      "task": "join-clips",
+      "recipe": "join-N-audio",
+      "why": "the clips carry sound (LTX-2.x, MiniMax H3): keep it, in the same order",
+      "src": [
+        "S-NODES-VIDEO"
+      ]
+    },
+    {
+      "task": "stack-clips",
+      "recipe": "stack-N (2-5)",
+      "why": "several angles or takes shown at once, as the split-stack template delivers",
+      "src": [
+        "S-TPL-SPLIT"
+      ]
+    },
+    {
+      "task": "frame-from-video",
+      "recipe": "frame-from-video",
+      "why": "a clip's first (or last) frame as an image: restyle/edit it, then start the video from it",
+      "src": [
+        "S-NODES-VIDEO"
+      ]
+    }
+  ],
+  "params": {},
+  "rules": [],
+  "prompting": {},
+  "pitfalls": [
+    {
+      "symptom": "BatchImagesNode error about tensor sizes",
+      "cause": "clips of different frame sizes",
+      "fix": "make every clip at one size (same width/height ports)",
+      "src": [
+        "S-NODES-SCHEMA"
+      ]
+    },
+    {
+      "symptom": "a brief freeze at each join",
+      "cause": "FLF2V segments share their boundary frame (the end of one is the start of the next)",
+      "fix": "expected at 16-24 fps; trim one frame per join only if it shows",
+      "src": [
+        "S-TPL-6KF"
+      ]
+    }
+  ],
+  "sources": {
+    "S-TPL-6KF": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates-6-key-frames.json",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-TPL-SPLIT": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/template_rob_split_stack_qwen_multi_wan22.json",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-NODES-VIDEO": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy_extras/nodes_video.py",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-NODES-SCHEMA": {
+      "url": "node_registry_snapshot_v0.35.0.json (ComfyUI v0.35.0 /object_info)",
+      "accessed": "2026-10-02",
+      "class": "official"
+    }
+  },
+  "card": {
+    "short_name": "ComfyUI join",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "^stack",
+        "short_name": "ComfyUI side-by-side"
+      }
+    ]
+  }
+}

@@ -69,12 +69,14 @@
       "start_image": {
         "node": "15",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "first"
       },
       "end_image": {
         "node": "16",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "last"
       }
     },
     "outputs": {

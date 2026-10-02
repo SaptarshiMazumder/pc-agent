@@ -8,6 +8,7 @@ dropped, not sent to a field that does not exist.
 
 from __future__ import annotations
 
+from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.video_request import VideoRequest
 from ad_generation.infrastructure.higgsfield_api_client import HiggsfieldApiClient
@@ -52,7 +53,12 @@ class HiggsfieldVideoGenerator:
             values = spec.get("audio_values") or {"true": True, "false": False}
             params[fields["audio"]] = values["true" if request.audio else "false"]
 
-        job_id, credits = self._client.submit("video", spec.get("job_type") or request.model, params)
+        job_type = spec.get("job_type") or request.model
+        if request.max_usd:
+            cost = self._client.quote(job_type, params) * self._session.usd_per_credit()
+            if cost > request.max_usd:
+                raise BudgetExceeded(request.model, cost, request.max_usd)
+        job_id, credits = self._client.submit("video", job_type, params)
         job = self._client.wait(job_id, spec.get("job_type") or request.model, self._timeout_s)
         stem = request.out_path.rsplit(".", 1)[0]
         path = self._downloader.save(job["result_url"], stem, "", ".mp4")

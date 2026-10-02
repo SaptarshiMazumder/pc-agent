@@ -1,0 +1,615 @@
+{
+  "recipe": {
+    "id": "animate-replace-14b",
+    "family": "wan-2.2",
+    "task": "animate",
+    "mode": "replace",
+    "variant": "Wan2.2 Animate 14B fp8_scaled_KJ + lightx2v I2V 480p distill LoRA + WanAnimate relight LoRA, 6 steps cfg 1: the person in @video is REPLACED by the @character, keeping the video's motion, expression and background (official 'Mix' mode). Fully automatic: ViTPose/YOLO pose+face detection, SAM2 person mask from the detected bboxes",
+    "from_template": "template_purz_wan22_animate_auto_character_replace (Comfy-Org/workflow_templates, PurzBeats, 2026-03-08), subgraphs flattened. Mode names from the official video_wan2_2_14B_animate note #227 ('Mix: character replace / Move: pose transfer').",
+    "deviations": [
+      "VHS_LoadVideo + VHS_VideoInfo -> native LoadVideo + GetVideoComponents (the official video_wan2_2_14B_animate template's own loader, #145/#23), so the stage takes a VIDEO @video. fps = GetVideoComponents.fps (= VHS source_fps). length = GetImageSize(resized clip).batch_size (= VHS frame_count of the loaded clip). A native 'Video Slice' (start_time 0, duration 0 = pass-through) stands in for VHS skip_first_frames/frame_load_cap so the clip length is a port. ComfyUI-VideoHelperSuite is therefore NOT needed.",
+      "PrimitiveInt 'Seed' (#279) inlined into KSampler.seed; Reroutes #321/#322 resolved.",
+      "The three debug branches inside the template subgraph (face crops #333->#329, mask overlay #339->#331, pose #340->#330: CreateVideo+SaveVideo, active in this template, bypassed in its sibling full_scene template) are dropped so the stage has one output.",
+      "DrawViTPose.draw_head: the template stores the string 'True' (the pack's own default literal); sent as boolean true."
+    ],
+    "min_comfyui": "0.3.60",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "30",
+        "input": "value",
+        "note": "multiple of 16 (WanAnimateToVideo step); the clip AND the character image are center-cropped to width x height"
+      },
+      "height": {
+        "node": "31",
+        "input": "value",
+        "note": "multiple of 16"
+      },
+      "start_time": {
+        "node": "17",
+        "input": "start_time",
+        "note": "seconds into the source clip (native stand-in for VHS skip_first_frames)"
+      },
+      "duration": {
+        "node": "17",
+        "input": "duration",
+        "note": "seconds to process, 0 = whole clip (native stand-in for VHS frame_load_cap). The clip's frame count becomes `length`; template advice 77-150 frames"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "3",
+        "input": "shift"
+      },
+      "distill_lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      },
+      "relight_lora_strength": {
+        "node": "21",
+        "input": "strength_model"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "16",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the source clip: the person in it is replaced; motion, face expression, background and lighting come from it. One clearly visible person works best (the person-bbox -> SAM2 mask is not filtered to one subject)."
+      },
+      "character": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the new character. Template note: 'Works best when the reference image is a person - human subjects (clear face + body) produce the most stable results'. Center-cropped to width x height."
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors",
+      "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      "WanAnimate_relight_lora_fp16.safetensors",
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "wan_2.1_vae.safetensors",
+      "clip_vision_h.safetensors",
+      "vitpose-l-wholebody.onnx",
+      "yolov10m.onnx",
+      "sam2.1_hiera_base_plus-fp16.safetensors"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI-WanAnimatePreprocess",
+        "git": "https://github.com/kijai/ComfyUI-WanAnimatePreprocess",
+        "commit_in_template": "e63d6e71ae4c271f3f81211a7ca7f87607b7e50d",
+        "cnr_id": "ComfyUI-WanAnimatePreprocess",
+        "status": "readme: 'WORK IN PROGRESS - expect the nodes to change'. Input names checked at the template commit AND at main 0e0b6a2 (2026-05-27): unchanged for the inputs used; main adds optional face_padding and a 5th output face_bboxes",
+        "models": "vitpose + yolo .onnx into ComfyUI/models/detection (readme)",
+        "nodes_used": [
+          "OnnxDetectionModelLoader",
+          "PoseAndFaceDetection",
+          "DrawViTPose"
+        ],
+        "src": "S-GH-WAP",
+        "repo": "https://github.com/kijai/ComfyUI-WanAnimatePreprocess"
+      },
+      {
+        "name": "ComfyUI-segment-anything-2",
+        "git": "https://github.com/kijai/ComfyUI-segment-anything-2",
+        "commit_in_template": "c59676b008a76237002926f684d0ca3a9b29ac54",
+        "cnr_id": "ComfyUI-segment-anything-2",
+        "status": "repo URL from the official template note #226 (the Comfy registry has no entry under this cnr_id); input names checked at main",
+        "models": "auto-downloads Kijai/sam2-safetensors into ComfyUI/models/sam2 on first run (fp16 + sam2.1 -> the '-fp16' file)",
+        "nodes_used": [
+          "DownloadAndLoadSAM2Model",
+          "Sam2Segmentation"
+        ],
+        "src": "S-GH-SAM2",
+        "repo": "https://github.com/kijai/ComfyUI-segment-anything-2"
+      },
+      {
+        "name": "ComfyUI-KJNodes",
+        "git": "https://github.com/kijai/ComfyUI-KJNodes",
+        "cnr_id": "comfyui-kjnodes",
+        "status": "input names checked at main (nodes/mask_nodes.py, nodes/nodes.py)",
+        "src": "S-GH-KJ",
+        "commit_in_template": "bb205d8 / 00da191 / 623b591 (per node)",
+        "nodes_used": [
+          "GrowMaskWithBlur",
+          "BlockifyMask",
+          "DrawMaskOnImage"
+        ],
+        "repo": "https://github.com/kijai/ComfyUI-KJNodes"
+      }
+    ],
+    "defaults_note": "720x720 (template Width/Height), the whole input clip in one window (length = its frame count), output fps = source fps, euler/simple 6 steps cfg 1 (distill LoRA), shift 8, mask: SAM2 on the person bboxes, grown 10 px, blockified 32 px, painted black on the background video. Template advice: stay ~720p (1080p may error on VRAM), keep frames 77-150.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": "NOT FOUND",
+      "usage": "NOT FOUND (template only says '1080p may error depending on VRAM')",
+      "src": "S-TPL-PURZ-REPLACE"
+    },
+    "verify": [
+      "PACK RECIPE: verify_recipes.py reports the pack classes as 'not in v0.35.0' and skips type checks on links leaving them; expected until the packs are installed (Phase 2). Pack input names were read from the pack sources (raw/animate_vace/), confirm against /object_info after install.",
+      "native part (loaders, LoRAs, WanAnimateToVideo, KSampler, TrimVideoLatent, VAEDecode, ImageFromBatch, CreateVideo, SaveVideo, Video Slice, GetVideoComponents, ImageScale, GetImageSize, PrimitiveInt) checked offline against the v0.35.0 registry."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+        "strength_model": 1
+      }
+    },
+    "21": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "lora_name": "WanAnimate_relight_lora_fp16.safetensors",
+        "strength_model": 1
+      }
+    },
+    "3": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "21",
+          0
+        ],
+        "shift": 8.0
+      }
+    },
+    "5": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "wan",
+        "device": "default"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": "the person is dancing"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "CLIPVisionLoader",
+      "inputs": {
+        "clip_name": "clip_vision_h.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": [
+          "2",
+          0
+        ],
+        "image": [
+          "34",
+          0
+        ],
+        "crop": "none"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "3",
+          0
+        ],
+        "seed": 281253459907758,
+        "steps": 6,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "9",
+          0
+        ],
+        "negative": [
+          "9",
+          1
+        ],
+        "latent_image": [
+          "9",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "TrimVideoLatent",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "trim_amount": [
+          "9",
+          3
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "36": {
+      "class_type": "ImageFromBatch",
+      "inputs": {
+        "image": [
+          "12",
+          0
+        ],
+        "batch_index": [
+          "9",
+          4
+        ],
+        "length": 4096
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@character"
+      }
+    },
+    "16": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "17": {
+      "class_type": "Video Slice",
+      "inputs": {
+        "video": [
+          "16",
+          0
+        ],
+        "start_time": 0.0,
+        "duration": 0.0,
+        "strict_duration": false
+      }
+    },
+    "18": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "17",
+          0
+        ]
+      }
+    },
+    "30": {
+      "class_type": "PrimitiveInt",
+      "inputs": {
+        "value": 720
+      }
+    },
+    "31": {
+      "class_type": "PrimitiveInt",
+      "inputs": {
+        "value": 720
+      }
+    },
+    "33": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "18",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "width": [
+          "30",
+          0
+        ],
+        "height": [
+          "31",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "34": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "width": [
+          "30",
+          0
+        ],
+        "height": [
+          "31",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "35": {
+      "class_type": "GetImageSize",
+      "inputs": {
+        "image": [
+          "33",
+          0
+        ]
+      }
+    },
+    "40": {
+      "class_type": "OnnxDetectionModelLoader",
+      "inputs": {
+        "vitpose_model": "vitpose-l-wholebody.onnx",
+        "yolo_model": "yolov10m.onnx",
+        "onnx_device": "CUDAExecutionProvider"
+      }
+    },
+    "42": {
+      "class_type": "DrawViTPose",
+      "inputs": {
+        "pose_data": [
+          "41",
+          0
+        ],
+        "width": [
+          "35",
+          0
+        ],
+        "height": [
+          "35",
+          1
+        ],
+        "retarget_padding": 16,
+        "body_stick_width": -1,
+        "hand_stick_width": -1,
+        "draw_head": true
+      }
+    },
+    "41": {
+      "class_type": "PoseAndFaceDetection",
+      "inputs": {
+        "model": [
+          "40",
+          0
+        ],
+        "images": [
+          "33",
+          0
+        ],
+        "width": [
+          "35",
+          0
+        ],
+        "height": [
+          "35",
+          1
+        ]
+      }
+    },
+    "43": {
+      "class_type": "DownloadAndLoadSAM2Model",
+      "inputs": {
+        "model": "sam2.1_hiera_base_plus.safetensors",
+        "segmentor": "video",
+        "device": "cuda",
+        "precision": "fp16"
+      }
+    },
+    "44": {
+      "class_type": "Sam2Segmentation",
+      "inputs": {
+        "sam2_model": [
+          "43",
+          0
+        ],
+        "image": [
+          "33",
+          0
+        ],
+        "bboxes": [
+          "41",
+          3
+        ],
+        "keep_model_loaded": false,
+        "individual_objects": false
+      }
+    },
+    "45": {
+      "class_type": "GrowMaskWithBlur",
+      "inputs": {
+        "mask": [
+          "44",
+          0
+        ],
+        "expand": 10,
+        "incremental_expandrate": 0.0,
+        "tapered_corners": true,
+        "flip_input": false,
+        "blur_radius": 0.0,
+        "lerp_alpha": 1.0,
+        "decay_factor": 1.0,
+        "fill_holes": false
+      }
+    },
+    "46": {
+      "class_type": "BlockifyMask",
+      "inputs": {
+        "masks": [
+          "45",
+          0
+        ],
+        "block_size": 32,
+        "device": "cpu"
+      }
+    },
+    "47": {
+      "class_type": "DrawMaskOnImage",
+      "inputs": {
+        "image": [
+          "33",
+          0
+        ],
+        "mask": [
+          "46",
+          0
+        ],
+        "color": "0, 0, 0",
+        "device": "cpu"
+      }
+    },
+    "9": {
+      "class_type": "WanAnimateToVideo",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ],
+        "clip_vision_output": [
+          "4",
+          0
+        ],
+        "reference_image": [
+          "34",
+          0
+        ],
+        "face_video": [
+          "41",
+          1
+        ],
+        "pose_video": [
+          "42",
+          0
+        ],
+        "background_video": [
+          "47",
+          0
+        ],
+        "character_mask": [
+          "46",
+          0
+        ],
+        "width": [
+          "30",
+          0
+        ],
+        "height": [
+          "31",
+          0
+        ],
+        "length": [
+          "35",
+          2
+        ],
+        "batch_size": 1,
+        "continue_motion_max_frames": 5,
+        "video_frame_offset": 0
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "36",
+          0
+        ],
+        "fps": [
+          "18",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

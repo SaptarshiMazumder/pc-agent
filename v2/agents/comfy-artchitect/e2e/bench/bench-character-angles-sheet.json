@@ -1,0 +1,66 @@
+{
+  "id": "bench-character-angles-sheet",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org template templates-1_click_multiple_character_angles-v1.0 (official, free)",
+    "steps": [
+      "the picture -> one still per angle (Qwen-Image-Edit 2511 + multiple-angles LoRA; 8 samplers in the template)"
+    ],
+    "must": [
+      "image-only design, no video",
+      "each angle its own stage or output with its angle in the prompt",
+      "the same character preserved (edit model reading the picture)"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Here's a picture of my game character. Give me a set of views of the same character from multiple angles - front, three-quarter, side, back and a close-up of the face - so I can use them as a reference sheet."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

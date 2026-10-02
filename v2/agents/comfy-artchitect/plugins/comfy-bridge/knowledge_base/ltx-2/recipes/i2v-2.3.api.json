@@ -115,7 +115,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "scaled to width x height, center crop, CRF-18 recompressed"
+        "note": "scaled to width x height, center crop, CRF-18 recompressed",
+        "frame": "first"
       }
     },
     "outputs": {

@@ -61,7 +61,8 @@
       "first_frame": {
         "node": "15",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "first"
       }
     },
     "outputs": {

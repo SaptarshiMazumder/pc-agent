@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.video_request import VideoRequest
 from ad_generation.infrastructure.fal_queue_client import FalQueueClient
@@ -44,13 +45,15 @@ class FalVideoGenerator:
         if "audio" in fields:
             payload[fields["audio"]] = request.audio
 
+        cost = self._prices.video_seconds(spec, request.resolution, request.duration_s, request.audio)
+        if request.max_usd and cost > request.max_usd:
+            raise BudgetExceeded(request.model, cost, request.max_usd)
         result = self._queue.run(request.model, payload, self._timeout_s)
         video = result.get("video") or {}
         if not video.get("url"):
             raise RuntimeError(f"fal returned no video for {request.model}: {str(result)[:300]}")
         stem = request.out_path.rsplit(".", 1)[0]
         path = self._downloader.save(video["url"], stem, video.get("content_type", ""), ".mp4")
-        cost = self._prices.video_seconds(spec, request.resolution, request.duration_s, request.audio)
         return GeneratedMedia(
             path=path,
             kind="video",

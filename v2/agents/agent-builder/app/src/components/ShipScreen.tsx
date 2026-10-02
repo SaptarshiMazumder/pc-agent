@@ -36,6 +36,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
+import { fileUrl } from '../agentd/artifacts'
 import { resultText } from '../agentd/chat'
 import { hasWindow } from '../agentd/app-window'
 import { publishable, publishBlockReason, type AgentRow } from '../agentd/roster'
@@ -68,7 +69,12 @@ export function ShipScreen({
     | { step: 'done'; text: string; bad: boolean }
   >({ step: 'idle' })
   const [packing, setPacking] = useState(false)
-  const [packOut, setPackOut] = useState<{ text: string; bad: boolean } | null>(null)
+  const [packOut, setPackOut] = useState<{
+    text: string
+    bad: boolean
+    href?: string
+    filename?: string
+  } | null>(null)
 
   const canPublish = publishable(agent)
 
@@ -136,7 +142,16 @@ export function ShipScreen({
     setPacking(true)
     setPackOut(null)
     try {
-      setPackOut({ text: await invoke('package_agent'), bad: false })
+      // The package is written on the daemon — on the web that is a server path nobody can open.
+      // The tool's `details.path` is the file, and /file serves it back to this same account.
+      const result = await client.invokeTool('package_agent', { agent_id: agent.id })
+      const path = String((result as { details?: { path?: string } }).details?.path || '')
+      setPackOut({
+        text: resultText(result) || '(no output)',
+        bad: false,
+        href: path ? fileUrl(path) : undefined,
+        filename: path ? path.split(/[\\/]/).pop() : undefined,
+      })
     } catch (e) {
       setPackOut({ text: String((e as Error)?.message || e), bad: true })
     } finally {
@@ -268,8 +283,8 @@ export function ShipScreen({
             <div className="ship-confirm">
               <p className="ship-confirm-note">
                 <Shield size={14} />
-                This uploads a PUBLIC artifact and rewrites the registry index every client reads.
-                The preview below lists every bundle that will be in the published index.
+                This uploads a PUBLIC artifact to the marketplace. The preview below is exactly
+                what will be sent. Your settings values (API keys and the like) never ship.
               </p>
               <pre className="ship-report">{pub.preview}</pre>
               <div className="ship-actions">
@@ -292,6 +307,12 @@ export function ShipScreen({
           )}
           {pub.step === 'done' && (
             <pre className={`ship-report ${pub.bad ? 'is-bad' : ''}`}>{pub.text}</pre>
+          )}
+          {packOut?.href && (
+            <a className="ghost-btn" href={packOut.href} download={packOut.filename}>
+              <Download size={15} />
+              Save {packOut.filename}
+            </a>
           )}
           {packOut && <pre className={`ship-report ${packOut.bad ? 'is-bad' : ''}`}>{packOut.text}</pre>}
         </div>
@@ -324,7 +345,7 @@ export function ShipScreen({
             went in and what was left out.
           </p>
           <p className="lp-side-empty">
-            <Play size={12} /> workspace/, sessions/ and app/ source never ship.
+            <Play size={12} /> workspace/, sessions/, your settings values, e2e run logs and app/ source never ship.
           </p>
         </aside>
       </div>

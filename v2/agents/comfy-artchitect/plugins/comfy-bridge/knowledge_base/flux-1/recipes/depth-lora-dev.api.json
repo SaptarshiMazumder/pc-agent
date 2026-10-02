@@ -38,7 +38,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a depth map image as the template's Lotus subgraph produces it (Lotus output passed through ImageInvert); output size = 1 MP at the map's aspect"
+        "note": "a depth map image as the template's Lotus subgraph produces it (Lotus output passed through ImageInvert); output size = 1 MP at the map's aspect",
+        "prepared": "depth"
       }
     },
     "outputs": {

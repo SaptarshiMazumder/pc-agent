@@ -40,6 +40,14 @@ locals {
   # rather than merely unlikely: nothing else is ever scheduled against its memory.
   ec2_pools = var.ec2_capacity_enabled ? var.ec2_capacity_pools : {}
 
+  # A pool is in use when at least one RUNNING service is placed on it (false for all while
+  # paused, since no service is running then).
+  ec2_pool_in_use = {
+    for key in keys(local.ec2_pools) : key => anytrue([
+      for name, cfg in local.services : cfg.on_ec2 && cfg.capacity_pool == key && local.service_running[name]
+    ])
+  }
+
   # THE NAMES, computed in one place because three resources have to agree on them and because
   # the primary pool's names are load-bearing rather than cosmetic.
   #
@@ -287,8 +295,11 @@ resource "aws_autoscaling_group" "ecs" {
   # zero would keep the group buying machines for tasks that are no longer running, which is the
   # exact opposite of what the cost switch is for. min_size 0 is also what lets a pool cost
   # nothing until a task needs a machine.
-  min_size = local.paused ? 0 : each.value.min_size
-  max_size = local.paused ? 0 : each.value.max_size
+  #
+  # AND SO DOES A POOL NO RUNNING SERVICE USES (var.running_services): the daemon's box would
+  # otherwise sit bought and empty while only accounts and the model proxy run.
+  min_size = local.ec2_pool_in_use[each.key] ? each.value.min_size : 0
+  max_size = local.ec2_pool_in_use[each.key] ? each.value.max_size : 0
 
   # REQUIRED BY MANAGED TERMINATION PROTECTION. ECS marks instances that are running tasks as
   # protected and clears the flag when they drain; without this the ASG could terminate a box

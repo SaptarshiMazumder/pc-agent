@@ -35,10 +35,12 @@ import json
 import logging
 from pathlib import Path
 
+from agent_runtime.domain.agent import SETTINGS_FILE
+
 log = logging.getLogger("agentd")
 
 #: The file's name inside an account's per-agent directory.
-ACCOUNT_SETTINGS_FILE = "settings.json"
+ACCOUNT_SETTINGS_FILE = SETTINGS_FILE
 
 #: The account id a daemon with no accounts service uses — a desktop, where "the machine" and
 #: "the user" are the same person. Named rather than "": one code path, one layout, and a

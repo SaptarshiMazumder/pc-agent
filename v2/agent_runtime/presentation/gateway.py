@@ -2838,9 +2838,14 @@ class Gateway:
         )
         if not getattr(tool, "checkpoint", False):
             return
+        # WHAT WAS SHOWN rides with the stamp: the tool's structured result (`details`) is the
+        # question exactly as the window rendered it, so a tool that spends money can check the
+        # person approved the thing it is about to do — not a reworded version of it.
+        details = (event.payload or {}).get("details")
         try:
             checkpoint_marker.present(
-                self._resolve_workspace(agent_id), handle.session_key, handle.run_id
+                self._resolve_workspace(agent_id), handle.session_key, handle.run_id,
+                presented=details if isinstance(details, dict) else None,
             )
         except Exception:  # noqa: BLE001
             log.exception("checkpoint stamp failed for %s", handle.session_key)
@@ -5010,7 +5015,7 @@ class Gateway:
         ever needing to know it."""
         import shutil
 
-        from agent_runtime.domain.agent import definition_entries
+        from agent_runtime.domain.agent import USER_DATA_FILES, definition_entries
         from agent_runtime.infrastructure.agents import ownership_store
 
         staged = target.with_name(target.name + ".installing")
@@ -5019,6 +5024,8 @@ class Gateway:
             staged.mkdir(parents=True)
             for entry in definition_entries(source):
                 entry = Path(entry)
+                if entry.name in USER_DATA_FILES:
+                    continue  # the author's own setting values, never the org's
                 if entry.is_dir():
                     shutil.copytree(entry, staged / entry.name)
                 else:
@@ -5217,7 +5224,10 @@ class Gateway:
         agent_id = str(params.get("agentId") or "").strip()
         if not agent_id or self.registry is None:
             return {"ready": False, "reason": "unknown agent"}
-        spec = self.registry.get(agent_id)
+        try:
+            spec = self.registry.get(agent_id)
+        except KeyError:
+            spec = None
         if spec is None:
             return {"ready": False, "reason": "unknown agent"}
         account = accounts.current_account.get()
@@ -5237,7 +5247,7 @@ class Gateway:
         from agent_runtime.infrastructure.marketplace.index_builder import PLATFORM_BY_EXT
         from agent_runtime.infrastructure.products.factory import build_product_service
 
-        out_dir = Path(self.config.state_dir) / "products" / agent_id
+        out_dir = self._products_dir(agent_id, (account or {}).get("account_id"))
         service = build_product_service(self.config)
 
         def _run():
@@ -5289,11 +5299,12 @@ class Gateway:
         identities = await self._http_identities(q, headers)
         if identities is None:
             return deny(401, "Unauthorized")
-        spec = self.registry.get(agent_id) if self.registry is not None else None
+        account_id = ownership.account_of(identities)
+        spec = self._installer_spec(agent_id, account_id, identities)
         if spec is None or not ownership.may_observe(str(getattr(spec, "owner", "") or ""), identities):
             return deny(404, "Not Found")
 
-        out_dir = Path(self.config.state_dir) / "products" / agent_id
+        out_dir = self._products_dir(agent_id, account_id)
         # Only top-level files are installers; the payload lives in out_dir/payload (never served).
         installers = sorted(out_dir.glob("*.exe")) if out_dir.is_dir() else []
         if not installers:
@@ -5312,6 +5323,39 @@ class Gateway:
         # attachment, not inline: this is a download, never something the page renders.
         hdrs["Content-Disposition"] = f'attachment; filename="{name}"'
         return HttpResponse(200, "OK", hdrs, data)
+
+    def _installer_spec(self, agent_id: str, account_id: str | None, identities):
+        """The agent an installer download is for, as THIS HTTP caller sees it.
+
+        A plain HTTP request pins no account, so the registry answers from the shared layer
+        alone and an agent the caller authored — which lives in their account layer — was
+        unknown: `get` raised, and the download came back 500. The account layer is searched by
+        name, the same way `_app_spec_for_caller` resolves /apps."""
+        if self.registry is None:
+            return None
+        try:
+            spec = self.registry.get(agent_id)
+        except KeyError:
+            spec = None
+        if spec is not None:
+            return spec
+        finder = getattr(self.registry, "find_in_account_layers", None)
+        if not callable(finder):
+            return None
+        if identities & ownership.DEPLOYMENT_OWNERS:
+            return finder(agent_id)
+        return finder(agent_id, account_id) if account_id else None
+
+    def _products_dir(self, agent_id: str, account_id: str | None) -> Path:
+        """Where one agent's built installer lives. PER ACCOUNT when there is one: the state dir
+        is shared by every tenant, and two accounts with an agent of the same id would otherwise
+        build into — and download from — the same folder."""
+        root = (
+            user_state.account_root(self.config.state_dir, account_id)
+            if account_id
+            else Path(self.config.state_dir)
+        )
+        return root / "products" / agent_id
 
     async def _broadcast_agents_changed(self) -> None:
         """Tell every connected client the agent ROSTER changed, so it redraws its list."""

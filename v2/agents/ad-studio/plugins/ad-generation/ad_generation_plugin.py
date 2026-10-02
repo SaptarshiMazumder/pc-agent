@@ -13,6 +13,7 @@ from pathlib import Path
 from ad_generation.application.animation_service import AnimationService
 from ad_generation.application.brief_service import BriefService
 from ad_generation.application.campaign_run_service import CampaignRunService
+from ad_generation.application.campaign_view_service import CampaignViewService
 from ad_generation.application.cast_service import CastService
 from ad_generation.application.keyframe_service import KeyframeService
 from ad_generation.application.product_analysis_service import ProductAnalysisService
@@ -44,6 +45,9 @@ from ad_generation.infrastructure.run_workspace import RunWorkspace
 from ad_generation.infrastructure.vision_image_preparer import VisionImagePreparer
 from ad_generation.presentation.campaign_ask_tool import CampaignAskTool
 from ad_generation.presentation.campaign_brief_tool import CampaignBriefTool
+from ad_generation.presentation.campaign_list_tool import CampaignListTool
+from ad_generation.presentation.campaign_status_tool import CampaignStatusTool
+from ad_generation.presentation.cast_list_tool import CastListTool
 from ad_generation.presentation.campaign_run_tool import CampaignRunTool
 from ad_generation.presentation.cast_create_tool import CastCreateTool
 from ad_generation.presentation.generation_backend_resolver import provider_settings
@@ -52,6 +56,7 @@ from ad_generation.presentation.media_check_tool import MediaCheckTool
 from ad_generation.presentation.product_analyze_tool import ProductAnalyzeTool
 from ad_generation.presentation.shot_animate_tool import ShotAnimateTool
 from ad_generation.presentation.still_fix_tool import StillFixTool
+from ad_generation.presentation.video_models_tool import VideoModelsTool
 
 # The longest an input image's side is sent at; providers downscale larger inputs anyway.
 _INPUT_MAX_SIDE = 2048
@@ -83,7 +88,7 @@ def register(api, ctx):
     fal = FalQueueClient(poll_s=4)
     ark = BytePlusArkClient(poll_s=6)
     higgs_session = HiggsfieldSession(lambda: provider_settings(config, "higgsfield"))
-    higgs = HiggsfieldApiClient(higgs_session, poll_s=6)
+    higgs = HiggsfieldApiClient(higgs_session, workspace, poll_s=6)
     generators = ProviderGeneratorCatalog(
         images={
             "fal": FalImageGenerator(fal, specs, encoder, downloader, prices, _IMAGE_TIMEOUT_S),
@@ -101,6 +106,7 @@ def register(api, ctx):
     formats = FormatFileLibrary(root / "formats")
     recipes = RecipeFileLibrary(root / "recipes")
     approvals = DaemonCheckpointLedger(workspace)
+    views = CampaignViewService(store, recipes, cast)
     keyframes = KeyframeService(generators, store, cast, _MAX_PRODUCT_PHOTOS)
     animation = AnimationService(generators, store, cast)
 
@@ -128,12 +134,17 @@ def register(api, ctx):
     def campaign_run(vision_reasoner, text_reasoner, check_reasoner, progress):
         return CampaignRunService(
             analysis(vision_reasoner), briefs(text_reasoner), keyframes, animation, sheets(check_reasoner),
-            checks(check_reasoner), store, recipes, approvals, progress, time.time,
+            checks(check_reasoner), store, recipes, approvals, views, progress, time.time,
         )
 
     vision_images = VisionImagePreparer(workspace, _VISION_MAX_SIDE, _VISION_JPEG_QUALITY)
-    api.register_tool(CampaignRunTool(config, campaign_run, vision_images))
+    api.register_tool(CampaignRunTool(config, campaign_run, vision_images, specs))
     api.register_tool(CampaignAskTool(config, store))
+    # Read only — what the window draws. It acts by sending the user's answer as a message.
+    api.register_tool(CampaignListTool(views, workspace))
+    api.register_tool(CampaignStatusTool(views, workspace))
+    api.register_tool(CastListTool(views, workspace))
+    api.register_tool(VideoModelsTool(config, specs))
     api.register_tool(ProductAnalyzeTool(config, analysis, vision_images))
     api.register_tool(CampaignBriefTool(config, briefs, vision_images))
     api.register_tool(CastCreateTool(config, CastService(generators, cast, prompt("cast_sheet"))))

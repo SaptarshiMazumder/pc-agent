@@ -19,6 +19,7 @@ from agent_runtime.domain.agent_config import (
 )
 from pathlib import Path
 
+from agent_runtime.domain.agent import USER_DATA_DIRS, USER_DATA_FILES
 from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.domain.agentd_ignore import AgentdIgnore
 from agent_runtime.domain.bundle import BundleError, BundleManifest, parse_bundle_manifest
@@ -44,6 +45,17 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 # files; ownership of a copy is decided where the copy lands — the installer stamps a fresh
 # record on arrival. Packing it would ship the author's identity into every install.
 EXCLUDED_FILES = {".agentd-meta.json"}
+# The RECORD OF RUNS, not the agent: an e2e run writes its transcript and verdict next to the
+# scenario that drove it (`e2e/<scenario>.trace.jsonl`, `.report.txt`). A transcript holds whatever
+# crossed the wire during that run — request headers with bearer tokens, settings values echoed
+# back by a tool — so it is the author's data, and the scenarios themselves still ship.
+E2E_DIR = "e2e"
+EXCLUDED_E2E_SUFFIXES = (".trace.jsonl", ".report.txt")
+
+
+def _is_dotenv(name: str) -> bool:
+    """`.env`, `.env.local`, … — a credentials file by convention, wherever it sits."""
+    return name == ".env" or name.startswith(".env.")
 
 
 def sha256_file(path: Path) -> str:
@@ -102,14 +114,13 @@ def unpack_bundle(
     package_path: Path, manifest: BundleManifest, agents_dir: Path, plugins_dir: Path
 ) -> list[str]:
     """agent/** -> agents_dir/<bundle id>/ ; plugins/<pid>/** -> plugins_dir/<pid>/.
-    Existing agent dir is REPLACED except the USER'S OWN subtrees (workspace/ and sessions/),
-    so files and chat history survive an update. Returns the vendored plugin ids placed."""
-    from agent_runtime.domain.agent import USER_DATA_DIRS
-
+    Existing agent dir is REPLACED except the USER'S OWN subtrees (workspace/ and sessions/) and
+    files (settings.json), so files, chat history and the settings they typed survive an update.
+    Returns the vendored plugin ids placed."""
     agent_dst = agents_dir / manifest.id
     if agent_dst.exists():  # update: clear the definition, keep what is the user's
         for child in agent_dst.iterdir():
-            if child.name in USER_DATA_DIRS:
+            if child.name in USER_DATA_DIRS or child.name in USER_DATA_FILES:
                 continue
             shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
     placed_plugins: set[str] = set()
@@ -308,7 +319,11 @@ def _iter_files(root: Path):
     """Every file a package carries. On top of the fixed junk and user-data list, whatever the
     agent's own `.agentdignore` names never ships: downloads, caches and state its commands
     produce, which only the author can know. The ignore file itself IS packed, so an installed
-    copy keeps the same junk out of its own users' command sandbox."""
+    copy keeps the same junk out of its own users' command sandbox.
+
+    THE AUTHOR'S VALUES NEVER SHIP. The top-level `settings.json` (USER_DATA_FILES) is what the
+    author typed into the agent's own settings — their API keys. The declaration of those settings
+    lives in agent.toml and travels; the values stay with whoever typed them."""
     own = root / IGNORE_FILENAME
     ignore = AgentdIgnore.from_files(
         [("", own.read_text(encoding="utf-8", errors="replace"))] if own.is_file() else []
@@ -319,7 +334,11 @@ def _iter_files(root: Path):
             continue
         if ignore and ignore.matches(item.relative_to(root).as_posix()):
             continue
-        if item.name in EXCLUDED_FILES:
+        if item.name in EXCLUDED_FILES or _is_dotenv(item.name):
+            continue
+        if len(relative_parts) == 1 and item.name in USER_DATA_FILES:
+            continue
+        if relative_parts[0] == E2E_DIR and item.name.endswith(EXCLUDED_E2E_SUFFIXES):
             continue
         if item.is_file() and item.suffix not in EXCLUDED_SUFFIXES:
             yield item

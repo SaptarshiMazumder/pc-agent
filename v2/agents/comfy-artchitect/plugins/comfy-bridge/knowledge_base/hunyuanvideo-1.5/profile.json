@@ -1988,5 +1988,9 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "HunyuanVideo 1.5",
+    "restriction": "not licensed in the EU, UK or South Korea"
   }
 }

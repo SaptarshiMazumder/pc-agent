@@ -1,0 +1,218 @@
+/* The sign-in card's styling - SHIPPED WITH THE CARD, copied from agentd's.
+ *
+ * YOURS TO EDIT, unlike the .tsx beside it: the BEHAVIOUR of this screen is locked, but how
+ * it looks is this agent's own business, and this file is where that is decided.
+ *
+ * IT USES THE HOST'S TOKENS and defines none of its own, like the settings and credits modules:
+ * --bg2, --border, --accent and the rest come from the agent's own tokens.css. Layout travels
+ * with the module; appearance belongs to the agent.
+ */
+
+.signin-wrap {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); padding: 24px; overflow-y: auto;
+}
+/* `margin: auto` on the child, not only `align-items: center` on the parent: when the window is
+   shorter than the card, flex centring pushes the top of the card above the viewport where no
+   scroll can reach it. Auto margins centre while there is room and fall back to the top edge,
+   scrolling, when there is not. */
+.signin-card, .signin-wait { margin: auto; }
+.signin-card {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 340px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px 26px; box-shadow: var(--shadow);
+}
+.signin-brand {
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 26px;
+  color: var(--text); letter-spacing: -0.01em;
+}
+.signin-sub { color: var(--dim); font-size: 13.5px; margin-bottom: 8px; }
+.signin-label {
+  font-size: 12px; font-weight: var(--fw-semi); color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px;
+}
+.signin-input {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg4); border: 1px solid var(--border2); border-radius: 9px;
+  padding: 10px 12px; outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.signin-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.signin-error {
+  font-size: 12.5px; color: var(--danger);
+  background: var(--danger-soft); border-radius: 8px; padding: 8px 11px;
+}
+.signin-btn {
+  margin-top: 8px; font: inherit; font-weight: var(--fw-on-accent); font-size: 14px;
+  color: var(--prim-ink); background: var(--prim-bg); border: none; border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: background .12s;
+}
+.signin-btn:hover:not(:disabled) { background: var(--prim-bg-h); }
+.signin-btn:disabled { opacity: .6; cursor: default; }
+.signin-toggle {
+  font: inherit; font-size: 13px; color: var(--accent-text);
+  background: none; border: none; cursor: pointer; padding: 4px; align-self: center;
+}
+.signin-toggle:hover { text-decoration: underline; }
+
+/* signed-in account chip (top-right, accounts mode) */
+
+/* ── the account menu ─────────────────────────────────────────────────────────────────────
+   THESE WERE MISSING ENTIRELY. ProfileMenu shipped in every agent referencing eight class names
+   that no stylesheet in the repo defined, so the account control rendered as unstyled markup: a
+   bare button, and a menu that laid itself out in the document flow instead of over the page.
+
+   Same failure as the settings page's Save button, and worth stating twice: a module that renders
+   a class has to define it. Tokens only, like everything else here. */
+
+.agentd-pm { position: relative; }
+
+/* A BACKDROP, NOT A DOCUMENT LISTENER. It closes on any outside click without the menu having to
+   reason about which clicks belong to it. Transparent and full-page on purpose. */
+.agentd-pm-back { position: fixed; inset: 0; z-index: 40; }
+
+.agentd-pm-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--fw-semi);
+  cursor: pointer;
+}
+.agentd-pm-btn:hover { color: var(--text); border-color: var(--accent); }
+/* Signed in reads as filled; signed out as an outline. The letter alone is not the difference —
+   somebody glancing at it should not have to read it. */
+.agentd-pm-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+
+/* FIXED, and placed from JS. See ProfileMenu.tsx: the menu is portalled to <body> because the
+   sidebar it lives in has `overflow: hidden` for its scrolling lists, and an absolutely-positioned
+   child was clipped at the rail's edge — the email cut off mid-word. */
+.agentd-pm-menu {
+  position: fixed;
+  z-index: 41;
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agentd-pm-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+/* An email is long and a menu is narrow. Truncating beats a menu that grows to fit an address. */
+.agentd-pm-name {
+  font-size: 13px;
+  font-weight: var(--fw-semi);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agentd-pm-desc { margin-top: 3px; font-size: 11.5px; line-height: 1.45; color: var(--faint); }
+.agentd-pm-err { margin-top: 6px; font-size: 11.5px; color: var(--danger); }
+
+.agentd-pm-item {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.agentd-pm-item:hover:not(:disabled) { background: var(--bg3); }
+.agentd-pm-item:disabled { opacity: 0.5; cursor: default; }
+
+/* The optional-invite marker and the joined notice. Tokens only, like everything here. */
+.signin-optional { font-weight: var(--fw-normal); color: var(--faint); font-size: 11px; }
+.signin-notice { margin-top: 10px; font-size: 12.5px; color: var(--accent-text); }
+
+/* ── external providers ─────────────────────────────────────────────────────────────────
+   One button per provider the server advertises, above the email form. Deliberately styled as a
+   SECONDARY action rather than the primary one: the card must not imply that Google is the only
+   way in on a deployment that still takes passwords. Colours come from the host's tokens, like
+   everything else here — an agent restyles these by editing tokens.css, not this file. */
+.signin-providers { display: flex; flex-direction: column; gap: 8px; }
+.signin-provider {
+  font: inherit; font-size: 14px; font-weight: var(--fw-semi);
+  color: var(--text); background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.signin-provider:hover:not(:disabled) { border-color: var(--accent); }
+.signin-provider:disabled { opacity: .6; cursor: default; }
+/* The rule is drawn by the flanking borders so the word sits IN the line rather than on it. */
+.signin-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 2px; color: var(--faint); font-size: 12px;
+}
+.signin-or::before, .signin-or::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* ── the waiting screen (SignInWaiting.tsx) and the card's head ──────────────────────────────
+   CENTRED ON THE PAGE, whatever else is on it: `.signin-wrap` is a fixed full-viewport flex box,
+   so this stack sits in the middle of the window, not of a column. The ring, the bar and the
+   rise are the only motion, and all three stop under prefers-reduced-motion. */
+.signin-head {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  text-align: center; margin-bottom: 8px;
+}
+.signin-head .signin-sub { margin-bottom: 0; }
+.signin-mark, .signin-wait-mark {
+  display: grid; place-items: center; position: relative;
+  width: 60px; height: 60px; border-radius: 18px;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+.signin-mark > svg, .signin-wait-mark > svg { width: 38px; height: 38px; }
+
+.signin-wait {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center; animation: signin-rise .35s var(--ease-smooth, ease) both;
+}
+.signin-wait-mark { width: 68px; height: 68px; border-radius: 20px; }
+.signin-wait-mark > svg { width: 42px; height: 42px; }
+.signin-wait-mark::after {
+  content: ''; position: absolute; inset: -7px; border-radius: 26px;
+  border: 2px solid transparent; border-top-color: var(--accent);
+  animation: signin-spin 1.1s linear infinite;
+}
+.signin-wait-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+.signin-wait-name {
+  font-family: var(--display); font-weight: var(--fw-bold); font-size: 21px;
+  letter-spacing: -0.01em; color: var(--text);
+}
+.signin-wait-bar {
+  width: 168px; height: 3px; border-radius: 2px; background: var(--bg3); overflow: hidden;
+}
+.signin-wait-bar > span {
+  display: block; width: 38%; height: 100%; border-radius: 2px; background: var(--accent);
+  animation: signin-slide 1.25s ease-in-out infinite;
+}
+.signin-wait-note { font-size: 13.5px; color: var(--dim); }
+
+@keyframes signin-spin { to { transform: rotate(360deg); } }
+@keyframes signin-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(270%); }
+}
+@keyframes signin-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signin-wait, .signin-wait-mark::after, .signin-wait-bar > span { animation: none; }
+  .signin-wait-bar > span { width: 100%; opacity: .6; }
+}

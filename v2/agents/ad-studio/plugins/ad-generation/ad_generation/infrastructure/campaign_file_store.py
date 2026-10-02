@@ -78,6 +78,15 @@ class CampaignFileStore:
     def save_progress(self, campaign_id: str, progress: CampaignProgress) -> None:
         self._write(campaign_id, "progress.json", progress.to_dict())
 
+    def campaign_ids(self) -> list[str]:
+        root = self._ws.path(ROOT)
+        if not root.is_dir():
+            return []
+        return sorted(p.parent.name for p in root.glob("*/progress.json"))
+
+    def updated(self, campaign_id: str) -> float:
+        return max(p.stat().st_mtime for p in self._dir(campaign_id).iterdir())
+
     def progress(self, campaign_id: str) -> CampaignProgress:
         return CampaignProgress.from_dict(
             self._read(campaign_id, "progress.json", "recipe progress (start it with campaign_run)")

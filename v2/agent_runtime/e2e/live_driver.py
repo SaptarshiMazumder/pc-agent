@@ -62,15 +62,18 @@ async def drive(
     truncated = False
 
     stream = transport.events(session_key)
+    restore: dict = {}
     try:
         # Settings first, so the agent runs configured (a backend URL, tokens) — and pin the
-        # model under test. Both are account-scoped writes: they never touch anyone else's
-        # configuration, and on the tool path they land on the CALLER's own account.
+        # model under test. On a hosted daemon both are account-scoped writes; on a DESKTOP the
+        # model pin lands in the machine's own config — the user's default model for everything —
+        # so what it replaces is read first and put back when the run ends (see `finally`).
         if scenario.settings:
             await transport.call(
                 "config.set", {"agentId": scenario.agent_id, "keys": scenario.settings}
             )
         if model:
+            restore = await _pinned_values(transport, scenario.agent_id)
             # THE MODEL UNDER TEST MUST ACTUALLY BE THE ONE THAT RUNS. Setting `model` alone is
             # not enough: `cost_efficiency` overrides it per turn with its own text_model /
             # vision_model pair, so a run launched with --model gemini quietly executed on
@@ -157,6 +160,15 @@ async def drive(
                 truncated = True
                 break
     finally:
+        if restore:
+            try:
+                await transport.call("config.set", {"agentId": scenario.agent_id, "patch": restore})
+            except Exception as e:  # noqa: BLE001 — said loudly; a raise here would hide the run's own error
+                msg = (f"COULD NOT RESTORE the model setting the run replaced ({type(e).__name__}: {e}) — "
+                       f"set it back by hand: {restore}")
+                writer.meta(restore_failed=msg)
+                if progress:
+                    progress(msg)
         stream.close()
 
     writer.meta(truncated=truncated)
@@ -204,6 +216,14 @@ async def _collect_turn(stream, session_key: str, turn: int, writer: TraceWriter
             if pending_jobs:
                 continue
             return True
+
+
+async def _pinned_values(transport: Any, agent_id: str) -> dict:
+    """The `model` and `cost_efficiency` the pin is about to replace, as config.get reports them.
+    Only keys that have a value: patching None would erase the user's setting, not restore it."""
+    res = await transport.call("config.get", {"agentId": agent_id})
+    values = (res or {}).get("values") or {}
+    return {k: values[k] for k in ("model", "cost_efficiency") if values.get(k) is not None}
 
 
 def _resolve(scenario: Scenario, rel: str) -> Path:

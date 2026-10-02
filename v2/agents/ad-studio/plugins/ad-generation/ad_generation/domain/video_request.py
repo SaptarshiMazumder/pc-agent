@@ -17,3 +17,6 @@ class VideoRequest:
     # Images of the same person for the model to hold the likeness to as she moves: the cast
     # sheet, the campaign's other stills, a shoot sheet. Used by models that take them.
     references: tuple[str, ...] = ()
+    # What the campaign has left; 0 = no cap. A generator that can price the job first refuses one
+    # that would cost more (BudgetExceeded) instead of paying for it.
+    max_usd: float = 0.0

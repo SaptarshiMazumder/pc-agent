@@ -1,0 +1,67 @@
+{
+  "id": "bench-keyframes-to-video",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org template templates-6-key-frames (official, free: Wan 2.2 14B FLF2V x5, batched)",
+    "steps": [
+      "each consecutive pair of the six images -> a first-last-frame clip (5 clips)",
+      "clips joined in order into one video"
+    ],
+    "must": [
+      "five first-last-frame segments between consecutive user images",
+      "each image is the end of one segment and the start of the next",
+      "the six slots in order"
+    ]
+  },
+  "turns": [
+    {
+      "text": "I'll upload six images that are the key moments of a story - a seed, a sprout, a sapling, a young tree, a big tree, then the tree in autumn. Turn them into one continuous video that morphs smoothly from each image to the next."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

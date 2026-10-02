@@ -1,511 +1,101 @@
 ---
 name: comfyui-workflows
-description: Use when designing, emitting, running or repairing a ComfyUI workflow — how to research what a model family needs, the two JSON formats, and how to read what an instance rejected.
+description: Use when designing, checking, running or repairing a ComfyUI workflow — where model knowledge comes from, how a stage is built, how to read the design check, and how to read what a machine rejected.
 always: true
 ---
 
-# Building a ComfyUI workflow that runs
+# Building a ComfyUI workflow that is right
 
-## The two formats
+## Where model knowledge comes from
 
-**API format** — what `POST /prompt` accepts, and the only thing that runs:
+**`kb_lookup` is the knowledge.** It was built from the publishers' own pages, model cards and
+reference workflows, each fact with its source, and it holds only FREE models. Per family: every
+file with its exact name, size, link and folder; the recipes (reference workflows that pass the
+checks); what each parameter does; the RULES a correct graph obeys; prompting; pitfalls.
+- `kb_lookup(task=…)` — the free models for a kind of job, best first, with what can rule each out.
+- `kb_lookup(family=…)` — a family's recipes.
+- `kb_lookup(family, recipe)` — what a stage built from it exposes, its files and its prompting guide.
+
+Memory is not a source: families wire completely differently (a checkpoint with everything inside
+vs a bare model with separate text encoders and VAE; cfg 7 vs cfg 1; 20 steps vs 4), and new
+ones ship monthly. A model the knowledge base does not cover is researched at the source — the
+publisher's reference workflow (`comfy_research` finds it; fetch the `.json`, never a weight
+file), its model card, then two independent sources agreeing on the wiring — and built as a
+custom stage.
+
+## A stage
+
+A stage is one workflow: a recipe with only what differs — `ports` (prompt, size, length, seed…)
+and `inputs` (where each image, video or audio comes from):
+- `user:<role>` — a file the person adds in a slot (`photo`, `garment`, `start_frame`);
+- `stage:<earlier stage>.<output>` — what an earlier stage made; the run hands it over.
+
+Split a job where a person would see a step: a character sheet before the shots that use it, a
+keyframe before the video that starts from it. Put `review: true` on the last cheap step before
+a slow one, so a wrong still is caught before minutes of video are spent on it.
+
+**A custom stage** (no recipe) is a node list in API format plus its `outputs`:
 
 ```json
 {
   "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" } },
   "3": { "class_type": "KSampler",
-         "inputs": { "seed": 42, "steps": 20, "cfg": 8.0,
-                     "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
-                     "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0],
+         "inputs": { "seed": 42, "steps": 20, "cfg": 8.0, "sampler_name": "euler", "scheduler": "normal",
+                     "denoise": 1.0, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0],
                      "latent_image": ["5", 0] } }
 }
 ```
 
-Keys are node ids **as strings**. An input is a literal, or a link written `[upstream_id, slot]`.
-No positions, no link table, no version.
+Keys are node ids as strings; an input is a literal or a link `[upstream_id, output_slot]`. A
+loader reading a person's file uses the slot token `@<role>`. The UI format (`nodes[]`,
+`links[]`, `widgets_values`) is written for you beside every workflow — never by hand, and a UI
+file is never hand-converted into API format.
 
-**UI format** — `nodes[]`, `links[]`, `widgets_values`. What the browser imports. Never
-hand-write it and never hand-convert into it; `comfy_emit` produces both from one node list.
+## Reading the design check
 
-## Finding out what a model needs — before any graph
+The report judges each stage in three layers, then the pipeline:
+1. **Structure** — every node class exists, every link joins matching types, every value is in
+   range and in its list, there is an output node. Checked against the node list last captured
+   from the user's machine, otherwise the one shipped for the agent's ComfyUI version.
+2. **The family's rules** — the facts that make a graph of THAT model correct: which encoder and
+   VAE pair with which model, numeric windows (size multiples, frame counts, cfg, shift), what
+   must sit upstream of what, the ComfyUI version it needs.
+3. **The pipeline** — every input bound, stages in an order that can run, the media type an
+   earlier stage makes is what the later one reads, disk, and versions.
 
-The graph is dictated by the model FAMILY, families wire completely differently (a
-self-contained checkpoint vs a bare unet with separate text encoders and VAE; cfg 7 vs cfg 1;
-20 steps vs 4), and new families ship monthly — so the wiring is **researched, never recalled**:
+`✗` is wrong: fix it. `?` is a judgement the check cannot make (a value only known when it runs,
+a GPU not known yet): fix it, or say in one line why it is right. A rule finding names the family
+and rule and says why the rule exists — read it before changing anything. The design is done when
+it holds.
 
-0. **Which model at all?** START FROM THE FIELD GUIDE AT THE END OF THIS FILE — the current
-   floor per task, paid and open, dated. Then sweep BOTH halves of the landscape to confirm or
-   beat it: `web_search` ("best <task> model <year>", "<task> comfyui workflow") and
-   `comfy_research` on Hugging Face and Civitai for OPEN WEIGHTS, **and** the API-node side —
-   `comfy_node_search` the providers (the REAL class names, with deprecated flags),
-   `comfy_node_spec` the candidates, ComfyUI's partner-node docs, and the current hosted
-   services (Seedance/ByteDance, Wan, Kling, Veo, MiniMax and their successors). HF and Civitai
-   carry open weights only, so a sweep limited to them returns free candidates every time and
-   calls that "the best available".
-   - **Rank on fitness for the job, never on price.** The best model wins whether it is open
-     weights or a paid API.
-   - **Only the user narrows this.** If they said free/local in this conversation, obey it and
-     pick the best model that fits the probed VRAM at the smallest variant that does the job.
-     If they did not say it, do not infer it and do not default to free — say in one line that
-     the pick is paid and keep building, offering the free alternative as a `suggest` chip.
-   - **A paid key lives in Settings, not the chat.** Emit `${NAME}` where the key goes; `comfy_run`
-     substitutes it at submit time so the secret never lands in a workflow file.
-1. `comfy_research("<model name>")` — find the repo. A `.json` in the publisher's repo is
-   usually their **reference workflow**: fetch that `.json` by URL with the same tool (a `.json`
-   or README only — a weight file is never fetched; `check=[...]` and `comfy_install` cover it). That file is the
-   answer, written by the people who trained the model. **For a PARTNER node the reference
-   workflow is Comfy's own**: `web_fetch` `https://docs.comfy.org/tutorials/partner-nodes/<provider>/…`
-   or the matching `api_*` workflow on comfy.org/workflows, and `comfy_node_spec` the node —
-   Civitai and Hugging Face hold nothing for a hosted model.
-2. No reference workflow? Fetch the model card / README and pull the facts out: loader, text
-   encoder(s), VAE, latent node, sampler/scheduler/steps/cfg/shift. For anything not on HF or
-   Civitai, `web_search` the release announcement and fetch what it links.
-3. **Community pass**: `web_search` the chosen stack against Reddit, GitHub issues and blogs —
-   required companion files, known pitfalls, settings that actually work at this VRAM. Then
-   cross-validate: two independent sources must agree on the architecture and file list before
-   any graph is drawn.
-4. **Emit first, validate, THEN install — in that order, always.** `comfy_emit` the graph, then
-   `comfy_validate` the `.api.json` — every node class, link and filename checked against the
-   instance; its missing-file list is the ONLY `comfy_install` shopping list. Never install
-   before validate: guessing at files and building around whatever downloaded is how a run burns
-   on the wrong weights. A download in flight is not a failure — wait and re-check
-   `comfy_inventory`; never re-queue a file already downloading, never punt because it is slow.
-   The server settles anything left: `node_errors` on submit names the exact input and the
-   values this instance accepts.
+## Reading the machine
 
-**The user swapping models is a return to step 1**, not an edit — unless it is the same family
-(one SDXL fine-tune for another).
-
-## One family's shape, as a worked example
-
-The classic SD/SDXL checkpoint backbone — an example of what a family's wiring looks like,
-**not a template for other families**. Give `comfy_emit` a node list in this shape; ids are
-yours to choose, keep them stable across iterations so a diff is readable.
-
-**Text to image:**
-
-```
-CheckpointLoaderSimple  -> MODEL, CLIP, VAE
-CLIPTextEncode (positive)  clip <- CLIP
-CLIPTextEncode (negative)  clip <- CLIP
-EmptyLatentImage        -> LATENT     (width, height, batch_size)
-KSampler                model <- MODEL, positive <- pos, negative <- neg, latent_image <- LATENT
-VAEDecode               samples <- KSampler, vae <- VAE
-SaveImage               images <- VAEDecode
-```
-
-**Image to image** — replace `EmptyLatentImage` with `LoadImage -> VAEEncode`, and set the
-sampler's `denoise` below 1.0 (0.4–0.7 is the usual range; lower keeps more of the original).
-
-**With a LoRA** — insert `LoraLoader` between the checkpoint and everything downstream, and
-route **both** MODEL and CLIP through it. A LoRA wired to the model but not the text encoder is
-the classic half-applied result.
-
-**Upscale** — `UpscaleModelLoader` + `ImageUpscaleWithModel` after `VAEDecode`, or a second
-`KSampler` pass at higher resolution with low `denoise`.
-
-**ControlNet** — `ControlNetLoader` + `ControlNetApplyAdvanced` (never the deprecated `ControlNetApply`; add `SetUnionControlNetType` for a union model) between the text encode and the sampler;
-the hint image comes from `LoadImage` through whatever preprocessor that pack provides.
-
-`SaveImage` writes to the instance's output folder and is what makes a run produce anything.
-`PreviewImage` writes to `temp` — use `SaveImage` unless the user asked otherwise.
-
-## Image inputs — chat to instance
-
-A `LoadImage` node's `image` input is an **enum of what is in the instance's input folder** —
-a local path is not a legal value, and a name not yet uploaded fails `value_not_in_list`. So
-the order is fixed: `comfy_upload` first, then emit with the names it returned. Chat
-attachments arrive in `uploads/` in the workspace; upload straight from there.
-
-Multi-image workflows (image-to-video first/last frame, reference + mask, several ControlNet
-hints) each take their own `LoadImage` node — one per role, each wired to the socket its role
-feeds. Confirm the file-to-role mapping with the user before wiring; filenames do not carry
-intent. On iteration an already-uploaded image is still there — only re-upload what changed.
-
-## Reading the instance
-
-- `comfy_inventory` — every model file any loader can see, reported as `NodeClass.input_name`
-  groups. **Use these names and nothing else.** The grouping tells you the loader for free:
-  a file under `UNETLoader.unet_name` is a bare diffusion model that needs its encoders and
-  VAE loaded separately; one under `CheckpointLoaderSimple.ckpt_name` is self-contained.
-- `comfy_node_spec <class>` — one node's real inputs. The `input` map has `required` and
-  `optional`; each entry is `[type, config]`. A type that is a **nested array** is an enum and
-  that array is the list of legal values — that is how you learn this instance's samplers and
-  schedulers, and how you check a value before spending a run on it.
-- VRAM from `comfy_probe` bounds resolution and batch size; weigh it against what research
-  said about the model's appetite.
+- `comfy_node_spec <class>` — one node's real inputs: `required` and `optional`, each
+  `[type, config]`. A nested array type is an enum and lists the values this machine accepts.
+- `comfy_node_search` — the real class names for a node, with `deprecated` flagged: the
+  successor goes in the graph.
+- `comfy_inventory` — the model files the machine has. It verifies a download landed; it never
+  decides a design.
 
 ## When it is rejected
 
-`POST /prompt` returns 400 with `node_errors` keyed by node id. The `type` tells you what to do:
+A run that fails comes back with `node_errors` keyed by node id:
 
 | type | what it means | the fix |
 |---|---|---|
-| `value_not_in_list` | that name is not on this instance | use one from `comfy_inventory`; the error's `details` lists the valid ones |
-| `missing_node_type` | that node's PACK is not on this instance | first check it is not just a wrong class NAME; if the pack is genuinely missing, `comfy_node_install` it (it restarts ComfyUI), then re-probe and re-check the class |
+| `value_not_in_list` | that name is not on this machine | a model the design needs is a missing file → `pipeline_provision`; otherwise the error lists the valid values |
+| `missing_node_type` | that node's pack is not on this machine | first check the class NAME; a genuinely missing pack → `pipeline_provision` (or `comfy_node_install`) |
 | `required_input_missing` | an input was left out | `comfy_node_spec` shows what is required |
-| `return_type_mismatch` | a link joins incompatible sockets | check which output slot you linked |
+| `return_type_mismatch` | a link joins incompatible outputs | check which output slot is linked |
 | `bad_linked_input` | a link is not `[id, slot]` | fix the shape |
 | `value_smaller_than_min` / `value_bigger_than_max` | out of range | the spec carries `min`/`max` |
 
-A 200 with a `prompt_id` is queued. Non-empty `node_errors` **on a 200** is a warning about a
-pruned branch, not a failure — mention it, do not panic.
+A `TypeError` at execute time is a wrong input KEY: copy the keys the error shows. A 200 with
+`node_errors` is a warning about a pruned branch, not a failure. A repair fixes values and
+wiring; it never changes the model, its size or its node class — that is a design change.
 
-## Timing and results
+## Timing
 
-`comfy_run` waits for the run and returns the output manifest: node, filename, subfolder, type.
-Hand those entries to `comfy_download` verbatim — it pulls the rendered files into the
-workspace and they render in the chat as artifacts, so the user sees the result without opening
-their instance. (`type` matters: `SaveImage` outputs are `output`, `PreviewImage` writes
-`temp`.) A first run on a cold model can take minutes; a timeout means still-running, not
-failed.
-
-## QUALITY LADDERS — pick from these first (researched 2026-09-27)
-
-THESE LADDERS OVERRIDE EVERY OLDER TABLE BELOW when they disagree. They rank models by the QUALITY
-of what they produce for one job, from leaderboards (Artificial Analysis, arena.ai, OpenArt Arena)
-and what creator platforms (Higgsfield, OpenArt, Krea, fal) put in front of paying users. The
-older tables below keep node wiring, VRAM and settings detail; use them for HOW, these for WHICH.
-
-HOW TO USE A LADDER:
-- The card OFFERS the top rung of the job's ladder and marks it recommended, unless the user set a
-  budget, asked for free/open only, or declined it. It also shows the next one or two paid rungs
-  and the best free rung. Cheaper is never a reason to lead with a lower rung.
-- "reachable" = a ComfyUI partner node exists AND partner-nodes.json prices it (comfy_price shows
-  it). Confirm the exact class with comfy_node_search before emitting; the class names here are the
-  documented ones as of this date.
-- Prices are provider cost in Comfy credits (100 = $1) before our markup; comfy_price is the truth.
-- A licence flag is binding: NC = non-commercial; TERRITORY = not usable everywhere; say it on the
-  card when it applies and never pick an NC or territory-barred model for an ad or client job.
-- Re-check a ladder (web_search the leaderboards) when this date is more than two months old.
-
-### VIDEO
-
-**Text-to-video**
-| rung | model | why | notes |
-|---|---|---|---|
-| 1 | Gemini Omni Flash 1.1 (Google, GA Aug 2026) — node GeminiVideoOmni | arena T2V #1, AA with-audio #1; 3–10 s/call, extend to ~40 s, up to 4K, native audio | 30.6/45.9/91.8 cr/s at 720p/1080p/4K |
-| 2 | FLUX 3 Video (BFL) — Flux3* nodes | arena T2V #3; up to 20 s, audio, 720p/1080p | 51.3/87.5 cr/s |
-| 2 | Seedance 2.5 (ByteDance) — ByteDance2* nodes | OpenArt overall #1; 4–30 s single take with shot cues, audio, lip-synced dialogue | ComfyUI node is 480p/720p ONLY (4K is Higgsfield's own upscale) |
-| 3 | Wan 3.0 / 3.0 Prime (Alibaba, hosted) — Wan3*Api | AA no-audio #1; up to 30 s, 1080p, audio; cheaper | inputs nest under `model.` (model.duration) |
-| 3 | MiniMax H3 (hosted) | AA with-audio #3; good value | |
-| free | LTX-2.5 22B distilled int8 (native templates) | best open T2V with audio; 5 s 1280x704 ≈ 43 s on the 5090 | LTX community licence (free < $10M revenue); >10 s runs out of memory; the Dev checkpoint blurs in stock templates |
-| free | Wan 2.2 T2V A14B fp8 + lightx2v 4-step | Apache, no territory/revenue limits, no audio | |
-Veo 3.1 is now mid-table and expensive — offer it only when asked. Sora's API is SHUT DOWN (2026-09-24).
-
-**Image-to-video (one start frame)**
-| rung | model | why | notes |
-|---|---|---|---|
-| 1 | MiniMax H3 / H3 Max (hosted) | arena I2V #1 (57k votes), AA with-audio #1/#2 | 27.2 cr/s |
-| 1 | Gemini Omni Flash 1.1 | arena I2V #2 | 30.6 cr/s 720p |
-| 2 | Wan 3.0 (hosted) | arena I2V #3; optional last frame | 30.2/60.4 cr/s |
-| 2 | Seedance 2.5 | arena I2V #4; strongest identity + motion together | 480p/720p |
-| 3 | Grok Imagine Video 1.5 (xAI), FLUX 3 | cheap/fast tier | Kling 3.0 Pro has fallen to ~arena #19 |
-| free | LTX-2.5 distilled int8 | fastest open with audio (8 s 720p ≈ 80 s) | free < $10M |
-| free | Wan 2.2 I2V A14B fp8 + lightx2v | safest commercial open pick | Apache |
-| free | MiniMax H3 open weights (int8 convrot ~32 GB + int8 text encoder ~25 GB for quality, 48 GB GPU; pruned ~20 GB fits 24 GB at a clear loss; FastH3 V2 8-step) | open I2V #1 | PROMPT IN ITS OWN SIX-SECTION FORMAT — comfy_validate hands it over |
-
-**Reference-to-video (keep 1–3 characters/products consistent)**
-| rung | model | why |
-|---|---|---|
-| 1 | Seedance 2.5 | up to 20 image + 6 video + 6 audio refs; identity holds across scenes; Higgsfield's flagship |
-| 2 | Wan 3.0 R2V (Wan3ReferenceToVideoApi) | 10 image + 5 video + 5 audio refs, `@Image1` tags, 30 s |
-| 2 | Gemini Omni Flash (reference_to_video) | 14 images + 3 videos |
-| 3 | Kling 3.0 Omni Elements; MiniMax H3 (9 img/3 vid/3 audio) | strongest human characters (Kling) |
-| free | Wan VACE 2.2 Fun / Phantom 14B (native), LTX-2.3 ID-LoRA (face + voice) | Apache / LTX licence |
-
-**Multi-shot / storyboard-to-video**
-| rung | model | why |
-|---|---|---|
-| 1 | Seedance 2.5 | OpenArt Film #1; 30 s continuous take with shot cues in the prompt |
-| 2 | Kling 3.0 Omni | up to 6 cuts in 15 s, voice binding |
-| 2 | Gemini Omni Flash | extend in 10 s steps to ~40 s, conversational re-edit |
-| 3 | Wan 3.0 / 2.7 (hosted), FLUX 3 + continuation | 30 s; auto transitions |
-| free | LTX-2.5 native multishot / FLF2V; Wan 2.2 FLF2V (WanFirstLastFrameToVideo), chained | LTX is the only open model with native multishot |
-
-**Talking head / lip-sync**
-| rung | model | why |
-|---|---|---|
-| 1 | Seedance 2.5 (spoken line in the prompt) | OpenArt Lip Sync #1; 10+ languages |
-| 2 | Kling Avatar 2.0 (KlingAvatarNode) | photo + 2–300 s of audio; long talking heads |
-| 2 | sync.so sync-3 / lipsync-2-pro | best for re-syncing real footage (dubbing), up to 4K |
-| 3 | HeyGen Avatar IV; native dialogue in Omni / Veo 3.1 / Kling 3.0 | |
-| free | InfiniteTalk (native WanInfiniteTalkToVideo, template video_wan2_1_infinitetalk) | unlimited length, several speakers via masks, Apache |
-| free | LTX-2.3 IA2V / ID-LoRA / LipDub; LongCat-Video-Avatar 1.5 (MIT, wrapper) | custom-audio lip-sync on LTX-2.5 is reported broken |
-Wan 2.2 S2V is superseded — do not lead with it.
-
-**Motion / pose transfer, character replacement (driving video)**
-| rung | model | why |
-|---|---|---|
-| 1 | Kling 3.0 Motion Control | 3–30 s driving clip, element binding keeps the face |
-| 2 | Wan 3.0 / Seedance 2.5 / MiniMax H3 video edit | arena video-edit #1/#2/#3 |
-| 3 | Runway Aleph 2 | |
-| free | Wan-Animate-2 14B (native WanAnimate2ToVideo + WanAnimate2Cache, Apache) | best open character ANIMATION; reads the driving video directly |
-| free | Wan 2.2 Animate v1 Mix mode (WanAnimateToVideo + DWPose) | still the pick for REPLACING a character inside existing footage |
-| free | SCAIL (multi-person, 3D-consistent pose); LTX IC-LoRA Union | |
-
-**Video upscale / enhance**
-| rung | model | why |
-|---|---|---|
-| 1 | Topaz Astra 2 / Starlight Precise 2.6 | best overall; Starlight is made for AI footage; billed PER FRAME |
-| 2 | FLUX Video Upscale | faithful + creative, to 4K |
-| free | SeedVR2 7B / 7B-sharp / 3B int8 (native, templates "SeedVR2 … Upscale Video") | most faithful open |
-| free | FlashVSR v1.1 | fastest for long clips (wrappers are softer than the paper) |
-
-### IMAGE
-
-**Text-to-image, photoreal**
-| rung | model | why |
-|---|---|---|
-| 1 | GPT Image 2.5 Sunburst (OpenAI, Sep 2026) — OpenAIGPTImageNodeV2, model gpt-image-2.5-sunburst | #1 on AA and arena; to 3840x2160; 16 refs; mask; quality tiers low…max |
-| 2 | GPT Image 2.5 Flare; GPT Image 2 (high) | #2/#3 |
-| 2 | Nano Banana Pro (Gemini 3 Pro Image) | micro-detail portraits (pores, hair), native 4K |
-| 3 | Seedream 5.0 Pro (4K product realism); Reve 2.1; Grok Imagine Image 2.0; MAI-Image-2.6 (max ~1.5K) | |
-| free | Qwen-Image-2512, Z-Image-Turbo (skin texture) | Apache |
-| free (NC) | Qwen-Image-2.1 (native ≥0.37; int8 ~16 GB, ~6 s) | open #1 but NON-COMMERCIAL |
-| free | Krea 2 Turbo | licence: free only under $1M revenue AND 50 seats |
-Higgsfield Soul 2.0 and Midjourney V8 lead for editorial looks but have no API here — say so if asked.
-
-**Text-to-image, stylised / design / typography**
-| rung | model | why |
-|---|---|---|
-| 1 | GPT Image 2.5 Sunburst/Flare | best dense text and layout, transparent backgrounds |
-| 2 | Reve 2.1 | plans layout first, precise type, 4K |
-| 2 | Ideogram 4.0 | layout by bounding box, strong OCR |
-| 3 | Recraft V4.1 | the only true SVG/vector output |
-| free | Anima (anime, 2B; images commercial, model NC) ; Illustrious/NoobAI-XL family (largest LoRA ecosystem); Qwen-2512 / Z-Image Base for painterly | |
-
-**Image editing / image-to-image**
-| rung | model | why |
-|---|---|---|
-| 1 | GPT Image 2.5 Sunburst | AA edit #1, arena edit #1; mask; 16 refs |
-| 2 | GPT Image 2; MAI-Image-2.6; Grok Imagine 2.0 | |
-| 2 | Meta Muse Image | cheapest top-tier editor (~3 cr) |
-| 3 | Seedream 5.0 Pro, Nano Banana 2 / Pro | |
-| free | Qwen-Image-Edit-2511 + Lightning 4-step (Apache) | best commercial open editor |
-| free (NC) | Qwen-Image-2.1 edit template | open #1, non-commercial |
-| free | FLUX.2 klein 4B (Apache, fast drafts) | |
-
-**Same person in new scenes (identity / "AI influencer")**
-| rung | model | why |
-|---|---|---|
-| 1 | Nano Banana Pro | consensus identity lock across scene changes; 14 refs; 4K |
-| 2 | Seedream 5.0 Pro | fewest likeness refusals; 10 refs |
-| 2 | GPT Image 2.5 Sunburst | preserves identity across iterations; OpenAI softens/refuses some real faces |
-| 3 | Nano Banana 2 (bulk frames); Qwen-Image-3.0-Pro (ordered refs) | |
-| free | Qwen-Image-Edit-2511 (1–3 refs, Apache); FLUX.2 klein + PuLID-Flux2 (InsightFace is NC) | |
-| free (NC) | Qwen-Image-2.1 multi-ref (10) + BFS head-swap LoRA | |
-A long series with one face is best done with a trained LoRA (the skill's Training section).
-
-**Put a product / garment on a person (try-on)**
-| rung | model | why |
-|---|---|---|
-| 1 | FLUX Virtual Try-On (FluxVTONode) | purpose-built, takes styling prompts |
-| 1 | Nano Banana Pro with person + garment refs | best for STYLED campaign shots |
-| 2 | GPT Image 2.5, Seedream 5.0 Pro | |
-| free | Qwen-Image-Edit-2511 + "Clothes Try On" LoRA (+ Outfit Extractor); FLUX.2 klein 4B + "Attach Outfit" LoRA | commercial-safe |
-| free (NC) | Qwen-Image-2.1 (matched a commercial try-on API on 6 of 8 pairs) | |
-Kling Kolors VTON was REMOVED from ComfyUI (Aug 2026). FASHN has no node here.
-
-**Image → storyboard (consistent panels)**
-| rung | model | why |
-|---|---|---|
-| 1 | GPT Image 2 / 2.5 with n=1–8 in one call | a continuity-locked set from one call |
-| 2 | Nano Banana 2 for panels, Pro for hero frames | cheap per frame, 14 refs |
-| 3 | Seedream 5 sequential group generation (check the node exposes it) | |
-| free | Qwen-Image-Edit-2511 + Multiple-Angles LoRA (96 camera poses) + Next-Scene LoRA + Lightning | Apache; Civitai "Continuous Storyboard" workflow |
-
-**Pose transfer / pose control**
-| rung | model | why |
-|---|---|---|
-| 1 | Nano Banana 2 / GPT Image 2(.5) with subject + pose-reference images | no paid pose-specific model leads |
-| 2 | FLUX.2 pro/max | controlled multi-source composition |
-| free | Z-Image-Turbo Fun ControlNet Union 2.1 (native ModelPatchLoader → ZImageFunControlnet; template image_z_image_turbo_fun_union_controlnet) | exact skeleton control, Apache |
-| free | Qwen-Edit-2511 + AnyPose LoRA (pose from a photo, no skeleton) | Apache |
-| free | SDXL: xinsir union-promax with ControlNetApplyAdvanced + SetUnionControlNetType + DWPose | NOT the deprecated ControlNetApply |
-
-**Image upscale / enhance**
-| rung | model | why |
-|---|---|---|
-| 1 | Magnific Precise V2 / Skin Enhancer / Creative | creative detail leader; Skin Enhancer for portraits |
-| 1 | Topaz Wonder 3.5 / Bloom 2 | fidelity leader, to 8K |
-| 2 | Recraft Crisp (cheapest faithful); Nano Banana Pro 4K re-render | |
-| free | SeedVR2 7B int8 (native template "SeedVR2 7B Int8: Upscale Image") | most faithful |
-| free | 4x pixel upscaler → Ultimate SD Upscale tiled detailer with Z-Image-Turbo at denoise 0.25–0.35 | real detail at 4K+ |
-| free (NC) | SUPIR | best at 1–2K, weak at 4K |
-
-### NOT AVAILABLE HERE (name them only to explain)
-Midjourney, Higgsfield Soul/Soul ID/Popcorn/Genjutsu/Cinema Studio, FASHN, Runway Gen-4.5/Act-Two,
-OmniHuman 1.5, Hedra, VEED Fabric, Sora 2 (retired), MAGI-2 and Cosmos3-Super (too big for 32 GB),
-FLUX 3 open weights (not shipped), open Wan 2.5/2.6/2.7/3.0 (not released — hosted only).
-
-## Field guide — where the sweep starts (2026-09-14)
-
-**What this is.** The current floor per task: the models that define "good" today, paid and
-open, and the one property that makes each fit. The research sweep (AGENTS.md step 3) STARTS
-here and CONFIRMS or BEATS it — it never lands below it unless the user asked for cheaper or
-free, or the probed VRAM cannot carry the open pick. The wiring is still researched per family;
-this file names models, not graphs.
-
-**Dated on purpose.** Models turn over in months. If today is more than three months past the
-date above, do one `web_search` for successors of the picks below before trusting them, and say
-so in the plan.
-
-**Names, not guesses.** Every paid pick here is a ComfyUI partner node on the rented image.
-Get the real class with `comfy_node_search "<provider or model>"` — it also flags `deprecated`
-(use the successor) and `api_node` (paid). `comfy_price` prices any of them. Never emit a class
-you have not seen in a search or a spec.
-
-## Identity-locked stills — one reference, many shots (storyboards, angles, outfits)
-
-Good in this category today means one unified model that takes 1-3 photos as multi-reference conditioning and produces new angles, outfits and sets while holding face, hair, body and product geometry, with pixel-stable non-edited regions, correct text, 2K+ output and a batch/series mode. Every serious 2026 entrant is a unified gen+edit transformer with 8-16 image slots; the adapter era is over. Leaderboards (verified 14 Sep 2026): AA editing overall is led by GPT Image 2.5 Sunburst (1167, not on this platform), th…
-
-| pick | why | how it is reached |
-|---|---|---|
-| open: **Qwen-Image-Edit-2511** (Alibaba Qwen, Dec 2025) | The best commercially licensed open model for this job that fits the card: 2511 was tuned for character consistency and multi-person fusion, integrates community LoRAs (incl. multi-angle), and holds a face across outfit and scene… Refs: up to 3 reference images (Plus encoder), plus optional Lightning 4-step LoRA. artificialanalysis editing open-weights #4, Elo 1000 (overall #40); arena.ai image-edit q…. fp8mixed diffusion 20.5 GB + Qwen2.5-VL-7B fp8 ~9 GB; fits 32 GB with…. Licence: Apache-2.0 (commercial use allowed). 20B model is slow at fp8 on a 5090 (use the Lightning LoRA); some skin-texture smoothing; stylised subjects drift more than photoreal ones. | native: UNETLoader + CLIPLoader (qwen_2.5_vl_7b_fp8_scaled) + VAELoader + TextEncodeQwenImageEditPlus + FluxKontextMultiReferenceLatentMethod + optio… |
-| open: **HiDream-O1-Image / O1-Image-Dev** (HiDream.ai, May 2026 (O…) | Most permissive open model that does true multi-reference subject personalization (up to 10 refs) in one checkpoint, now with a native ComfyUI template; MIT makes it the safest open pick for adverts after Qwen 2511. Edit quality… Refs: up to 10 reference images via HiDreamO1ReferenceImages (personalization needs 2+; single-…. artificialanalysis editing open-weights #9, Elo 951 (overall #55); Dev #15, 879; not on a…. 8B unified transformer: bf16 ~17-20 GB, fp8 ~10 GB, plus the Gemma-4…. Licence: MIT (commercial use allowed). Editing Elo (951) trails Qwen 2511 and klein 9B; use the full model for edits (Dev is weaker and 879); needs a recent ComfyUI (nodes landed…. | native: CheckpointLoaderSimple (hidream_o1_image_fp8_scaled / _bf16) + CLIPLoader (gemma4_e4b_it_fp8_scaled) + HiDreamO1ReferenceImages (up to 10 ref… |
-| open: **FLUX.2 [klein] 4B** (Black Forest Labs, Jan 2026) | Fastest commercially usable open multi-reference editor: sub-second frames for rough storyboards and coverage exploration before committing a hero frame to a paid model. Identity hold looser than 9B or Qwen 2511. Refs: multi-reference editing (no hard cap stated by BFL). artificialanalysis editing open-weights #10, Elo 946; arena.ai flux-2-klein-4b #45, 1188. distilled 8.4 GB, base 9.2 GB per docs.comfy.org (HF quotes ~13 GB fu…. Licence: Apache-2.0 (commercial use allowed). Noticeable face drift across angle changes; lower detail; use only for drafts or where licence and speed dominate. | native: same node chain as 9B with CLIPLoader qwen_3_4b; templates image_flux2_klein_image_edit_4b_base and the 4B distilled edit template |
-| **Nano Banana Pro (Gemini 3 Pro Image)** (Google DeepMind, Nov 2025) | paid: The most reliable single-reference identity lock reachable on this platform: 1-3 photos in, new angles, outfits, sets and lighting out, with face, body and product geometry held across a storyboard, real text rendering and native… Refs: up to 14 reference images (Google: 5 people + 6 high-fidelity objects); passed as one bat…. artificialanalysis editing #11, Elo 1094; arena.ai image-edit gemini-3-pro-image-2k #9, 1…. Licence: proprietary API (Google Gemini API terms; commercial use al…. Slowest and dearest of the Gemini pair; occasional refusals on real-person likeness; invisible SynthID watermark; 4K billed higher than 1K/…. | partner node GeminiImage2Node (display "Nano Banana Pro (Google Gemini Image)", model id gemini-3-pro-image, single batched IMAGE input, max 14 image… |
-| **Nano Banana 2 (Gemini 3.1 Flash Image)** (Google DeepMind, Feb 2026) | paid: Same identity behaviour as Pro at a fraction of the latency and price; Google rates it for resemblance of up to 5 characters and 14 objects in one workflow. Use for the bulk of storyboard frames, reserve Pro for hero frames and t… Refs: up to 14 reference images in numbered slots; 5-subject character consistency; turnaround-…. artificialanalysis editing #8, Elo 1103; arena.ai image-edit gemini-3.1-flash-image #12,…. Licence: proprietary API (commercial use allowed; SynthID watermark). Marginally weaker fine detail and typography than Pro; same likeness-policy refusals; SynthID watermark. Note it out-scores Pro on the AA e…. | partner node GeminiNanoBanana2V2 (display "Nano Banana 2", model ids gemini-3.1-flash-image / gemini-3.1-flash-lite-image, autogrow slots image_1..im… |
-| **GPT Image 2** (OpenAI, Apr 2026 (C…) | paid: Highest-ranked editing model reachable on this platform; reasons before generating, keeps non-edited regions pixel-stable, and returns up to 8 continuity-locked images from one prompt (n parameter), which is a storyboard in one c… Refs: up to 16 reference images in the V2 node (batched IMAGE in the legacy node); n=1-8 consis…. artificialanalysis editing #5 GPT Image 2 (high), Elo 1114; arena.ai image-edit gpt-image…. Licence: proprietary API (commercial use allowed; C2PA-signed output…. Slowest and most expensive per frame; OpenAI likeness policy tends to soften or refuse real human faces, so weaker for locking a real perso…. | partner nodes OpenAIGPTImageNodeV2 (current: model combo includes gpt-image-2, autogrow 'images' input up to 16, n=1-8) and legacy OpenAIGPTImage1 (s… |
-| **Seedream 5.0 Pro** (ByteDance Seed, Jun 2026 (r…) | paid: Photoreal identity and product consistency with 4K output and the fewest likeness refusals of the top tier; ByteDance markets it for character/product consistency and small text in 14 languages. Best paid choice when the subject… Refs: up to 10 reference images in the ComfyUI node for 5.0 Pro (docs page says 'up to 14' but…. artificialanalysis editing #9, Elo 1100; arena.ai image-edit seedream-5.0-pro #8, 1394. Licence: proprietary API (commercial use allowed). Newer model with a smaller ComfyUI template set; style range narrower than Gemini; Latin-copy fidelity below Nano Banana Pro. | partner node ByteDanceSeedreamNodeV3 (display "ByteDance Seedream 4.5 & 5.0", model seedream-5-0-pro, autogrow image_1..image_10); V2/V1 nodes are le… |
-| **FLUX.2 [pro] / [max]** (Black Forest Labs, Nov 2025) | paid: Hosted FLUX.2 multi-reference stack with the commercial licence the open dev/klein 9B lack; same character and product locking with BFL's photographic look. Use when you want the FLUX.2 aesthetic in an advert without the licence… Refs: up to 8 reference images (Flux2ImageNode); 9 in the deprecated per-model nodes. artificialanalysis editing #35 [pro] Elo 1006, #38 [max] Elo 1000; arena.ai flux-2-max #2…. Licence: proprietary API (commercial use allowed). Ranks well below Gemini/Seedream/GPT on editing arenas; identity hold on small faces weaker than Nano Banana Pro; no 4K. | partner node Flux2ImageNode (display "Flux.2 Image", model combo pro/max, up to 8 reference images); older Flux2ProImageNode / Flux2MaxImageNode (9 r… |
-| **Kling Image 3.0 Omni** (Kuaishou (Kling AI), Feb 2026 (C…) | paid: Useful only when stills must match a Kling video pipeline: up to 10 refs, character/portrait reference and multi-image blending, so storyboard frames and the resulting Kling 3.0 Omni shots share one identity model. Refs: up to 10 reference images (character, style, product). artificialanalysis editing #58, Elo 946 (Kling Image O1 #56, 949; plain Kling Image 3.0 #…. Licence: proprietary API (commercial use allowed). Editing Elo well below every other paid pick here; the single-ref Kling Image 3.0 (kling-v3, KlingImageGenerationNode) actually scores high…. | partner node KlingOmniProImageNode (display "Kling 3.0 Omni Image", model_name kling-v3-omni or kling-image-o1, up to 10 reference images via Batch I… |
-| open, not for adverts: **FLUX.2 [klein] 9B / 9B-KV** (Black Forest Labs, Jan 2026 (9…) | NON-COMMERCIAL licence — Strongest open identity editor that fits a 32 GB card: 4-step distilled multi-reference editing in about a second, and the KV variant caches reference-image keys/values for up to 2.5x faster multi-shot batches off the same refs.… Refs: multi-reference editing (BFL does not state a hard cap; the hosted FLUX.2 nodes cap at 8-…. artificialanalysis editing open-weights #2, Elo 1004 (overall #36); arena.ai image-edit f…. HF quotes ~29 GB for the full bf16 pipeline (fits 32 GB, tight); Comf…. Licence: FLUX Non-Commercial License (commercial use NOT allowed wit…. Non-commercial licence blocks ad use unless the operator holds a BFL commercial licence; 4-step distilled output shows less micro-detail th…. | native: UNETLoader + CLIPLoader (qwen_3_8b_fp8mixed) + VAELoader (flux2-vae) + ReferenceLatent + Flux2Scheduler; KV variant adds FluxKVCache; templat… |
-| open, not for adverts: **FLUX.2 [dev]** (Black Forest Labs, Nov 2025) | NON-COMMERCIAL licence — Highest-detail open FLUX.2 for multi-reference identity work, but on a 32 GB card it is slow and quantised, and the licence blocks adverts. Only worth it for non-commercial hero frames where klein 9B lacks detail. Refs: single- and multi-reference editing (HF card); no hard cap stated. artificialanalysis editing open-weights #3, Elo 1000 (overall #39); arena.ai flux-2-dev #…. 32B: fp8 diffusion ~32 GB alone, does not fit 32 GB without RAM offlo…. Licence: FLUX Non-Commercial License (commercial use NOT allowed; co…. Non-commercial; needs 64 GB+ system RAM for offload; several times slower than klein 9B for a ~0 Elo gain on the editing arena. | native: flux-2 template (UNETLoader + CLIPLoader Mistral-3 24B encoder + ReferenceLatent) |
-| open, not for adverts: **DreamO v1.1 (FLUX.1-dev adapter)** (ByteDance, Jun 2025 (v…) | NON-COMMERCIAL licence — Last of the adapter generation still worth knowing: ID + IP + try-on conditioning in one FLUX.1 pass, so a face ref plus a garment ref yields an outfit change. Superseded by unified editors; only for non-commercial drafts. Refs: 1-2 reference images per task (id: face crop, ip: subject, style), combinable. FLUX.1-dev fp8 ~13 GB + T5 fp8 ~5 GB + adapter; fits 32 GB. Licence: Apache-2.0 adapter, but it runs on FLUX.1-dev (FLUX.1-dev N…. FLUX.1-dev base licence; cfg must be 1; no updates since Jun 2025 and the pack targets a May-2025 ComfyUI, so expect breakage on 0.35; iden…. | custom node pack ToTheBeginning/ComfyUI-DreamO (DreamOProcessorLoader, DreamORefEncode, ApplyDreamO); pinned to the 2025-05-19 ComfyUI and unmaintain… |
-
-Below the floor: Below the floor now: FLUX.1 Kontext [dev] (AA open editing Elo 853, single-ref only, non-commercial) and Kontext pro/max (arena.ai 1176-1181) are beaten by every FLUX.2 variant on both arenas. Face-adapter stacks on SDXL/FLUX.1 (IP-Adapter FaceID, InstantID, PuLID, PuLID-FLUX, InfiniteYou CC-BY-NC, UNO) lock a face cr…
-
-## Image editing, inpainting and outpainting — instruction edits on a given image
-
-What 'good' means in Sep 2026: (1) pixel stability outside the edit region without a mask, (2) identity and text preserved through the edit, (3) multi-reference composition (product + talent + prop) in one pass, (4) a real mask path for inpaint/outpaint/erase, (5) a licence that allows advertising output. Leaderboards to trust: arena.ai single-image and multi-image edit (Sep 7 2026, 29.5M / 8.7M votes) and the Artificial Analysis editing arena; Lumenfall and llm-stats agree on the top three (Nano Banana Pro/2 and…
-
-| pick | why | how it is reached |
-|---|---|---|
-| open: **Qwen-Image-Edit-2511** (Alibaba Qwen, Dec 2025 (D…) | Best commercially-usable open editor that fits the card: strongest identity/consistency preservation of the commercial open set, bilingual text editing, 1-3 reference images. Default open pick for instruction edits, background sw… Refs: 1-3 reference images via TextEncodeQwenImageEditPlus; mask via InpaintModelConditioning. arena.ai single-image edit #34, 1235±3; multi-image edit #31, 1173±4; Artificial Analysis…. fp8mixed DiT 20.5 GB + qwen_2.5_vl_7b_fp8_scaled text encoder ~9 GB —…. Licence: Apache-2.0 — commercial use allowed. 20B params: ~30-60 s per edit at 1024 px without the Lightning LoRA; the 4-step LoRA trades fidelity. On arena.ai the original qwen-image-e…. | native: TextEncodeQwenImageEditPlus (image1/image2/image3, all optional) in comfy_extras/nodes_qwen.py + UNETLoader/CLIPLoader/VAELoader; official te… |
-| open: **FLUX.2 [klein] 4B** (Black Forest Labs, Jan 2026 (H…) | Fastest usable commercial open editor — ~1.2 s per edit distilled — so it is the pick for interactive iteration, variant sweeps and previews before a final pass with Qwen 2511 or a paid node. Multi-reference in one graph. Refs: multi-reference (2+ images in the official templates). arena.ai single-image edit #45, 1188±3; multi-image edit #32, 1167±4; Artificial Analysis…. 8.4 GB (distilled) / 9.2 GB (base) on a 5090 per ComfyUI blog, text e…. Licence: Apache-2.0 — commercial use allowed. Noticeably weaker identity and text fidelity than Qwen 2511 or klein 9B (AA 946 vs 1000/1004); use for drafts, not the final master. | native, official templates image_flux2_klein_image_edit_4b_base / _4b_distilled; docs.comfy.org/tutorials/flux/flux-2-klein |
-| open: **FireRed-Image-Edit 1.1** (FireRed Team (Xiaohongshu/Red…, Mar 2026 (M…) | Strongest commercial open candidate for person- and product-centred composites: portrait consistency, multi-element fusion, text-style reference, makeup/virtual try-on LoRAs. Same graph shape as Qwen 2511, so it is a drop-in alte… Refs: 1-3 reference images natively (multi-image and single-image workflows in the official jso…. bf16 transformer is 40.9 GB — does NOT fit 32 GB. Use GGUF: Q8_0 21.8…. Licence: Apache-2.0 — commercial use allowed. No public arena listing — the quality claim rests on the vendor's benchmarks. The README's '30 GB VRAM' figure refers to the vendor's own q…. | native via the Qwen-Image-Edit path: 20B Qwen-Image-Edit-architecture DiT loaded with UNETLoader (or city96 ComfyUI-GGUF 'Unet Loader (GGUF)' for the… |
-| open: **LongCat-Image-Edit / Edit-Turbo** (Meituan LongCat, Dec 2025 (E…) | Small, fast, commercially licensed editor with the best Chinese/English text modification of the open set; Turbo does 8-step edits (10x speedup). Second open pick when Qwen 2511 is too slow and klein 4B too weak on text. Refs: 1 image + reference-guided editing; multi-turn. Artificial Analysis editing #59, Elo 928 ('LongCat Image'); not on arena.ai edit board; l…. 6B DiT, 12.5 GB bf16 — fits 32 GB with room; vendor README quotes ~18…. Licence: Apache-2.0 — commercial use allowed. AA Elo 928 sits below klein 4B (946) and well below Qwen 2511 (1000); text editing requires quoting the target text in the prompt. The soox…. | native since Mar 22 2026 per the vendor README: LongCatImage class in comfy/supported_models.py, loaded with UNETLoader from the Comfy-Org repack; th… |
-| open: **HiDream-O1-Image / O1-Image-Dev** (HiDream.ai, May 2026 (M…) | Pixel-space unified transformer (no VAE) that does instruction edits, subject-driven multi-reference personalisation and up to 2048x2048 native — useful for text-heavy poster edits where VAE artefacts on small type matter. Refs: multi-reference via HiDreamO1ReferenceImages. Artificial Analysis editing #55, Elo 951 (Full); #67, 879 (Dev); not on arena.ai edit boa…. fp8_scaled checkpoint 8.07 GB (mxfp8 8.92 GB, bf16 16.4 GB) + gemma4_…. Licence: MIT — commercial use allowed. Editing Elo (951) sits below Qwen 2511 (1000) and klein 9B (1004); 50-step Full model is slow, Dev is 28 steps and scores 879; Dev-2604 is…. | native since PR #13817 (merged May 12 2026, before v0.35.0 which adds HiDream O1 LoRA support): CheckpointLoaderSimple + CLIPTextEncode + HiDreamO1Re… |
-| **GPT Image 2 (gpt-image-2)** (OpenAI, Apr 2026) | paid: Highest-ranked paid editor reachable on this platform; keeps pixels outside the edit zone stable, reasons before rendering so dense text, UI, packaging and infographic edits stay legible up to 2K. Mask-driven inpainting on either… Refs: 1 image + optional mask (OpenAIGPTImage1); up to 16 images, mask allowed only with exactl…. arena.ai single-image edit #3, 1461±3 (medium); multi-image edit #3, 1454±4 (Sep 7 2026);…. Licence: proprietary API (outputs usable commercially under OpenAI t…. Slowest of the paid picks; token-priced (2,025.6 credits/M input, 7,600 credits/M image output) so 2K edits cost more than Nano Banana 2. G…. | partner node OpenAIGPTImage1 (display 'OpenAI GPT Image 2'; models gpt-image-1/1.5/2; 1 image + mask) or OpenAIGPTImageNodeV2 (display 'OpenAI GPT Im… |
-| **Nano Banana 2 (gemini-3.1-flash-image)** (Google DeepMind, Feb 2026) | paid: Best price/quality/speed paid editor for everyday ad edits: background swaps, relighting, product insert/remove, up to 5 consistent characters and up to 14 reference images. Default paid choice when a mask is not required. Refs: up to 14 reference images; no mask (no Gemini node takes a mask). arena.ai single-image edit #12, 1387±4 (web-search-enabled config); multi-image edit #6,…. Licence: proprietary API. No mask input — edits are prompt-localised only; GPT Image 2 is stronger on dense typography. Pricing is per-token (15.19 credits / 1K imag…. | partner node GeminiNanoBanana2V2 (display 'Nano Banana 2'; models gemini-3.1-flash-image / gemini-3.1-flash-lite-image; 14 images); gemini-3.1-flash-… |
-| **Seedream 5.0 Pro (seedream-5-0-pro)** (ByteDance Seed, Jun 2026) | paid: Best paid pick for multi-reference composites (product + model + prop) and 2K/3K editorial output; the layer-separation node is the closest thing to native layered editing among the partner nodes. Refs: up to 10 reference images (pro); no mask on the edit node. arena.ai single-image edit #8, 1394±4; multi-image edit #4, 1414±5 (Sep 7 2026); Artifici…. Licence: proprietary API. 9.50 credits at 1K, 18.99 at 2K — priciest per run here. The comfy.org 'Seedream 5.0 Pro: Image Edit' template still uses the deprecated By…. | partner node ByteDanceSeedreamNodeV3 (display 'ByteDance Seedream 4.5 & 5.0'; model id seedream-5-0-pro-260628; max_ref_images=10 for pro, 14 for lit… |
-| **Nano Banana Pro (gemini-3-pro-image)** (Google DeepMind, Nov 2025) | paid: Pick over Nano Banana 2 only when the edit needs native 4K output, Google-Search grounding for real-world objects, or the High/Dynamic thinking level for complex layouts. Refs: up to 14 reference images; no mask. arena.ai single-image edit #9, 1390±3 (2K config) / #13, 1385 (preview); multi-image edit…. Licence: proprietary API. About 2x the cost of Nano Banana 2 (30.38 vs 15.19 credits / 1K image-output tokens) for a 3-point arena gap; slower. | partner node GeminiImage2 (display 'Nano Banana Pro (Google Gemini Image)'; model id string gemini-3-pro-image-preview; 14 images; no mask). docs.com… |
-| **Flux Tools: Fill / Expand / Erase (flux-tools)** (Black Forest Labs, Nov 2024 (F…) | paid: Mask-driven inpainting, pixel-margin outpainting and one-shot object erase; use for clean removals and canvas extension where a prompt-only editor would drift the untouched pixels. Virtual try-on node for garment swaps in fashion… Refs: 1 image + 1 mask (Fill/Erase); 1 image + margins (Expand); person + garment (VTO). Licence: proprietary API. Fill/Expand 10.55 credits per run; Erase 6.33 credits + 0.84 per extra MP. FLUX.1-generation quality — for creative in-mask insertion prefe…. | partner nodes FluxProFillNode ('Flux.1 Fill Image': image + mask + prompt), FluxProExpandNode ('Flux.1 Expand Image': top/bottom/left/right pixels),… |
-| **FLUX.2 [max] / FLUX.2 [pro]** (Black Forest Labs, Nov 2025) | paid: Cheapest multi-reference paid option (pro: 6.33 credits + 3.17/extra MP) with up to 8 references and multi-megapixel output; pick for product-catalogue style consistency work where Seedream 5 Pro is overkill. Refs: up to 8 reference images (Flux2ImageNode); no mask. arena.ai single-image edit #29 flux-2-max 1262±3, #32 flux-2-pro 1245±3; multi-image edit…. Licence: proprietary API. max costs 14.77 credits + 6.33/extra MP for a 17-point gain over pro. Ranks ~130 arena points below GPT Image 2 / Nano Banana; no mask. | partner node Flux2ImageNode (display 'Flux.2 Image'; model = pro / max; up to 8 reference images via autogrow; no mask) — the live class. Flux2ProIma… |
-| **Flux.1 Kontext [max] / [pro]** (Black Forest Labs, May 2025) | paid: Legacy single-image instruction editor; still fine for simple style/colour changes at 8.44 (pro) / 16.88 (max) credits per run, but every other paid pick here outranks it. Refs: 1 image (stitch for more); no mask. arena.ai single-image edit #47 kontext-max 1181±3, #48 kontext-pro 1176±3. Licence: proprietary API. Superseded by Flux 2 pro/max and Nano Banana 2 at similar or lower cost; keep only as a fallback. | partner nodes FluxKontextMaxImageNode / FluxKontextProImageNode (1 input_image; official tutorial uses Image Stitch for multiple); docs.comfy.org/tut… |
-| open, not for adverts: **FLUX.2 [klein] 9B** (Black Forest Labs, Jan 2026) | NON-COMMERCIAL licence — Best open editing quality that fits the card, ~2 s distilled; the reference point for what open weights can do — usable only for internal R&D and mock-ups because of the licence. Refs: multi-reference (2+ images in templates). arena.ai single-image edit #39, 1224±3; multi-image edit #27, 1213±4; Artificial Analysis…. 19.6 GB distilled (~2 s) / 21.7 GB base (~35 s) on a 5090 per ComfyUI…. Licence: FLUX Non-Commercial License — commercial use NOT allowed (c…. Non-commercial licence disqualifies it for client adverts; keep it out of production graphs. | native, official templates image_flux2_klein_image_edit_9b_base / _9b_distilled; docs.comfy.org/tutorials/flux/flux-2-klein |
-| open, not for adverts: **FLUX.2 [dev]** (Black Forest Labs, Nov 2025) | NON-COMMERCIAL licence — Up to 10 reference images and the best open multi-megapixel output; only worth it when a shot needs many references and the licence is not an issue. Refs: multi-reference (up to 10 per researcher; HF card says 'multi-reference' without a number). arena.ai single-image edit #37, 1226±4; multi-image edit #29, 1202±5; Artificial Analysis…. 32B DiT: fp8mixed ~32 GB for the DiT alone — needs GGUF Q4-Q6 (~19 GB…. Licence: FLUX Non-Commercial License — commercial use NOT allowed. Non-commercial; barely fits at fp8; klein 9B matches it on editing Elo at a third of the VRAM. | native, official template docs.comfy.org/tutorials/flux/flux-2-dev (flux2_dev_fp8mixed + mistral_3_small_flux2_bf16 text encoder + flux2-vae); Flux2… |
-| open, not for adverts: **FLUX.1 Fill [dev] + native inpaint/outpaint stack** (Black Forest Labs, Nov 2024) | NON-COMMERCIAL licence — Still the cleanest open mask-conditioned fill for outpainting canvases to new aspect ratios; internal mock-ups only because of the licence. Refs: 1 image + mask. 12B DiT: ~12 GB fp8 / ~24 GB bf16 — fits 32 GB. Licence: FLUX.1 [dev] Non-Commercial License — commercial use NOT al…. Non-commercial; for commercial work do mask-guided edits with Qwen-Image-Edit-2511 via InpaintModelConditioning, or klein 4B, instead. | native: Load Diffusion Model + DualCLIPLoader (t5xxl + clip_l) + Load VAE with InpaintModelConditioning / ImagePadForOutpaint / GrowMask; official pa… |
-| open, not for adverts: **LaMa / MAT object removal (comfyui-inpaint-nodes)** (Acly (pack); Samsung AI (LaMa…, 2024, maint…) | NON-COMMERCIAL licence — Deterministic, sub-second removal of small distractors, logos and wires before the generative pass; pair with a SAM2 mask (kijai/ComfyUI-segment-anything-2, Apache-2.0) for click-to-mask removal. Refs: 1 image + mask. < 4 GB. Licence: pack GPL-3.0; LaMa repo/weights Apache-2.0 (LICENSE file ve…. Texture-synthesis only — smears on large holes; hand anything larger than ~10% of the frame to Qwen 2511 or Flux Erase. Use LaMa, not MAT,…. | custom node pack Acly/comfyui-inpaint-nodes: 'Load Inpaint Model', 'Inpaint (using Model)', 'Fill Masked', 'Blur Masked', 'Color Match (Masked)', 'Ex… |
-
-Below the floor: Below the floor now: FLUX.1 Kontext [dev] (arena.ai 1149, AA 853, non-commercial, single reference — Qwen 2511 and klein 4B beat it with a commercial licence); Qwen-Image-Edit original and 2509 (the original scores 1241 on arena.ai, nominally above 2511's 1235 but within error bars, and it loses on multi-reference and…
-
-## Typography, posters and layouts — text that renders
-
-What 'good' means in Sep 2026: (1) character-exact copy across several regions — headline, sub-head, price, date, URL — in one pass, with the practical ceiling still around 25-30 words / 3-5 lines; (2) deterministic layout — Ideogram 4's JSON prompt with per-element bounding boxes and hex palettes is the only explicit coordinate control (same contract on the API node and the open weights); GPT Image 2 gets there by reasoning over the layout before sampling; (3) multilingual scripts — Seedream 5.0 Pro (14 languages…
-
-| pick | why | how it is reached |
-|---|---|---|
-| open: **Qwen-Image-2512** (Alibaba Qwen, Dec 2025) | Best commercial-safe open pick for text-heavy posters: paragraph-length English/Chinese copy, fine print, menus and multi-region layouts; 2512 improved text rendering and realism over the Aug 2025 base. Pair with Qwen-Image-Layer… Refs: none for T2I; DiffSynth/InstantX ControlNets (canny/depth/inpaint) for layout guidance. arena.ai T2I #41 (qwen-image-2512, 1125); artificialanalysis.ai open-weights #12 ('Qwen I…. 20B MMDiT. fp8_e4m3fn diffusion model ~20.4 GB + Qwen2.5-VL-7B fp8 te…. Licence: Apache-2.0 — commercial use allowed. Roughly 80-250 Elo below the paid tier; breaks down past ~10 words per line and on curved baselines; heavy and slow at 20B; Qwen-Image 2.0/…. | native (Load Diffusion Model + Load CLIP qwen_2.5_vl_7b_fp8_scaled + Load VAE, EmptySD3LatentImage; docs.comfy.org Qwen-Image template; 8-step LoRA,… |
-| open: **HiDream-O1-Image (full / Dev / Dev-2604)** (HiDream.ai, May 2026) | Best MIT-licensed long-text renderer: multi-region, multilingual text, plus editing and subject-driven personalisation in one model at up to 2K. Dev-2604 adds a reasoning prompt agent (prompt_agent_v2.py, needs an OpenAI-compatib… Refs: reference images via HiDreamO1ReferenceImages (autogrow, up to 100 slots natively; 0-12 i…. artificialanalysis.ai open-weights #10 (HiDream-O1-Image, Elo 979); arena.ai #44 (hidream…. ~9B unified pixel-native transformer. Comfy-Org checkpoints: bf16 16.…. Licence: MIT — commercial use allowed. Full model can show grid artifacts (use Dev + Patch Seam Smoothing); general aesthetics rank below Qwen-Image-2512 on arena.ai; 50 steps (f…. | native — comfy/ldm/hidream_o1 + comfy_extras/nodes_hidream_o1.py (EmptyHiDreamO1LatentImage, HiDreamO1ReferenceImages, HiDreamO1PatchSeamSmoothing) w… |
-| open: **Qwen-Image-Layered** (Alibaba Qwen, Dec 2025) | The open answer to Seedream layer separation: decomposes any creative into N RGBA layers (output = layers + 1 images: composite plus each layer), and can recursively split a layer again, so text, product and background become ind… Refs: 1 input image; layer count widget. 20B. qwen_image_layered_fp8mixed + qwen_2.5_vl_7b_fp8_scaled text enc…. Licence: Apache-2.0 — commercial use allowed. Layer count is manual (default 2), no semantic names/bounding boxes like Seedream 5 Pro; slow; layer edges can be soft on thin type. | native (Empty Qwen Image Layered Latent with a `layers` widget, LatentCut, LatentCutToBatch, Load Diffusion Model, VAE Decode; docs.comfy.org qwen-im… |
-| open: **GLM-Image** (Zhipu AI (zai-org), Jan 2026) | Dedicated glyph pathway makes it the strongest open model on dense, knowledge-heavy text layouts — menus, infographics, mixed Chinese/English typography — where character accuracy matters more than aesthetics. Refs: image-to-image / edit input (1 image). arena.ai T2I #72 (1010); not on the AA top list. CVTG-2K word accuracy 0.9116 (vs Qwen-Im…. 9B autoregressive generator + 7B DiT decoder. Vendor table: peak 34-5…. Licence: MIT on the HF card, Apache-2.0 in the GitHub repo (VQ token…. Low general-quality arena rank; two-stage pipeline only fits 32 GB with CPU offload and is slow; ComfyUI integration is unofficial and unfi…. | custom node pack Code2Collapse/ComfyUI-GLM_Image (GLMImageModelLoader / GLMImageCLIPLoader / GLMImageVAELoader / GLMImageSeparateSampler), self-descr… |
-| open: **LLaDA-Image / LLaDA-Image-Turbo** (inclusionAI (Ant Group), Sep 2026) | Newest open text renderer: unified generation + native editing with Chinese-English text rendering and poster generation as headline features; SOTA on Qwen-Image-Bench (53.53 EN / 53.38 ZH). Turbo makes 4-step poster drafts cheap. Refs: reference image for native editing; VQ semantic conditioning input. 6B. BF16 transformer ~12 GB + LLaDA2 text encoder (Q4 GGUF in the cus…. Licence: Apache-2.0 — commercial use allowed. Ten days old, unbenchmarked on any arena, ComfyUI path is a community node until the PR lands; treat as experimental. | custom node pack RealRebelAI/LLaDa-Image_ComfyUI (LLaDA Image Loader / Text to Image / Edit / Unload; BF16 or native INT8 transformer + Q4_K_M GGUF t… |
-| open: **Z-Image / Z-Image-Turbo** (Alibaba Tongyi-MAI, Nov 2025) | Fast bilingual (EN/ZH) text rendering for high-volume poster drafts and A/B headline variants; the base model is undistilled with full CFG and is meant for fine-tuning brand LoRAs. Refs: none (T2I); community ControlNets. arena.ai T2I #55 (z-image-turbo, 1084). 6B single-stream DiT. bf16 ~14-16 GB, fp8 ~8 GB; Turbo renders 1024px…. Licence: Apache-2.0 — commercial use allowed. Short phrases only; no layout control; text accuracy below Qwen-Image-2512 and HiDream-O1 on longer copy (CVTG-2K 0.8671 per GLM-Image's ta…. | native (docs.comfy.org Z-Image template: z_image_bf16 diffusion model, qwen_3_4b text encoder, ae VAE via standard loaders; 'Z-Image' in the README s… |
-| **GPT Image 2 (gpt-image-2)** (OpenAI, Apr 2026) | paid: Best single-shot dense-text renderer reachable on the platform: it plans the composition, checks its work and iterates before rendering, so multi-line copy, lists, small print, URLs, slides and non-Latin scripts come out characte… Refs: image input(s) for edit/composite at up to 2K (Comfy page does not state a count); up to…. artificialanalysis.ai T2I #3 (Elo 1171, 'high'); arena.ai T2I #3 (1381, 'medium'). Only G…. Licence: proprietary API; outputs usable commercially under OpenAI t…. Token-priced (Comfy pricing page: 2,025.6 credits/1M input, 7,600 credits/1M output-image tokens) and slow because it iterates; policy filt…. | partner node: 'OpenAI GPT Image 1.5' node (blog calls it 'OpenAI GPT Image') with model=gpt-image-2 selected; stock node library, ComfyUI >= 0.19.4 (… |
-| **Seedream 5.0 Pro** (ByteDance Seed, Jul 2026) | paid: The layout/production pick: accurate in-image text in 14 languages (Arabic, English, Japanese, Korean, Russian, Thai, CJK fonts), up to 4K, and layer separation that turns a flat creative into one base plate plus up to 16 transpa… Refs: up to 14 reference images for multi-image editing/composition; 1 input image for layer se…. artificialanalysis.ai T2I #15 (Elo 1081); arena.ai T2I #10 (1257). Licence: proprietary API; commercial use of outputs allowed under By…. Comfy pricing 9.50 credits at 1K (<=2.61 MP), 18.99 at 2K; the 4 Aug 2026 seven-region packaging test was a single output, repeatability un…. | partner node: 'API ByteDance Seedream 5.0 Pro' (router model seedream-5-0-pro-260628), plus the Seedream 5.0 Pro layer-separation template; requires… |
-| **Ideogram 4.0 (API)** (Ideogram, Jun 2026) | paid: The layout-control pick: structured JSON prompt (high_level_description, style, per-element bounding boxes, hex palettes, literal text strings) so the agent can pin headline, sub-copy and logo regions deterministically. Best for… Refs: none — the v4 generate endpoint takes text_prompt OR json_prompt (mutually exclusive), re…. arena.ai T2I #17 (ideogram-4.0-quality, 1204); artificialanalysis.ai #31/#32 (1017) — not…. Licence: proprietary API; commercial use of API outputs allowed on p…. Comfy pricing 9.05 (Turbo) to 30.17 (Quality) credits; one test changed '08' to '06' in a date field, so proof copy; no image references on…. | partner node: 'Ideogram V4' (router schema ideogram/ideogram-v4; Turbo / Default / Quality rendering speeds — FLASH currently returns HTTP 400 on the… |
-| **Nano Banana 2 (Gemini 3.1 Flash Image)** (Google DeepMind, Feb 2026) | paid: Best price/accuracy for marketing mockups: character-perfect on the Aug 2026 seven-region packaging test, precise multilingual text and translation, search-grounded world knowledge, and keeps up to 5 characters / 14 objects consi… Refs: reference images for consistency/edits — docs state consistency across up to 5 characters…. artificialanalysis.ai T2I #6 (Elo 1122); arena.ai T2I #9 (1261). Licence: proprietary API; commercial use of outputs allowed under Go…. 15.19 credits per output image (plus 0.1266/1K input tokens); Flash tier tops out below Pro's 4K; no bounding-box layout control, layout is…. | partner node: 'Nano Banana 2' (Gemini image node family, stock node library); platform id google-image: gemini-3.1-flash-image |
-| **Nano Banana Pro (Gemini 3 Pro Image)** (Google DeepMind, Nov 2025) | paid: Studio-quality poster art with legible text in 10 languages at native 4K, search-grounded world knowledge for real products/places, and up to 14 blended reference images. Pick it when the creative needs print-size output and bran… Refs: up to 14 reference images (multi-image blending, character/product consistency). artificialanalysis.ai T2I #11 (Elo 1097); arena.ai T2I #14 (gemini-3-pro-image-2k, 1246). Licence: proprietary API; commercial use of outputs allowed under Go…. 30.38 credits per output image (2x Nano Banana 2, which now out-ranks it on both arenas); no explicit layout coordinates. | partner node: 'Nano Banana Pro (Gemini 3.0 Pro Image)' (stock node library); platform id google-image: gemini-3-pro-image |
-| **Recraft V4 / V4.1** (Recraft, Feb 2026 (V…) | paid: The wordmark/logo/icon pick: the only family here that outputs true editable SVG with clean paths, plus 1-10 style reference images (10 MB total, precise or flexible matching) for brand-consistent style locking. Handles short and… Refs: 1-10 style reference images (10 MB total) or a saved style_id. artificialanalysis.ai T2I #21 (Recraft V4.1 Utility, 1026), #28 (V4.1 Utility Pro, 1017);…. Licence: proprietary API; commercial use of outputs allowed on paid…. Not a body-copy model — long headlines degrade; no bounding-box layout control. Pricing: V4 8.44 / V4.1 7.39 credits per raster image, 16.8…. | partner nodes: 'Recraft Text to Image', 'Recraft Text to Vector', 'Recraft Style' / 'Recraft V4 Create Style' (router models recraftv4, recraftv4_1,… |
-| **Seedream 5.0 lite** (ByteDance Seed, Feb 2026) | paid: Budget typography: at 7.39 credits it is the cheapest partner model that reliably swaps and renders headline text while keeping composition, has web-connected retrieval for live product facts, and handles multi-reference composit… Refs: multiple reference images (docs show two-image style transfer and six-image multi-referen…. Licence: proprietary API; commercial use of outputs allowed under pa…. Weaker small-text and fewer languages than 5.0 Pro; no layer separation; stylised outputs. | partner node: 'Seedream 5.0 lite' (docs.comfy.org/tutorials/partner-nodes/bytedance/seedream-5-lite; router model seedream-5-0-260128); platform id b… |
-| open, not for adverts: **Ideogram 4.0 open weights (Comfy-Org/Ideogram-4 repack)** (Ideogram, Jun 2026) | NON-COMMERCIAL licence — The strongest open text-and-layout model: same JSON bounding-box + hex-palette prompting as the API, multi-line signage/logos/captions, beats larger open models on typography. Ideal for unlimited local layout iteration. Refs: none (JSON/text prompt only). artificialanalysis.ai open-weights T2I #1 (Elo 1017; #31 overall); arena.ai #17 (ideogram…. 9.3B DiT. Comfy-Org files: diffusion model fp8_scaled 9.28 GB / int8_…. Licence: Ideogram 4 Non-Commercial Model Agreement. Commercial use N…. Adverts are commercial work, so the free weights are unusable for deliverables without the $300/month self-serve licence (quantized weights…. | native — comfy/ldm/ideogram4 + comfy_extras/nodes_ideogram4.py ('Ideogram 4 Scheduler' = Ideogram4Scheduler) in ComfyUI core; load ideogram4_fp8_scal… |
-
-Below the floor: Below the floor for advert typography today: SD1.5 / SDXL / SD3.5 and Stable Image Core/Ultra (arena.ai 938 or lower, ~65% Latin accuracy, no CJK, no layout control); FLUX.1 dev/schnell/Kontext (arena.ai ~969, garbles anything past a few words — superseded by FLUX.2 and by every model above); FLUX.2 pro/max (bfl ids o…
-
-## Image-to-video and reference-to-video — best quality
-
-| pick | why | how it is reached |
-|---|---|---|
-| **Seedance 2.5 / 2.0** | the consistency model: 2.0 takes 9 images + 3 videos + 3 audio; 2.5 goes to 30 s; the ComfyUI node renders 480p/720p ONLY (4K is a platform upscale elsewhere); a spoken line in the prompt lip-syncs | `ByteDance2FirstLastFrameNode` (first/last frame + refs), `ByteDance2TextToVideoNode` |
-| **Wan 3.0 / 3.0 Prime** | arena #1 (2026-08); reference images, videos AND audio in one node; up to 30s. Hosted only — no open weights | `Wan3ReferenceToVideoApi`, `Wan3ImageToVideoApi` |
-| **Veo 3.1** | the safest all-rounder; synced dialogue and 48 kHz speech; 4–8s | `Veo3VideoGenerationNode`, `Veo3FirstLastFrameNode` (models `veo-3.1-generate` / `-fast-generate` / `-lite`) |
-| **Kling 3.0 Omni / Turbo** | multi-shot storyboards in one node, native audio, lip-sync in five languages; Turbo is the value pick | `KlingVideoNode` (`kling-v3`, `kling-3.0-turbo`); `KlingImageToVideoWithAudio` is Kling **2.6** — not v3 |
-| **MiniMax H3 Max** | expressive motion; reference-to-video with 9 images + 3 videos + 3 audio | `MinimaxHailuo03ReferenceNode`, `MinimaxHailuo03FirstLastFrameNode` |
-| open: **MiniMax H3** (FL2VA / Ref2VA) | open weights since 2026-08; 768p with native stereo audio; reference-to-video on the box; prompt in its own six-section format (comfy_validate hands it over), refs tagged `<Picture N>` in wiring order | native `MiniMaxH3ImageToVideo`, `MiniMaxH3ReferenceToVideo` (19.5–62 GB of weights) |
-| open: **Wan 2.2 14B** | best faces, skin and hair among open models; official templates | native Wan 2.2 nodes; Wan-Animate-2 for character animation |
-| open: **LTX-2.5** | native audio-video in one pass, multi-shot continuity, IC-LoRA control | ComfyUI-LTXVideo |
-
-Below the floor: AnimateDiff, SVD, Wan 2.1, HunyuanVideo 1.0. **Sora 2 is retired** (API off
-2026-09-24) — never pick it.
-
-## Talking head — one photo, a line, lip-sync
-
-| pick | why | how it is reached |
-|---|---|---|
-| **Kling 3.0 Omni** | dialogue in quotes in the prompt → lip-synced speech; `KlingLipSync*` re-syncs an existing clip to audio | `KlingVideoNode`; `KlingLipSyncAudioToVideoNode` / `KlingLipSyncTextToVideoNode` |
-| **Seedance 2.x** | the spoken line in the prompt, native audio, identity from references | as above |
-| **Veo 3.1** | the most natural speech; dialogue is what it owns | as above |
-| **HeyGen** · **sync.so** | avatar from a still · lip-sync a finished video | their partner nodes |
-| voice | **ElevenLabs TTS** node for a scripted line the model then syncs to | `ElevenLabs` partner node |
-| open: **MiniMax H3 Ref2VA** · **Wan 2.2 S2V** | audio reference drives the mouth on the box | native H3 nodes; `WanSoundImageToVideo` |
-
-## Upscale and enhance — images and video
-
-What 'good' means now: one-step diffusion-transformer restoration (SeedVR2 for fidelity, FlashVSR for speed) has replaced multi-step SDXL/SD2 restorers. Good = (a) a faithful pixel/one-step pass that keeps identity, text and product geometry, then (b) an optional diffusion 'detailer' pass at denoise ≤0.35 with the same family that made the image (Z-Image-Turbo for stills, Wan 2.2 low-noise expert for video), (c) face handling by crop-and-regenerate (FaceDetailer) rather than GAN priors. Native SeedVR2 in ComfyUI (…
-
-| pick | why | how it is reached |
-|---|---|---|
-| open: **SeedVR2 (7B / 7B-sharp / 3B) — native ComfyUI** (ByteDance Seed (single-file r…, Jun 2025 we…) | Best open pick for faithful one-step image and video upscaling; docs.comfy.org rates SeedVR2 'most accurate and consistent realism' and the archival/product/CGI choice. 7B-sharp for extra micro-detail on generated stills. For ima… Refs: 1 image or a frame batch (video); no text prompt, no reference image. 7B fp16 ≈14–15 GB of weights: fits 32 GB untiled for stills and short…. Licence: Apache-2.0 (github README: 'SeedVR and SeedVR2 are licensed…. Model card: prototype — oversharpens lightly degraded input (e.g. 720p AIGC), struggles with heavy degradation and large motion; temporal s…. | native (comfy_extras/nodes_seedvr.py: SeedVR2Preprocess, SeedVR2Conditioning, SeedVR2PostProcessing, SeedVR2TemporalChunk, SeedVR2TemporalMerge) / cu… |
-| open: **FlashVSR v1.1** (OpenImagingLab / Junhao Zhuan…, Oct 2025 (v…) | The fastest usable open video upscaler: one-step streaming diffusion with locality-constrained sparse attention, ~7x faster than SeedVR2 in the docs benchmark. Right pick for many ad cuts or long clips. Refs: video frames only; no prompt or reference. Wan2.1-1.3B-class DiT + tiny conditional decoder. No official VRAM ta…. Licence: Apache-2.0 (model and code) — commercial use allowed; both…. Softer and less faithful than SeedVR2 on real footage; needs Triton/SageAttention (Turing and older: triton<3.3.0); designed for 4x (2x is…. | custom node pack 1038lab/ComfyUI-FlashVSR (nodes 'FlashVSR ⚡', 'FlashVSR Advanced ⚡'; modes Full / Tiny / Tiny Long) or lihaoyun6/ComfyUI-FlashVSR_Ul… |
-| open: **Z-Image-Turbo detail/refine pass (pixel 2x → low-denoise diffusion)** (Tongyi-MAI (Alibaba), 26 Nov 2025…) | Best open 'detailer': adds crisp texture, skin, fabric and typography sharpness to generated ad stills instead of interpolating pixels. Run after a DAT/SeedVR2 pass when the brief wants more detail than the source holds. Refs: 1 image plus text prompt (guides the refinement). ~14–16 GB bf16 for the 6B DiT + Qwen3-4B text encoder + VAE at 2K (mo…. Licence: Apache-2.0 — commercial use allowed. Denoise above ~0.35 changes content/identity; tiled passes without a tile ControlNet can seam or drift; weak on very small inputs. Z-Image-…. | native (UNETLoader / CLIPLoader / VAELoader + UpscaleModelLoader/ImageUpscaleWithModel + VAEEncode + KSampler at denoise ~0.25–0.35, 6–8 steps); opti… |
-| open: **DAT / RealPLKSR / Real-ESRGAN pixel upscalers (4xNomos8kDAT, 4xBHI_da…** (Philip Hofmann (Phhofm/Helama…, Real-ESRGAN…) | Deterministic first stage: fast, faithful 2x/4x pixel upscale with JPEG/blur cleanup; docs.comfy.org recommends the 'Fast GAN' route for animation where generative models would alter the style. Use before a diffusion detailer, or… Refs: 1 image / frame batch; no prompt. <4 GB; a 4x DAT pass on a 1K image takes seconds on a 5090; RealPLKSR…. Licence: Phhofm models CC-BY-4.0 (openmodeldb: commercial use allowe…. No new detail — waxy on heavily degraded input; 4x-UltraSharp (Kim2091) is CC-BY-NC-SA-4.0 — non-commercial, do not use for adverts even th…. | native (UpscaleModelLoader + ImageUpscaleWithModel; runs frame-by-frame on a video batch) |
-| open: **Wan 2.2 low-noise video refine ('Wan2.2 Upscale' handbook workflow)** (Alibaba Wan team (workflow by…, Jul 2025 (W…) | Creative video re-detailing for generated footage: regenerates texture and fixes soft AI video the way a Z-Image pass does for stills; the open counterpart to Topaz Astra 2 / FLUX Creative. Refs: video frames plus text prompt. 14B low-noise expert fp8 ≈14–15 GB + umt5-xxl fp16 (~11 GB, offloadab…. Licence: Apache-2.0 (Wan 2.2) — commercial use allowed; lightx2v dis…. Slow (a full diffusion pass per chunk); higher denoise hallucinates and drifts identity across chunks; needs a pixel upscale first; not a s…. | custom node pack kijai/ComfyUI-WanVideoWrapper (WanVideoModelLoader, WanVideoEncode, WanVideoSampler, WanVideoDecode, WanVideoLoraSelect, WanVideoTor… |
-| open: **FaceDetailer (Impact Pack) with Z-Image-Turbo** (Dr.Lt.Data (ltdrdata); base m…, Impact Pack…) | Modern face-restoration route for adverts: detect faces/eyes, re-render only that crop at full resolution with the same diffusion model that made the image, then paste back. Fixes eyes, teeth and skin without the GAN 'plastic' lo… Refs: 1 image plus prompt; optional SAM mask. same as the base model (~14–16 GB for Z-Image-Turbo bf16); crops are…. Licence: Impact Pack GPL-3.0; Impact-Subpack (UltralyticsDetectorPro…. Identity can shift at denoise >0.4 — use low denoise or an identity reference; AGPL detector stack matters if you redistribute the pipeline…. | custom node pack ltdrdata/ComfyUI-Impact-Pack (FaceDetailer, FaceDetailer (pipe), SAMLoader, Simple Detector for Video (SEGS), SAM2 Video Detector (S… |
-| open: **GFPGAN v1.4 (blind face restoration)** (Tencent ARC, v1.4 2022 (…) | Cheap last-resort cleanup of tiny or badly degraded faces (old photos, low-res stock) before a diffusion pass; fast enough for every frame of a clip. Refs: 1 image / frame batch; no prompt. <2 GB, sub-second per face. Licence: Apache-2.0 — commercial use allowed (CodeFormer is NTU S-La…. Dated StyleGAN2 prior: over-smooth, identity drift, 512 px face crops, seams at high strength — the README itself notes v1.3/v1.4 'may chan…. | custom node pack mav-rik/facerestore_cf (FaceRestoreModelLoader, FaceRestoreCFWithModel, CropFace; supports GFPGANv1.4 and CodeFormer) or flickleafy/… |
-| open: **NVIDIA RTX Video Super Resolution node** (NVIDIA / Comfy-Org, 9–10 Mar 20…) | Near-real-time 720p→4K pass for previews and drafts on the rented 5090; deterministic, no hallucination; images and video. Refs: video or image; no prompt. minimal (Tensor-core inference); NVIDIA claims 4K upscale ~30x faster…. Licence: Node pack Apache-2.0; nvidia-vfx 'LicenseRef-NvidiaPropriet…. RTX GPUs and a recent driver only — check the rental's driver version first; GAN-class quality with no generative detail; less faithful tha…. | custom node pack Comfy-Org/Nvidia_RTX_Nodes_ComfyUI ('RTX Video Super Resolution'; install via ComfyUI Manager, search 'RTX') |
-| open: **SparkVSR (ECCV 2026)** (taco-group (Jiongze Yu et al.), 17 Mar 2026…) | Interactive VSR: upscale sparse keyframes with any image enhancer and let it propagate that look across the clip — the only open route to style-controlled video upscaling (reference modes pisa_ref, external_ref, no_ref, nano-bana… Refs: video plus 1+ enhanced keyframes (external_ref) or auto PiSA-SR keyframes; optional prompt. No published inference figures; CogVideoX1.5-5B backbone with vae_sli…. Licence: SparkVSR Apache-2.0; the CogVideoX1.5-5B-I2V base is under…. Research-grade and heavy; ComfyUI port depends on PiSA-SR + SD2.1 keyframe stage; the nano-banana-pro-ref mode calls fal.ai (not this platf…. | custom node pack ComfyUI-Spark inside github.com/taco-group/SparkVSR (SparkVSR Load Model, SparkVSR Prepare Reference, SparkVSR Nano-Banana Pro Promp… |
-| **Topaz Video Enhance V2 (Astra 2 / Starlight Fast / Starlight Creative…** (Topaz Labs, 27 Nov 2025…) | paid: Best paid pick for repairing AI-generated video and cinematic polish: Starlight Creative/Astra 2 regenerate detail and smooth compression artifacts (docs: 'AI video repair'); Starlight Fast / Precise 2.5 are the fidelity modes (d… Refs: video only (MP4); no prompt. Licence: proprietary API — commercial output allowed under Topaz ter…. Slowest option in the docs benchmark; Creative modes over-invent detail on real people/products — use Fast/Precise there; per-frame billing…. | partner node TopazVideoEnhanceV2 (display 'Topaz Video Enhance'; the older TopazVideoEnhance is deprecated) — provider topaz: topaz-upscale |
-| **FLUX Video Upscale (Precise / Creative)** (Black Forest Labs, 20 Aug 2026…) | paid: Newest paid video upscaler: 1.5x–3x (step 0.1) to ~1080p/2K/4K, keeps aspect and audio; Precise 'sharpens without changing' for faces, products, brand assets; Creative repairs and re-details generated footage and 'understands FLU… Refs: 1 video (1–20 s, ≥480p, aspect 1:4–4:1; docs quote inputs up to 2560×1440, node auto_down…. Licence: proprietary API — commercial use allowed under BFL API terms. Output fixed at 24 fps and capped ~14.4 MP/frame, so large inputs upscale less than requested; safety_tolerance 0–4 filter; no local fallba…. | partner node FluxVideoUpscaleNode (display 'Flux Video Upscale', comfy_api_nodes/nodes_bfl.py) — provider bfl: flux-video-upscale |
-| **Topaz Image Enhance V2 (Wonder 3.5 / Bloom 2 / Reimagine)** (Topaz Labs, 27 Nov 2025…) | paid: Paid image pick for up to 8K with subject detection and face enhancement: Wonder 3.5 is the faithful enhancer (1x–6x, strength low/medium/high, sharpens text); Reimagine (creativity 1–9, face enhancement) and Bloom 2 (seed, grain… Refs: 1 image; Reimagine takes an optional text prompt and creativity slider. Licence: proprietary API — commercial output allowed under Topaz ter…. Docs flag it as 'creative' (can add more than expected) — for product/identity work use Wonder 3.5 at low strength; Bloom 2 is the most exp…. | partner node TopazImageEnhanceV2 (display 'Topaz Image Enhance'; TopazImageEnhance is deprecated) — provider topaz: topaz-upscale |
-| **Nano Banana Pro (gemini-3-pro-image) 4K re-render / enhance** (Google DeepMind, Nov 2025 (N…) | paid: docs.comfy.org lists it as the conservative pick for product photography and portraits/art: a clean 4K re-render with plausible added detail when a generative pass is acceptable — useful when the source is a low-res brand asset t… Refs: 1–14 images plus text prompt. Licence: proprietary API — commercial use allowed under Google Gemin…. It regenerates rather than upscales: small text, logos and exact product geometry can drift; not deterministic; needs a 'change nothing' pr…. | partner node GeminiImage2 (display 'Nano Banana Pro (Google Gemini Image)', comfy_api_nodes/nodes_gemini.py; resolution 1K/2K/4K) — provider google-i… |
-
-Below the floor: Below the floor for advert work on a 32 GB card in Sept 2026: (1) SUPIR and HYPIR — both under Jinjin Gu's non-commercial terms (HYPIR README: 'strictly for non-commercial purposes', written permission required); SUPIR also needs SDXL + LLaVA (~28 GB) and minutes per image; SeedVR2 7B matches their fidelity under Apac…
-
-## Training — LoRAs for images and video: what is trainable on the box, with how many images
-
-WHAT 'GOOD' MEANS IN 2026: a trainable, UNDISTILLED, commercially-licensed base whose LoRA then runs on a distilled sibling (Z-Image Base→Turbo, Krea 2 RAW→Turbo, LTX dev→distilled), trainer support in at least two of {ai-toolkit, musubi-tuner, diffusion-pipe}, and a 32 GB budget: Z-Image Base and FLUX.2 klein 4B (BFL: 12 GB is enough) train in ~1 h on the 5090 with 9–40 images; Qwen-Image 20B needs fp8 + block swap (musubi ~30 GB fp8, ~24 GB with 16 swapped blocks) and hours; Wan 2.2 A14B trains identity from 20–…
-
-| pick | why | how it is reached |
-|---|---|---|
-| open: **Z-Image (Base, 6B) — character/style LoRA base** (Tongyi-MAI (Alibaba), Jan 2026 (B…) | The default image LoRA base in 2026: cheapest, fastest, fully commercial, undistilled ('a good base for LoRA training' per the card) and the trained LoRA runs on Turbo for 8-step inference. 9 images imprinted a subject in the HF… Refs: none at inference (pure T2I); training input = folder of images + .txt captions with a tr…. Artificial Analysis T2I (fetched Sep 2026): Z-Image Base rank 114 / Elo 870; Z-Image Turb…. musubi: bf16 DiT ~30 GB unoptimised; --fp8_base/--fp8_scaled and up t…. Licence: Apache-2.0 — commercial use allowed. Train on Base, not Turbo: musubi calls Turbo training unstable and routes it through ostris's De-Turbo / training-adapter. Z-Image-Omni-Bas…. | native inference (UNETLoader/CheckpointLoader + LoraLoader); in-graph training: native TrainLoraNode (no model allowlist) or custom node pack comfyUI… |
-| open: **FLUX.2 [klein] base 4B — image + edit LoRA base** (Black Forest Labs, Jan 2026) | Best when the agent also needs an EDIT LoRA (paired before/after images) or multi-reference editing on the same commercial base; the 'base' checkpoint is undistilled specifically for training. BFL guidance: style 1,500–2,500 step… Refs: inference: klein accepts multiple reference images for editing; training input = images +…. Artificial Analysis T2I (fetched Sep 2026): FLUX.2 klein 4B rank 117 / Elo 864. BFL docs: klein 4B LoRA trains on a 12 GB card, 9B on 22 GB — trivial…. Licence: Apache-2.0 — commercial use allowed (card: outputs 'can be…. Lower raw quality than klein 9B (rank 71) and FLUX.2 dev (rank 40), both NON-commercial. BFL docs give no minimum dataset size; caption eve…. | native inference (card: 'available in both ComfyUI and Diffusers'; klein loaders + LoraLoader); in-graph training: native TrainLoraNode or custom nod… |
-| open: **Qwen-Image 20B family (Qwen-Image / -2512 / Qwen-Image-Edit-2511) — h…** (Alibaba Qwen, Aug 2025 (b…) | The strongest fully-commercial open image base for text rendering and realistic humans (2512 'significantly reduces the AI-generated look'); Edit-2511 LoRAs give paired product-in-scene or character-consistency edits. Character 1… Refs: Edit-2511 takes 1–3 reference images at inference; training = images+captions, or control…. Artificial Analysis T2I (fetched Sep 2026): 'Qwen Image' (open) rank 102 / Elo 882; Qwen-…. musubi at 1024px bs1: ~42 GB bf16 unoptimised, ~30 GB with --fp8_base…. Licence: Apache-2.0 — commercial use allowed. Qwen-Image-2.0 (10 Feb 2026) is announced on the GitHub README pointing to Qwen Chat; its HF repo returns 401 (gated/private) and musubi/ai…. | native inference; in-graph training: custom node pack comfyUI-Realtime-Lora ('Realtime LoRA Trainer (Qwen Image / Qwen Image Edit - Musubi Tuner)', b… |
-| open: **Wan 2.2 A14B (T2V / I2V) — video character & motion LoRA base** (Alibaba Wan-AI, Jul 2025 (2…) | The proven open video LoRA base: character likeness trains from stills (1-frame 'videos'), motion/camera LoRAs from 4n+1-frame clips; MoE means you train the high-noise (composition) and/or low-noise (detail) expert (27B total, 1… Refs: I2V takes 1 start image; S2V/Animate variants take audio/reference video; training = imag…. not listed on Artificial Analysis T2V (fetched Sep 2026; only Wan 2.7/3.0 hosted appear)…. musubi: ~24 GB for clip training with fp8 + block swap; 32 GB comfort…. Licence: Apache-2.0 — commercial use allowed. Two experts to train and load; Combo doubles time. Trained LoRAs do not transfer to the hosted Wan 2.7/3.0 partner nodes. Realtime-Lora's W…. | native inference (Wan 2.2 loaders, LoraLoader per high/low expert); in-graph training: custom node pack comfyUI-Realtime-Lora ('Realtime LoRA Trainer… |
-| open: **LTX-2.5 / LTX-2.3 (22B audio-video) — video style/motion/IC-LoRA base** (Lightricks, LTX-2.3 ear…) | The only open video base with an official trainer that names a 32 GB / RTX 5090 config, plus LoRA, IC-LoRA (video, audio, joint A/V references), inpaint/outpaint/extension conditioning and synced audio. Style 20–50 images; subjec… Refs: I2V 1 image; video/audio extension and IC-LoRA take a reference/control video; audio cond…. Artificial Analysis T2V (fetched Sep 2026): LTX-2.5 Fast rank 24 / Elo 1069, LTX-2.5 Pro…. official ltx-trainer: 80 GB+ standard, or the low-VRAM config 'for GP…. Licence: LTX-2.x Community License — commercial use free under US$10…. The 2.5 card says 'the large majority' of 2.3 LoRAs and IC-LoRAs run on 2.5 unchanged but advises validation; LTX-2 → 2.3 non-transfer is c…. | native inference (official ComfyUI templates for 2.3 and 2.5, 'no custom nodes required'); in-graph training: custom node pack ComfyUI-LTX2-TRAINER (… |
-| open: **HiDream-O1-Image (8B unified gen/edit/personalisation)** (HiDream.ai, May 2026 (O…) | Highest-ranked MIT-licensed open image base that natively does subject-driven personalisation from multiple reference images (plus layout/skeleton conditioning and long-text rendering) — often removes the need for a LoRA; when yo… Refs: inference: 1+ subject/reference images for personalisation and editing, optional layout/s…. Artificial Analysis T2I (fetched Sep 2026): HiDream-O1-Image rank 59 / Elo 979; HiDream-O…. 8B DiT plus a Qwen3-VL decoder that stays active in training; bf16 Lo…. Licence: MIT — commercial use allowed. Young ecosystem: no Realtime-Lora / diffusion-pipe support; per-model noise_scale settings (8.0 full / 7.5 dev) are non-obvious. The card d…. | native inference (Comfy-Org repack 'for ComfyUI', hidream_o1_image_bf16 / _dev_bf16 checkpoints); training off-graph: musubi-tuner (docs/hidream_o1.m… |
-| open: **MiniMax H3 (33B omni video, open weights)** (MiniMax, Aug 2026) | By far the best-ranked video model with downloadable weights; the target if the agent needs a house-style or motion LoRA on top-tier video. R2V already takes reference images, so characters rarely need a LoRA. Refs: text, images, video and audio context (omni); R2V reference-to-video. Artificial Analysis T2V (fetched Sep 2026): MiniMax H3 (open weights) rank 4 / Elo 1225 (…. 33B dense DiT (~13B in AdaLN branches): int8 weights alone are ~33 GB…. | native inference (Comfy-Org templates: T2V, I2V, R2V); training off-graph only: diffusion-pipe (MiniMax H3, LoRA on int8_convrot quantised weights),… |
-| open: **Krea 2 (RAW / Turbo, 12B)** (Krea AI, Jun 2026 (R…) | Aesthetic/photoreal style LoRAs with the officially recommended 'train on RAW, run on Turbo (8 steps)' pattern; a fresh, well-ranked alternative to Z-Image when a different look is wanted. Refs: none (T2I); training = images + captions. Artificial Analysis T2I (fetched Sep 2026) lists 'Krea 2 Large' rank 23 / Elo 1025 and 'K…. 12B single-stream MMDiT; 24 GB at 512px rank 32 (diffusion-pipe), so…. Licence: Krea 2 Community License Agreement — 'permissive'; commerci…. Experimental in every trainer; licence needs a commercial sign-off and a content filter; the leaderboard entries may be Krea's hosted varia…. | native inference (krea-2 README lists ComfyUI as an inference platform; comfyUI-Realtime-Lora ships a Krea 2 selective LoRA loader); training off-gra… |
-| open: **ComfyUI built-in Train LoRA nodes (TrainLoraNode + LoadImageSetFromFo…** (Comfy-Org (ComfyUI core, comf…, 2025, exten…) | Zero-install, in-graph training for small/medium image bases: images from a folder → VAE Encode → ResolutionBucket → TrainLoraNode with per-image conditioning → SaveLoRA. Good for quick 500–2,000-step character/style LoRAs on Z-I… Refs: inputs: model, latents, positive conditioning (one per image, or one shared that auto-rep…. whatever the loaded model needs + activations; gradient checkpointing…. Licence: GPL-3.0 (ComfyUI core); produced LoRAs carry the base model…. No model allowlist in code — it trains any model ComfyUI loads through weight adapters — but there is no caption-file loader (captions are…. | native — TrainLoraNode |
-| open: **AI-Toolkit (ostris)** (Ostris, active thro…) | The 'new model lands here first' trainer with the broadest 2026 coverage (the only one alongside diffusion-pipe with MiniMax H3, and the only one besides ltx-trainer with LTX-2.x) plus a GUI; simplest path for Z-Image, klein and… Refs: dataset = folder of JPG/PNG + same-name .txt captions; auto-bucketing, no manual cropping. example configs target 24 GB (train_lora_flux_24gb.yaml etc.); klein/…. Licence: MIT. No published VRAM matrix; NVIDIA-first; WebP unsupported (researcher's claim, not re-verified). | custom node pack comfyUI-Realtime-Lora wraps it ('Realtime LoRA Trainer' AI-Toolkit backend: FLUX, Z-Image, Wan); otherwise run off-graph and load th… |
-| open: **musubi-tuner (kohya-ss)** (kohya-ss, active thro…) | Most precise control and lowest VRAM for HunyuanVideo/1.5, Wan 2.1/2.2, FramePack, FLUX.1 Kontext/FLUX.2, Qwen-Image family, Z-Image, HiDream-O1, Kandinsky 5, Ideogram4, Krea 2; ships captioning and image+video dataset configs wi… Refs: images or clips + captions (txt or JSONL); optional control images for edit models. the memory-frugal option: --fp8_base/--fp8_scaled, --fp8_llm, --block…. Licence: Apache-2.0 (HunyuanVideo dir under Tencent licence). No LTX-2.x or MiniMax H3 support; Qwen-Image-2.0 not listed; several docs say optimal timestep settings are 'unclear'. | custom node pack comfyUI-Realtime-Lora wraps it (Z-Image, Z-Image Base, FLUX Klein, Qwen Image, Qwen Image Edit, Wan 2.2 trainer nodes); otherwise of… |
-| open: **comfyUI-Realtime-Lora (in-ComfyUI trainer wrapping sd-scripts / musub…** (Peter Neill (ShootTheSound), 2025, updat…) | The practical way for a ComfyUI-only agent to train-then-test in one graph on Z-Image, klein, Qwen-Image(-Edit), Wan 2.2 (stills) without leaving the workflow; also block-level LoRA analysis/editing. Refs: folder of images (+ captions) or paired images for Qwen-Edit; Wan node is single-frame. GPU-size presets per README (the ~13 GB klein 4B / ~29 GB klein 9B fi…. Licence: MIT. Installs three external training environments; Qwen needs bf16 weights; no LTX/MiniMax/HiDream-O1/Krea 2 TRAINING (Krea 2 / H3 only get loa…. | custom node pack comfyUI-Realtime-Lora — 10 trainer nodes: Realtime LoRA Trainer (AI-Toolkit: FLUX/Z-Image/Wan); Musubi backend: Z-Image, Z-Image Bas… |
-| open: **kohya sd-scripts (SD1.5 / SDXL / SD3.5 / FLUX.1 / Lumina 2 / HunyuanI…** (kohya-ss, v0.11.1, 15…) | Only worth it for legacy SDXL/Pony pipelines or Anima; none of the 2026 bases (FLUX.2, Z-Image, Qwen, Wan) are in it — kohya moved those to musubi-tuner. Refs: images + captions. SDXL LoRA ~8–12 GB; FLUX.1 dev ~24 GB. Licence: Apache-2.0. Below the floor for new work on this box; kept so the agent does not reach for it. | custom node pack comfyUI-Realtime-Lora wraps it for SDXL/SD1.5; LarryJane491/Lora-Training-in-Comfy is a stale SD1.5/SDXL wrapper |
-| **Recraft V4 Create Style (hosted style 'training' from reference image…** (Recraft, 2026 (V4/V4…) | paid: The paid equivalent of a style LoRA: seconds instead of an hour, no captions, reusable style_id across the campaign — the right tool for brand-look consistency when the agent has 3–10 exemplars and no time to train. Refs: 1–10 reference images (style only, not identity). Licence: proprietary API; Recraft ToS grants commercial use of outpu…. Styles only — cannot learn a person/product identity; locked to Recraft models; style_id lives in Recraft's account, not on disk. | partner node RecraftV4CreateStyleNode ('Recraft V4 Create Style', 1–10 images, 10 MB total; models recraftv4_styles / _vector / _pro / _pro_vector) →… |
-| open, not for adverts: **FLUX.2 [klein] base 9B / FLUX.2 [dev] 32B** (Black Forest Labs, klein 9B Ja…) | NON-COMMERCIAL licence — Highest-quality FLUX training bases — usable only for research/personal work or with a paid BFL licence. Listed so the agent knows why it must not pick them for adverts. Refs: multi-reference editing at inference. Artificial Analysis T2I (fetched Sep 2026): FLUX.2 dev rank 40 / Elo 1000; klein 9B rank…. klein 9B: BFL says 22 GB is enough, fits 32 GB easily; dev 32B: diffu…. Licence: FLUX Non-Commercial License — commercial use NOT allowed fo…. Non-commercial licence disqualifies them for this agent's advert output; dev does not train comfortably on 32 GB. BFL's hosted route: uploa…. | native inference; in-graph training: comfyUI-Realtime-Lora ('Realtime LoRA Trainer (FLUX Klein - Musubi Tuner)' covers 9B); off-graph: musubi-tuner (… |
-| open, not for adverts: **Ideogram 4 (open FP8/INT8/NVFP4 weights)** (Ideogram, Jun 2026 (m…) | NON-COMMERCIAL licence — Typography-heavy poster LoRAs — but the licence blocks commercial use, so for adverts use the paid ideogram-v4 partner node (in this platform's provider list) instead. Refs: none open; hosted ideogram-v4 takes style references. Artificial Analysis T2I (fetched Sep 2026): Ideogram 4.0 (hosted) rank 31 / Elo 1017; the…. ~24 GB with fp8 + block swap; fits 32 GB. Licence: ideogram-non-commercial-model-agreement — commercial use NO…. Non-commercial; quantised-only weights mean the LoRA is trained on FP8 weights. | native inference (Comfy-Org repack; Qwen3-VL 8B text encoder + FLUX.2 KL-VAE); training off-graph: musubi-tuner (docs/ideogram4.md, FP8 DiT dequantis… |
-
-Below the floor: Obsolete for this job on a 32 GB RTX 5090 making commercial adverts: (1) SD 1.5 / SDXL / Pony LoRAs via kohya sd-scripts — the bases rank far below Z-Image/klein/Qwen and read as 2023; (2) FLUX.1 dev LoRAs — superseded by FLUX.2 klein 4B (Apache) and Z-Image, and FLUX.1 dev is non-commercial anyway; (3) training direc…
-
-## The rules this file carries
-
-1. **Start here, then research.** The sweep confirms the pick and finds the wiring; it does not
-   rediscover 2024.
-2. **Free is a choice the user makes**, not a default. "Best quality" means the top of the paid
-   column; say the credits and let the ask (`ask_user`) decide.
-3. **A deprecated node is a wrong node.** The search shows the successor on the same instance.
-4. **The version in the graph is the version the user approved.** Kling 2.6 is not Kling v3.
-5. **Partner nodes are researched at the source** — `docs.comfy.org/tutorials/partner-nodes/<provider>`
-   and Comfy's own `api_*` workflow templates — never Civitai, which holds nothing for them.
+A first run on a cold model takes minutes; video longer. "still rendering" is normal: collect it
+with another `pipeline_run` (or `comfy_run_status` for a template step). A timeout means still
+running, not failed.

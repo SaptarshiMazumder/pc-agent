@@ -101,6 +101,10 @@ class FamilyRuleValidator:
                         continue
                     if re.search(str(rule["gpu_unless"]), gpu_name, re.I):
                         continue
+                # A GENERAL RULE A SPECIFIC FILE OVERRIDES ("trained at these sizes" vs a LoRA trained at
+                # 2:1): the profile names the files that lift it, and the file's own rules apply instead.
+                if rule.get("unless_file") and any(re.search(str(rule["unless_file"]), s, re.I) for s in g.strings()):
+                    continue
                 self._apply(fam, rule, g, comfyui_version, recipe, report)
             if vram_gb > 0:
                 report.findings += self._machine_fit(fam, g, vram_gb)

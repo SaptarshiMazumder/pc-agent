@@ -81,13 +81,13 @@ def _unavailable(what: str) -> ToolResult:
     GPU service (a desktop daemon; a platform without the vast module): nothing to rent, from
     this call or any later one. As a tool ERROR this made the model treat the whole job as
     blocked — it wrote a markdown "plan" and asked the user to fix a setting instead of
-    designing. The graph needs documentation, not hardware: research, `comfy_emit`, present at
-    the checkpoint. Only upload/validate/install/run need a machine, and they say so."""
+    designing. The design needs the knowledge base, not hardware: kb_lookup, pipeline_plan,
+    present at the checkpoint. Only upload/validate/install/run need a machine, and they say so."""
     return ToolResult.text(
         f"{what}: this deployment has no GPU service, so there is no machine to start — not now "
         "and not later in this conversation; do not call gpu_ensure again. Carry on exactly as if "
-        "it were booting: research, design, `comfy_emit` the workflow into the workspace and "
-        "present it at the checkpoint. Only comfy_upload/validate/install/run need a machine — "
+        "it were booting: design it (kb_lookup, pipeline_plan) until it holds and present it "
+        "(pipeline_present, ask_user). Only setting up and running need a machine — "
         "say in one line that it could not be run here. Do NOT ask the user to configure "
         "anything, and do NOT write a plan in place of the workflow.",
         details={"ready": False, "unavailable": True, "detail": "no GPU service on this deployment"},

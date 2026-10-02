@@ -26,7 +26,9 @@ from typing import Callable
 
 from ad_generation.application.animation_service import AnimationService
 from ad_generation.application.brief_service import BriefService
+from ad_generation.application.campaign_view_service import CampaignViewService
 from ad_generation.application.interfaces.approval_ledger import ApprovalLedger
+from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.progress_reporter import ProgressReporter
 from ad_generation.application.interfaces.provider_refused import ProviderRefused
@@ -64,6 +66,7 @@ class CampaignRunService:
         store: CampaignStore,
         recipes: RecipeLibrary,
         approvals: ApprovalLedger,
+        views: CampaignViewService,
         progress: ProgressReporter,
         clock: Callable[[], float],
     ) -> None:
@@ -76,6 +79,7 @@ class CampaignRunService:
         self._store = store
         self._recipes = recipes
         self._approvals = approvals
+        self._views = views
         self._progress = progress
         self._clock = clock
 
@@ -90,7 +94,10 @@ class CampaignRunService:
         recipe_key: str,
         backends: GenerationBackends,
         options: RunOptions,
+        session: str,
+        video: str = "",
     ) -> CampaignReport:
+        """`session` is the chat starting the campaign, recorded so its window can find it."""
         self._progress.say(f"reading {name}")
         campaign_id, profile = self._analysis.analyze(name, photos, direction.notes)
         recipe = self._recipes.get(recipe_key or profile.recipe)
@@ -107,6 +114,8 @@ class CampaignRunService:
             cast_name=next((s.cast[0] for s in brief.shots if s.cast), ""),
             gate=BRIEF,
             gate_reached_at=self._clock(),
+            session=session,
+            video=video,
         )
         return self._settle(campaign_id, recipe, state, backends)
 
@@ -117,6 +126,7 @@ class CampaignRunService:
         redo: dict[str, str],
         budget_usd: float,
         backends: GenerationBackends,
+        video: str = "",
     ) -> CampaignReport:
         """Past the gate the campaign waits at — only once the user has answered for it.
         `picks` chooses a still per shot (stills gate); `redo` re-runs the gate's step for the
@@ -130,6 +140,8 @@ class CampaignRunService:
         recipe = self._recipes.get(state.recipe_key)
         if budget_usd:
             state.plan = replace(state.plan, budget_usd=budget_usd)
+        if video:
+            state.video = video  # the clip model from here on, redos included
         self._pick(state, picks)
         if redo:
             return self._redo(campaign_id, recipe, state, redo, backends)
@@ -243,9 +255,12 @@ class CampaignRunService:
     def _sheet(self, campaign_id: str, state: CampaignProgress, backends, correction: str) -> None:
         """The shoot sheet; `correction` is the user's change on a redo. A sheet that is not the
         cast member is kept on disk but not used — the gate shows why, and the user redoes it."""
-        self._guard(campaign_id, state.plan.budget_usd)
+        left = self._guard(campaign_id, state.plan.budget_usd)
         self._progress.say("making the shoot sheet: the cast member in this ad's outfit and light")
-        sheet, verdict = self._sheets.make(campaign_id, state.cast_name, correction, *backends.image)
+        try:
+            sheet, verdict = self._sheets.make(campaign_id, state.cast_name, correction, *backends.image, max_usd=left)
+        except BudgetExceeded as e:
+            raise _BudgetReached(str(e)) from e
         if verdict.identity_kept:
             state.sheet, state.sheet_score = sheet.path, verdict.score
             self._progress.say(f"shoot sheet ready ({verdict.score}/10)")
@@ -276,12 +291,15 @@ class CampaignRunService:
                 paths = pending.pop(0)
                 self._progress.say(f"{shot.id}: judging {len(paths)} still(s) already made (attempt {attempts})")
             else:
-                self._guard(campaign_id, state.plan.budget_usd)
+                left = self._guard(campaign_id, state.plan.budget_usd)
                 self._progress.say(f"{shot.id}: stills (attempt {attempts}/{recipe.max_still_attempts})")
                 try:
                     made_now = self._keyframes.generate(
-                        campaign_id, shot.id, state.plan.variants, correction, *backends.image, shoot_sheet=state.sheet
+                        campaign_id, shot.id, state.plan.variants, correction, *backends.image,
+                        shoot_sheet=state.sheet, max_usd=left,
                     )
+                except BudgetExceeded as e:
+                    raise _BudgetReached(str(e)) from e
                 except ProviderRefused as e:
                     # The same input would be refused again: no retry. The gate shows the reason.
                     self._progress.say(f"{shot.id}: {e}")
@@ -322,15 +340,18 @@ class CampaignRunService:
                 clip_path, last_frame = pending.pop(0)
                 self._progress.say(f"{shot.id}: judging the clip already made (attempt {attempts})")
             else:
-                self._guard(campaign_id, state.plan.budget_usd)
+                left = self._guard(campaign_id, state.plan.budget_usd)
+                provider, model = state.video.split("/", 1) if state.video else backends.video
                 self._progress.say(
-                    f"{shot.id}: animating at {state.plan.resolution} (attempt {attempts}/{recipe.max_clip_attempts})"
+                    f"{shot.id}: animating on {provider}/{model} (attempt {attempts}/{recipe.max_clip_attempts})"
                 )
                 try:
                     clip = self._animation.animate(
                         campaign_id, shot.id, outcome.still, state.plan.resolution, backends.audio, correction,
-                        *backends.video, companions=self._companions(state, shot.id),
+                        provider, model, companions=self._companions(state, shot.id), max_usd=left,
                     )
+                except BudgetExceeded as e:
+                    raise _BudgetReached(str(e)) from e
                 except ProviderRefused as e:
                     # The same still would be refused again: no retry. The gate shows the reason,
                     # and the user picks another still, changes the shot or switches the model.
@@ -363,21 +384,12 @@ class CampaignRunService:
         others = [o.still for sid, o in state.outcomes.items() if sid != shot_id and o.still]
         return tuple(([state.sheet] if state.sheet else []) + others)
 
-    def _guard(self, campaign_id: str, budget: float) -> None:
+    def _guard(self, campaign_id: str, budget: float) -> float:
+        """What the campaign has left to spend — or stop, when nothing is left."""
         spent = self._store.spent(campaign_id)
         if spent >= budget:
             raise _BudgetReached(f"budget reached: ${spent:.2f} of ${budget:.2f}")
+        return budget - spent
 
     def _report(self, campaign_id: str, state: CampaignProgress, stopped: str) -> CampaignReport:
-        return CampaignReport(
-            campaign_id=campaign_id,
-            recipe_key=state.recipe_key,
-            gate=state.gate,
-            brief=self._store.brief(campaign_id),
-            planned=state.plan.shots,
-            shots=tuple(state.outcomes[s] for s in state.plan.shots if s in state.outcomes),
-            sheet=state.sheet,
-            sheet_score=state.sheet_score,
-            spent_usd=self._store.spent(campaign_id),
-            stopped=stopped,
-        )
+        return self._views.report_of(campaign_id, state, stopped)

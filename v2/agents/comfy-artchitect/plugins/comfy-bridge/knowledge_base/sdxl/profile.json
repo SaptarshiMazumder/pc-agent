@@ -2097,5 +2097,25 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "SDXL",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "dmd2",
+        "short_name": "SDXL DMD2",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "turbo",
+        "short_name": "SDXL Turbo",
+        "restriction": "free under $1M annual revenue"
+      },
+      {
+        "match": "lightning",
+        "short_name": "SDXL Lightning"
+      }
+    ]
   }
 }

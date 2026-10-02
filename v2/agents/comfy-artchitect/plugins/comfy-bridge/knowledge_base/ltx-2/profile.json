@@ -2250,5 +2250,15 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "LTX-2.5",
+    "restriction": "free under $10M annual revenue",
+    "recipes": [
+      {
+        "match": "2\\.3",
+        "short_name": "LTX-2.3"
+      }
+    ]
   }
 }

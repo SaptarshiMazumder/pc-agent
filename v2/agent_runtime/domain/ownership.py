@@ -169,6 +169,15 @@ def owned_by_caller(owner: str, account_id: str | None, hosted: bool) -> bool:
 DEPLOYMENT_OWNERS = frozenset({LOCAL_OWNER, PLATFORM_OWNER})
 
 
+def account_of(identities: frozenset[str]) -> str | None:
+    """The one PERSONAL account in a caller set from ``callers()`` — neither a deployment owner
+    nor an org — or None when the caller has no account (machine token, anonymous)."""
+    return next(
+        (i for i in identities if i not in DEPLOYMENT_OWNERS and not is_org(i)),
+        None,
+    )
+
+
 def may_observe(owner: str, identities: frozenset[str]) -> bool:
     """May a caller holding ``identities`` OBSERVE data owned by ``owner`` — a live run's
     events, a file's bytes?

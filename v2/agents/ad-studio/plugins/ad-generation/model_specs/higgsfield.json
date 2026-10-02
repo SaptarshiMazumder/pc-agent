@@ -1,6 +1,5 @@
 {
   "_about": "Higgsfield developer API job types (GET /developer/v2alpha/job_types/<id> is the source). Cost is NOT here: every accepted job returns the credits it charged; agent.toml's usd_per_credit converts them.",
-
   "seedance_2_5": {
     "kind": "video",
     "fields": {
@@ -12,9 +11,18 @@
       "aspect_ratio": "aspect_ratio",
       "audio": "generate_audio"
     },
-    "fixed": {"mode": "omni_reference", "bitrate_mode": "standard"},
-    "resolutions": ["480p", "720p", "1080p"],
-    "source": "job_types/seedance_2_5"
+    "fixed": {
+      "mode": "omni_reference",
+      "bitrate_mode": "standard"
+    },
+    "resolutions": [
+      "480p",
+      "720p",
+      "1080p"
+    ],
+    "source": "job_types/seedance_2_5",
+    "label": "Seedance 2.5 (Higgsfield)",
+    "price_note": "35 cr / 5 s at 720p"
   },
   "kling3_0": {
     "kind": "video",
@@ -25,9 +33,16 @@
       "aspect_ratio": "aspect_ratio",
       "audio": "sound"
     },
-    "audio_values": {"true": "on", "false": "off"},
-    "fixed": {"mode": "std"},
-    "source": "job_types/kling3_0"
+    "audio_values": {
+      "true": "on",
+      "false": "off"
+    },
+    "fixed": {
+      "mode": "std"
+    },
+    "source": "job_types/kling3_0",
+    "label": "Kling 3 standard (Higgsfield)",
+    "price_note": "6.25 cr / 5 s"
   },
   "kling3_0_pro": {
     "kind": "video",
@@ -38,10 +53,17 @@
       "aspect_ratio": "aspect_ratio",
       "audio": "sound"
     },
-    "audio_values": {"true": "on", "false": "off"},
-    "fixed": {"mode": "pro"},
+    "audio_values": {
+      "true": "on",
+      "false": "off"
+    },
+    "fixed": {
+      "mode": "pro"
+    },
     "job_type": "kling3_0",
-    "source": "job_types/kling3_0 (mode pro)"
+    "source": "job_types/kling3_0 (mode pro)",
+    "label": "Kling 3 pro (Higgsfield)",
+    "price_note": "pro mode"
   },
   "minimax_h3": {
     "kind": "video",
@@ -52,21 +74,51 @@
       "duration": "duration",
       "aspect_ratio": "aspect_ratio"
     },
-    "source": "job_types/minimax_h3"
+    "source": "job_types/minimax_h3",
+    "label": "MiniMax H3 (Higgsfield)",
+    "price_note": "10 cr / 5 s"
   },
-
   "nano_banana_pro": {
     "kind": "image",
-    "fields": {"prompt": "prompt", "references": "image_references", "aspect_ratio": "aspect_ratio"},
-    "fixed": {"resolution": "2k"},
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k"
+    },
     "max_references": 14,
-    "source": "job_types/nano_banana_pro"
+    "source": "job_types/nano_banana_pro",
+    "label": "Nano Banana Pro (Higgsfield)",
+    "price_note": "2 cr"
   },
   "seedream_v5_pro": {
     "kind": "image",
-    "fields": {"prompt": "prompt", "references": "image_references", "aspect_ratio": "aspect_ratio"},
-    "fixed": {"resolution": "2k"},
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k"
+    },
     "max_references": 14,
-    "source": "job_types/seedream_v5_pro"
+    "source": "job_types/seedream_v5_pro",
+    "label": "Seedream 5 Pro (Higgsfield)",
+    "price_note": "2.5 cr"
+  },
+  "minimax_h3_max": {
+    "kind": "video",
+    "label": "MiniMax H3 Max (Higgsfield)",
+    "price_note": "12.5 cr / 5 s",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "references": "image_references",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "source": "job_types/minimax_h3_max"
   }
 }

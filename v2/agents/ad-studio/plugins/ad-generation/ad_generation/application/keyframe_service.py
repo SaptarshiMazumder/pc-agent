@@ -31,6 +31,7 @@ class KeyframeService:
         provider: str,
         model: str,
         shoot_sheet: str = "",
+        max_usd: float = 0.0,
     ) -> list[GeneratedMedia]:
         profile = self._store.profile(campaign_id)
         brief = self._store.brief(campaign_id)
@@ -80,6 +81,7 @@ class KeyframeService:
             aspect_ratio=brief.aspect_ratio,
             variants=variants,
             out_stem=self._store.still_stem(campaign_id, shot_id),
+            max_usd=max_usd,
         )
         stills = self._generators.image(provider).generate(request)
         for still in stills:

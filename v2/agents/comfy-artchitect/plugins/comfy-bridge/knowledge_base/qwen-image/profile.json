@@ -860,6 +860,52 @@
       ],
       "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen-image-edit-2511-multiple-angles-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 295140688,
+      "size_gb": 0.295,
+      "precision": "bf16",
+      "variant": "edit-2511-angle",
+      "url": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/qwen-image-edit-2511-multiple-angles-lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "96 camera poses (8 azimuths x 4 elevations x 3 distances), trained on 3000+ Gaussian Splatting renders",
+      "license": "Apache-2.0",
+      "src": [
+        "S-HF-ANGLES",
+        "S-TPL-ANGLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen-360-diffusion-2512-int8-bf16-v2.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 755039336,
+      "size_gb": 0.755,
+      "precision": "bf16 (trained at int8)",
+      "variant": "t2i-2512-360",
+      "url": "https://huggingface.co/ProGamerGov/qwen-360-diffusion/resolve/main/qwen-360-diffusion-2512-int8-bf16-v2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "rank-128 LoRA, 35k equirectangular images, trained on Qwen-Image-2512: 360 degree equirectangular panoramas",
+      "license": "MIT",
+      "src": [
+        "S-HF-360",
+        "S-TPL-360"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
   "community_alternatives": [
@@ -1146,6 +1192,33 @@
       "recipe": null,
       "status": "pending: DiffSynth inpaint patch is documented (mask -> QwenImageDiffsynthControlnet.mask) but has no template graph",
       "src": "S-DOCS-QI"
+    },
+    {
+      "task": "multi-angle",
+      "recipe": "edit-2511-angle",
+      "why": "views of the same character, product or scene from other camera angles: one stage per angle, the LoRA trained on 96 poses (the official 'Multiple Character Angles' template)",
+      "src": [
+        "S-TPL-ANGLES",
+        "S-HF-ANGLES"
+      ]
+    },
+    {
+      "task": "multi-angle",
+      "recipe": "edit-2511-angle-lightning-4step",
+      "speed": "fast",
+      "why": "the same with the 2511 Lightning LoRA: 4 steps, cfg 1 (the template's turbo switch)",
+      "src": [
+        "S-TPL-ANGLES"
+      ]
+    },
+    {
+      "task": "t2i-360",
+      "recipe": "t2i-2512-360",
+      "why": "360 equirectangular panoramas / skyboxes: the official Comfy-Org skybox template's model",
+      "src": [
+        "S-TPL-360",
+        "S-HF-360"
+      ]
     }
   ],
   "params": [
@@ -1827,13 +1900,14 @@
           "1140x1472"
         ]
       },
-      "message": "not in Qwen-Image's native aspect table (1:1 1328x1328, 16:9 1664x928, 9:16 928x1664, 4:3 1472x1104, 3:4 1104x1472, 3:2 1584x1056, 2:3 1056x1584; the older README's 4:3/3:4 were 1472x1140 / 1140x1472) - it runs, but the model was trained at these",
+      "message": "not in Qwen-Image's native aspect table (1:1 1328x1328, 16:9 1664x928, 9:16 928x1664, 4:3 1472x1104, 3:4 1104x1472, 3:2 1584x1056, 2:3 1056x1584; the older README's 4:3/3:4 were 1472x1140 / 1140x1472) - it runs, but the model was trained at these (not applied with the 360 LoRA, which is trained at 2:1 2048x1024 - see 360-size-2048x1024)",
       "src": [
         "S-TPL-T2I",
         "S-TPL-2512",
         "S-HF-QI",
         "S-HF-QWEN-REPOS"
-      ]
+      ],
+      "unless_file": "^qwen-360-diffusion"
     },
     {
       "id": "controlnet-strength",
@@ -1941,6 +2015,82 @@
         "S-TPL-INDEX",
         "S-REGISTRY",
         "S-INSTANTX"
+      ]
+    },
+    {
+      "id": "angles-lora-prompt-format",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_marker_with_file",
+      "args": {
+        "file": "qwen-image-edit-2511-multiple-angles-lora.safetensors",
+        "node": "TextEncodeQwenImageEditPlus",
+        "input": "prompt",
+        "marker": "<sks>",
+        "skip_empty": true
+      },
+      "message": "the multiple-angles LoRA needs its trigger: '<sks> [azimuth] [elevation] [distance]' (card: '<sks> trigger is essential', 'Respect the order')",
+      "src": [
+        "S-HF-ANGLES"
+      ]
+    },
+    {
+      "id": "360-size-2048x1024",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^qwen-360-diffusion"
+      },
+      "require": {
+        "node": "EmptySD3LatentImage",
+        "input": "width x height",
+        "equals": "2048x1024"
+      },
+      "message": "the 360 LoRA: 'For best results use the 2:1 resolution of 2048x1024' (other sizes struggle with the horizon); an equirectangular image is 2:1",
+      "src": [
+        "S-HF-360"
+      ]
+    },
+    {
+      "id": "360-not-on-fp8-e4m3fn",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^qwen-360-diffusion"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(?!.*fp8_e[45]m[23]).*"
+      },
+      "message": "the 360 LoRA on an fp8_e4m3fn/e5m2 transformer 'may cause patch or grid artifacts' - use bf16 (the template), int8 or GGUF Q8",
+      "src": [
+        "S-HF-360"
+      ]
+    },
+    {
+      "id": "360-trigger",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_marker_with_file",
+      "args": {
+        "file": "qwen-360-diffusion-2512-int8-bf16-v2.safetensors",
+        "node": "CLIPTextEncode",
+        "input": "text",
+        "markers": [
+          "equirectangular",
+          "360 image",
+          "360 panorama"
+        ],
+        "skip_empty": true
+      },
+      "message": "the 360 LoRA activates on its trigger words ('equirectangular', '360 image', '360 panorama')",
+      "src": [
+        "S-HF-360"
       ]
     }
   ],
@@ -2329,6 +2479,65 @@
       "url": "https://huggingface.co/unsloth/Qwen-Image-2512-GGUF/discussions/2",
       "accessed": "2026-10-01",
       "class": "community"
+    },
+    "S-HF-ANGLES": {
+      "url": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-TPL-ANGLES": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates-1_click_multiple_character_angles-v1.0.json",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-HF-360": {
+      "url": "https://huggingface.co/ProGamerGov/qwen-360-diffusion",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-TPL-360": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_text_prompt_to_360hdr.app.json",
+      "accessed": "2026-10-02",
+      "class": "official"
     }
+  },
+  "card": {
+    "short_name": "Qwen-Image",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "2-1",
+        "short_name": "Qwen-Image 2.1",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "2512",
+        "short_name": "Qwen-Image 2512"
+      },
+      {
+        "match": "edit-2511",
+        "short_name": "Qwen-Image-Edit 2511"
+      },
+      {
+        "match": "edit-2509",
+        "short_name": "Qwen-Image-Edit 2509"
+      },
+      {
+        "match": "^edit",
+        "short_name": "Qwen-Image-Edit"
+      },
+      {
+        "match": "^control",
+        "short_name": "Qwen-Image + ControlNet"
+      },
+      {
+        "match": "paint",
+        "short_name": "Qwen-Image + InstantX"
+      },
+      {
+        "match": "layered",
+        "short_name": "Qwen-Image-Layered"
+      }
+    ]
   }
 }

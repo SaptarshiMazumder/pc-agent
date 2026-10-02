@@ -44,8 +44,14 @@ Rules:
   no criterion may come from it.
 - The stakeholder reads every criterion `statement` as a plan bullet. Write each as ONE plain line,
   at most 12 words, in their language: no file names, paths, templates, tests, tools or checks.
-- needs_from_user: only what the stakeholder alone can provide for the work to succeed (a key to
-  fill in the agent's Settings, an account, a decision). One short line each. Empty if nothing.
+- decisions: the questions only the stakeholder can decide that change what gets built or what
+  it spends, and that have no sensible default — above all, HOW the work reaches any outside
+  service or account it depends on (which account, what kind of access, which credentials), when
+  they have not said. Never ask what has a sensible default or is the developer's call (layout,
+  file names, tooling). One plain question each, at most 12 words, answer "" while open. Empty if
+  their words already settle everything. Work never starts while one is open.
+- needs_from_user: only what the stakeholder alone must PROVIDE for the work to succeed (a key to
+  fill in the agent's Settings, a file). One short line each. Empty if nothing.
 - Every criterion has a proof, preferably machine-checkable. The proof is yours, never shown to the
   stakeholder:
     artifact_produced  {"glob": "..."}                 a file matching the glob exists, searched
@@ -67,15 +73,18 @@ Rules:
   agent or app, touches infrastructure or account resources) or spends the stakeholder's money;
   false for answering, researching, drafting, analysing.
 - status:
-    checkpoint "engage": "pending_approval" if needs_approval, else "active".
+    checkpoint "engage": "pending_approval" if needs_approval or any decision is open, else "active".
     checkpoint "reply" (the stakeholder answered a contract awaiting approval):
+      first record every decision their reply answers, in their substance, as its "answer"
       they approved                          -> same criteria, "active"
       they approved with a clear change      -> revise the criteria as they said, "active"
       they asked for changes to be confirmed -> revise, "pending_approval"
       their message is not about the plan    -> unchanged, "pending_approval"
+      a decision is still open               -> "pending_approval", whatever else they said
 
 Answer with JSON only:
 {"goal": "...", "needs_approval": true|false, "status": "...", "needs_from_user": ["..."],
+ "decisions": [{"id": "d1", "question": "...", "answer": ""}],
  "criteria": [{"id": "c1", "statement": "...", "proof": {"kind": "...", ...spec}}]}"""
 
 REVIEW_SYSTEM = _ROLE + """
@@ -126,6 +135,9 @@ decide from what ran; the developer saying it is done is not evidence, and endin
 is not done. If the developer is legitimately pausing to ask the stakeholder something the
 contract needs, answer continue. Changed criteria or a weakened test are never done — only the
 stakeholder changes the contract.
+
+THE STAKEHOLDER'S DECISIONS ARE PART OF THE CONTRACT. Work that ignores or contradicts an answered
+decision (another way of connecting, another account) is off track: redirect to what they chose.
 
 NEVER JUDGE THE SAME STOP TWICE. If YOUR RECENT DECISIONS already sent the developer back and
 nothing new ran, the send-back did not work: answer wait (or escalate), never another redirect.

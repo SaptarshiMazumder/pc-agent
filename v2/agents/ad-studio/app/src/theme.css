@@ -1,0 +1,79 @@
+/* AD STUDIO'S LOOK — black and red, the T1 way. Tokens only (see tokens.css for every name).
+ *
+ * Near-black ground, one red that means "this is the thing", white type. Hard, close radii
+ * instead of round glass: a studio, not a lounge. The display face is condensed and set in caps
+ * for the headings and gate badges; the body face stays plain so a brief reads easily.
+ *
+ * Loaded after tokens.css and before styles.css (main.tsx) — nothing structural lives here.
+ */
+
+@import '@fontsource/barlow-condensed/500.css';
+@import '@fontsource/barlow-condensed/600.css';
+@import '@fontsource/barlow-condensed/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+
+:root {
+  /* surfaces — black, stepped by a hair */
+  --bg4: #050506;
+  --bg: #0a0a0b;
+  --bg2: #111113;
+  --bg3: #19191c;
+  --border: #232327;
+  --border2: #34343a;
+
+  /* type */
+  --text: #f4f4f5;
+  --body: #e4e4e7;
+  --dim: #9a9aa2;
+  --faint: #66666e;
+
+  /* T1 red */
+  --accent: #e4002b;
+  --accent-text: #ff3355;
+  --accent-soft: rgba(228, 0, 43, 0.14);
+  --accent-edge: rgba(228, 0, 43, 0.45);
+  --accent-deep: #9e001e;
+  --prim-bg: #e4002b;
+  --prim-bg-h: #ff1f45;
+  --prim-ink: #ffffff;
+
+  --ok: #3ddc84;
+  --warn: #ffb020;
+  --danger: #ff4d5e;
+  --danger-soft: rgba(255, 77, 94, 0.13);
+
+  --glow-1: rgba(228, 0, 43, 0.10);
+  --glow-2: transparent;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 18px 40px -16px rgba(0, 0, 0, 0.85);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+
+  /* shape — hard and close */
+  --radius: 8px;
+  --r-window: 8px;
+  --r-panel: 8px;
+  --r-bubble: 10px;
+  --r-input: 6px;
+  --r-control: 6px;
+  --r-chip: 4px;
+  --r-sm: 4px;
+
+  /* type faces */
+  --sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --display: 'Barlow Condensed', 'Inter', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 500;
+  --fw-semi: 600;
+  --fw-heavy: 700;
+  --fw-bold: 700;
+  --tracking-label: 0.14em;
+
+  --user-bubble: #1c1c20;
+  --user-border: #2c2c32;
+  --wallet-on-accent: #ffffff;
+}

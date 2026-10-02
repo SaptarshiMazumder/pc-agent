@@ -2002,5 +2002,50 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "identity adapter",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "faceid",
+        "short_name": "IP-Adapter FaceID",
+        "restriction": "non-commercial (insightface face models)"
+      },
+      {
+        "match": "^ipadapter",
+        "short_name": "IP-Adapter"
+      },
+      {
+        "match": "pulid-flux",
+        "short_name": "PuLID (FLUX.1)",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "pulid",
+        "short_name": "PuLID",
+        "restriction": "non-commercial (insightface face models)"
+      },
+      {
+        "match": "instantid",
+        "short_name": "InstantID",
+        "restriction": "non-commercial (insightface face models)"
+      },
+      {
+        "match": "infiniteyou",
+        "short_name": "InfiniteYou",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "^uso",
+        "short_name": "USO (FLUX.1)",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "redux",
+        "short_name": "FLUX.1 Redux",
+        "restriction": "non-commercial use only"
+      }
+    ]
   }
 }

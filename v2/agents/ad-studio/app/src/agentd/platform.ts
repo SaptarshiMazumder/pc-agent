@@ -1,0 +1,191 @@
+/* WHO you are, and who PAYS. Two facts, two sources, and the difference matters.
+ *
+ *   platform.status   what THIS CONNECTION carries. Asked of the daemon, per socket.
+ *   authStatus()      what this CLIENT stores: its session and its chosen run mode.
+ *
+ * They can disagree — after a reconnect, or when the shell signed in but this window's socket did
+ * not — and the identity chip in the topbar uses the connection's answer on purpose: it names the
+ * identity a Publish would be signed with, and a stored session that the socket is not using
+ * would name the wrong publisher.
+ */
+
+import {
+  authLogout,
+  authStatus,
+  loadMode,
+  setRunMode,
+  type AgentdClient,
+  type AuthState,
+  type RunMode,
+} from '@agentd/client'
+import { useCallback, useEffect, useState } from 'react'
+import { useDaemonEvent } from './client'
+
+export interface WhoAmI {
+  /** false when the daemon is too old to answer — say nothing rather than something wrong. */
+  known: boolean
+  signedIn: boolean
+  label: string
+  title: string
+}
+
+/** The identity chip. Re-asked on EVERY socket open, not just the first: signing in re-dials the
+ *  socket with the new session, and a chip that describes a connection must follow it. */
+export function useWhoAmI(client: AgentdClient, status: string): WhoAmI {
+  const [who, setWho] = useState<WhoAmI>({ known: false, signedIn: false, label: '', title: '' })
+
+  useEffect(() => {
+    if (status !== 'open') return
+    let live = true
+    void (async () => {
+      try {
+        const s: any = await client.request('platform.status')
+        if (!live) return
+        setWho(
+          s?.signedIn
+            ? {
+                known: true,
+                signedIn: true,
+                label: String(s.email || s.accountId || ''),
+                title:
+                  `Signed in — publishes are attributed to ${s.email || s.accountId}` +
+                  (s.mode ? ` (${s.mode} mode)` : ''),
+              }
+            : {
+                known: true,
+                signedIn: false,
+                label: 'not signed in',
+                title: 'This window has no account — publishing will ask you to sign in.',
+              },
+        )
+      } catch {
+        // Daemon predates platform.status on app sockets. Hidden entirely: "not signed in" would
+        // be a claim we cannot support.
+        if (live) setWho({ known: false, signedIn: false, label: '', title: '' })
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [client, status])
+
+  return who
+}
+
+export interface PlatformState {
+  auth: AuthState | null
+  /** The mode the user CHOSE, as opposed to the one in force. '' means they never chose.
+   *
+   *  "Cloud" and "Cloud because nobody said otherwise" are different states, and only the second
+   *  one changes by itself when someone signs in — so the page has to be able to tell them apart. */
+  chosen: RunMode | ''
+  error: string
+}
+
+/** Identity and run mode for the Settings page, and the three actions that change them. */
+export function usePlatform(client: AgentdClient) {
+  const [state, setState] = useState<PlatformState>({ auth: null, chosen: '', error: '' })
+  // Sign-in is a card the app renders, not a gate that paints itself over the page.
+  const [wantsSignIn, setWantsSignIn] = useState(false)
+
+  const reload = useCallback(async () => {
+    try {
+      // ONE call, and it is the SDK's: identity and run mode are this client's own state, so
+      // there is nothing to ask the daemon for beyond "is there an accounts service, and is there
+      // a proxy to switch to". Both used to be daemon methods, which made them machine-wide.
+      const auth = await authStatus({ client })
+      setState({ auth, chosen: loadMode() || '', error: '' })
+    } catch (e) {
+      // Remembered rather than swallowed: a Run mode control that quietly vanishes looks
+      // identical to a build that has no Cloud.
+      setState({ auth: null, chosen: '', error: String((e as Error)?.message || e) })
+    }
+  }, [client])
+
+  // The daemon pushes this whenever identity or run mode changes ANYWHERE — this window, the
+  // agentd window, another agent. Both facts are machine-wide, so a page holding its own stale
+  // copy would keep offering to sign out of an account that is already gone.
+  useDaemonEvent(client, 'auth.changed', () => void reload())
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  /** Ask for the sign-in card. A COMPONENT now — agentd's, copied into _common/auth — so this
+   *  only raises a flag and App renders `<SignIn>` while it is up. It used to await a vanilla-DOM
+   *  gate that painted itself over the window. */
+  const signIn = useCallback(() => setWantsSignIn(true), [])
+  /** Called from the card once the credential is stored. */
+  const signedIn = useCallback(() => {
+    setWantsSignIn(false)
+    void reload()
+  }, [reload])
+
+  /** The DAEMON's sign-out, not a local flag. It drops the identity token AND re-applies the run
+   *  mode, so platform billing stops in the same step — "signed out but still metering your
+   *  account" is not reachable from here. */
+  const signOut = useCallback(async () => {
+    await authLogout({ client })
+    await reload()
+  }, [client, reload])
+
+  /** Machine-wide, and the UI says so. The model proxy is one piece of daemon state shared by
+   *  every agent, so this flips the others too. No token is passed: the daemon signed the user in
+   *  and kept the session, and a page that never receives a credential cannot leak one. */
+  const switchMode = useCallback(
+    async (next: RunMode) => {
+      await setRunMode(next, { client })
+      await reload()
+    },
+    [client, reload],
+  )
+
+  return { ...state, reload, signIn, wantsSignIn, signedIn, signOut, switchMode }
+}
+
+/** Restart the daemon: `POST /restart`, the same endpoint every other client uses.
+ *
+ *  PLAIN HTTP, not a socket method, and not the desktop shell. An agent app window has no host
+ *  bridge — it is remote content by design — so it cannot reach the supervisor the main window
+ *  uses. One endpoint on the daemon serves this window, the shell, curl and any script equally,
+ *  instead of a mechanism per caller.
+ *
+ *  WHY THIS WINDOW NEEDS IT AT ALL. Adding or editing a private plugin changes Python that is
+ *  already imported. `reload_agent` re-reads the roster and hot-loads NEW plugins; it cannot
+ *  re-import a module in memory. Without a restart the author sees their old code with nothing
+ *  saying so — the most confusing state in agent authoring.
+ */
+export function useRestartDaemon(client: AgentdClient) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  const restart = useCallback(async () => {
+    setBusy(true)
+    setNote('Restarting the daemon…')
+    try {
+      // The SDK builds authenticated daemon URLs already — reuse it rather than re-deriving the
+      // origin and the token here, which is how the two end up disagreeing.
+      const url = new URL(client.fileUrl(''))
+      url.pathname = '/restart'
+      url.searchParams.delete('path')
+      // GET, not POST. This is the WebSocket server's port, and `websockets` refuses any other
+      // method while parsing the request line — before the daemon's handler runs — so a POST
+      // never arrives and the browser reports only "Failed to fetch".
+      const res = await fetch(url.toString())
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || body?.ok === false) {
+        setNote(String(body?.error || `restart refused (HTTP ${res.status})`))
+        return
+      }
+      // The socket is about to drop. The SDK reconnects on its own backoff, so the honest
+      // message is "it is coming back", not "done".
+      setNote('Restarting — this window reconnects by itself once it is back up.')
+    } catch (e) {
+      setNote(`Could not restart: ${String((e as Error)?.message || e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }, [client])
+
+  return { restart, busy, note }
+}

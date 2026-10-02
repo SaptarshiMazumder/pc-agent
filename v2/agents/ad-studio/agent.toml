@@ -10,19 +10,31 @@
 # plugins/ad-generation/model_specs/. Swapping Seedance for Kling is an edit here, not code.
 
 name = "Ad Studio"
-version = "0.1.0"
+version = "0.2.0"
 # No project manager: the steps are fixed by the recipe in code (campaign_run), so there is no
 # plan for a manager to review — only a pipeline it could second-guess.
 managed = false
 description = "Turns product photos into ad campaigns: reads the product, writes the brief, keeps a cast of recurring AI models, generates the stills and animates them into vertical video clips."
 tagline = "product in · ad out"
-color = "#E0457B"
+color = "#E4002B"
 suggestions = [
   "Make an ad for the bag in these photos",
   "Make an ad for this product with one of our existing models",
   "Create our first cast member: a model for everyday fashion",
   "Three street-walk shots for these earrings",
 ]
+
+# THE WINDOW: rail | chat | studio (the gate the campaign waits at, its stills and clips, the
+# cast). It reads through campaign_list / campaign_status / cast_list and acts only by sending
+# the user's answer as a chat message, so every gate is still passed by the user's own reply.
+[app]
+title = "Ad Studio"
+mode = "window"
+entry = "ui/index.html"
+public = false
+
+[delivery]
+web = true
 
 # Shared tools it may reach, beyond its own ad-generation tools (implicitly allowed).
 #   ls / read          find the photos the user attached (uploads/) and read a campaign's files
@@ -41,19 +53,23 @@ allow = ["ls", "read", "show_files", "update_plan", "web_search", "web_fetch"]
 # faces only from images its own models made on the same account
 # (docs.byteplus.com/en/docs/ModelArk/1520757).
 [plugins.ad-generation.tools.cast_create]
-provider = "fal"
-model = "bytedance/seedream/v5/pro/edit"
+provider = "higgsfield"
+model = "seedream_v5_pro"
 
 [plugins.ad-generation.tools.keyframe_generate]
-provider = "fal"
-model = "bytedance/seedream/v5/pro/edit"
+provider = "higgsfield"
+model = "seedream_v5_pro"
 variants = 2
 
-# A targeted edit of one still (the user says what; only that changes): Gemini's image model,
-# Nano Banana Pro, on fal.
+# IMAGES ON HIGGSFIELD (subscription credits): Seedream 5 Pro 2.5 cr per image for sheets and
+# stills, Nano Banana Pro 2 cr for a fix. fal is a line away per tool, and cheaper in cash for
+# Seedream ($0.07): provider = "fal", model = "bytedance/seedream/v5/pro/edit" (still_fix:
+# "fal-ai/nano-banana-pro/edit"). Every tool also takes provider/model per call, so the same
+# sheet or still can be made on both and compared.
+# A targeted edit of one still (the user says what; only that changes): Nano Banana Pro.
 [plugins.ad-generation.tools.still_fix]
-provider = "fal"
-model = "fal-ai/nano-banana-pro/edit"
+provider = "higgsfield"
+model = "nano_banana_pro"
 
 # CLIPS ON HIGGSFIELD: its developer API bills the subscription's credits at the same prices the
 # web UI shows - Kling 3 std 5 s silent = 6.25 cr, Seedance 2.5 720p 5 s silent = 35 cr - and its

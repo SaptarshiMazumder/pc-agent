@@ -67,7 +67,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "an ALREADY blurred or low-resolution image at the latent size (template: 'Please use the preprocessed images, or install comfyui_controlnet_aux'); no native blur preprocessor is in the graph"
+        "note": "an ALREADY blurred or low-resolution image at the latent size (template: 'Please use the preprocessed images, or install comfyui_controlnet_aux'); no native blur preprocessor is in the graph",
+        "prepared": "blurred"
       }
     },
     "outputs": {

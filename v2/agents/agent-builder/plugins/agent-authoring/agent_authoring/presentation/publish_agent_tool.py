@@ -34,9 +34,9 @@ class PublishAgentTool(Tool):
     label = "Publish Agent"
     default_retryable = False  # it uploads; a retry would re-send the whole package
     description = (
-        "Publish an agent to the marketplace so other people can install it — and, when this "
-        "machine can build one, ALSO publish the small per-agent installer a stranger with no "
-        "agentd downloads and runs. Packs the agent (the same artifact as package_agent), then "
+        "Publish an agent to the marketplace so other people can install it — the publish service "
+        "also builds the small per-agent installer a stranger with no agentd downloads and runs. "
+        "Packs the agent (the same artifact as package_agent), then "
         "either uploads through the publish service (you only need to be signed in) or, on an "
         "operator install, signs and uploads directly. PREVIEWS BY DEFAULT: it states exactly what "
         "would be sent and sends nothing. To publish for real, pass BOTH dry_run=false and "
@@ -70,8 +70,9 @@ class PublishAgentTool(Tool):
             },
             "with_installer": {
                 "type": "boolean",
-                "description": "also publish the per-agent installer (default true). Without it "
-                "only people who already have agentd can install this agent",
+                "description": "operator (s3:// or directory) publishes only: also publish the "
+                "per-agent installer (default true). The publish service always builds its own, "
+                "decided by agent.toml's [delivery] exe",
             },
             "target": {
                 "type": "string",
@@ -110,14 +111,9 @@ class PublishAgentTool(Tool):
         return str(origin_of(agent_id)) if callable(origin_of) else "authored"
 
     def _publisher(self, target: str):
-        from agent_runtime.infrastructure.marketplace.publisher_factory import (
-            default_stub_provider,
-            publisher_for,
-        )
+        from agent_runtime.infrastructure.marketplace.publisher_factory import publisher_for
 
-        return publisher_for(
-            self._config, target, stub_provider=default_stub_provider(self._config)
-        )
+        return publisher_for(self._config, target)
 
     @staticmethod
     def _render(result, publisher_name: str) -> str:

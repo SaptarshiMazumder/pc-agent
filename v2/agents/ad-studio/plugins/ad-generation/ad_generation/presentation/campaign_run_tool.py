@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_run_context
 from agent_runtime.application.tool_models import brain_model, resolve_tool_model, tool_config
 
 from ad_generation.domain.campaign_progress import BRIEF, CLIPS, DONE, SHEET, STILLS
@@ -13,6 +14,7 @@ from ad_generation.domain.campaign_report import CampaignReport
 from ad_generation.domain.generation_backends import GenerationBackends
 from ad_generation.domain.run_options import RunOptions
 from ad_generation.infrastructure.model_access_reasoner import ModelAccessReasoner
+from ad_generation.infrastructure.model_spec_book import ModelSpecBook
 from ad_generation.infrastructure.vision_image_preparer import VisionImagePreparer
 from ad_generation.presentation.creative_direction_params import CreativeDirectionParams
 from ad_generation.presentation.generation_backend_resolver import PLUGIN, GenerationBackendResolver
@@ -68,13 +70,26 @@ class CampaignRunTool(Tool):
             "picks": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Continuing at the stills gate: the still the user chose per shot, e.g. {\"s2\": \"campaigns/x/stills/s2/take-01-2.jpg\"}."},
             "redo": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Continuing: re-run this gate's step with the user's changes, in their words — {\"brief\": \"...\"} at the brief gate, {\"sheet\": \"...\"} at the sheet gate, {\"s3\": \"...\"} per shot at the stills or clips gate. The campaign stays at the gate."},
             "budget_usd": {"type": "number", "description": "Stop before spending past this; default is the recipe's. Continuing: raises it."},
+            "video": {"type": "string", "description": "The clip model, as provider/model (video_models lists them), e.g. \"higgsfield/seedance_2_5\". Starting or continuing; kept for the rest of the campaign. Left out = the configured default."},
         },
     }
 
-    def __init__(self, config, run_factory, images: VisionImagePreparer) -> None:
+    def __init__(self, config, run_factory, images: VisionImagePreparer, specs: ModelSpecBook) -> None:
         self.config = config
         self._run_factory = run_factory
         self._images = images
+        self._specs = specs
+
+    def _video(self, params: dict) -> str:
+        """The chosen clip model, refused here when no spec knows it — before anything runs."""
+        chosen = str(params.get("video") or "").strip()
+        if not chosen:
+            return ""
+        if "/" not in chosen:
+            raise ValueError(f"video must be provider/model, not '{chosen}'")
+        provider, model = chosen.split("/", 1)
+        self._specs.spec(provider, model, "video")  # raises, naming the known models
+        return chosen
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -104,6 +119,7 @@ class CampaignRunTool(Tool):
                     {str(k): str(v) for k, v in (params.get("redo") or {}).items()},
                     float(params.get("budget_usd") or 0),
                     generation,
+                    self._video(params),
                 )
             else:
                 name = str(params.get("name") or "").strip()
@@ -127,6 +143,8 @@ class CampaignRunTool(Tool):
                         budget_usd=float(params.get("budget_usd") or 0),
                         gates=tuple(str(g) for g in params["gates"]) if "gates" in params else None,
                     ),
+                    str(getattr(current_run_context(), "session_key", "") or ""),
+                    self._video(params),
                 )
         except PermissionError as e:
             # Refused at a gate: the refusal says what to do, and the gate's results come with

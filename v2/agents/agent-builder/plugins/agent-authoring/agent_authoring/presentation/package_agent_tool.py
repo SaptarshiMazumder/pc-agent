@@ -36,7 +36,9 @@ class PackageAgentTool(Tool):
             "agent_id": {"type": "string", "description": "the agent to package (e.g. my-agent)"},
             "out_dir": {
                 "type": "string",
-                "description": "where to write the .agentpkg (default: <state_dir>/dist)",
+                "description": "desktop only: where to write the .agentpkg (default: "
+                "<state_dir>/dist). Omit it on the hosted platform — the package lands in the "
+                "caller's own account",
             },
             "version": {
                 "type": "string",

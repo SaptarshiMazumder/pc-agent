@@ -1,0 +1,43 @@
+{
+ "id": "3126193b-91c4-4f49-b951-fd6e5e710faf",
+ "status": "completed",
+ "job_type": "seedance_2_5",
+ "display_name": "Seedance 2.5",
+ "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3AHnfM8DLPAylVhpaycTlOHUARx/hf_20261002_074218_3126193b-91c4-4f49-b951-fd6e5e710faf.mp4",
+ "min_result_url": null,
+ "thumbnail_url": "https://cdn.higgsfield.ai/user_3AHnfM8DLPAylVhpaycTlOHUARx/hf_20261002_074218_3126193b-91c4-4f49-b951-fd6e5e710faf_thumbnail.webp",
+ "result_json": null,
+ "created_at": "2026-10-02T07:42:18.043274Z",
+ "params": {
+  "width": 720,
+  "height": 1280,
+  "prompt": "She steps toward the camera and performs one controlled half-turn, letting the dupatta edge and potli bag swing briefly before she settles facing forward. Camera: slow push-in. Everything stays as in the first frame: the same outfit, the same hotel lobby, the same light. No cuts, no new people, no text.",
+  "genre": "auto",
+  "medias": [
+   {
+    "data": {
+     "id": "da4a5016-3d5b-473b-af5a-dbca5413d9db",
+     "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3AHnfM8DLPAylVhpaycTlOHUARx/da4a5016-3d5b-473b-af5a-dbca5413d9db.png",
+     "type": "media_input"
+    },
+    "role": "start_image"
+   }
+  ],
+  "duration": 5,
+  "resolution": "720p",
+  "aspect_ratio": "9:16",
+  "generate_audio": false,
+  "multi_shots": false,
+  "multi_shot_mode": "custom",
+  "multi_prompt": [],
+  "speedramp": "auto",
+  "reference_elements": [],
+  "prompt_language": "en",
+  "model": "default",
+  "extension_mode": null,
+  "bitrate_mode": "standard",
+  "draft": false,
+  "draft_job_id": null
+ },
+ "debug": null
+}

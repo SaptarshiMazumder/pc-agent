@@ -1,7 +1,7 @@
 """The checkpoint stamp — one JSON file in the run's workspace, written by the daemon, read by
 the tools that spend money.
 
-TWO MOMENTS. `present()` the moment a checkpoint TOOL returns — `ask_user` (plugins/ask), which
+TWO MOMENTS. `present()` the moment a checkpoint TOOL returns (with what it showed) — `ask_user` (plugins/ask), which
 declares `checkpoint = True` and which the gateway stamps on its tool_execution_end; `answer()`
 when the next user message arrives on that session. A tool that wants to run a workflow asks: was a checkpoint presented after this
 workflow first existed, and has it been answered since? Both answers live here.
@@ -45,13 +45,15 @@ def _save(workspace: str, sessions: dict) -> None:
     p.write_text(json.dumps({"sessions": sessions}, indent=1), encoding="utf-8")
 
 
-def present(workspace: str, session_key: str, run_id: str = "") -> None:
+def present(workspace: str, session_key: str, run_id: str = "", presented: dict | None = None) -> None:
     """A checkpoint tool just returned on `session_key`. Resets any earlier answer: a new
-    checkpoint is a new question."""
+    checkpoint is a new question. `presented` is what the tool showed (its structured result), kept
+    so the tools that act on the answer can compare it with what they are about to do."""
     if not workspace or not session_key:
         return
     sessions = _load(workspace)
-    sessions[session_key] = {"presented_at": time.time(), "answered_at": 0.0, "run_id": run_id}
+    sessions[session_key] = {"presented_at": time.time(), "answered_at": 0.0, "run_id": run_id,
+                             "presented": presented or {}}
     _save(workspace, sessions)
 
 

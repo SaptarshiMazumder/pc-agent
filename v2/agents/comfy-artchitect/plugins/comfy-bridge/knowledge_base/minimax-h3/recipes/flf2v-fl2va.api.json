@@ -45,12 +45,14 @@
       "first_frame": {
         "node": "15",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "first"
       },
       "last_frame": {
         "node": "18",
         "input": "image",
-        "type": "IMAGE"
+        "type": "IMAGE",
+        "frame": "last"
       }
     },
     "outputs": {

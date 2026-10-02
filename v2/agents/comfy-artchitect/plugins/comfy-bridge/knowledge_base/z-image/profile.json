@@ -1295,5 +1295,15 @@
       "accessed": "2026-10-01",
       "class": "official"
     }
+  },
+  "card": {
+    "short_name": "Z-Image Turbo",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "base",
+        "short_name": "Z-Image"
+      }
+    ]
   }
 }

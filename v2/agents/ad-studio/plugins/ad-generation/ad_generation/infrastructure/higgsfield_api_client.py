@@ -1,7 +1,8 @@
 """Higgsfield's developer API: upload an input, submit a generation, wait for its job, fetch the result.
 
-    POST /media?type=image  ->  {id, upload_url}     a presigned S3 PUT (Content-Type and
-    PUT   upload_url            the file, raw        If-None-Match are signed), then
+    POST /media?type=image  ->  {id, upload_url,     a presigned S3 PUT, signed for the
+                                 content_type}       content_type it names (a PNG) and
+    PUT   upload_url            the file, raw        If-None-Match; then
     POST /media/{id}/confirm?type=image
     POST /videos/{job_type}/generations  {"params": {...}}  ->  {id, credits}
     GET  /jobs/{id}  ->  {status, result_url, ...}
@@ -12,13 +13,20 @@ every cost this adapter reports is exact, not estimated.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from pathlib import Path
+
+from PIL import Image
 
 from agent_runtime.infrastructure.net.outbound import fetch
 
 from ad_generation.application.interfaces.provider_refused import ProviderRefused
 from ad_generation.infrastructure.higgsfield_session import API, HiggsfieldSession
+from ad_generation.infrastructure.run_workspace import RunWorkspace
+
+# Where a non-PNG input is converted before upload: the upload slot is signed for a PNG.
+_PNG_CACHE = "campaigns/.upload"
 
 _PENDING = {"queued", "pending", "created", "in_progress", "processing", "running"}
 _REFUSED_WORDS = ("moderation", "policy", "nsfw", "safety", "likeness", "not allowed", "rejected")
@@ -27,21 +35,23 @@ _MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".web
 
 
 class HiggsfieldApiClient:
-    def __init__(self, session: HiggsfieldSession, poll_s: float) -> None:
+    def __init__(self, session: HiggsfieldSession, workspace: RunWorkspace, poll_s: float) -> None:
         self._session = session
+        self._ws = workspace
         self._poll_s = poll_s
 
     def upload_image(self, path: str) -> str:
         """A workspace image -> its media id, for `start_image` and `image_references`."""
-        mime = _MIME.get(Path(path).suffix.lower())
-        if not mime:
+        if not _MIME.get(Path(path).suffix.lower()):
             raise ValueError(f"{path}: not an image Higgsfield takes (png, jpg, webp)")
-        created = self._json("POST", "/media", params={"type": "image"}, json={"content_type": mime})
+        created = self._json("POST", "/media", params={"type": "image"}, json={})
+        signed = str(created.get("content_type") or "image/png")
+        source = self._as_png(path) if signed == "image/png" else path
         put = fetch(
             created["upload_url"],
             method="PUT",
-            headers={"Content-Type": mime, "If-None-Match": "*"},
-            file_path=path,
+            headers={"Content-Type": signed, "If-None-Match": "*"},
+            file_path=source,
             raw_body=True,
             timeout_s=300,
         )
@@ -49,6 +59,25 @@ class HiggsfieldApiClient:
             raise RuntimeError(f"Higgsfield upload of {path} failed: {put.error or f'HTTP {put.status}: {put.text[:300]}'}")
         self._json("POST", f"/media/{created['id']}/confirm", params={"type": "image"}, json={})
         return str(created["id"])
+
+    def quote(self, job_type: str, params: dict) -> float:
+        """The credits a job with these settings will charge — asked before it is submitted. Only
+        the settings ride (no prompt, no media): the price depends on those alone."""
+        settings = {k: v for k, v in params.items() if not isinstance(v, (dict, list)) and k != "prompt"}
+        return float(self._json("POST", f"/jobs/{job_type}/cost", json={"params": settings}).get("credits") or 0.0)
+
+    def _as_png(self, path: str) -> str:
+        """A PNG of the image — the file itself when it already is one, else a cached copy."""
+        if Path(path).suffix.lower() == ".png":
+            return path
+        src = self._ws.path(path)
+        rel = f"{_PNG_CACHE}/{hashlib.sha1(str(src).encode()).hexdigest()[:16]}.png"
+        dest = self._ws.path(rel)
+        if not dest.is_file() or dest.stat().st_mtime < src.stat().st_mtime:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with Image.open(src) as im:
+                im.convert("RGB").save(dest, "PNG")
+        return rel
 
     def submit(self, kind: str, job_type: str, params: dict) -> tuple[str, float]:
         """-> (job id, credits charged)."""

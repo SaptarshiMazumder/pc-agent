@@ -2455,5 +2455,37 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "ControlNet",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "^flux1",
+        "short_name": "FLUX.1 + control",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "^sd35",
+        "short_name": "SD3.5 + ControlNet",
+        "restriction": "free under $1M annual revenue"
+      },
+      {
+        "match": "^qwen",
+        "short_name": "Qwen-Image + ControlNet"
+      },
+      {
+        "match": "^zimage",
+        "short_name": "Z-Image + ControlNet"
+      },
+      {
+        "match": "^sdxl",
+        "short_name": "SDXL + ControlNet"
+      },
+      {
+        "match": "^sd15",
+        "short_name": "SD1.5 + ControlNet"
+      }
+    ]
   }
 }

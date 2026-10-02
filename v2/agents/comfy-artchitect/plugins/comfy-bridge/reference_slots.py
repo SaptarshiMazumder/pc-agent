@@ -115,9 +115,14 @@ def declared(root: Path) -> dict[str, dict]:
         return {}
 
 
-def record(root: Path, workflow: str, roles, whats: dict[str, str]) -> None:
+def record(root: Path, workflow: str, roles, whats: dict[str, str],
+           fed_by: dict[str, str] | None = None) -> None:
     """Remember that `workflow` uses these roles, with their descriptions. A re-emit that drops a
-    role drops it from that workflow; a role no workflow uses any more is forgotten."""
+    role drops it from that workflow; a role no workflow uses any more is forgotten.
+
+    `fed_by` marks roles a pipeline stage fills ({role: "<stage>.<output>"}): the person never adds
+    a file for those — the window shows them as made by that stage, not as an empty slot."""
+    fed_by = fed_by or {}
     data = declared(root)
     for role, entry in list(data.items()):
         wfs = [w for w in (entry.get("workflows") or []) if w != workflow]
@@ -131,6 +136,8 @@ def record(root: Path, workflow: str, roles, whats: dict[str, str]) -> None:
             entry["what"] = whats[role]
         if workflow not in entry["workflows"]:
             entry["workflows"].append(workflow)
+        if fed_by.get(role):
+            entry["fed_by"] = fed_by[role]
     p = _record_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=1), encoding="utf-8")

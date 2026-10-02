@@ -2203,5 +2203,20 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "FLUX.2 dev",
+    "restriction": "non-commercial use only",
+    "recipes": [
+      {
+        "match": "klein-4b",
+        "short_name": "FLUX.2 klein 4B",
+        "restriction": ""
+      },
+      {
+        "match": "klein-9b",
+        "short_name": "FLUX.2 klein 9B"
+      }
+    ]
   }
 }

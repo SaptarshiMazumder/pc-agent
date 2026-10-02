@@ -92,8 +92,8 @@ class PackageAgentService:
             version=version,
         )
 
-        target = self._resolve_out_dir(out_dir)
         try:
+            target = self._packer.out_dir_for(str(out_dir or ""))
             path, digest = self._packer.pack(agent_dir, target, manifest)
         except Exception as e:  # noqa: BLE001 — every failure here is a user-facing outcome
             return PackageResult(False, f"packing '{agent_id}' failed ({type(e).__name__}): {e}")
@@ -108,15 +108,6 @@ class PackageAgentService:
             bundle_id=manifest.id,
             version=manifest.version,
             private_plugins=private,
-        )
-
-    def _resolve_out_dir(self, out_dir: str):
-        from pathlib import Path
-
-        return (
-            Path(out_dir).expanduser()
-            if str(out_dir or "").strip()
-            else self._packer.default_out_dir()
         )
 
     @staticmethod

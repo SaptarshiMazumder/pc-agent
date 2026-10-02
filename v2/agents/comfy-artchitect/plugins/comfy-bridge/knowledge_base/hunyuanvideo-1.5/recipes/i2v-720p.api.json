@@ -62,7 +62,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "first frame; VAE-encoded into the latent and SigLIP-encoded (CLIPVisionEncode crop center); output is sized to width x height"
+        "note": "first frame; VAE-encoded into the latent and SigLIP-encoded (CLIPVisionEncode crop center); output is sized to width x height",
+        "frame": "first"
       }
     },
     "outputs": {

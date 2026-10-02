@@ -157,6 +157,36 @@ class IntakeParker(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class UploadSlot:
+    """Where ONE package may be uploaded, once, directly to storage.
+
+    WHY THE PACKAGE DOES NOT RIDE THE PUBLISH REQUEST. The service sits behind a load balancer that
+    caps a request body at 1 MB, and an agent with a built window is past that on its own. So the
+    author uploads to a short-lived, size-bounded form (``url`` + ``fields``) and the publish
+    request names ``key`` instead of carrying the bytes.
+    """
+
+    key: str
+    url: str
+    fields: dict = field(default_factory=dict)
+    expires_in: int = 0
+
+
+@runtime_checkable
+class UploadSlots(Protocol):
+    """Private, per-owner upload slots — never in the world-readable registry space."""
+
+    def reserve(self, owner: str, max_bytes: int) -> UploadSlot:
+        """A fresh slot only ``owner`` can later take, accepting at most ``max_bytes``."""
+        ...
+
+    def take(self, owner: str, key: str) -> bytes:
+        """The uploaded bytes, removing them. b'' when the key is not ``owner``'s, was never
+        uploaded, or is already gone — the caller cannot tell those apart, deliberately."""
+        ...
+
+
 @runtime_checkable
 class RootKeyVault(Protocol):
     """The platform ROOT key, for the ONE thing it signs: the roster.

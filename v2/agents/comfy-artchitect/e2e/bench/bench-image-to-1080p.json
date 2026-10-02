@@ -1,0 +1,67 @@
+{
+  "id": "bench-image-to-1080p",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org template video_hunyuan_video_1.5_720p_i2v (HunyuanVideo 1.5 720p I2V -> latent upsample -> 1080p SR distilled)",
+    "steps": [
+      "image -> 720p video",
+      "720p -> 1080p super-resolution"
+    ],
+    "must": [
+      "the user's image is the first frame",
+      "the output reaches 1080p (an SR recipe or an upscale stage)",
+      "push-in camera move in the prompt"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Animate this still photo into a smooth 1080p shot with a slow push-in."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

@@ -121,7 +121,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the first frame; scaled to width x height with a center crop, then H.264-recompressed at CRF 18 (LTXVPreprocess) as the model was trained"
+        "note": "the first frame; scaled to width x height with a center crop, then H.264-recompressed at CRF 18 (LTXVPreprocess) as the model was trained",
+        "frame": "first"
       }
     },
     "outputs": {

@@ -56,21 +56,23 @@ class NodeRegistryCache:
         key = self.version_key(version)
         return bool(key) and (self._dir / f"{key}.json").is_file()
 
-    def load(self, version: str = "") -> tuple[dict, str]:
-        """(object_info, where it came from). For `version`: its live capture if there is one,
-        else the shipped snapshot of that version; with no version, the newest live capture,
-        else the shipped snapshot. Raises FileNotFoundError when nothing exists at all."""
+    def load(self, version: str = "") -> tuple[dict, str, str]:
+        """(object_info, where it came from, the ComfyUI version it lists). For `version`: its live
+        capture if there is one, else the shipped snapshot of that version; with no version, the
+        newest live capture, else the shipped snapshot. Raises FileNotFoundError when nothing exists
+        at all."""
         key = self.version_key(version)
         captured = self._read(self._dir / f"{key}.json") if key else self._newest_capture()
         if captured:
-            return captured["object_info"], f"captured from a ComfyUI {captured['comfyui_version']} box"
+            return (captured["object_info"], f"captured from a ComfyUI {captured['comfyui_version']} box",
+                    str(captured["comfyui_version"]))
         shipped = self._shipped(key)
         if shipped is None:
             raise FileNotFoundError(f"no node catalogue for ComfyUI {key or '(unknown)'}: none captured, none shipped")
         note = f"ComfyUI {shipped['comfyui_version']} node list shipped with the agent"
         if key and key != shipped["comfyui_version"]:
             note += f" (the box runs {key}; differences are caught on the box)"
-        return shipped["object_info"], note
+        return shipped["object_info"], note, str(shipped["comfyui_version"])
 
     # ------------------------------------------------------------------ files
 

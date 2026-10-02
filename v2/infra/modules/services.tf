@@ -30,6 +30,11 @@ locals {
       AGENTD_MODEL_PROXY_URL = local.model_proxy_internal_url
       AGENTD_REGISTRY        = local.registry_index_url
       AGENTD_PUBLISHER_KEY   = var.registry_publisher_key
+      # THE WRITE SIDE of the same marketplace: where Agent Builder's Publish sends a package. The
+      # desktop gets it from its distribution.toml; the hosted daemon has no profile, so without
+      # this every web Publish answered "this build has no marketplace". Empty until the publish
+      # service is brought up (publish_image_tag), which keeps that answer honest.
+      AGENTD_PUBLISH_TARGET = local.publish_public_url
       # WHO MAY EDIT THIS DEPLOYMENT'S DEFAULTS — the same list the accounts and publish services
       # read, now a third reader. The daemon needs it because the config every tenant inherits is
       # ITS file (/data/config.json on EFS): `config.set {target:"master"}` is admitted only for

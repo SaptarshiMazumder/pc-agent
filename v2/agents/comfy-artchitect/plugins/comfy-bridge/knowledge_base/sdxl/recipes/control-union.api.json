@@ -78,7 +78,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "an already-preprocessed map (openpose skeleton, depth, lineart, scribble, segmentation, normal, tile, repaint input): 'The ControlNetApply node will not convert regular images into depthmaps, canny maps and so on for you'"
+        "note": "an already-preprocessed map (openpose skeleton, depth, lineart, scribble, segmentation, normal, tile, repaint input): 'The ControlNetApply node will not convert regular images into depthmaps, canny maps and so on for you'",
+        "prepared": "pose, depth, lineart or canny"
       }
     },
     "outputs": {

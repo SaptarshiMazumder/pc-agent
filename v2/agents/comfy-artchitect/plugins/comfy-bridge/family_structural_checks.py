@@ -236,6 +236,61 @@ class FamilyStructuralChecks:
                                f"(see the {p.name} guide)")
         return out
 
+    def prompt_times_within_length(self, g: ApiGraph, a: dict, p: FamilyProfile) -> list[str] | None:
+        """Every time the prompt names (a shot starting "At 00:05.500", "the 5.50-second mark") is
+        inside the clip. A shot timed past the end never happens — the action it carries is lost.
+        args: node (prompt + length), input, length, fps_node / fps_input (where the frame rate is)."""
+        fps_nodes = g.of_class(a.get("fps_node", ""))
+        fps = g.literal(fps_nodes[0], a.get("fps_input", "fps")) if fps_nodes else a.get("fps")
+        out = []
+        for nid in g.of_class(a.get("node", "")):
+            text, length = g.literal(nid, a.get("input", "prompt")), g.literal(nid, a.get("length", "length"))
+            if not isinstance(text, str):
+                continue
+            if not isinstance(length, int) or not isinstance(fps, (int, float)) or not fps:
+                return None  # the clip's duration arrives at run time
+            seconds = length / float(fps)
+            late = sorted({t for t in _prompt_times(text) if t > seconds + 0.05})
+            if late:
+                out.append(f"node {nid}: the prompt times something at {', '.join(f'{t:.2f} s' for t in late)}, "
+                           f"but the clip is {length} frames at {fps:g} fps = {seconds:.2f} s — re-time the "
+                           "shots to the clip, or lengthen it")
+        return out
+
+    def prompt_avoids_negation(self, g: ApiGraph, a: dict, p: FamilyProfile) -> list[str]:
+        """For families whose guide says a negation ADDS what it names ("no subtitles" puts
+        subtitles in): the positive prompt says what IS in the shot. Quoted text and dialogue are
+        left alone — they are words someone says or writes. args: node, input(s)."""
+        inputs = [a["input"]] if isinstance(a.get("input"), str) else list(a.get("inputs") or ["prompt"])
+        out = []
+        for nid in g.of_class(a.get("node", "")):
+            for name in inputs:
+                text = g.literal(nid, name)
+                if not isinstance(text, str):
+                    continue
+                spoken = re.sub(r"<d>.*?</d>|\"[^\"]*\"|“[^”]*”", " ", text, flags=re.S)
+                found = sorted({m.group(0).lower() for m in _NEGATION.finditer(spoken)})
+                if found:
+                    out.append(f"node {nid}.{name}: negations in the prompt ({', '.join(found)}) — this model "
+                               "adds what a negation names; describe what IS in the shot instead")
+        return out
+
+    def prompt_marker_with_file(self, g: ApiGraph, a: dict, p: FamilyProfile) -> list[str]:
+        """When the graph loads a given file (a LoRA with a trigger), every prompt on the given node
+        class carries its marker. args: file, node, input, marker, skip_empty (a negative encoder)."""
+        if not any(_file_base(s) == _file_base(a.get("file", "")) for s in g.strings()):
+            return []
+        out = []
+        for nid in g.of_class(a.get("node", "")):
+            text = g.literal(nid, a.get("input", "prompt"))
+            if not isinstance(text, str) or (a.get("skip_empty") and not text.strip()):
+                continue
+            markers = list(a.get("markers") or [a.get("marker", "")])
+            if not any(m.lower() in text.lower() for m in markers):
+                out.append(f"node {nid}.{a.get('input', 'prompt')}: none of {', '.join(repr(m) for m in markers)} in "
+                           f"the prompt, which {a.get('file')} needs")
+        return out
+
     def control_image_matches_latent(self, g: ApiGraph, a: dict, p: FamilyProfile) -> list[str] | None:
         """Only when both sizes are written in the graph; otherwise they arrive with the images."""
         latents = [n for n in g.of_class(a.get("latent", "")) if isinstance(g.literal(n, "width"), int)]
@@ -263,6 +318,23 @@ class FamilyStructuralChecks:
 
 
 # ---------------------------------------------------------------------- helpers
+
+#: Negation as a prompt word, not inside another word ("note", "nothing" included on purpose).
+_NEGATION = re.compile(r"\b(?:no|not|without|never|nothing|don't|do not|avoid)\b", re.I)
+#: "00:05.500" (mm:ss, two digits each — "9:16" is an aspect ratio, not a time) and "5.50-second" /
+#: "5.5 seconds" / "5.50s mark".
+_CLOCK = re.compile(r"(?<![\d:])(\d{2}):(\d{2}(?:\.\d+)?)(?![\d:])")
+_SECONDS = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:-?\s*seconds?\b|s\s+mark\b)", re.I)
+
+
+def _file_base(value: str) -> str:
+    return str(value).replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def _prompt_times(text: str) -> list[float]:
+    times = [int(m.group(1)) * 60 + float(m.group(2)) for m in _CLOCK.finditer(text)]
+    return times + [float(m.group(1)) for m in _SECONDS.finditer(text)]
+
 
 def _loaders_matching(g: ApiGraph, loader: str, needle: str) -> list[str]:
     return [nid for nid in g.of_class(loader)

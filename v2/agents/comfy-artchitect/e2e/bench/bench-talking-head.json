@@ -1,0 +1,67 @@
+{
+  "id": "bench-talking-head",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org Applied template_image_speech_to_video (structure; ElevenLabs voice + LTX-2.3 image-audio-to-video). Free routes: a model that speaks the line itself (LTX-2.x audio-video, MiniMax H3)",
+    "steps": [
+      "(optional) a still of them framed for the shot from the photo",
+      "still -> video with the spoken line and lip-sync (audio-video model)"
+    ],
+    "must": [
+      "the spoken line quoted exactly in the prompt, in the model's dialogue format",
+      "a model that generates speech or takes audio",
+      "vertical framing"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Here's a photo of me. Make a short vertical video of me looking into the camera and saying: 'Hey everyone, I've got big news - the new collection drops Friday.'"
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

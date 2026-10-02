@@ -31,6 +31,14 @@ class CampaignStore(Protocol):
 
     def save_progress(self, campaign_id: str, progress: CampaignProgress) -> None: ...
 
+    def campaign_ids(self) -> list[str]:
+        """Every campaign started by campaign_run (those with recipe progress)."""
+        ...
+
+    def updated(self, campaign_id: str) -> float:
+        """When the campaign last changed (epoch seconds)."""
+        ...
+
     def progress(self, campaign_id: str) -> CampaignProgress:
         """Raises KeyError when the campaign was not started by campaign_run."""
         ...

@@ -1,0 +1,156 @@
+{
+  "schema": 2,
+  "id": "control-maps",
+  "name": "Control maps (ComfyUI core: Canny, Lotus depth)",
+  "publisher": "Comfy-Org (ComfyUI core)",
+  "license": {
+    "name": "GPL-3.0 (ComfyUI core); Lotus depth weights per their own licence (see controlnet)",
+    "commercial": true,
+    "notes": "a preprocessing stage: it makes the control signal another stage reads",
+    "src": [
+      "S-NODES-CANNY",
+      "S-LOTUS-TPL"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "preprocess"
+  ],
+  "tasks": [
+    "control-map"
+  ],
+  "stage": {
+    "takes": [
+      "@image",
+      "@video"
+    ],
+    "gives": [
+      "IMAGE",
+      "VIDEO"
+    ],
+    "note": "turns the person's raw photo or clip into the PREPARED signal a control input needs (edges or depth)"
+  },
+  "cannot": [
+    {
+      "what": "pose skeletons: OpenPose/DWPose need the comfyui_controlnet_aux pack (not native)",
+      "src": "S-LOTUS-TPL"
+    }
+  ],
+  "comfyui": {
+    "min": "0.4.0"
+  },
+  "files": [
+    {
+      "name": "vae-ft-mse-840000-ema-pruned.safetensors",
+      "role": "preprocessor",
+      "folder": "vae",
+      "bytes": 334641190,
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors",
+      "host": "sd15 / Lotus depth",
+      "recipes": [
+        "sd15-scribble-canny",
+        "flux1-depth-lora",
+        "sd35-depth",
+        "qwen-instantx-union-depth"
+      ],
+      "note": "SD1.5 VAE; the Lotus depth chain uses it ('or any SD1.5 VAE')",
+      "src": "S-HF-SDVAE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "lotus-depth-d-v1-1.safetensors",
+      "role": "preprocessor",
+      "folder": "diffusion_models",
+      "bytes": 1735197352,
+      "url": "https://huggingface.co/Comfy-Org/lotus/resolve/main/lotus-depth-d-v1-1.safetensors",
+      "host": "any (depth preprocessor)",
+      "recipes": [
+        "flux1-depth-lora",
+        "sd35-depth",
+        "qwen-instantx-union-depth"
+      ],
+      "note": "1-step depth model used by the official depth templates (UNETLoader + LotusConditioning + SamplerCustomAdvanced/DisableNoise/SetFirstSigma + ImageInvert); needs an SD1.5 VAE",
+      "src": "S-HF-LOTUS"
+    }
+  ],
+  "selection": [
+    {
+      "task": "control-map",
+      "recipe": "depth-video",
+      "why": "restyle / re-render a clip keeping its layout and motion (the official Video Restyle template's depth option)",
+      "src": [
+        "S-TPL-RESTYLE",
+        "S-LOTUS-TPL"
+      ]
+    },
+    {
+      "task": "control-map",
+      "recipe": "canny-video",
+      "why": "keep the clip's exact outlines (the restyle template's canny option)",
+      "src": [
+        "S-TPL-RESTYLE",
+        "S-NODES-CANNY"
+      ]
+    },
+    {
+      "task": "control-map",
+      "recipe": "depth-image",
+      "why": "a depth map for an image control input",
+      "src": [
+        "S-LOTUS-TPL"
+      ]
+    },
+    {
+      "task": "control-map",
+      "recipe": "canny-image",
+      "why": "an edge map for an image control input",
+      "src": [
+        "S-NODES-CANNY"
+      ]
+    }
+  ],
+  "params": {},
+  "rules": [],
+  "prompting": {},
+  "pitfalls": [
+    {
+      "symptom": "the control video has a different frame count than the video stage's length",
+      "cause": "control and generation lengths differ",
+      "fix": "set the video stage's length to the clip's frames (or trim the clip)",
+      "src": [
+        "S-TPL-RESTYLE"
+      ]
+    }
+  ],
+  "sources": {
+    "S-NODES-CANNY": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy_extras/nodes_canny.py",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-LOTUS-TPL": {
+      "url": "https://github.com/Comfy-Org/workflow_templates (sd3.5_large_depth, image_qwen_image_instantx_controlnet, flux depth templates: Lotus subgraph)",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-TPL-RESTYLE": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/templates_shane_video_restyle.json",
+      "accessed": "2026-10-02",
+      "class": "official"
+    }
+  },
+  "card": {
+    "short_name": "ComfyUI control map",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "^depth",
+        "short_name": "Lotus depth"
+      },
+      {
+        "match": "^canny",
+        "short_name": "ComfyUI Canny"
+      }
+    ]
+  }
+}

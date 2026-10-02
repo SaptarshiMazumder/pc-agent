@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.image_request import ImageRequest
 from ad_generation.infrastructure.higgsfield_api_client import HiggsfieldApiClient
@@ -40,6 +41,11 @@ class HiggsfieldImageGenerator:
             ]
         if "aspect_ratio" in fields:
             params[fields["aspect_ratio"]] = request.aspect_ratio
+        job_type = spec.get("job_type") or request.model
+        if request.max_usd:
+            cost = self._client.quote(job_type, params) * self._session.usd_per_credit() * request.variants
+            if cost > request.max_usd:
+                raise BudgetExceeded(request.model, cost, request.max_usd)
         out = []
         for n in range(1, request.variants + 1):
             job_id, credits = self._client.submit("image", spec.get("job_type") or request.model, params)

@@ -1,0 +1,67 @@
+{
+  "id": "bench-storyboard-shots",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "community: lovis93 next-scene-qwen-image-lora-2509 workflow (FLUX.1 Krea establishing frame -> Qwen-Image-Edit 2509 + Next-Scene LoRA per shot)",
+    "steps": [
+      "text -> establishing frame (aesthetic T2I)",
+      "establishing frame -> each next shot by image edit, same world"
+    ],
+    "must": [
+      "the hero frame is made first and reviewed",
+      "the next shots are edits OF the hero frame (stage:), not fresh generations",
+      "four stills, one prompt per shot"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Make an opening shot of a huge airship over snowy mountains, then three more shots of the same scene: the camera pulls back to show a whole fleet, a close-up of the captain on deck, and the fleet sailing into the sunset."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

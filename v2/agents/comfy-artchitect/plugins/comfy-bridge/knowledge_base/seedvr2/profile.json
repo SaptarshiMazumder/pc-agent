@@ -1170,5 +1170,9 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "SeedVR2",
+    "restriction": ""
   }
 }

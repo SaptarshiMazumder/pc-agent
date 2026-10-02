@@ -1,0 +1,51 @@
+==============================================================================
+E2E RUN · bench-portrait-4k-skin · agent=comfy-artchitect · model=openai/gpt-6-luna
+goal: BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.
+==============================================================================
+
+TRANSCRIPT
+
+  ── turn 0 ──
+  user> Make a realistic close-up headshot of a woman with freckles and real skin texture, at 4K.
+    · gpu_ensure(wait_seconds=0) → ok: This account uses its own ComfyUI (Vast machine 53321307) —…
+    · update_plan(plan=[{'step': 'kb_lookup: choose …) → ok: ▶ kb_lookup: choose the best free photorealistic text-to-im…
+    · kb_lookup(task=t2i-photoreal) → ok: best free models for t2i-photoreal, best first: 1. Qwen-Ima…
+    · kb_lookup(family=qwen-image, recipe=t2i-2512) → ok: qwen-image/t2i-2512 — Qwen-Image-2512 fp8_e4m3fn (Dec-2025 …
+    · kb_lookup(family=z-image, recipe=t2i-turbo) → ok: z-image/t2i-turbo — Z-Image-Turbo bf16, 8 steps, cfg 1, res…
+    · kb_lookup(task=upscale-image) → ok: best free models for upscale-image, best first: 1. SeedVR2 …
+    · kb_lookup(family=seedvr2, recipe=upscale-image-7b) → ok: seedvr2/upscale-image-7b — 7B Int8 (8.33 GB): the official …
+    · pipeline_plan(name=freckled_real_skin_headshot, stages=[{'nam…) → ok: the design HOLDS — 2 stage(s), checked without a GPU agains…
+    · pipeline_validate() → ok: the design HOLDS — 2 stage(s), checked without a GPU agains…
+    · update_plan(explanation=The photorealistic model and …, pla…) → ok: The photorealistic model and 4K upscale design are selected…
+    · pipeline_present(why=Z-Image-Turbo gives a strong …) → ok: Call ask_user with exactly these arguments — copy them char…
+    · ask_user(title=freckled real skin headshot: …, workflows…) → ok: Asked. The answer arrives as the user's NEXT message — end …
+  bot>  I’ll use a two-step free route: generate the realistic portrait at a native portrait-friendly size,…
+        (2 artifact(s))
+
+
+DIAGNOSIS
+
+  INFO
+    - cost (run): 1 turns · 12 tool calls · 0 chars reasoning
+
+
+TRIAGE
+  nothing to fix — now judge the OUTPUT against the goal (green checks prove the mechanics fired, not that the deliverable is good).
+
+
+CHECKS
+  [PASS] completed: ran to completion
+  [PASS] tool_called: kb_lookup called 5× (need ≥1)
+  [PASS] tool_succeeded: pipeline_plan: 1/1 completed successfully
+  [PASS] tool_succeeded: pipeline_present: 1/1 completed successfully
+  [PASS] call_order: pipeline_present first at call #10, ask_user at call #11
+  [PASS] tool_succeeded: ask_user: 1/1 completed successfully
+  [PASS] tool_never_says: no pipeline_provision/pipeline_run/comfy_install/comfy_run/comfy_emit…
+  [PASS] no_punt_to_user: no punts
+  [PASS] max_turns: 1 turns (cap 1)
+
+──────────────────────────────────────────────────────────────────────────────
+VERDICT: 9/9 checks passed · 0 agent-origin + 0 environment problem(s)
+------------------------------------------------------------------------------
+
+trace saved: C:\Users\sapma\OneDrive\Desktop\Projects\pc-agent\v2\agents\comfy-artchitect\e2e\bench\bench-portrait-4k-skin.trace.jsonl

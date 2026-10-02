@@ -1851,6 +1851,38 @@
       "per_recipe": true,
       "message": "the recipe's template needs a newer ComfyUI than the pinned image (FastVideo FastH3: 0.36.0 > 0.35.0; native H3 0.30.0, Add Guide 0.34.0, Fun ControlNet 0.35.0 are fine)",
       "src": "S-TPL-INDEX"
+    },
+    {
+      "id": "prompt-times-within-clip",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_times_within_length",
+      "args": {
+        "node": "MiniMaxH3ReferenceToVideo|MiniMaxH3ImageToVideo",
+        "input": "prompt",
+        "length": "length",
+        "fps_node": "CreateVideo",
+        "fps_input": "fps"
+      },
+      "message": "Shot and cut times must sit inside the clip's duration and in order — the official guide lists 'cut times outside or out of order within the duration' among what hurts; a shot timed past the end is never rendered",
+      "src": [
+        "S-H3-GUIDE-BASE"
+      ]
+    },
+    {
+      "id": "prompt-no-negation",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_avoids_negation",
+      "args": {
+        "node": "MiniMaxH3ReferenceToVideo|MiniMaxH3ImageToVideo",
+        "input": "prompt"
+      },
+      "message": "H3 has no negative prompt; the prompt guide: 'Write bans as positives: a line such as no subtitles and no on-screen text registers text as content. Say what should be in the shot instead' (some official template examples still carry 'Negative: no …' lines — the guide is the explicit statement)",
+      "src": [
+        "S-DOCS-H3-PROMPT",
+        "S-TPL-T2V"
+      ]
     }
   ],
   "prompting": {
@@ -2312,5 +2344,15 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "MiniMax H3",
+    "restriction": "not licensed in the USA, EU, UK or South Korea; over $20M revenue needs permission",
+    "recipes": [
+      {
+        "match": "fasth3",
+        "short_name": "FastH3"
+      }
+    ]
   }
 }

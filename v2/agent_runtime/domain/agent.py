@@ -26,6 +26,17 @@ from pathlib import Path
 #: silently began deleting chat history the moment sessions moved into the same folder).
 USER_DATA_DIRS = frozenset({"workspace", "sessions"})
 
+#: The file holding the values whoever runs this agent typed into its `[[settings]]` — API keys,
+#: URLs, tokens (infrastructure/account_settings.py writes it). The SHAPE of a setting is declared
+#: in agent.toml and travels; these VALUES are the user's own, like their workspace and sessions.
+SETTINGS_FILE = "settings.json"
+
+#: Inside an agent's folder, THESE FILES ARE THE USER'S, not the agent's definition. Kept apart
+#: from USER_DATA_DIRS because the sandbox read grant, the hosted read scope and the write fence
+#: all read USER_DATA_DIRS through `definition_entries`, and changing what those grant is a
+#: separate decision from what a package, an update or an org share may carry.
+USER_DATA_FILES = frozenset({SETTINGS_FILE})
+
 
 #: Ids no NEW agent may take. Two families: names the platform already uses as folder
 #: vocabulary inside an agent dir or an agents root (an agent literally named "workspace"

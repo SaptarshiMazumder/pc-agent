@@ -177,7 +177,7 @@ class ManagerCheckpointService:
             # button the person pressed — "Approved: … Declined: …" and then "then continue" were
             # both read as not-yet-approved, the contract stayed pending, the manager waited on
             # the user forever and never reviewed a stop (a two-character scene gave up twice).
-            if self._own_card_answered(messages):
+            if not contract.open_decisions and self._own_card_answered(messages):
                 return await self._approved_in_card(contract)
             return await self._settle_reply(messages)
         self._ledger.awaiting_user = False  # the user has answered whatever was put to them
@@ -325,8 +325,10 @@ class ManagerCheckpointService:
             return None
         # ALREADY APPROVED IN THE AGENT'S OWN CARD. The manager engages only once work is under
         # way, and by then an agent with its own approval step may already have asked — asking
-        # again put a second card in front of the person for the same work.
-        if contract.pending_approval and self._approval_given_in_own_card(messages):
+        # again put a second card in front of the person for the same work. Not when a decision is
+        # still open: that card never asked it, and the work cannot start on a guess.
+        if (contract.pending_approval and not contract.open_decisions
+                and self._approval_given_in_own_card(messages)):
             contract = replace(contract, status=ACTIVE)
         self._ledger.contract = contract
         self._ledger.awaiting_user = contract.pending_approval

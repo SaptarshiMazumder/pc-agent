@@ -1701,5 +1701,30 @@
       "accessed": "2026-10-01",
       "class": "community"
     }
+  },
+  "card": {
+    "short_name": "Real-ESRGAN",
+    "restriction": "",
+    "recipes": [
+      {
+        "match": "animesharp",
+        "short_name": "4x-AnimeSharp",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "ultrasharp",
+        "short_name": "4x-UltraSharp",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "anime$",
+        "short_name": "4x-UltraSharp V2",
+        "restriction": "non-commercial use only"
+      },
+      {
+        "match": "hires-fix-latent",
+        "short_name": "SD1.5 hires fix"
+      }
+    ]
   }
 }

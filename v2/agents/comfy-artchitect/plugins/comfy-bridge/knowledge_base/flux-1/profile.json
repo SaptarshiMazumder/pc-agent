@@ -1705,6 +1705,23 @@
         "S-TPL-INDEX",
         "S-DOCS-CHANGELOG"
       ]
+    },
+    {
+      "id": "prompt-no-negation",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_avoids_negation",
+      "args": {
+        "node": "CLIPTextEncode|CLIPTextEncodeFlux",
+        "inputs": [
+          "text",
+          "t5xxl"
+        ]
+      },
+      "message": "FLUX.1 renders what a negation names ('no', 'without') and has no working negative at cfg 1 — describe what IS there",
+      "src": [
+        "S-BFL-PROMPT-TECH"
+      ]
     }
   ],
   "prompting": {
@@ -2217,5 +2234,36 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "FLUX.1 dev",
+    "restriction": "non-commercial use only",
+    "recipes": [
+      {
+        "match": "schnell",
+        "short_name": "FLUX.1 schnell",
+        "restriction": ""
+      },
+      {
+        "match": "krea",
+        "short_name": "FLUX.1 Krea"
+      },
+      {
+        "match": "kontext",
+        "short_name": "FLUX.1 Kontext"
+      },
+      {
+        "match": "fill",
+        "short_name": "FLUX.1 Fill"
+      },
+      {
+        "match": "canny|depth",
+        "short_name": "FLUX.1 dev + control"
+      },
+      {
+        "match": "redux",
+        "short_name": "FLUX.1 Redux"
+      }
+    ]
   }
 }

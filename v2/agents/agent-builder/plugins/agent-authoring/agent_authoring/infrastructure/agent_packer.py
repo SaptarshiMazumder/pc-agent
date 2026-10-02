@@ -22,6 +22,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+from agent_runtime.infrastructure import accounts, user_state
 from agent_runtime.infrastructure.marketplace import bundle_io
 
 
@@ -88,8 +89,27 @@ class AgentPacker:
         return out
 
     # ------------------------------------------------------------------ paths
-    def default_out_dir(self) -> Path:
-        """Where a packed bundle lands when the caller names no directory: ``<state_dir>/dist``.
-        Inside the daemon's own state so it exists, is writable, and survives in packaged mode —
-        a repo-relative ``dist/`` would be wrong on an installed machine."""
-        return Path(getattr(self._config, "state_dir", ".")) / "dist"
+    def out_dir_for(self, requested: str = "") -> Path:
+        """Where this caller's package lands.
+
+        DESKTOP: ``requested``, else ``<state_dir>/dist`` — inside the daemon's own state so it
+        exists, is writable, and survives in packaged mode.
+
+        HOSTED: always ``<the caller's account root>/dist``. The state dir is shared by every
+        tenant, so two accounts packing the same id and version overwrote each other there; and
+        the account root is exactly what ``/file`` serves back to that account, which is what makes
+        the package downloadable from a browser. A chosen directory is refused rather than
+        ignored: it is a path the model picks, written with plain file IO outside every fence.
+        """
+        state_dir = Path(getattr(self._config, "state_dir", "."))
+        if not getattr(self._config, "hosted", False):
+            return Path(requested).expanduser() if requested.strip() else state_dir / "dist"
+        if requested.strip():
+            raise ValueError(
+                "out_dir cannot be chosen on the hosted platform — omit it; the package lands in "
+                "your own account and the result carries its path"
+            )
+        account_id = str((accounts.current_account.get() or {}).get("account_id") or "").strip()
+        if not account_id:
+            raise ValueError("packaging on the hosted platform needs a signed-in account")
+        return user_state.account_root(state_dir, account_id) / "dist"

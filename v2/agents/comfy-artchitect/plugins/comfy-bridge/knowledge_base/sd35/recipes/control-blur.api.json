@@ -64,7 +64,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a PRE-BLURRED image (HF card: GaussianBlur kernel_size=50); template note: 'Please use the preprocessed images, or install comfyui_controlnet_aux' — no in-graph blur"
+        "note": "a PRE-BLURRED image (HF card: GaussianBlur kernel_size=50); template note: 'Please use the preprocessed images, or install comfyui_controlnet_aux' — no in-graph blur",
+        "prepared": "blurred"
       }
     },
     "outputs": {

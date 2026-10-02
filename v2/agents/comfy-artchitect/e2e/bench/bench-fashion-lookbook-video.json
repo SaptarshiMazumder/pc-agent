@@ -1,0 +1,70 @@
+{
+  "id": "bench-fashion-lookbook-video",
+  "agent_id": "comfy-artchitect",
+  "goal": "BENCHMARK, design only. Judged against 'reference' (a pipeline published by Comfy-Org or the model vendor): the agent's stages must reach the same result with free models - the same kind of steps in the same order, each fed by the right earlier output, prompts that describe exactly what was asked, and a design that holds with every ? answered. Nothing is installed or run.",
+  "reference": {
+    "source": "Comfy-Org Applied 'Contact Sheet Workflow' steps 1-3 (structure; the template uses paid Nano Banana Pro + Kling FLF2V)",
+    "steps": [
+      "model photo + outfit flat-lay -> one editorial still of her wearing it (multi-image edit)",
+      "editorial still -> N angle variations, same person and outfit",
+      "consecutive angle stills -> first-last-frame clips between them",
+      "clips joined"
+    ],
+    "must": [
+      "the outfit is put on her in an image stage before any video",
+      "the angle stills come from the editorial still (stage:), not from the raw photos",
+      "video uses first+last frame between consecutive stills",
+      "review on the editorial still"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Here's a photo of my model and a flat-lay photo of an outfit. I want a short fashion video of her wearing that outfit: first a strong editorial photo of her in it, then several shots from different angles, then the shots joined into one smooth video that moves from angle to angle."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "kb_lookup"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

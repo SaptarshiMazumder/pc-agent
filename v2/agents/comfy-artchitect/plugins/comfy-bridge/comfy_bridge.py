@@ -385,10 +385,12 @@ def _failed(res, what: str) -> str:
     if res.error and _own_connection():
         return (
             f"{what}: could not reach the user's OWN machine ({res.error}) — it is not a rented GPU, "
-            "so nothing of ours can restart it. It may have been stopped or destroyed on Vast. Tell "
-            "the user in those words, and that they can start it again or pick another running "
-            "machine (or rent a GPU) in Workspace → Connection; then stop — do not retry, and do "
-            "not call it the rented GPU."
+            "so nothing of ours can restart it. It may have been stopped or destroyed on Vast. "
+            "DESIGNING DOES NOT NEED IT: if the design is not finished, finish it (kb_lookup, "
+            "pipeline_plan, pipeline_present) — the node list shipped with the agent checks it. Only "
+            "when the work needs the machine (setup, a run), tell the user in those words, and that "
+            "they can start it again or pick another running machine (or rent a GPU) in Workspace → "
+            "Connection; then stop — do not retry, and do not call it the rented GPU."
         )
     if res.status in (401, 403) and _own_connection():
         return (
@@ -481,8 +483,8 @@ _INVENTORY_TOO_EARLY = (
     "This is deliberate. What is already installed is NOT a design input: this instance is "
     "provisioned for this job and anything missing can be downloaded, so choosing from what "
     "happens to be lying around produces a worse workflow than the one the research supports.\n"
-    "Do this instead: research the best model for what the user asked for (comfy_research, "
-    "web_search), design the graph, and comfy_emit it. Inventory unlocks then — and that is when "
+    "Do this instead: pick the model for what the user asked for (kb_lookup) and design it "
+    "(pipeline_plan). Inventory unlocks then — and that is when "
     "it is actually useful, for confirming a download landed."
 )
 
@@ -621,9 +623,15 @@ class ComfyNodeSpecTool(Tool):
             if not node_class:
                 return ToolResult.text("node_class is required", is_error=True)
             res = _get(f"/api/object_info/{node_class}")
-            if not res.ok:
-                return ToolResult.text(_failed(res, node_class), is_error=True)
-            body = res.json()
+            offline_note = ""
+            if res.ok:
+                body = res.json()
+            else:
+                catalogue, source = _node_list_without_a_machine(res)
+                if catalogue is None:
+                    return ToolResult.text(_failed(res, node_class), is_error=True)
+                body = {node_class: catalogue.get(node_class)} if catalogue.get(node_class) else {}
+                offline_note = f"(no machine answered — this is from the {source})\n\n"
             spec = body.get(node_class)
             if not spec:
                 return ToolResult.text(
@@ -664,7 +672,7 @@ class ComfyNodeSpecTool(Tool):
                     "sub-inputs go under `<combo>.<name>`, list slots under `<list>.<slot>`; the "
                     "bare sub-name is not an input and the run fails with a TypeError."
                 )
-            return ToolResult.text(text, details=spec)
+            return ToolResult.text(offline_note + text, details=spec)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(
                 f"comfy_node_spec failed: {type(e).__name__}: {e}", is_error=True
@@ -745,9 +753,14 @@ class ComfyNodeSearchTool(Tool):
                 return ToolResult.text("query is required", is_error=True)
             api_only = bool(params.get("api_only"))
             res = _get("/api/object_info", timeout_s=60.0)
-            if not res.ok:
-                return ToolResult.text(_failed(res, "node search"), is_error=True)
-            body = res.json() or {}
+            offline_note = ""
+            if res.ok:
+                body = res.json() or {}
+            else:
+                body, source = _node_list_without_a_machine(res)
+                if body is None:
+                    return ToolResult.text(_failed(res, "node search"), is_error=True)
+                offline_note = f"(no machine answered — searched the {source})\n"
             words = [w for w in query.replace("-", " ").split() if w]
             rows = []
             for cls, spec in body.items():
@@ -771,10 +784,10 @@ class ComfyNodeSearchTool(Tool):
             rows.sort()
             if not rows:
                 return ToolResult.text(
-                    f"no node matches '{query}' on this instance. Try a shorter word (a provider "
+                    offline_note + f"no node matches '{query}' on this instance. Try a shorter word (a provider "
                     "or model family), or the pack is not installed — comfy_node_install."
                 )
-            lines = [f"{len(rows)} node(s) match '{query}' (partner nodes first; deprecated last):"]
+            lines = [offline_note + f"{len(rows)} node(s) match '{query}' (partner nodes first; deprecated last):"]
             for _, _, cls, disp, cat, api, dep in rows[:30]:
                 flags = " · ".join(f for f in ("PARTNER/paid" if api else "", "DEPRECATED — use its successor" if dep else "") if f)
                 lines.append(f"  {cls}  —  {disp}  [{cat}]" + (f"  {flags}" if flags else ""))
@@ -1420,7 +1433,7 @@ class ComfyRunTool(Tool):
             if isinstance(prompt, dict) and "nodes" in prompt:
                 return ToolResult.text(
                     "that is a UI-format workflow, which POST /prompt does not accept. Use the "
-                    "API-format file (comfy_emit writes one), or ask the user to export theirs "
+                    "API-format file (every workflow in this chat has one), or ask the user to export theirs "
                     "with 'Export (API)' — a hand conversion loses muted nodes and widget order.",
                     is_error=True,
                 )
@@ -2453,8 +2466,8 @@ class ComfyValidateTool(Tool):
         "installed or run: every node class must exist, every link must point at a node in the "
         "graph, and every model filename it names must be loadable. The result is pass, or an "
         "itemized report whose missing-file list IS the install shopping list — design first, "
-        "validate, install exactly what this names, then run. Pass the `.api.json` path "
-        "comfy_emit returned."
+        "validate, install exactly what this names, then run. Pass the workflow's `.api.json` "
+        "path."
     )
     parameters = {
         "type": "object",
@@ -2462,7 +2475,7 @@ class ComfyValidateTool(Tool):
         "properties": {
             "workflow_path": {
                 "type": "string",
-                "description": "Path to the .api.json file comfy_emit wrote.",
+                "description": "Path to the workflow's .api.json file.",
             },
             "reference_workflow_url": {
                 "type": "string",
@@ -2489,7 +2502,7 @@ class ComfyValidateTool(Tool):
                 return ToolResult.text(f"{path} is empty or not an object", is_error=True)
             if "nodes" in graph and "links" in graph:
                 return ToolResult.text(
-                    f"{path} is a UI-format workflow — validate the .api.json comfy_emit wrote "
+                    f"{path} is a UI-format workflow — validate the .api.json "
                     "beside it (the API file is the one that runs).",
                     is_error=True,
                 )
@@ -2525,7 +2538,7 @@ class ComfyValidateTool(Tool):
                 registry.save(version, catalogue)
                 source = "this instance"
             else:
-                catalogue, source = registry.load(version)
+                catalogue, source, _listed = registry.load(version)
 
             # LAYER 1 — will ComfyUI accept it. A DEPRECATED NODE IN A SERVED DESIGN still runs,
             # and it is not the agent's to swap (fixed_design_shape): there it is a note.
@@ -2686,7 +2699,7 @@ class ComfyPriceTool(Tool):
             "workflow": {
                 "type": "string",
                 "description": (
-                    "An emitted workflow to price exactly: the path comfy_emit returned, or just"
+                    "A workflow to price exactly: its path, or just"
                     " its name. Omit to list the whole catalogue."
                 ),
             },
@@ -2866,6 +2879,17 @@ def _machine_info() -> tuple[str, float, str]:
     return str(first.get("name") or ""), int(first.get("vram_total") or 0) / (1024 ** 3), version
 
 
+def _node_list_without_a_machine(res) -> tuple[dict | None, str]:
+    """(object_info, where it came from) when NO machine answered — the node list captured from the
+    user's box, else the one shipped with the agent — so designing never waits on a GPU. None when a
+    machine DID answer with an error: that error is the answer, and it is not papered over."""
+    if not (getattr(res, "error", None) or isinstance(res, _NoInstance)):
+        return None, ""
+    catalogue, source, _listed = NodeRegistryCache(Path(current_workspace(".") or "."), _KNOWLEDGE_BASE).load(
+        _last_known_version())
+    return catalogue, source
+
+
 def _last_known_version() -> str:
     """The ComfyUI version the last probe saw ('' when nothing was ever probed) — what a design is
     checked against while no box is up."""
@@ -2955,3 +2979,41 @@ def register(api, ctx):
     ))
     api.register_tool(TemplateSetupGuideTool())
     api.register_tool(TemplateAboutDraftTool(ctx.config))
+    # PHASE 1 — THE DESIGN, WITH NO GPU: the knowledge base, the pipeline of stages, and the checks.
+    # Registered here; an agent sees them only when its agent.toml [tools] lists them.
+    from kb_lookup_tool import KbLookupTool
+    from pipeline_plan_tool import PipelinePlanTool
+    from pipeline_present_tool import PipelinePresentTool
+    from pipeline_provision_tool import PipelineProvisionTool
+    from pipeline_run_tool import PipelineRunTool
+    from pipeline_status_tool import PipelineStatusTool
+    from pipeline_validate_tool import PipelineValidateTool
+    from stage_bind_tool import StageBindTool
+    from stage_edit_graph_tool import StageEditGraphTool
+    from stage_set_tool import StageSetTool
+
+    api.register_tool(KbLookupTool())
+    api.register_tool(PipelinePlanTool())
+    api.register_tool(StageSetTool())
+    api.register_tool(StageBindTool())
+    api.register_tool(StageEditGraphTool())
+    api.register_tool(PipelineValidateTool())
+    api.register_tool(PipelinePresentTool())
+    # PHASES 2 AND 3 drive the same tools the agent used by hand — validate, install, run, collect,
+    # download — so their gates (nothing installed or run before the card is answered; only files a
+    # live validation listed are installed) hold for a pipeline exactly as for one workflow.
+    api.register_tool(PipelineProvisionTool(
+        validate=lambda path, abort, upd: ComfyValidateTool().execute(
+            "", {"workflow_path": path}, abort or asyncio.Event(), upd),
+        install_models=lambda files, abort, upd: ComfyInstallTool().execute("", {"files": files}, abort, upd),
+        install_packs=ComfyNodeInstallTool._install_from_repos,
+        timeout_s=_WAIT_ATTEMPT_S, max_retries=_WAIT_ATTEMPTS,
+    ))
+    api.register_tool(PipelineRunTool(
+        run=lambda path, abort, upd: ComfyRunTool().execute(
+            "", {"workflow_path": path, "timeout_s": _RUN_WAIT_CAP_S}, abort, upd),
+        run_status=lambda prompt_id, abort, upd: ComfyRunStatusTool().execute(
+            "", {"prompt_id": prompt_id, "timeout_s": _RUN_WAIT_CAP_S}, abort, upd),
+        download=lambda files, abort, upd: ComfyDownloadTool().execute("", {"files": files}, abort, upd),
+    ))
+    api.register_tool(PipelineStatusTool())

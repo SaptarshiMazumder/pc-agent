@@ -36,8 +36,10 @@ locals {
       # The cost switch used to work by writing desired_count = 0 in services.tf; that write is
       # ignored now, so the bounds have to do it. Min as well as max: a floor above zero would
       # immediately scale the service back up.
-      min = local.paused ? 0 : (cfg.autoscale != null ? cfg.autoscale.min : cfg.desired_count)
-      max = local.paused ? 0 : (cfg.autoscale != null ? cfg.autoscale.max : cfg.desired_count)
+      # var.running_services narrows the same collapse to the services it leaves out
+      # (local.service_running is false for every service while paused).
+      min = !local.service_running[name] ? 0 : (cfg.autoscale != null ? cfg.autoscale.min : cfg.desired_count)
+      max = !local.service_running[name] ? 0 : (cfg.autoscale != null ? cfg.autoscale.max : cfg.desired_count)
     }
   }
 

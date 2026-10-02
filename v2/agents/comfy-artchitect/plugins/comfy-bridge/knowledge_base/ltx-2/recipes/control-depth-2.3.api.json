@@ -94,7 +94,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "sets the starting appearance and composition (fitted to width x height by LTXVImgToVideoInplace)"
+        "note": "sets the starting appearance and composition (fitted to width x height by LTXVImgToVideoInplace)",
+        "frame": "first"
       },
       "control_video": {
         "node": "57",

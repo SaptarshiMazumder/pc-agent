@@ -1,0 +1,209 @@
+{
+  "recipe": {
+    "id": "stack-4",
+    "task": "stack-clips",
+    "variant": "4 clips side by side in one frame (ImageStitch chain, direction right, sizes matched), picture only",
+    "from_template": "template_rob_split_stack_qwen_multi_wan22 (ImageStitch chain stacks the per-angle Wan clips into one video)",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "direction": {
+        "nodes": [
+          "42",
+          "43",
+          "44"
+        ],
+        "input": "direction",
+        "same_value": true,
+        "note": "right = side by side, down = one above the other"
+      },
+      "spacing": {
+        "nodes": [
+          "42",
+          "43",
+          "44"
+        ],
+        "input": "spacing_width",
+        "same_value": true
+      }
+    },
+    "inputs": {
+      "clip_1": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the left-most clip; its fps is the stacked video's"
+      },
+      "clip_2": {
+        "node": "16",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 2 in order"
+      },
+      "clip_3": {
+        "node": "17",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 3 in order"
+      },
+      "clip_4": {
+        "node": "18",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "clip 4 in order"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "3",
+        "type": "VIDEO"
+      }
+    },
+    "files": [],
+    "defaults_note": "Clips should have the same frame count (ImageStitch pairs frame i with frame i); match_image_size scales each clip to the first one's height (right) or width (down).",
+    "family": "video-assembly",
+    "packs": [],
+    "verify": [
+      "built 2026-10-02 from the official templates' node chain; offline structural check: see verify_recipes.py"
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_1"
+      }
+    },
+    "31": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "16": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_2"
+      }
+    },
+    "32": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "16",
+          0
+        ]
+      }
+    },
+    "17": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_3"
+      }
+    },
+    "33": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "17",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@clip_4"
+      }
+    },
+    "34": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "18",
+          0
+        ]
+      }
+    },
+    "42": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "image1": [
+          "31",
+          0
+        ],
+        "image2": [
+          "32",
+          0
+        ],
+        "direction": "right",
+        "match_image_size": true,
+        "spacing_width": 0,
+        "spacing_color": "white"
+      }
+    },
+    "43": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "image1": [
+          "42",
+          0
+        ],
+        "image2": [
+          "33",
+          0
+        ],
+        "direction": "right",
+        "match_image_size": true,
+        "spacing_width": 0,
+        "spacing_color": "white"
+      }
+    },
+    "44": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "image1": [
+          "43",
+          0
+        ],
+        "image2": [
+          "34",
+          0
+        ],
+        "direction": "right",
+        "match_image_size": true,
+        "spacing_width": 0,
+        "spacing_color": "white"
+      }
+    },
+    "2": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "44",
+          0
+        ],
+        "fps": [
+          "31",
+          2
+        ],
+        "bit_depth": "auto"
+      }
+    },
+    "3": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "2",
+          0
+        ],
+        "filename_prefix": "video/stacked",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

@@ -71,9 +71,10 @@ module "stack" {
     aws.us_east_1 = aws.us_east_1
   }
 
-  environment = "staging"
-  paused      = var.paused
-  hibernate   = var.hibernate
+  environment      = "staging"
+  paused           = var.paused
+  hibernate        = var.hibernate
+  running_services = var.running_services
 
   # ── the domain, STAGING'S WAY: root_domain stays EMPTY. Dev hands the module the whole DNS
   # story (root_domain => module-managed zone + certs + wildcard, dns.tf); staging instead
@@ -332,6 +333,12 @@ variable "proxy_5xx_threshold" {
   description = "Model-proxy 5xx alarm threshold, as a percentage over 5 minutes."
   type        = number
   default     = 1
+}
+
+variable "running_services" {
+  description = "Run only these services (null = all). See the module variable. Set it in staging.auto.tfvars."
+  type        = list(string)
+  default     = null
 }
 
 variable "paused" {

@@ -56,7 +56,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a ready canny / soft-edge / depth / pose map (the template makes depth with a Lotus subgraph after FluxKontextImageScale); it is both the ControlNet image and, VAE-encoded, the output latent - so it sets the output size"
+        "note": "a ready canny / soft-edge / depth / pose map (the template makes depth with a Lotus subgraph after FluxKontextImageScale); it is both the ControlNet image and, VAE-encoded, the output latent - so it sets the output size",
+        "prepared": "canny, depth or pose"
       }
     },
     "outputs": {

@@ -123,7 +123,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the person's face"
+        "note": "the person's face",
+        "frame": "first"
       },
       "reference_voice": {
         "node": "50",

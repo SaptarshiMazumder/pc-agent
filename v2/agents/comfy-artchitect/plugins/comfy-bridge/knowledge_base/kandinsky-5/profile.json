@@ -1657,5 +1657,9 @@
       "accessed": "2026-10-01",
       "class": "single-source"
     }
+  },
+  "card": {
+    "short_name": "Kandinsky 5",
+    "restriction": ""
   }
 }

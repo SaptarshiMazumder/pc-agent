@@ -30,6 +30,7 @@ class AnimationService:
         provider: str,
         model: str,
         companions: tuple[str, ...] = (),
+        max_usd: float = 0.0,
     ) -> GeneratedMedia:
         profile = self._store.profile(campaign_id)
         shot = self._store.brief(campaign_id).shot(shot_id)
@@ -54,6 +55,7 @@ class AnimationService:
             audio=audio,
             out_path=self._store.clip_path(campaign_id, shot_id),
             references=tuple(dict.fromkeys([*companions, *(self._cast.get(n).sheet for n in shot.cast)])),
+            max_usd=max_usd,
         )
         clip = self._generators.video(provider).generate(request)
         self._store.record(campaign_id, clip)

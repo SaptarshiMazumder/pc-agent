@@ -1,6 +1,12 @@
 """HttpRegistryPublisher — the AUTHOR path. Publish without holding the marketplace's key.
 
-    POST <publish service>/registry/publish     multipart: the .agentpkg (+ its installer)
+    POST <publish service>/registry/publish/upload   -> a size-bounded S3 upload slot
+    POST <slot url>                                   the .agentpkg, straight to S3
+    POST <publish service>/registry/publish          {upload_key, bundle_id, filename}
+
+The per-agent installer is NOT built or sent from here: the service compiles its own from its own
+stub template (whoever signs must compile), so an installer built on this machine was discarded on
+arrival.
 
 WHAT MAKES THIS THE POINT OF THE WHOLE FEATURE. The operator path needs the registry's ed25519
 private key and AWS write credentials on the publisher's machine. Neither can be given to an
@@ -34,6 +40,7 @@ from agent_runtime.application.interfaces.bundle_publisher import PublishRequest
 log = logging.getLogger("agentd")
 
 PUBLISH_PATH = "/registry/publish"
+UPLOAD_PATH = "/registry/publish/upload"
 
 
 def platform_session_token(config=None) -> str:
@@ -69,16 +76,12 @@ def platform_session_token(config=None) -> str:
 
 
 class HttpRegistryPublisher:
-    """:param packer: an ``AgentPacker`` — the SAME packing the operator path uses.
-    :param stub_provider: optional ``(agent_dir) -> Path | None`` that builds the per-agent
-        installer. Injected rather than built here: producing a product is not this class's job,
-        and a host with no NSIS must still be able to publish the bundle."""
+    """:param packer: an ``AgentPacker`` — the SAME packing the operator path uses."""
 
-    def __init__(self, service_url: str, config, packer, stub_provider=None, timeout: float = 300.0):
+    def __init__(self, service_url: str, config, packer, timeout: float = 300.0):
         self._url = (service_url or "").strip().rstrip("/")
         self._config = config
         self._packer = packer
-        self._stub_provider = stub_provider
         self._timeout = timeout
 
     @property
@@ -113,13 +116,6 @@ class HttpRegistryPublisher:
             except ValueError as e:
                 return PublishResult(ok=False, message=str(e))
 
-            warnings: list[str] = []
-            installer: Path | None = None
-            if request.with_installer:
-                installer, reason = self._build_installer(agent_dir)
-                if reason:
-                    warnings.append(reason)
-
             from agent_runtime.infrastructure.marketplace import bundle_io
 
             manifest = bundle_io.read_manifest(package)
@@ -130,84 +126,99 @@ class HttpRegistryPublisher:
                     bundle_id=manifest.id,
                     version=manifest.version,
                     message=f"PREVIEW — nothing sent. Would publish to {self.name}.",
-                    detail=self._preview(manifest, package, installer),
-                    warnings=warnings,
+                    detail=self._preview(manifest, package),
                 )
-            result = self._post(manifest, package, installer)
-            result.warnings = warnings + result.warnings
-            return result
+            return self._send(manifest, package)
 
     # ------------------------------------------------------------------ internals
-    def _build_installer(self, agent_dir: Path) -> tuple[Path | None, str]:
-        """-> (the stub, "") or (None, why not). Never raises: no installer is a degraded publish,
-        not a failed one — the bundle still reaches everyone who already has the engine."""
-        if self._stub_provider is None:
-            return None, (
-                "no per-agent installer was published: this install cannot build one. The bundle "
-                "is listed for people who already have agentd; a stranger with a bare machine will "
-                "have nothing to download."
-            )
-        try:
-            stub = self._stub_provider(agent_dir)
-        except Exception as e:  # noqa: BLE001 — a build failure must not lose the publish
-            return None, f"no per-agent installer was published (building it failed: {e})"
-        if stub is None:
-            return None, (
-                "no per-agent installer was published — see the build warnings above for why."
-            )
-        return Path(stub), ""
-
-    def _preview(self, manifest, package: Path, installer: Path | None) -> str:
-        lines = [
-            f"POST {self._url}{PUBLISH_PATH}",
-            f"  bundle    {manifest.id} {manifest.version}",
-            f"  package   {package.name}  ({package.stat().st_size:,} bytes)",
-        ]
-        lines.append(
-            f"  installer {installer.name}  ({installer.stat().st_size:,} bytes)"
-            if installer
-            else "  installer (none)"
+    def _preview(self, manifest, package: Path) -> str:
+        return "\n".join(
+            [
+                f"POST {self._url}{PUBLISH_PATH}",
+                f"  bundle    {manifest.id} {manifest.version}",
+                f"  package   {package.name}  ({package.stat().st_size:,} bytes)",
+                "",
+                "The service will: authenticate you, resolve your creator id, check the version is",
+                "newer than any already published, confirm the bundle id is yours, build the",
+                "per-agent installer, sign the entry with your creator key, and append it to the",
+                "index under a lock.",
+            ]
         )
-        lines += [
-            "",
-            "The service will: authenticate you, resolve your creator id, check the version is",
-            "newer than any already published, confirm the bundle id is yours, sign the entry with",
-            "your creator key, and append it to the index under a lock.",
-        ]
-        return "\n".join(lines)
 
-    def _post(self, manifest, package: Path, installer: Path | None) -> PublishResult:
+    def _send(self, manifest, package: Path) -> PublishResult:
+        """Three requests, because the package does not travel through the publish service.
+
+        The service sits behind a load balancer that caps a request body at 1 MB — an agent with a
+        built window is past that before anything else is counted. So the service hands out a
+        short-lived, size-bounded S3 upload slot, the package goes straight to S3, and the publish
+        call names the slot instead of carrying the bytes:
+
+            1. POST <service>/registry/publish/upload   -> {upload: {url, fields, key}}
+            2. POST <upload.url>  (S3 form upload)       the .agentpkg
+            3. POST <service>/registry/publish          {upload_key, bundle_id, filename}
+        """
         import httpx
 
         token = platform_session_token(self._config)
-        files = {"package": (package.name, package.read_bytes(), "application/octet-stream")}
-        if installer is not None:
-            files["installer"] = (
-                installer.name,
-                installer.read_bytes(),
-                "application/octet-stream",
-            )
-        data = {"bundle_id": manifest.id, "version": manifest.version}
+        auth = {"Authorization": f"Bearer {token}"}
         try:
+            slot_response = httpx.post(
+                f"{self._url}{UPLOAD_PATH}",
+                headers=auth,
+                json={"bundle_id": manifest.id, "filename": package.name},
+                timeout=self._timeout,
+            )
+            if slot_response.status_code != 200:
+                return self._result(slot_response, manifest)
+            slot = self._json(slot_response).get("upload") or {}
+            if not slot.get("url") or not slot.get("key"):
+                return self._refused(
+                    manifest,
+                    f"{self.name} answered the upload request without an upload slot: "
+                    f"{slot_response.text[:500]}. Nothing was published.",
+                )
+            stored = httpx.post(
+                str(slot["url"]),
+                data=dict(slot.get("fields") or {}),
+                files={"file": (package.name, package.read_bytes(), "application/octet-stream")},
+                timeout=self._timeout,
+            )
+            if stored.status_code not in (200, 201, 204):
+                return self._refused(
+                    manifest,
+                    f"uploading the package to storage failed (HTTP {stored.status_code}): "
+                    f"{stored.text[:500]}. Nothing was published.",
+                )
             response = httpx.post(
                 f"{self._url}{PUBLISH_PATH}",
-                headers={"Authorization": f"Bearer {token}"},
-                files=files,
-                data=data,
+                headers=auth,
+                json={
+                    "upload_key": str(slot["key"]),
+                    "bundle_id": manifest.id,
+                    "filename": package.name,
+                },
                 timeout=self._timeout,
             )
         except httpx.HTTPError as e:
             # A network failure is a RESULT. The registry is untouched, and telling the author
             # "could not reach the service" is actionable in a way a traceback is not.
-            return PublishResult(
-                ok=False,
-                bundle_id=manifest.id,
-                version=manifest.version,
-                message=f"could not reach {self.name}: {e}. Nothing was published.",
+            return self._refused(
+                manifest, f"could not reach {self.name}: {e}. Nothing was published."
             )
+        return self._result(response, manifest)
 
+    @staticmethod
+    def _refused(manifest, message: str) -> PublishResult:
+        return PublishResult(
+            ok=False, bundle_id=manifest.id, version=manifest.version, message=message
+        )
+
+    def _result(self, response, manifest) -> PublishResult:
+        """The service's answer, as the author reads it. Its warnings (no installer built, …) are
+        part of the answer, not detail — they say what a stranger will be missing."""
         body = self._json(response)
         message = str(body.get("message") or "").strip()
+        warnings = [str(w) for w in (body.get("warnings") or []) if str(w).strip()]
         if response.status_code == 202:
             return PublishResult(
                 ok=True,
@@ -221,6 +232,7 @@ class HttpRegistryPublisher:
                     "automatically."
                 ),
                 detail=json.dumps(body, indent=2) if body else response.text,
+                warnings=warnings,
             )
         if response.status_code in (200, 201):
             return PublishResult(
@@ -231,6 +243,7 @@ class HttpRegistryPublisher:
                 installer_url=str(body.get("installer_url") or ""),
                 message=message or f"published {manifest.id} {manifest.version}",
                 detail=json.dumps(body, indent=2) if body else response.text,
+                warnings=warnings,
             )
         return PublishResult(
             ok=False,

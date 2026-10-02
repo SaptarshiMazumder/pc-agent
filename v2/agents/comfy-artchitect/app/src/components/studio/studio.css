@@ -373,6 +373,9 @@
    control that cannot get smaller. */
 .refs-slot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 9px 10px; border: 1px dashed var(--border2); border-radius: var(--r-control); }
 .refs-slot.is-filled { border-style: solid; }
+/* Made by an earlier step, not the person's to add: quieter, and no buttons to press. */
+.refs-slot.is-fed { border-style: dotted; background: transparent; }
+.refs-slot.is-fed:not(.is-filled) .refs-role { color: var(--dim); }
 .refs-slot.is-empty { border-color: var(--warn); }
 .refs-slot.is-over { background: var(--accent-soft); border-color: var(--accent); }
 .refs-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 150px; }

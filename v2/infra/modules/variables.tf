@@ -344,6 +344,27 @@ variable "paused" {
   default     = false
 }
 
+variable "running_services" {
+  description = <<-EOT
+    RUN ONLY THESE SERVICES — a finer cost switch than `paused`. null (the default) runs every
+    service, as before. A list runs only the services it names: every other one is held at zero
+    tasks by its scaling bounds, and an EC2 pool no running service uses drops to zero machines.
+    `paused` still wins — paused means nothing runs, whatever this says.
+
+    For example, a desktop-only test needs sign-in and the model proxy and nothing else:
+      running_services = ["accounts", "model-proxy"]
+    The scheduled jobs are not affected; they call accounts, which such a list keeps.
+  EOT
+  type        = list(string)
+  default     = null
+  validation {
+    condition = var.running_services == null || length(setsubtract(
+      toset(coalesce(var.running_services, [])), toset(["model-proxy", "accounts", "daemon", "web", "ingest"])
+    )) == 0
+    error_message = "running_services may only name services that exist: model-proxy, accounts, daemon, web, ingest."
+  }
+}
+
 variable "hibernate" {
   description = <<-EOT
     PAUSE, PLUS THE LOAD BALANCER. `terraform apply -var hibernate=true` removes the ALB, its
@@ -410,6 +431,13 @@ locals {
   # Hibernating implies paused: there is nowhere to route to, so running tasks would only burn
   # money. Written once here rather than as `var.paused || var.hibernate` in five places.
   paused = var.paused || var.hibernate
+  # WHICH SERVICES RUN, per service: none while paused; otherwise every one, unless
+  # var.running_services names a subset. What the scaling bounds (service_autoscaling.tf) and
+  # the EC2 pools (ec2_capacity.tf) read instead of `paused`.
+  service_running = {
+    for name in keys(var.services) :
+    name => !local.paused && (var.running_services == null || contains(var.running_services, name))
+  }
   # The routing layer exists only when not hibernating. Both are `for_each`/`count` inputs, so
   # they must be knowable at plan time — which they are, being plain variables.
   alb_services = var.hibernate ? {} : local.services

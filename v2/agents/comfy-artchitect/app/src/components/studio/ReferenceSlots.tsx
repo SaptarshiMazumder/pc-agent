@@ -99,7 +99,10 @@ export function ReferenceSlots({
     if (over !== role) setOver(role)
   }
 
-  const filled = slots.filter((s) => s.file).length
+  /* THE COUNT IS THE PERSON'S: a slot an earlier step fills is not theirs to add, so "1 of 3"
+     with two of them waiting on renders would read as two files missing. */
+  const theirs = slots.filter((s) => !s.fedBy)
+  const filled = theirs.filter((s) => s.file).length
   /* NOTHING DECLARED AND NOTHING ADDED => NO SECTION AT ALL, not an empty one inviting an upload.
      The rail simply starts at the file tree until the agent asks for something. This owns its own
      border-bottom, so the separator leaves with it rather than dangling above the tree. */
@@ -118,15 +121,32 @@ export function ReferenceSlots({
       <header className="refs-head">
         <span className="refs-heading">
           <span className="refs-title">Inputs</span>
-          {slots.length > 0 && (
-            <span className={`refs-count${filled < slots.length ? ' is-short' : ''}`}>
-              {filled} of {slots.length}
+          {theirs.length > 0 && (
+            <span className={`refs-count${filled < theirs.length ? ' is-short' : ''}`}>
+              {filled} of {theirs.length}
             </span>
           )}
         </span>
       </header>
 
-      {slots.map((s) => (
+      {slots.map((s) =>
+        s.fedBy ? (
+          /* MADE BY A STEP, not added by the person: no Add, no Library, no drop target — the
+             run hands the earlier step's output over. Once it has, the file shows like any other. */
+          <div key={s.role} className={`refs-slot is-fed${s.file ? ' is-filled' : ''}`}>
+            <div className="refs-slot-text">
+              <span className="refs-role">{s.role}</span>
+              {s.file ? (
+                <button type="button" className="refs-file" onClick={() => onOpen(s.file as Artifact)}>
+                  {s.file.name}
+                  {s.file.size ? <span className="refs-size">{humanSize(s.file.size)}</span> : null}
+                </button>
+              ) : (
+                <span className="refs-what">made by step “{s.fedBy.split('.')[0].replace(/_/g, ' ')}” when it runs</span>
+              )}
+            </div>
+          </div>
+        ) : (
         <div
           key={s.role}
           className={`refs-slot${s.file ? ' is-filled' : ' is-empty'}${over === s.role ? ' is-over' : ''}`}
@@ -177,7 +197,8 @@ export function ReferenceSlots({
             </button>
           )}
         </div>
-      ))}
+        ),
+      )}
 
       {free.length > 0 && (
         <div className="refs-free">

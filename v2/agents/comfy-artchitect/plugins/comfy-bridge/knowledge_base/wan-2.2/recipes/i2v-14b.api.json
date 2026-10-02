@@ -70,7 +70,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the first frame; the output is sized to width x height, so match the image's aspect"
+        "note": "the first frame; the output is sized to width x height, so match the image's aspect",
+        "frame": "first"
       }
     },
     "outputs": {

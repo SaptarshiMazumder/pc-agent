@@ -2,9 +2,10 @@
 #
 # WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
 # RunPod, a Modal endpoint 窶・the agent is told a URL and a credential and works against whatever
-# is there. That is why every ComfyUI fact this agent has is READ FROM THE INSTANCE rather than
-# remembered: the model list, the node list, the sampler names. An agent that recites the
-# checkpoints it saw during training writes workflows that fail on the box in front of it.
+# is there. What it knows about MODELS comes from its knowledge base
+# (plugins/comfy-bridge/knowledge_base: every family's files, recipes and rules, each fact sourced);
+# what it knows about the MACHINE is read from the machine. An agent that recites what it saw
+# during training writes workflows for last year's models.
 #
 # NO SHELL, ON PURPOSE. Everything happens over ComfyUI's HTTP API, so this agent is
 # web-deliverable 窶・`exec` would refuse itself on a hosted daemon and would force
@@ -13,7 +14,7 @@
 # pretending it can fix it.
 
 name = "Comfy Penguin"
-version = "1.72.0"
+version = "1.73.0"
 # No project manager: this agent's own ask_user card already holds the user's approval, and its
 # own rules stop its loops. The manager's plan points in that card read as a second approval.
 managed = false
@@ -41,8 +42,8 @@ public = false
 web = true
 
 # The shared tools it may reach. Deliberately short 窶・and NO FILE TOOLS. Every file this agent
-# has business with goes through a comfy_* tool: comfy_emit writes workflows, comfy_upload sends
-# references, comfy_download brings renders back. With read/ls/find it opened other jobs' stale
+# has business with goes through a comfy_* tool: pipeline_plan and the stage tools write workflows,
+# comfy_upload sends references, comfy_download brings renders back. With read/ls/find it opened other jobs' stale
 # drafts and anchored on them; with write it hand-wrote a "plan.md" in place of a workflow. Its
 # skill is always loaded, so there is nothing left it needs to read.
 #   web_search/web_fetch      research a model or node it has not met 窶・Civitai, HF, docs

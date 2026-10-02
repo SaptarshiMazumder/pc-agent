@@ -39,6 +39,24 @@ resource "aws_s3_bucket_public_access_block" "registry" {
   restrict_public_buckets = false
 }
 
+# Upload slots (agent_runtime/infrastructure/publish/s3_upload_slots.py) are deleted the moment a
+# publish claims them. One the author abandoned — upload finished, publish never called — would
+# otherwise sit in private storage forever, so a day is the most any slot outlives its 15-minute form.
+resource "aws_s3_bucket_lifecycle_configuration" "registry" {
+  bucket = aws_s3_bucket.registry.id
+
+  rule {
+    id     = "expire-abandoned-upload-slots"
+    status = "Enabled"
+    filter {
+      prefix = "pending/uploads/"
+    }
+    expiration {
+      days = 1
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "public_read" {
   bucket     = aws_s3_bucket.registry.id
   depends_on = [aws_s3_bucket_public_access_block.registry]

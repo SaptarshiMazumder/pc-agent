@@ -45,7 +45,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "an already-computed control map (Canny/HED/Depth/Pose/MLSD); output size follows the map's size"
+        "note": "an already-computed control map (Canny/HED/Depth/Pose/MLSD); output size follows the map's size",
+        "prepared": "canny, depth or pose"
       }
     },
     "outputs": {

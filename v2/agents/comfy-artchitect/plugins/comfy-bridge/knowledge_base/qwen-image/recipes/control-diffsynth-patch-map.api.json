@@ -48,7 +48,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a ready depth (default patch) or canny map; sets the output size via its VAE encode"
+        "note": "a ready depth (default patch) or canny map; sets the output size via its VAE encode",
+        "prepared": "depth or canny"
       }
     },
     "outputs": {

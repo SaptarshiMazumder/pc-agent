@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.image_request import ImageRequest
 from ad_generation.infrastructure.fal_queue_client import FalQueueClient
@@ -52,11 +53,13 @@ class FalImageGenerator:
             raise ValueError(f"{request.model} makes at most {spec.get('max_count', 1)} images per call")
         payload[fields["count"]] = request.variants
 
+        each = self._prices.image(spec, len(request.references))
+        if request.max_usd and each * request.variants > request.max_usd:
+            raise BudgetExceeded(request.model, each * request.variants, request.max_usd)
         result = self._queue.run(model, payload, self._timeout_s)
         images = result.get("images") or []
         if not images:
             raise RuntimeError(f"fal returned no image for {model}: {str(result)[:300]}")
-        each = self._prices.image(spec, len(request.references))
         out = []
         for n, image in enumerate(images, 1):
             path = self._downloader.save(image["url"], f"{request.out_stem}-{n}", image.get("content_type", ""), ".png")
