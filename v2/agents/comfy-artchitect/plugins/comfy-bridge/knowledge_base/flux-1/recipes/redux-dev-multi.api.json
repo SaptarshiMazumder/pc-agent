@@ -1,0 +1,339 @@
+{
+  "recipe": {
+    "id": "redux-dev-multi",
+    "family": "flux-1",
+    "task": "style-ref",
+    "variant": "FLUX.1 Redux [dev] with two reference images: two chained StyleModelApply nodes ('You can chain multiple Apply Style Model nodes if you want to mix multiple images together') — the template as shipped",
+    "from_template": "flux_redux_model_example",
+    "min_comfyui": "0.0.4",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text",
+        "note": "optional: 'Even without a prompt, this model can still apply the image styles from the reference images'"
+      },
+      "width": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "width"
+      },
+      "height": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "height"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "30",
+        "input": "steps"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "style_strength": {
+        "node": "8",
+        "input": "strength"
+      },
+      "style_strength_type": {
+        "node": "8",
+        "input": "strength_type",
+        "note": "multiply | attn_bias"
+      },
+      "style_strength_2": {
+        "node": "29",
+        "input": "strength"
+      }
+    },
+    "inputs": {
+      "style_image_1": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      },
+      "style_image_2": {
+        "node": "19",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "mixed with the first; lower a strength to weight one image over the other"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-dev.safetensors",
+      "flux1-redux-dev.safetensors",
+      "sigclip_vision_patch14_384.safetensors",
+      "t5xxl_fp16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "As redux-dev; both StyleModelApply at strength 1.0 multiply.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND (no official per-GPU table)",
+      "note": "Comfy-Org: the bf16 flux1-dev is the 24 GB-card route; the fp8 all-in-one checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'; t5xxl_fp16 only 'if you have more than 32GB ram', else t5xxl_fp8",
+      "class": "official",
+      "src": [
+        "S-README-COMFYORG",
+        "S-EXAMPLES",
+        "S-DOCS-KREA"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "t5xxl_fp16.safetensors",
+        "clip_name2": "clip_l.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "ModelSamplingFlux",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "max_shift": 1.15,
+        "base_shift": 0.5,
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A girl is walking in the natural wilderness."
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "guidance": 3.5
+      }
+    },
+    "25": {
+      "class_type": "CLIPVisionLoader",
+      "inputs": {
+        "clip_name": "sigclip_vision_patch14_384.safetensors"
+      }
+    },
+    "26": {
+      "class_type": "StyleModelLoader",
+      "inputs": {
+        "style_model_name": "flux1-redux-dev.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@style_image_1"
+      }
+    },
+    "27": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": [
+          "25",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "8": {
+      "class_type": "StyleModelApply",
+      "inputs": {
+        "conditioning": [
+          "7",
+          0
+        ],
+        "style_model": [
+          "26",
+          0
+        ],
+        "clip_vision_output": [
+          "27",
+          0
+        ],
+        "strength": 1.0,
+        "strength_type": "multiply"
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "30": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1.0
+      }
+    },
+    "31": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "conditioning": [
+          "29",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "31",
+          0
+        ],
+        "sampler": [
+          "14",
+          0
+        ],
+        "sigmas": [
+          "30",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "19": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@style_image_2"
+      }
+    },
+    "28": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": [
+          "25",
+          0
+        ],
+        "image": [
+          "19",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "29": {
+      "class_type": "StyleModelApply",
+      "inputs": {
+        "conditioning": [
+          "8",
+          0
+        ],
+        "style_model": [
+          "26",
+          0
+        ],
+        "clip_vision_output": [
+          "28",
+          0
+        ],
+        "strength": 1.0,
+        "strength_type": "multiply"
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_Redux"
+      }
+    }
+  }
+}

@@ -1,0 +1,350 @@
+{
+  "recipe": {
+    "id": "depth-lora-dev-lotus",
+    "family": "flux-1",
+    "task": "control",
+    "variant": "FLUX.1 [dev] + Depth [dev] LoRA with the template's Lotus depth estimator in-graph: RGB image -> 1 MP -> Lotus (1-step SamplerCustomAdvanced, SetFirstSigma 10000) -> ImageInvert -> InstructPixToPixConditioning",
+    "from_template": "flux_depth_lora_example, both subgraphs flattened ('Lotus Depth(Subgraph)' + 'Depth to Image(Flux.1 Dev)'). Loader file: flux1-dev.safetensors in place of the template's flux1-dev-fp8.safetensors-via-UNETLoader (dossier pitfall 16).",
+    "min_comfyui": "0.3.42",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      },
+      "megapixels": {
+        "node": "16",
+        "input": "megapixels"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "any RGB image; its depth is estimated by Lotus (SD1.5-based, 1.62 GB + an SD1.5 VAE)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-depth-dev-lora.safetensors",
+      "flux1-dev.safetensors",
+      "lotus-depth-d-v1-1.safetensors",
+      "t5xxl_fp16.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Lotus: euler, BasicScheduler normal 1 step denoise 1, SetFirstSigma 10000, DisableNoise, SD1.5 VAE vae-ft-mse-840000-ema-pruned ('or you can use any SD1.5 VAE'). Flux side as depth-lora-dev (guidance 10, 20 steps, cfg 1).",
+    "vram_evidence": {
+      "gpu": "NOT FOUND (no official per-GPU table)",
+      "note": "Comfy-Org: the bf16 flux1-dev is the 24 GB-card route; the fp8 all-in-one checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'; t5xxl_fp16 only 'if you have more than 32GB ram', else t5xxl_fp8",
+      "class": "official",
+      "src": [
+        "S-README-COMFYORG",
+        "S-EXAMPLES",
+        "S-DOCS-KREA"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A cute ghost-shaped desktop ornament, softly glowing with a warm light, placed on a tidy, cozy home table, creating a gentle and sweet atmosphere."
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "guidance": 10.0
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "flux1-depth-dev-lora.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "40": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "lotus-depth-d-v1-1.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "41": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      }
+    },
+    "42": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "41",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "LotusConditioning",
+      "inputs": {}
+    },
+    "44": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "40",
+          0
+        ],
+        "conditioning": [
+          "43",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "DisableNoise",
+      "inputs": {}
+    },
+    "46": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "47": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "40",
+          0
+        ],
+        "scheduler": "normal",
+        "steps": 1,
+        "denoise": 1.0
+      }
+    },
+    "48": {
+      "class_type": "SetFirstSigma",
+      "inputs": {
+        "sigmas": [
+          "47",
+          0
+        ],
+        "sigma": 10000.0
+      }
+    },
+    "49": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "45",
+          0
+        ],
+        "guider": [
+          "44",
+          0
+        ],
+        "sampler": [
+          "46",
+          0
+        ],
+        "sigmas": [
+          "48",
+          0
+        ],
+        "latent_image": [
+          "42",
+          0
+        ]
+      }
+    },
+    "50": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "49",
+          0
+        ],
+        "vae": [
+          "41",
+          0
+        ]
+      }
+    },
+    "51": {
+      "class_type": "ImageInvert",
+      "inputs": {
+        "image": [
+          "50",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "InstructPixToPixConditioning",
+      "inputs": {
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "pixels": [
+          "51",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "8",
+          0
+        ],
+        "negative": [
+          "8",
+          1
+        ],
+        "latent_image": [
+          "8",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_dev"
+      }
+    }
+  }
+}

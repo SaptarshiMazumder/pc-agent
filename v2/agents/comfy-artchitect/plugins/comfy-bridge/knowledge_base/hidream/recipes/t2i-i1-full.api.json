@@ -1,0 +1,196 @@
+{
+  "recipe": {
+    "id": "t2i-i1-full",
+    "task": "t2i",
+    "variant": "HiDream-I1-Full fp8 (17.1 GB): shift 3, 50 steps, uni_pc/simple, cfg 5, real negative - the quality route",
+    "from_template": "hidream_i1_full (flat, 12 nodes)",
+    "min_comfyui": "0.3.29",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "effective on Full (cfg 5); template 'bad ugly jpeg artifacts'"
+      },
+      "width": {
+        "node": "6",
+        "input": "width"
+      },
+      "height": {
+        "node": "6",
+        "input": "height"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "7",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "hidream_i1_full_fp8.safetensors",
+      "clip_l_hidream.safetensors",
+      "clip_g_hidream.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "llama_3.1_8b_instruct_fp8_scaled.safetensors",
+      "ae.safetensors"
+    ],
+    "defaults_note": "1024x1024, shift 3.0, 50 steps, uni_pc/simple, cfg 5.0 = the template's 'Official sampling settings' for Full (docs: lcm/normal optional). fp8 file 'requires more than 16GB of VRAM'; the fp16 file (34.2 GB) 'more than 27GB'.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": "1024x1024",
+      "usage": "fp8: 'requires more than 16GB of VRAM' (docs); community: fp8 I1 'barely less than 24GB VRAM at 1024x1024'",
+      "time_s": null,
+      "src": [
+        "S-DOCS-I1",
+        "S-COMMUNITY-VRAM"
+      ]
+    },
+    "family": "hidream",
+    "packs": [],
+    "inputs": {},
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hidream_i1_full_fp8.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.0
+      }
+    },
+    "3": {
+      "class_type": "QuadrupleCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l_hidream.safetensors",
+        "clip_name2": "clip_g_hidream.safetensors",
+        "clip_name3": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "clip_name4": "llama_3.1_8b_instruct_fp8_scaled.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "A lo-fi, grungy wide shot of a ragged large red tree leaning slightly to one side Polaroid aesthetic. the tree is alone in a desolate landscape, the tree is illuminated by a red light, the background is pitch black"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "bad ugly jpeg artifacts"
+      }
+    },
+    "6": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 50,
+        "cfg": 5.0,
+        "sampler_name": "uni_pc",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "ComfyUI"
+      }
+    }
+  }
+}

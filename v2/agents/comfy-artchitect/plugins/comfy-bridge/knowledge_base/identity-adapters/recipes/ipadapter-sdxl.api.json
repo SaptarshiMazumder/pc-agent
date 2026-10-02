@@ -1,0 +1,260 @@
+{
+  "recipe": {
+    "task": "image-prompt",
+    "method": "ip-adapter",
+    "host": "sdxl",
+    "variant": "IP-Adapter Plus (SDXL, ViT-H) through the unified loader: image prompting for style / composition / subject; the adapter sits on the MODEL line between checkpoint (after any LoRA) and sampler, text encoders untouched",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: cubiq/ComfyUI_IPAdapter_plus examples/ipadapter_simple.json (nodes, preset, weight 0.8, 30 steps cfg 6.5 dpmpp_2m karras) on the sdxl_simple_example host (base checkpoint, 1024x1024, negative 'text, watermark'); the pack example itself uses an SD1.5 checkpoint",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31"
+      ],
+      "splice": "IPAdapterUnifiedLoader (30) takes the host MODEL and returns (model, ipadapter); IPAdapter (31) returns the patched MODEL for the sampler. Nothing touches conditioning."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "preset": {
+        "node": "30",
+        "input": "preset",
+        "options": [
+          "LIGHT - SD1.5 only (low strength)",
+          "STANDARD (medium strength)",
+          "VIT-G (medium strength)",
+          "PLUS (high strength)",
+          "PLUS FACE (portraits)",
+          "FULL FACE - SD1.5 only (portraits stronger)"
+        ]
+      },
+      "weight": {
+        "node": "31",
+        "input": "weight"
+      },
+      "weight_type": {
+        "node": "31",
+        "input": "weight_type",
+        "options": [
+          "standard",
+          "prompt is more important",
+          "style transfer"
+        ]
+      },
+      "start_at": {
+        "node": "31",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "31",
+        "input": "end_at"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "reference_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to prompt with; CLIP-vision wants a square - PrepImageForClipVision(interpolation, crop_position, sharpening) from the pack crops it"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "ip-adapter-plus_sdxl_vit-h.safetensors",
+      "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_IPAdapter_plus",
+        "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+        "license": "GPL-3.0",
+        "status": "maintenance only since 2025-04-14",
+        "pip": [],
+        "nodes_used": [
+          "IPAdapterUnifiedLoader",
+          "IPAdapter"
+        ]
+      }
+    ],
+    "defaults_note": "weight 0.8 (README: 'lower the weight to 0.8 minimum and increase step count' for prompt adherence), 30 steps, cfg 6.5, dpmpp_2m/karras. The unified loader finds the adapter and encoder BY FILENAME REGEX in models/ipadapter and models/clip_vision: keep h94's names and rename the encoder exactly to CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors. Models Apache-2.0; pack GPL-3.0.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "SDXL base 6.9 GB + 0.85 GB adapter + 2.5 GB ViT-H (encoder runs once per image)",
+      "src": "S-HF-IPA"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: IPAdapterUnifiedLoader, IPAdapter"
+    ],
+    "id": "ipadapter-sdxl",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "portrait photo of a woman in a sunlit garden, natural light, 85mm lens"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@reference_image"
+      }
+    },
+    "30": {
+      "class_type": "IPAdapterUnifiedLoader",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "preset": "PLUS (high strength)"
+      }
+    },
+    "31": {
+      "class_type": "IPAdapter",
+      "inputs": {
+        "model": [
+          "30",
+          0
+        ],
+        "ipadapter": [
+          "30",
+          1
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "weight": 0.8,
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "weight_type": "standard"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "31",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 6.5,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/ipadapter_sdxl"
+      }
+    }
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "recipe": {
+    "id": "t2i-krea-dev",
+    "family": "flux-1",
+    "task": "t2i",
+    "variant": "FLUX.1 Krea [dev] fp8_scaled (aesthetic-photography finetune, 'drop-in replacement' for dev) via UNETLoader; same graph as t2i-dev",
+    "from_template": "flux1_krea_dev",
+    "min_comfyui": "0.3.42",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-krea-dev_fp8_scaled.safetensors",
+      "t5xxl_fp16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 20 steps, euler/simple, cfg 1.0; no FluxGuidance node (model default 3.5; BFL's own Krea sample uses 4.5). docs.comfy.org: the fp8_scaled file is 'recommended for low VRAM users'; the bf16 flux1-krea-dev.safetensors (BFL, gated) 'if you have enough VRAM like 24GB'.",
+    "vram_evidence": {
+      "gpu": "24 GB for bf16",
+      "note": "docs.comfy.org flux1-krea-dev: bf16 'if you have enough VRAM like 24GB'; fp8_scaled for low VRAM",
+      "class": "official",
+      "src": "S-DOCS-KREA"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-krea-dev_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "Highly realistic portrait of a Nordic woman with blonde hair and blue eyes, gaze sharp and intellectual. The lighting should reflect the unique coolness of Northern Europe. Outfit is minimalist and modern, background is blurred in cool tones. Needs to perfectly capture the characteristics of a Scandinavian woman. solo, Centered composition"
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "flux_krea"
+      }
+    }
+  }
+}

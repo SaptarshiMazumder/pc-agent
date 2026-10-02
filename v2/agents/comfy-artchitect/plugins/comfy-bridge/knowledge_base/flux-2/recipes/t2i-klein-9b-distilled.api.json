@@ -1,0 +1,208 @@
+{
+  "recipe": {
+    "id": "t2i-klein-9b-distilled",
+    "family": "flux-2",
+    "task": "t2i",
+    "variant": "FLUX.2 [klein] 9B distilled fp8: 4 steps, cfg 1, ConditioningZeroOut negative — derived: the 9B template's graph with the distilled settings of the 4B template's 'Distilled' subgraph and the flux-2-klein-9b-fp8.safetensors file its model note lists",
+    "from_template": "image_flux2_text_to_image_9b topology + image_flux2_klein_text_to_image 'Distilled' subgraph settings (4 steps, cfg 1, ConditioningZeroOut); flux-2-klein-9b-fp8.safetensors is the second file the 9B template's note offers. Not a verbatim template.",
+    "min_comfyui": "0.19.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "cfg": {
+        "node": "8",
+        "input": "cfg"
+      },
+      "width": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "width",
+        "note": "EmptyFlux2LatentImage and Flux2Scheduler must get the same value"
+      },
+      "height": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "height"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "4",
+        "input": "steps"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux-2-klein-9b-fp8.safetensors",
+      "full_encoder_small_decoder.safetensors",
+      "qwen_3_8b_fp8mixed.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 4 steps, cfg 1.0, euler; same files as the 9B distilled edit template minus the reference.",
+    "vram_evidence": {
+      "gpu": "RTX 4090 and above; ~29 GB bf16 pipeline (fp8 files are the template default)",
+      "note": "BFL 9B cards: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM'; community: 'Klein 9B fits 16GB' with the fp8 files (direction only)",
+      "class": "official + community",
+      "src": [
+        "S-HF-KLEIN-CARDS",
+        "S-BFL-BLOG-KLEIN",
+        "S-VRAM-TABLES"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "min_comfyui_note": "0.19.0 (template minComfyUIVersion is lower, but full_encoder_small_decoder.safetensors needs the small-decoder support added in ComfyUI v0.19.0, 2026-04-13)"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux-2-klein-9b-fp8.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+        "type": "flux2",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "full_encoder_small_decoder.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A vintage motorcycle parked in front of a retro diner at sunset, warm orange and pink sky, neon signs glowing, 80s vintage photo style, film grain, warm color cast"
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "cfg": 1.0
+      }
+    },
+    "9": {
+      "class_type": "EmptyFlux2LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "4": {
+      "class_type": "Flux2Scheduler",
+      "inputs": {
+        "steps": 4,
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "8",
+          0
+        ],
+        "sampler": [
+          "14",
+          0
+        ],
+        "sigmas": [
+          "4",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux2-Klein"
+      }
+    }
+  }
+}

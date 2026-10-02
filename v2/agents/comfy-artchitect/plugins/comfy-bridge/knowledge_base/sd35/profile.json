@@ -1,0 +1,1471 @@
+{
+  "schema": 2,
+  "id": "sd35",
+  "name": "Stable Diffusion 3.5",
+  "publisher": "Stability AI (Large, Large Turbo, Medium, Large ControlNets); Comfy-Org repacks the ungated all-in-one fp8 checkpoints and ControlNets",
+  "license": {
+    "name": "Stability AI Community License Agreement",
+    "commercial": "conditional: free for persons/organizations with less than USD $1,000,000 annual revenue (must register at stability.ai/community-license); above that the license terminates and an enterprise license is required",
+    "notes": "'Last Updated: July 5, 2024'. Free for 'Research & Non-Commercial' use. Attribution: retain 'This Stability AI Model is licensed under the Stability AI Community License, Copyright (c) Stability AI Ltd. All Rights Reserved' and 'prominently display \"Powered by Stability AI\"'. 'You own any outputs generated from the Models or Derivative Works'. May not use the models/outputs 'to create or improve any foundational generative AI model'. HF cardData: license: other, license_name: stabilityai-ai-community, gated: auto. The ControlNets and the Comfy-Org repacks carry the same license; Lotus depth (Comfy-Org/lotus) and the SD1.5 VAE used by the depth template are separate third-party files.",
+    "src": [
+      "S-SAI-LICENSE",
+      "S-SAI-BLOG",
+      "S-HF-SD35-LARGE"
+    ]
+  },
+  "cost": "free",
+  "gated_downloads": {
+    "note": "stabilityai/stable-diffusion-3.5-* (originals and ControlNet originals) are gated: 'Access to model ... is restricted. You must have access to it and be authenticated'. The Comfy-Org repacks (stable-diffusion-3.5-fp8, stable-diffusion-3.5-controlnets_ComfyUI_repackaged) are ungated and are what every official template loads.",
+    "src": [
+      "S-HF-SD35-LARGE",
+      "S-HF-COMFYORG-FP8",
+      "S-HF-COMFYORG-CN"
+    ]
+  },
+  "kind": [
+    "image",
+    "control"
+  ],
+  "tasks": [
+    "t2i",
+    "control"
+  ],
+  "cannot": [
+    {
+      "what": "ControlNets on Medium or Turbo: 'compatible only with Stable Diffusion 3.5 Large (8b)' (Turbo compatibility NOT FOUND)",
+      "src": "S-HF-SD35-CN"
+    },
+    {
+      "what": "resolutions above ~1 MP on Large ('supports up to 1 megapixel resolution'); Medium is '0.25 to 2 megapixel'",
+      "src": "S-SAI-BLOG"
+    },
+    {
+      "what": "factual depictions: 'The model was not trained to be factual or true representations of people or events'",
+      "src": "S-HF-SD35-LARGE"
+    },
+    {
+      "what": "strong negative prompts: they 'actively harm quality and cause color banding' on SD3/3.5 (community-confirmed; the official default negative is the empty string)",
+      "src": [
+        "S-COMM-NEG",
+        "S-COMM-DCAI",
+        "S-TPL-SIMPLE"
+      ]
+    },
+    {
+      "what": "img2img / inpaint with a validated SD3.5 graph: no template; only the generic VAEEncode / VAEEncodeForInpaint pattern ('SD3.5-specific validation: NOT FOUND')",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "what": "IP-Adapter / CLIP-vision image prompting: NOT FOUND (none official or Comfy-Org)",
+      "src": "S-HF-COMFYORG-FP8"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source per the dossier (comfy_extras/nodes_sd3.py, nodes_model_advanced.py, nodes_controlnet.py, comfy/supported_models.py, comfy/latent_formats.py); input names taken from the v0.35.0 registry (node_schemas_v0.35.0.json)",
+    "nodes_verified_against_registry": "v0.35.0 - all 8 recipes passed verify_recipes.py on 2026-10-02",
+    "template_min_versions": {
+      "sd3.5_simple_example, sd3.5_large_canny_controlnet_example, sd3.5_large_blur": "0.3.5",
+      "sd3.5_large_depth": "0.3.42"
+    },
+    "sd3_config": "class SD3: sampling_settings shift 3.0; latent_format SD3 (16 ch, scale 1.5305, shift 0.0609); memory_usage_factor 1.6; text encoders detected under the text_encoders. prefix -> sd3_clip(clip_l, clip_g, t5)",
+    "note": "Nothing is version-pending: every template needs <= 0.3.42. ControlNetApplySD3 is deprecated (is_deprecated=True in v0.38.1; the v0.35.0 registry marks it deprecated too) - every recipe uses ControlNetApplyAdvanced with its vae input wired."
+  },
+  "bytes_note": "The dossier records HF tree-API sizes as decimal GB to three places; exact byte counts are NOT FOUND in the KB, so bytes is null and size_gb carries the dossier figure. Phase 2 reads exact bytes from the HF tree on the box.",
+  "files": [
+    {
+      "name": "sd3.5_large_fp8_scaled.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 14934922866,
+      "size_gb": 14.935,
+      "precision": "fp8 scaled transformer + bundled CLIP-L / CLIP-G / T5 (fp8 scaled)",
+      "variant": "large",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/sd3.5_large_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official VRAM figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'a smaller checkpoint for SD3.5 Large that contains the text encoders/CLIP built in' - used by all 4 Comfy SD3.5 templates; template notes list it as 13.91 GB (GiB)",
+      "used_by": [
+        "t2i-large",
+        "control-canny",
+        "control-depth",
+        "control-blur"
+      ],
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-TPL-SIMPLE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd3.5_medium_incl_clips_t5xxlfp8scaled.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 11638004202,
+      "size_gb": 11.638,
+      "precision": "medium weights + CLIP-L / CLIP-G + T5 fp8 scaled",
+      "variant": "medium",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/sd3.5_medium_incl_clips_t5xxlfp8scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND; Stability: 'runs on consumer hardware'",
+        "class": "official",
+        "src": "S-SAI-BLOG"
+      },
+      "quality": "'can be used in the default workflow like any other checkpoint files' (ComfyUI_examples); 2.5B MMDiT-X, 0.25-2 MP; 'faster and take less memory but might have less complex understanding of some concepts'",
+      "used_by": [
+        "t2i-medium",
+        "t2i-medium-slg"
+      ],
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd3.5_large.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": null,
+      "size_gb": 16.46,
+      "precision": "fp16 (no text encoders inside)",
+      "variant": "large",
+      "gated": true,
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-large/resolve/main/sd3.5_large.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the original 8B fp16 weights; 'do not contain text encoder/CLIP weights so you must load them separately' (TripleCLIPLoader)",
+      "used_by": [
+        "t2i-large-triple-clip"
+      ],
+      "src": [
+        "S-HF-SD35-LARGE",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "name": "sd3.5_large_turbo.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": null,
+      "size_gb": 16.46,
+      "precision": "fp16 (no text encoders inside)",
+      "variant": "large-turbo",
+      "gated": true,
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-large-turbo/resolve/main/sd3.5_large_turbo.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "ADD-distilled: 'high-quality images with exceptional prompt adherence in just 4 steps'; ComfyUI_examples: 'set steps to 4 and cfg to 1.2'",
+      "used_by": [
+        "t2i-large-turbo"
+      ],
+      "src": [
+        "S-HF-SD35-TURBO",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "name": "sd3.5_medium.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": null,
+      "size_gb": 5.11,
+      "precision": "fp16 (no text encoders inside)",
+      "variant": "medium",
+      "gated": true,
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-medium/resolve/main/sd3.5_medium.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the original Medium weights; needs TripleCLIPLoader; no recipe (the ungated all-in-one Medium covers the task)",
+      "used_by": [],
+      "src": "S-HF-SD35-MEDIUM"
+    },
+    {
+      "name": "clip_l.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 246144152,
+      "size_gb": 0.246,
+      "precision": "fp16",
+      "variant": "shared",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/text_encoders/clip_l.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-COMFYORG-FP8"
+      },
+      "quality": "CLIP-ViT/L (77 tokens); TripleCLIPLoader clip_name1; older docs say models/clip - both folders are scanned",
+      "used_by": [
+        "t2i-large-triple-clip",
+        "t2i-large-turbo"
+      ],
+      "src": "S-HF-COMFYORG-FP8",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "clip_g.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 1389382176,
+      "size_gb": 1.389,
+      "precision": "fp16",
+      "variant": "shared",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/text_encoders/clip_g.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-COMFYORG-FP8"
+      },
+      "quality": "OpenCLIP-ViT/G (bigG); TripleCLIPLoader clip_name2",
+      "used_by": [
+        "t2i-large-triple-clip",
+        "t2i-large-turbo"
+      ],
+      "src": "S-HF-COMFYORG-FP8",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5157348688,
+      "size_gb": 5.157,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "shared",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-EXAMPLES"
+      },
+      "quality": "T5-XXL; ComfyUI_examples: 'if you don't [have more than 32GB ram]'; TripleCLIPLoader clip_name3 (the recipes' default)",
+      "used_by": [
+        "t2i-large-triple-clip",
+        "t2i-large-turbo"
+      ],
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9787841024,
+      "size_gb": 9.788,
+      "precision": "fp16",
+      "variant": "shared",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/text_encoders/t5xxl_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'I recommend t5xxl_fp16.safetensors if you have more than 32GB ram'",
+        "class": "official",
+        "src": "S-EXAMPLES"
+      },
+      "quality": "full-precision T5; the Comfy-Org fp16 workflow's choice",
+      "used_by": [],
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 4893934904,
+      "size_gb": 4.894,
+      "precision": "fp8_e4m3fn (not scaled)",
+      "variant": "shared",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/text_encoders/t5xxl_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-COMFYORG-FP8"
+      },
+      "quality": "plain fp8 T5; the Comfy-Org fp8 workflow references 't5xxl_fp8.safetensors' - a renamed copy of this file",
+      "used_by": [],
+      "src": "S-HF-COMFYORG-FP8",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd3.5_large_controlnet_canny.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "size_gb": 8.655,
+      "precision": "NOT FOUND",
+      "variant": "large",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_canny.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "edge-guided; HF card preprocessing: grayscale -> cv2.Canny(100, 200); 'slightly higher step count (50-60) ... especially with Canny'; original (gated) at stabilityai/stable-diffusion-3.5-controlnets",
+      "used_by": [
+        "control-canny"
+      ],
+      "src": [
+        "S-HF-COMFYORG-CN",
+        "S-HF-SD35-CN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd3.5_large_controlnet_depth.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "size_gb": 8.655,
+      "precision": "NOT FOUND",
+      "variant": "large",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_depth.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "depth-guided; HF card preprocessing: DepthFM at 512x512 then resize back; the Comfy template uses Lotus depth instead",
+      "used_by": [
+        "control-depth"
+      ],
+      "src": [
+        "S-HF-COMFYORG-CN",
+        "S-HF-SD35-CN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd3.5_large_controlnet_blur.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "size_gb": 8.655,
+      "precision": "NOT FOUND",
+      "variant": "large",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_blur.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'for high-fidelity upscaling'; HF card preprocessing: GaussianBlur(kernel_size=50); the template takes a pre-blurred image",
+      "used_by": [
+        "control-blur"
+      ],
+      "src": [
+        "S-HF-COMFYORG-CN",
+        "S-HF-SD35-CN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "lotus-depth-d-v1-1.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 1735197352,
+      "size_gb": 1.62,
+      "precision": "NOT FOUND",
+      "variant": "depth-preprocessor",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/lotus/resolve/main/lotus-depth-d-v1-1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-DEPTH"
+      },
+      "quality": "Lotus depth estimator run by the depth template's subgraph (UNETLoader, 1-step SamplerCustomAdvanced, sigma 10000, inverted); separate license (jingheya/lotus-depth-d-v1-1 base)",
+      "used_by": [
+        "control-depth"
+      ],
+      "src": [
+        "S-TPL-DEPTH",
+        "S-HF-LOTUS"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "vae-ft-mse-840000-ema-pruned.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 334641190,
+      "size_gb": 0.3191,
+      "precision": "fp32",
+      "variant": "depth-preprocessor",
+      "gated": false,
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-DEPTH"
+      },
+      "quality": "SD1.5 VAE for the Lotus depth subgraph only ('You also use any SD1.5 VAE'); NOT the SD3.5 VAE - every SD3.5 checkpoint carries its own VAE (CheckpointLoaderSimple output 2), a separate SD3 VAE file is NOT FOUND in the Comfy-Org repo",
+      "used_by": [
+        "control-depth"
+      ],
+      "src": [
+        "S-TPL-DEPTH",
+        "S-HF-SD15-VAE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Hyper-SD3-8steps-CFG-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 472049168,
+      "size_gb": 0.47,
+      "precision": "NOT FOUND",
+      "variant": "speed-lora (SD3-Medium)",
+      "gated": false,
+      "url": "https://huggingface.co/ByteDance/Hyper-SD/resolve/main/Hyper-SD3-8steps-CFG-lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "trained on SD3-Medium ('guidance scale to 3.0/5.0/7.0 at 4/8/16-steps ... fuse lora with a relatively small scale (e.g. 0.125)'); compatibility with SD3.5 NOT FOUND - no recipe. Siblings: Hyper-SD3-4steps-CFG-lora, Hyper-SD3-16steps-CFG-lora (0.47 GB each)",
+      "used_by": [],
+      "src": "S-HYPER-SD",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF Large / Large Turbo / Medium (city96) for small cards; ungated route to Turbo",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "unet",
+      "node": "UnetLoaderGGUF + TripleCLIPLoader",
+      "examples": [
+        "sd3.5_large-Q4_0.gguf 4.77 GB, Q5_0 5.77, Q8_0 8.78, F16 16.29",
+        "sd3.5_large_turbo-Q4_0.gguf 4.77, Q8_0 8.78, F16 16.29",
+        "sd3.5_medium-Q4_K_M.gguf 1.79, Q8_0 2.86, F16 4.94"
+      ],
+      "urls": [
+        "https://huggingface.co/city96/stable-diffusion-3.5-large-gguf/resolve/main/<file>",
+        "https://huggingface.co/city96/stable-diffusion-3.5-large-turbo-gguf/resolve/main/<file>",
+        "https://huggingface.co/city96/stable-diffusion-3.5-medium-gguf/resolve/main/<file>"
+      ],
+      "class": "community",
+      "src": "S-GGUF-CITY96"
+    },
+    {
+      "what": "DualCLIPLoader(clip_l, clip_g, type 'sd3') without T5, or CLIPLoader(t5xxl, type 'sd3') alone: 'SD3 supports different text encoder configurations' - both sit unconnected in the Comfy-Org workflow JSONs",
+      "needs_pack": null,
+      "class": "official",
+      "src": "S-HF-COMFYORG-FP8"
+    },
+    {
+      "what": "time-limited negative: real negative for the first ~10% of steps (ConditioningSetTimestepRange 0.0-0.1) + ConditioningZeroOut for 0.1-1.0, joined with ConditioningCombine",
+      "needs_pack": null,
+      "class": "community",
+      "src": "S-COMM-DCAI"
+    },
+    {
+      "what": "preprocessors other than Canny (blur, depth maps from other estimators): comfyui_controlnet_aux ('Please use the preprocessed images, or install comfyui_controlnet_aux')",
+      "needs_pack": "Fannovel16/comfyui_controlnet_aux",
+      "class": "official (template note)",
+      "src": "S-TPL-BLUR"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "recipe": "t2i-large",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (14.935 GB fp8 all-in-one; Large is the 1 MP 'professional use' model)",
+      "why": "the official template route: ungated Comfy-Org fp8 all-in-one, encoders inside, one CheckpointLoaderSimple; best prompt adherence and typography in the family",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-SAI-BLOG"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-large-triple-clip",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (16.46 GB fp16 + 0.25 + 1.39 + 5.16 GB encoders)",
+      "why": "the fp16 original for maximum fidelity, encoders loaded separately (TripleCLIPLoader); gated: needs the user's HF login and license acceptance",
+      "status": "available, gated download",
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-HF-SD35-LARGE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": "t2i-large-turbo",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "tradeoff": "4 steps at cfg ~1 (5-10x fewer steps than Large); no negative prompt; gated download (ungated GGUF needs ComfyUI-GGUF)",
+      "confidence": "official guidance, no shipped template graph",
+      "src": [
+        "S-EXAMPLES",
+        "S-SD35-REF",
+        "S-HF-SD35-TURBO"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-medium",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND ('consumer hardware'; 11.638 GB all-in-one, 2.5B transformer)",
+      "why": "the small-card / fast route: 2.5B MMDiT-X, 0.25-2 MP, ungated all-in-one; 'might have less complex understanding of some concepts'",
+      "src": [
+        "S-EXAMPLES",
+        "S-SAI-BLOG"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-medium-slg",
+      "vram_gb_min": null,
+      "vram_note": "as t2i-medium",
+      "why": "Medium with Stability's recommended Skip Layer Guidance 'for potentially better structure and anatomy coherency' - pick it for people, hands, complex compositions; lower cfg (4.0)",
+      "src": [
+        "S-SD35-REF",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "canny",
+      "recipe": "control-canny",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (14.935 + 8.655 GB on disk)",
+      "why": "edge-locked composition from any image; Canny computed in-graph (no pack); Large only",
+      "src": [
+        "S-TPL-CANNY",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "depth",
+      "recipe": "control-depth",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (+ 1.62 GB Lotus + 0.32 GB SD1.5 VAE)",
+      "why": "depth-locked layout; the depth map is estimated in-graph by Lotus (no pack); output takes the input's aspect at ~1 MP",
+      "src": "S-TPL-DEPTH"
+    },
+    {
+      "task": "control",
+      "control": "blur",
+      "recipe": "control-blur",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "why": "re-render / upscale / restyle from a blurred version of an image ('for high-fidelity upscaling'); the input must already be blurred (no in-graph blur without comfyui_controlnet_aux)",
+      "src": [
+        "S-TPL-BLUR",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "task": "img2img",
+      "recipe": null,
+      "status": "pending: no SD3.5 img2img/inpaint template; the generic VAEEncode(denoise<1) / VAEEncodeForInpaint pattern applies but 'SD3.5-specific validation: NOT FOUND' - compose from t2i-large with VAEEncode as the latent when needed",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "task": "t2i",
+      "speed": "fast-lora",
+      "recipe": null,
+      "status": "pending: Hyper-SD3 CFG LoRAs are trained on SD3-Medium; compatibility with SD3.5 NOT FOUND",
+      "src": "S-HYPER-SD"
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 8,
+      "recipe": null,
+      "status": "pending: GGUF Large/Turbo/Medium need the ComfyUI-GGUF pack (Phase 2 install); no official VRAM figures for any SD3.5 file",
+      "src": "S-GGUF-CITY96"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler",
+      "input": "steps",
+      "meaning": "flow-matching denoise steps",
+      "defaults": {
+        "t2i-large": 20,
+        "t2i-large-triple-clip": 30,
+        "t2i-large-turbo": 4,
+        "t2i-medium": 20,
+        "t2i-medium-slg": 20,
+        "control-canny": 32,
+        "control-depth": 20,
+        "control-blur": 30
+      },
+      "range": [
+        4,
+        60
+      ],
+      "official_reference_code": {
+        "large": 40,
+        "turbo": 4,
+        "medium": 50,
+        "controlnets": 60
+      },
+      "interactions": "Turbo: 4 only; ControlNets: HF card 'slightly higher step count (50-60) ... especially with Canny'; HF Large card example 28",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-SD35-REF",
+        "S-HF-SD35-CN",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; SD3.5 likes it low",
+      "defaults": {
+        "t2i-large": 4.01,
+        "t2i-large-triple-clip": 5.45,
+        "t2i-large-turbo": 1.2,
+        "t2i-medium": 4.01,
+        "t2i-medium-slg": 4.0,
+        "control-canny": 4.5,
+        "control-depth": 8.0,
+        "control-blur": 4.0
+      },
+      "range": [
+        1.0,
+        8.0
+      ],
+      "official_reference_code": {
+        "large": 4.5,
+        "turbo": 1.0,
+        "medium": "5.0 (4.0 with SLG)",
+        "controlnets": 3.5
+      },
+      "interactions": "HF Large card 'guidance_scale 3.5-4.5'; cfg >> 5 hurts Large; Turbo cfg 1.0-1.2; SLG oversaturates -> lower cfg; the depth template's 8 is the family outlier",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-TPL-DEPTH",
+        "S-SD35-REF",
+        "S-HF-SD35-LARGE",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "t2i (templates)": "euler / sgm_uniform",
+        "control-canny, control-blur": "euler / simple",
+        "control-depth": "euler / normal"
+      },
+      "range": null,
+      "official_reference_code": {
+        "large, medium": "dpmpp_2m",
+        "turbo, controlnets": "euler"
+      },
+      "interactions": "community: 'simple Euler/sgm_uniform with 25 steps ... dpmpp_2m sampler gives nice results for general use in the Medium model'",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-SD35-REF",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingSD3",
+      "input": "shift",
+      "meaning": "timestep shift of the flow schedule; SD3.5's config value is 3.0, which is also the node default, so the templates omit the node entirely",
+      "defaults": {
+        "all SD3.5 variants": 3.0
+      },
+      "range": null,
+      "official_reference_code": {
+        "all": 3.0,
+        "note": "SD3 (June 2024) used shift 1.0"
+      },
+      "interactions": "adding the node is only useful to move AWAY from 3.0 - an experiment, not an official setting",
+      "src": [
+        "S-SD35-REF",
+        "S-NODES-SD3"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage",
+      "input": "width, height",
+      "meaning": "multiples of 16 (node step 16); 16-channel latent",
+      "defaults": {
+        "templates": "1024x1024",
+        "large": "up to 1 MP",
+        "medium": "0.25-2 MP (reference example 1920x1080)"
+      },
+      "range": null,
+      "interactions": "control-depth takes its size from the depth map (VAEEncode latent) - use the megapixels port; community (single source): dimensions divisible by 64",
+      "src": [
+        "S-NODES-SD3",
+        "S-SAI-BLOG",
+        "S-SD35-REF",
+        "S-TPL-DEPTH"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "KSampler",
+      "input": "denoise",
+      "meaning": "1.0 everywhere (no img2img template)",
+      "defaults": {
+        "all": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": "S-TPL-SIMPLE"
+    },
+    {
+      "name": "seed",
+      "node": "KSampler",
+      "input": "seed",
+      "meaning": "randomize in every template",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-SIMPLE"
+    },
+    {
+      "name": "strength / start_percent / end_percent",
+      "node": "ControlNetApplyAdvanced",
+      "input": "strength, start_percent, end_percent",
+      "meaning": "ControlNet weight and the fraction of the schedule it acts on",
+      "defaults": {
+        "control-canny": "0.66 / 0 / 1",
+        "control-depth": "0.7 / 0 / 1",
+        "control-blur": "1.0 / 0 / 1"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "interactions": "HF card: 'start with a ControlNet strength of 0.7-0.8'; the vae input MUST be wired for SD3.5 ControlNets",
+      "src": [
+        "S-TPL-CANNY",
+        "S-TPL-DEPTH",
+        "S-TPL-BLUR",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "name": "Skip Layer Guidance",
+      "node": "SkipLayerGuidanceSD3",
+      "input": "layers, scale, start_percent, end_percent",
+      "meaning": "guides with the difference to a pass that skips transformer layers 7-9 early in the schedule; Stability's Medium recommendation ('ComfyUI PR #5404')",
+      "defaults": {
+        "node defaults": "'7, 8, 9' / 3.0 / 0.01 / 0.15",
+        "t2i-medium-slg (reference config)": "'7, 8, 9' / 2.5 / 0.01 / 0.20 with cfg 4.0"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "interactions": "community: 'SLG tends to oversaturate images with some loss of detail, so the CFG and ModelSampling need to be tuned down'; experimental node",
+      "src": [
+        "S-SD35-REF",
+        "S-NODES-SD3",
+        "S-DOCS-NODES",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "name": "text encoder set",
+      "node": "TripleCLIPLoader",
+      "input": "clip_name1, clip_name2, clip_name3",
+      "meaning": "clip_l, clip_g, t5xxl in that order ('Recipes: sd3: clip-l, clip-g, t5')",
+      "defaults": {
+        "recipes": "clip_l.safetensors / clip_g.safetensors / t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "Comfy-Org fp16 workflow": "t5xxl_fp16.safetensors (>32 GB system RAM)"
+      },
+      "range": null,
+      "interactions": "T5 handles long prompts (256 tokens in later training stages), CLIP-L/G 77 tokens; CLIPTextEncodeSD3 (clip_l, clip_g, t5xxl texts + empty_padding none|empty_prompt) can send different text to each encoder - the official templates use one CLIPTextEncode",
+      "src": [
+        "S-NODES-SD3",
+        "S-EXAMPLES",
+        "S-HF-SD35-LARGE"
+      ]
+    },
+    {
+      "name": "canny thresholds",
+      "node": "Canny",
+      "input": "low_threshold, high_threshold",
+      "meaning": "edge detector sensitivity on the 1024x1024 scaled image",
+      "defaults": {
+        "control-canny": "0.3 / 0.6",
+        "node defaults": "0.4 / 0.8"
+      },
+      "range": [
+        0.01,
+        0.99
+      ],
+      "interactions": "HF card reference preprocessing is cv2.Canny(100, 200) on grayscale",
+      "src": [
+        "S-TPL-CANNY",
+        "S-HF-SD35-CN"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "sd3-latent-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "EmptyLatentImage",
+        "input": "width",
+        "exists": true
+      },
+      "require": {
+        "node": "EmptyLatentImage",
+        "input": "width",
+        "equals": "__never__"
+      },
+      "message": "SD3.5 is a 16-channel latent (latent_format SD3): the empty latent is EmptySD3LatentImage, never the 4-channel EmptyLatentImage",
+      "src": [
+        "S-NODES-SD3",
+        "S-TPL-SIMPLE"
+      ]
+    },
+    {
+      "id": "originals-need-triple-clip",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd3\\.5_(large|large_turbo|medium)\\.safetensors$"
+      },
+      "require": {
+        "node": "TripleCLIPLoader",
+        "input": "clip_name1",
+        "matches": "^clip_l"
+      },
+      "message": "sd3.5_large / sd3.5_large_turbo / sd3.5_medium 'do not contain text encoder/CLIP weights so you must load them separately': TripleCLIPLoader(clip_l, clip_g, t5xxl) feeds the text encoders; the checkpoint's CLIP output is empty for these files",
+      "src": [
+        "S-EXAMPLES",
+        "S-HF-COMFYORG-FP8"
+      ]
+    },
+    {
+      "id": "triple-clip-order",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "TripleCLIPLoader",
+        "input": "clip_name1",
+        "exists": true
+      },
+      "require": {
+        "node": "TripleCLIPLoader",
+        "input": "clip_name3",
+        "matches": "^t5xxl_"
+      },
+      "message": "TripleCLIPLoader order for SD3 is clip_l, clip_g, t5 ('Recipes: sd3: clip-l, clip-g, t5'): T5 goes in clip_name3",
+      "src": "S-NODES-SD3"
+    },
+    {
+      "id": "t5-fp16-needs-ram",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "TripleCLIPLoader",
+        "input": "clip_name3",
+        "matches": "t5xxl_fp16"
+      },
+      "require": {
+        "node": "TripleCLIPLoader",
+        "input": "clip_name3",
+        "matches": "fp8"
+      },
+      "message": "'I recommend t5xxl_fp16.safetensors if you have more than 32GB ram or t5xxl_fp8_e4m3fn_scaled.safetensors if you don't' - fine on a box with >32 GB system RAM, otherwise switch to the fp8 scaled T5",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "id": "turbo-cfg",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "sd3\\.5_large_turbo"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "max": 1.5,
+        "all": true
+      },
+      "message": "SD3.5 Large Turbo is ADD-distilled: cfg 1.0 (reference) to 1.2 (ComfyUI_examples); normal cfg 4-5 'wastes the distillation and can over-guide'",
+      "src": [
+        "S-EXAMPLES",
+        "S-SD35-REF"
+      ]
+    },
+    {
+      "id": "turbo-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "sd3\\.5_large_turbo"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "max": 8,
+        "all": true
+      },
+      "message": "Turbo is a 4-step model ('set steps to 4'; reference steps 4); 20-40 steps waste time and do not add quality",
+      "src": [
+        "S-EXAMPLES",
+        "S-SD35-REF"
+      ]
+    },
+    {
+      "id": "large-cfg-range",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd3\\.5_large(_fp8_scaled)?\\.safetensors$"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "min": 3.0,
+        "max": 8.0,
+        "all": true
+      },
+      "message": "SD3.5 Large runs at cfg 4.5 (reference), 3.5-4.5 (card), 4.01-5.45 (templates); the depth template's 8 is the top of the official range - above it expect over-guiding",
+      "src": [
+        "S-SD35-REF",
+        "S-HF-SD35-LARGE",
+        "S-TPL-SIMPLE",
+        "S-TPL-DEPTH"
+      ]
+    },
+    {
+      "id": "slg-lower-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "SkipLayerGuidanceSD3",
+        "input": "scale",
+        "exists": true
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "max": 4.5,
+        "all": true
+      },
+      "message": "with Skip Layer Guidance the reference cfg drops from 5.0 to 4.0: 'SLG tends to oversaturate images ... so the CFG and ModelSampling need to be tuned down'",
+      "src": [
+        "S-SD35-REF",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "id": "slg-is-for-medium",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "SkipLayerGuidanceSD3",
+        "input": "scale",
+        "exists": true
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "sd3\\.5_medium"
+      },
+      "message": "Skip Layer Guidance is Stability's recommendation for SD3.5-Medium ('better structure and anatomy coherency from SD3.5-Medium'); the Large / Turbo reference configs do not use it",
+      "src": "S-SD35-REF"
+    },
+    {
+      "id": "negative-minimal",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "sd3_negative_minimal",
+      "args": {
+        "sampler": "KSampler|KSamplerAdvanced",
+        "input": "negative",
+        "allowed_sources": [
+          "ConditioningZeroOut"
+        ],
+        "max_words": 3
+      },
+      "message": "every official SD3.5 template uses an EMPTY negative (or ConditioningZeroOut of the positive); 'strong negatives like \"blurry, distorted, ugly\" actively harm quality and cause color banding' on SD3/3.5 - keep it empty, or time-limit it (ConditioningSetTimestepRange 0-0.1 + ConditioningZeroOut 0.1-1)",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-TPL-CANNY",
+        "S-COMM-NEG",
+        "S-COMM-DCAI",
+        "S-HFD-SD3-NEG"
+      ]
+    },
+    {
+      "id": "controlnet-large-only",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^sd3\\.5_large_controlnet_"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd3\\.5_large(_fp8_scaled)?\\.safetensors$"
+      },
+      "message": "the SD3.5 ControlNets 'are compatible only with Stable Diffusion 3.5 Large (8b)': not Medium; Turbo compatibility NOT FOUND",
+      "src": "S-HF-SD35-CN"
+    },
+    {
+      "id": "controlnet-vae-wired",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^sd3\\.5_large_controlnet_"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "vae",
+        "linked": true
+      },
+      "message": "SD3.5 ControlNets need the VAE: wire the checkpoint's VAE into ControlNetApplyAdvanced.vae (every SD3.5 ControlNet template does); the old 'Apply Controlnet with VAE' (ControlNetApplySD3) is deprecated",
+      "src": [
+        "S-TPL-CANNY",
+        "S-NODES-SD3"
+      ]
+    },
+    {
+      "id": "no-deprecated-apply-sd3",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetApplySD3",
+        "input": "control_net",
+        "exists": true
+      },
+      "require": {
+        "node": "ControlNetApplySD3",
+        "input": "control_net",
+        "equals": "__never__"
+      },
+      "message": "ControlNetApplySD3 ('Apply Controlnet with VAE') is deprecated (is_deprecated=True; the v0.35.0 registry flags it): use ControlNetApplyAdvanced with its vae input",
+      "src": [
+        "S-NODES-SD3",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "EmptySD3LatentImage takes width/height in multiples of 16 (node step 16; 8x spatial VAE on a 2x patch)",
+      "src": "S-NODES-SD3"
+    },
+    {
+      "id": "shift-is-3",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "ModelSamplingSD3",
+        "input": "shift"
+      },
+      "numeric": {
+        "in": [
+          3.0
+        ]
+      },
+      "message": "SD3.5's config shift is 3.0 for every variant (Large, Turbo, Medium, ControlNets) - the node default - so the templates omit ModelSamplingSD3; another value is an experiment, not an official setting",
+      "src": [
+        "S-SD35-REF",
+        "S-NODES-SD3"
+      ]
+    },
+    {
+      "id": "controlnet-strength-range",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength"
+      },
+      "numeric": {
+        "max": 1.0
+      },
+      "message": "official SD3.5 ControlNet strengths are 0.66 (canny), 0.7 (depth), 1.0 (blur); HF card: 'start with a ControlNet strength of 0.7-0.8' - above 1.0 is outside anything official",
+      "src": [
+        "S-TPL-CANNY",
+        "S-TPL-DEPTH",
+        "S-TPL-BLUR",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (none of the SD3.5 templates does: max 0.3.42)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-SIMPLE",
+      "S-TPL-CANNY"
+    ],
+    "negative_gloss": "the empty string; the ControlNet templates use ConditioningZeroOut(positive) as the negative",
+    "positive": [
+      {
+        "line": "Natural-language description; T5 takes long prompts (256 tokens in later training stages), CLIP-L/G 77 tokens",
+        "class": "official",
+        "src": "S-HF-SD35-LARGE"
+      },
+      {
+        "line": "Template prompts are one dense descriptive sentence: 'a bottle with a pink and red galaxy inside it on top of a wooden table ... with a window to the outdoors mountain range bright sun clouds forest'",
+        "class": "official",
+        "src": "S-TPL-SIMPLE"
+      },
+      {
+        "line": "Stability's reference prompts are descriptive sentences ('A Night time photo taken by Leica M11, portrait of a Japanese woman in a kimono, looking at the camera, Cherry blossoms')",
+        "class": "official",
+        "src": "S-SD35-REF"
+      },
+      {
+        "line": "Text in the image: the HF card's convention is to quote the string; no official typography prompt-format guidance was found (NOT FOUND)",
+        "class": "official",
+        "src": "S-HF-SD35-LARGE"
+      },
+      {
+        "line": "CLIPTextEncodeSD3 lets tags go to clip_l/clip_g and prose to t5xxl; the official templates use a single CLIPTextEncode",
+        "class": "official",
+        "src": "S-NODES-SD3"
+      }
+    ],
+    "hurts": [
+      {
+        "line": "heavy negative prompts ('blurry, distorted, ugly'): quality loss and colour banding - the opposite of SDXL habits",
+        "src": [
+          "S-COMM-NEG",
+          "S-COMM-DCAI"
+        ]
+      },
+      {
+        "line": "cfg well above 5 on Large (reference 4.5)",
+        "src": "S-SD35-REF"
+      },
+      {
+        "line": "Skip Layer Guidance on Medium without lowering cfg (oversaturation)",
+        "src": "S-COMM-SLG"
+      },
+      {
+        "line": "pairing a ControlNet with Medium",
+        "src": "S-HF-SD35-CN"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "download of sd3.5_large / turbo / medium / the original ControlNets fails with 'Access to model ... is restricted'",
+      "cause": "stabilityai/stable-diffusion-3.5-* are gated (HF login + license acceptance)",
+      "fix": "use the ungated Comfy-Org repacks: sd3.5_large_fp8_scaled, sd3.5_medium_incl_clips_t5xxlfp8scaled, the text_encoders folder, and stable-diffusion-3.5-controlnets_ComfyUI_repackaged",
+      "src": [
+        "S-HF-SD35-LARGE",
+        "S-HF-COMFYORG-FP8",
+        "S-HF-COMFYORG-CN"
+      ]
+    },
+    {
+      "symptom": "empty / broken conditioning with an original checkpoint (CLIP output of CheckpointLoaderSimple is empty)",
+      "cause": "sd3.5_large.safetensors, sd3.5_large_turbo.safetensors, sd3.5_medium.safetensors contain no text encoders",
+      "fix": "TripleCLIPLoader(clip_l, clip_g, t5xxl) feeding both CLIPTextEncode nodes (t2i-large-triple-clip / t2i-large-turbo)",
+      "src": [
+        "S-EXAMPLES",
+        "S-HF-COMFYORG-FP8"
+      ]
+    },
+    {
+      "symptom": "ControlNet errors or garbage on Medium",
+      "cause": "the ControlNets 'are compatible only with Stable Diffusion 3.5 Large (8b)'",
+      "fix": "Large fp8 all-in-one checkpoint for every control recipe",
+      "src": "S-HF-SD35-CN"
+    },
+    {
+      "symptom": "'Apply Controlnet with VAE' node flagged deprecated / graph rejected",
+      "cause": "ControlNetApplySD3 is deprecated in v0.38.1 and in the v0.35.0 registry",
+      "fix": "ControlNetApplyAdvanced with its vae input wired to the checkpoint VAE",
+      "src": [
+        "S-NODES-SD3",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "symptom": "depth recipe ignores the requested width/height",
+      "cause": "the shipped depth template feeds VAEEncode(depth map) as the latent, so the output takes the depth map's size",
+      "fix": "use the megapixels port (output = input scaled to N MP, aspect kept) or wire an EmptySD3LatentImage to the KSampler as the template note says",
+      "src": "S-TPL-DEPTH"
+    },
+    {
+      "symptom": "Turbo output over-guided / wasted time",
+      "cause": "Turbo run at 20-40 steps and cfg 4-5",
+      "fix": "4 steps, cfg 1.0-1.2, euler",
+      "src": [
+        "S-EXAMPLES",
+        "S-SD35-REF"
+      ]
+    },
+    {
+      "symptom": "Medium: bad anatomy / structure",
+      "cause": "no Skip Layer Guidance",
+      "fix": "t2i-medium-slg (SkipLayerGuidanceSD3 layers 7,8,9) and lower cfg to 4.0 because SLG oversaturates",
+      "src": [
+        "S-SD35-REF",
+        "S-COMM-SLG"
+      ]
+    },
+    {
+      "symptom": "colour banding, degraded quality with a 'normal' negative prompt",
+      "cause": "SD3/3.5 negatives behave opposite to SDXL",
+      "fix": "empty negative (the official default) or a time-limited negative via ConditioningSetTimestepRange + ConditioningZeroOut + ConditioningCombine",
+      "src": [
+        "S-COMM-NEG",
+        "S-COMM-DCAI",
+        "S-HFD-SD3-NEG"
+      ]
+    },
+    {
+      "symptom": "system RAM exhaustion loading T5",
+      "cause": "t5xxl_fp16 on a box with <= 32 GB RAM",
+      "fix": "t5xxl_fp8_e4m3fn_scaled.safetensors (the recipes' default)",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "symptom": "commercial use question",
+      "cause": "Stability AI Community License: free under US$1M annual revenue with registration; above it the license terminates",
+      "fix": "register at stability.ai/community-license, keep the notice and 'Powered by Stability AI'; enterprise license above US$1M",
+      "src": "S-SAI-LICENSE"
+    },
+    {
+      "symptom": "old workflow says models/clip, files are in models/text_encoders",
+      "cause": "folder renamed; both paths are scanned",
+      "fix": "put the encoders in models/text_encoders",
+      "src": [
+        "S-HF-COMFYORG-FP8",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "symptom": "blur recipe gives a different picture, not a refined one",
+      "cause": "an unblurred image was fed; the template expects a pre-blurred input and has no in-graph blur",
+      "fix": "blur upstream (HF card: GaussianBlur kernel 50) or install comfyui_controlnet_aux",
+      "src": [
+        "S-TPL-BLUR",
+        "S-HF-SD35-CN"
+      ]
+    }
+  ],
+  "sources": {
+    "S-SAI-BLOG": {
+      "url": "http://stability.ai/news-updates/introducing-stable-diffusion-3-5",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SAI-LICENSE": {
+      "url": "https://stability.ai/community-license-agreement (identical text shipped as https://huggingface.co/stabilityai/sdxl-turbo/raw/main/LICENSE.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-LARGE": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-large (gated; rendered page via summarizer + API metadata + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-TURBO": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-large-turbo (gated; rendered page + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-MEDIUM": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-medium (gated; rendered page + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-CN": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-controlnets (gated; rendered page + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SD35-REF": {
+      "url": "https://raw.githubusercontent.com/Stability-AI/sd3.5/main/sd3_infer.py (+ README.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/sd3/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFYORG-FP8": {
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8 (README, tree API, sd3.5-t2i-fp16-workflow.json, sd3.5-t2i-fp8-scaled-workflow.json)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFYORG-CN": {
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LOTUS": {
+      "url": "https://huggingface.co/Comfy-Org/lotus",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD15-VAE": {
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SIMPLE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_simple_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-CANNY": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_canny_controlnet_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-DEPTH": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_depth.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-BLUR": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_blur.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES-SD3": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.1/comfy_extras/nodes_sd3.py (+ nodes_model_advanced.py, nodes_controlnet.py, comfy/supported_models.py, comfy/latent_formats.py, nodes.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json - the ComfyUI v0.35.0 node registry of the pinned GPU image (local ground truth)",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-DOCS-NODES": {
+      "url": "https://docs.comfy.org/built-in-nodes/SkipLayerGuidanceSD3.md (+ ModelSamplingSD3.md, CLIPTextEncodeSD3.md, EmptySD3LatentImage.md, ControlNetApplySD3.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG-COMFY": {
+      "url": "http://blog.comfy.org/sd3-5-large-controlnet/ , https://blog.comfy.org/sd3-5-comfyui/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GGUF-CITY96": {
+      "url": "https://huggingface.co/city96/stable-diffusion-3.5-large-gguf (+ -large-turbo-gguf, -medium-gguf; tree API)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HYPER-SD": {
+      "url": "https://huggingface.co/ByteDance/Hyper-SD (README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-COMM-SLG": {
+      "url": "https://sandner.art/sd-35-medium-skip-layer-guidance-and-fix-composition-hands-and-anatomy/",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-COMM-NEG": {
+      "url": "https://theneuralbase.com/comfyui/learn/beginner/sd3-sd3-5/",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-COMM-DCAI": {
+      "url": "https://www.digitalcreativeai.net/en/post/detailed-usage-comfyui-stable-diffusion-3-5-including-how-to-use-lora",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-SD3-NEG": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers/discussions/31",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

@@ -1,0 +1,288 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "pulid",
+    "host": "sdxl",
+    "variant": "PuLID for SDXL (cubiq pack, huchenlei's converted weights): tuning-free face ID on the MODEL line with ApplyPulid (method fidelity / style / neutral)",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: cubiq/PuLID_ComfyUI examples/PuLID_simple.json (fidelity, weight 0.8, 30 steps cfg 6 dpmpp_2m sgm_uniform, 768x1024) with the checkpoint swapped from Proteus-RunDiffusion to sd_xl_base_1.0",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31",
+        "32",
+        "33"
+      ],
+      "splice": "ApplyPulid (33) on the MODEL line between checkpoint and KSampler; conditioning untouched"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "method": {
+        "node": "33",
+        "input": "method",
+        "options": [
+          "fidelity",
+          "style",
+          "neutral"
+        ]
+      },
+      "weight": {
+        "node": "33",
+        "input": "weight"
+      },
+      "start_at": {
+        "node": "33",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "33",
+        "input": "end_at"
+      },
+      "provider": {
+        "node": "32",
+        "input": "provider",
+        "options": [
+          "CPU",
+          "CUDA",
+          "ROCM",
+          "CoreML"
+        ]
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "face_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "'Quality of the reference image is very important'"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "ip-adapter_pulid_sdxl_fp16.safetensors",
+      "EVA02_CLIP_L_336_psz14_s6B.pt",
+      "1k3d68.onnx",
+      "2d106det.onnx",
+      "genderage.onnx",
+      "glintr100.onnx",
+      "scrfd_10g_bnkps.onnx"
+    ],
+    "packs": [
+      {
+        "name": "PuLID_ComfyUI",
+        "git": "https://github.com/cubiq/PuLID_ComfyUI",
+        "license": "Apache-2.0",
+        "status": "maintenance only since 2025-04-14",
+        "pip": [
+          "insightface",
+          "onnxruntime-gpu (OR onnxruntime, never both)",
+          "facexlib",
+          "ftfy",
+          "timm"
+        ],
+        "nodes_used": [
+          "PulidModelLoader",
+          "PulidEvaClipLoader",
+          "PulidInsightFaceLoader",
+          "ApplyPulid"
+        ]
+      }
+    ],
+    "defaults_note": "fidelity (closer to the reference ID; 'style' gives the checkpoint more freedom), weight 0.8, 30 steps cfg 6 dpmpp_2m / sgm_uniform (README: try sgm_uniform). ApplyPulidAdvanced adds projection (ortho_v2/ortho/none), fidelity 0-32 (lower = closer) and noise. Apache-2.0 (pack + weights); insightface non-commercial.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "SDXL base + 0.79 GB PuLID + 0.86 GB EVA-CLIP",
+      "src": "S-HF-PULID-SDXL"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: PulidModelLoader, PulidEvaClipLoader, PulidInsightFaceLoader, ApplyPulid",
+      "input key 'pulid_file' unverified (positional reading of the example)"
+    ],
+    "id": "pulid-sdxl",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "portrait of a woman as a 1920s film star, black and white photograph"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 768,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face_image"
+      }
+    },
+    "30": {
+      "class_type": "PulidModelLoader",
+      "inputs": {
+        "pulid_file": "ip-adapter_pulid_sdxl_fp16.safetensors"
+      }
+    },
+    "31": {
+      "class_type": "PulidEvaClipLoader",
+      "inputs": {}
+    },
+    "32": {
+      "class_type": "PulidInsightFaceLoader",
+      "inputs": {
+        "provider": "CPU"
+      }
+    },
+    "33": {
+      "class_type": "ApplyPulid",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "pulid": [
+          "30",
+          0
+        ],
+        "eva_clip": [
+          "31",
+          0
+        ],
+        "face_analysis": [
+          "32",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "method": "fidelity",
+        "weight": 0.8,
+        "start_at": 0.0,
+        "end_at": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "33",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 6.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "sgm_uniform",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/pulid_sdxl"
+      }
+    }
+  }
+}

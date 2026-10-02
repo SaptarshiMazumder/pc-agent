@@ -1,0 +1,269 @@
+{
+  "recipe": {
+    "id": "control-union-lora",
+    "task": "control",
+    "variant": "Qwen-Image fp8 + DiffSynth In-Context Control Union LoRA (canny, depth, pose, lineart, softedge, normal, openpose): the control map's VAE latent attached to both conditionings with ReferenceLatent, Canny in-graph, 20 steps, cfg 2.5",
+    "from_template": "image_qwen_image_union_control_lora (subgraph 'ControlNet (Qwen-Image DiffSynth)' flattened, 'enable_turbo_mode' = false; PreviewImage dropped)",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "template \" \""
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "3-3.1 in every template; 'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.'"
+      },
+      "control_lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      },
+      "canny_low": {
+        "node": "17",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "17",
+        "input": "high_threshold"
+      },
+      "input_megapixels": {
+        "node": "16",
+        "input": "megapixels"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "source photo -> 1 MP -> Canny 0.26/0.35; for other control types replace the Canny with the matching preprocessor (the LoRA is union)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_fp8_e4m3fn.safetensors",
+      "qwen_image_union_diffsynth_lora.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "defaults_note": "20 steps, cfg 2.5, shift 3.1; 'Try 50 steps, if you want to try the inference steps from Qwen-Image to get better output'. The union file is a LoRA in models/loras (not controlnet). Lightning: template adds the 4-step LoRA after the union LoRA (4 / 1.0) - use the fp8-distilled file.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (same 20.4 GB fp8 class as Qwen-Image: expect the 24 GB figures)",
+      "time_s": null,
+      "src": "S-DOCS-QI"
+    },
+    "family": "qwen-image",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "qwen_image_union_diffsynth_lora.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "shift": 3.1
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Extreme close-up shot, realistic digital illustration, close eyes, peaceful,oil painting with thick application, girl with curly hair, large black flower, black nail polish, ring details, soft light and shadow, dark green backdrop, delicate hair texture, smooth skin rendering, fine artistic details, dreamy and elegant atmosphere, dark style, grotesque. White hair, huge black flower behind her"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": " "
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "17": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "low_threshold": 0.26,
+        "high_threshold": 0.35
+      }
+    },
+    "6": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "17",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "4",
+          0
+        ],
+        "latent": [
+          "6",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "latent": [
+          "6",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 2.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "12",
+          0
+        ],
+        "negative": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "Qwen_image"
+      }
+    }
+  }
+}

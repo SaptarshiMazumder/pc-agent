@@ -1,0 +1,247 @@
+{
+  "recipe": {
+    "family": "hunyuanvideo-1.5",
+    "min_comfyui": "0.3.71",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "t2v-480p-cfg-distilled",
+    "task": "t2v",
+    "variant": "480p T2V CFG-distilled fp8_scaled: cfg 1 (no unconditional pass, 2x faster per step), shift 5, 50 steps ('must use 50 steps to generate correct results')",
+    "from_template": "video_hunyuan_video_1.5_720p_t2v graph with the 480p cfg-distilled file and Tencent's table settings (cfg 1 / shift 5 / 50 steps); no dedicated Comfy-Org template; 848x480 = node default",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "official default is empty; only read at cfg > 1"
+      },
+      "width": {
+        "node": "7",
+        "input": "width",
+        "note": "multiples of 16; 1280x720 for the 720p models (848x480 node default for 480p)"
+      },
+      "height": {
+        "node": "7",
+        "input": "height"
+      },
+      "length": {
+        "node": "7",
+        "input": "length",
+        "note": "4n+1; 121 = 5 s @24 fps - the reference CLI warns for any other value"
+      },
+      "seed": {
+        "node": "8",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps",
+        "note": "20 (template shortcut) vs 50 (Tencent, 'for the best generation quality')"
+      },
+      "cfg": {
+        "node": "11",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift"
+      },
+      "fps": {
+        "node": "14",
+        "input": "fps"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "video": {
+        "node": "30",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "byt5_small_glyphxl_fp16.safetensors",
+      "hunyuanvideo15_vae_fp16.safetensors"
+    ],
+    "defaults_note": "848x480 x 121 @24 fps; 8.3 GB model, the small-card T2V route. The 50 steps are mandatory for this checkpoint; the negative prompt is unused at cfg 1.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "at": "480p",
+      "usage": null,
+      "time_s": null,
+      "src": null
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "3": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "clip_name2": "byt5_small_glyphxl_fp16.safetensors",
+        "type": "hunyuan_video_15",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "A paper airplane released from the top of a skyscraper glides through urban canyons, crossing traffic, flying over streets and spiraling upward between buildings. The camera follows the paper airplane's perspective in first-person POV, finally flying toward the sunset and disappearing in golden light. Creative camera movement, free perspective, dreamlike colors."
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "hunyuanvideo15_vae_fp16.safetensors"
+      }
+    },
+    "8": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "9": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 50,
+        "denoise": 1.0
+      }
+    },
+    "13": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "12",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "13",
+          0
+        ],
+        "fps": 24.0
+      }
+    },
+    "30": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "14",
+          0
+        ],
+        "filename_prefix": "video/hyv15_t2v_480p",
+        "format": "auto",
+        "format.codec": "h264"
+      }
+    },
+    "7": {
+      "class_type": "EmptyHunyuanVideo15Latent",
+      "inputs": {
+        "width": 848,
+        "height": 480,
+        "length": 121,
+        "batch_size": 1
+      }
+    },
+    "11": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "cfg": 1.0
+      }
+    },
+    "12": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "11",
+          0
+        ],
+        "sampler": [
+          "9",
+          0
+        ],
+        "sigmas": [
+          "10",
+          0
+        ],
+        "latent_image": [
+          "7",
+          0
+        ]
+      }
+    }
+  }
+}

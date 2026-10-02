@@ -1,0 +1,311 @@
+{
+  "recipe": {
+    "id": "flf2v-14b",
+    "family": "wan-2.2",
+    "task": "flf2v",
+    "variant": "first + last frame with the 14B I2V pair, fp8_scaled, 20 steps, no LoRA",
+    "from_template": "video_wan2_2_14B_flf2v (active fp8_scaled group)",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "length": {
+        "node": "9",
+        "input": "length"
+      },
+      "seed": {
+        "node": "10",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "steps",
+        "linked_with": {
+          "node": "10",
+          "input": "end_at_step",
+          "node2": "11",
+          "input2": "start_at_step",
+          "ratio": 0.5
+        }
+      },
+      "cfg": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "cfg"
+      },
+      "shift": {
+        "nodes": [
+          "3",
+          "4"
+        ],
+        "input": "shift"
+      },
+      "fps": {
+        "node": "13",
+        "input": "fps"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      },
+      "end_image": {
+        "node": "16",
+        "input": "image",
+        "type": "IMAGE"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "wan_2.1_vae.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "832x480x81 @16 fps, 20 steps split 10/10, cfg 4, shift 8, euler/simple. Same files as i2v-14b. For the Lightning variant use the i2v LoRAs with 4 steps / cfg 1 / shift 5 (template's bypassed group).",
+    "vram_evidence": {
+      "gpu": "RTX 4090D 24GB (I2V pair)",
+      "at": "640x640x81",
+      "usage": "84%",
+      "time_s": 536,
+      "src": "S-TPL-I2V"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "3": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 8.0
+      }
+    },
+    "4": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "shift": 8.0
+      }
+    },
+    "5": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "wan",
+        "device": "default"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": "The subject moves naturally from the first frame to the last, one continuous motion, smooth camera, consistent lighting."
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@end_image"
+      }
+    },
+    "9": {
+      "class_type": "WanFirstLastFrameToVideo",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ],
+        "width": 832,
+        "height": 480,
+        "length": 81,
+        "batch_size": 1,
+        "start_image": [
+          "15",
+          0
+        ],
+        "end_image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "3",
+          0
+        ],
+        "add_noise": "enable",
+        "noise_seed": 0,
+        "steps": 20,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "9",
+          0
+        ],
+        "negative": [
+          "9",
+          1
+        ],
+        "latent_image": [
+          "9",
+          2
+        ],
+        "start_at_step": 0,
+        "end_at_step": 10,
+        "return_with_leftover_noise": "enable"
+      }
+    },
+    "11": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "add_noise": "disable",
+        "noise_seed": 0,
+        "steps": 20,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "9",
+          0
+        ],
+        "negative": [
+          "9",
+          1
+        ],
+        "latent_image": [
+          "10",
+          0
+        ],
+        "start_at_step": 10,
+        "end_at_step": 10000,
+        "return_with_leftover_noise": "disable"
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "fps": 16
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/wan22_flf2v",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

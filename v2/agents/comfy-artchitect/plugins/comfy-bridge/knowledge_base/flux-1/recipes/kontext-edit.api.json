@@ -1,0 +1,204 @@
+{
+  "recipe": {
+    "id": "kontext-edit",
+    "family": "flux-1",
+    "task": "edit",
+    "variant": "FLUX.1 Kontext [dev] fp8_scaled, one input image: FluxKontextImageScale -> VAEEncode -> ReferenceLatent -> FluxGuidance 2.5; the encoded image is also the starting latent (denoise 1.0), so the output has the input's (scaled) size",
+    "from_template": "flux_kontext_dev_basic (image2 LoadImage bypassed; the pass-through ImageStitch is elided for the single-image case)",
+    "min_comfyui": "0.3.42",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to edit; FluxKontextImageScale resizes it to the nearest of 17 training resolutions (lanczos, center crop) and the output takes that size"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-dev-kontext_fp8_scaled.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "20 steps, euler/simple, cfg 1.0, FluxGuidance 2.5 (BFL `--guidance 2.5`), denoise 1.0, t5xxl_fp8_e4m3fn_scaled. English prompts only (docs.comfy.org). Prompt budget 512 T5 tokens.",
+    "vram_evidence": {
+      "gpu": "~20 GB (fp8), >30 GB (bf16)",
+      "note": "community: 'fp8 checkpoint wants roughly 20 GB of VRAM, and full precision wants more than 30 GB' with ComfyUI offloading making smaller cards work; no official number",
+      "class": "community",
+      "src": "S-VRAM-GUIDES"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev-kontext_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "Using this elegant style, create a portrait of a swan wearing a pearl tiara and lace collar, maintaining the same refined quality and soft color tones."
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "FluxKontextImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "17": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "latent": [
+          "17",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "8",
+          0
+        ],
+        "guidance": 2.5
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "17",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "flux.1_kontext_dev"
+      }
+    }
+  }
+}

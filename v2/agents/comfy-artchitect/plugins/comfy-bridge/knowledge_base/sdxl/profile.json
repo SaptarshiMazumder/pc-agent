@@ -1,0 +1,2101 @@
+{
+  "schema": 2,
+  "id": "sdxl",
+  "name": "SDXL 1.0 and its ecosystem",
+  "publisher": "Stability AI (base, refiner, SDXL-Turbo, Control-LoRAs); ByteDance (SDXL-Lightning, Hyper-SD); tianweiy / MIT-Adobe (DMD2); latent-consistency (LCM-LoRA); xinsir (ControlNet Union); Tencent (IP-Adapter); fine-tunes by RunDiffusion (Juggernaut), SG161222 (RealVisXL), OnomaAI (Illustrious), Civitai community (Pony)",
+  "license": {
+    "name": "CreativeML Open RAIL++-M (base, refiner, Lightning, LCM-LoRA, RealVisXL) - the ecosystem is a SPREAD, see notes",
+    "commercial": "base/refiner: yes under the RAIL++-M use-based restrictions; see notes per file",
+    "notes": "base + refiner: CreativeML Open RAIL++-M (July 26, 2023; HF license: openrail++) - permissive with use-based restrictions, derivatives keep 'at minimum - the same use-based restrictions'. SDXL-Turbo: card metadata sai-nc-community, README 'For commercial use, please refer to https://stability.ai/license'; the shipped LICENSE.md is the Stability AI Community License Agreement (free research/non-commercial; commercial under US$1M annual revenue with registration) - the LICENSE.md text governs. SDXL-Lightning: openrail++. Hyper-SD: no license listed in cardData (NOT FOUND). DMD2: CC BY-NC 4.0 (card) / 'Creative Commons Attribution-NonCommercial-ShareAlike 4.0' (README) - NON-COMMERCIAL. LCM-LoRA: openrail++. ControlNet Union: Apache-2.0. IP-Adapter: Apache-2.0. Stability Control-LoRAs: Stability (see repo). sdxl-vae / fp16-fix VAE: MIT. Juggernaut XL v9: CreativeML Open RAIL-M, 'commercial API deployment needs licensing'. RealVisXL V5.0: openrail++. Pony V6 XL: modified Fair AI Public License 1.0-SD, 'Commercial inference requires permission; exceptions granted to CivitAI and Hugging Face'. Illustrious XL: Fair AI Public License 1.0-SD (derivatives must stay open-source).",
+    "src": [
+      "S-HF-SDXL-BASE",
+      "S-HF-SDXL-TURBO",
+      "S-HF-LIGHTNING",
+      "S-HF-HYPER",
+      "S-HF-DMD2",
+      "S-HF-LCM",
+      "S-HF-UNION",
+      "S-HF-IPADAPTER",
+      "S-HF-VAE-FIX",
+      "S-HF-JUGGERNAUT",
+      "S-HF-REALVIS",
+      "S-CIVITAI-PONY",
+      "S-HF-ILLUSTRIOUS"
+    ]
+  },
+  "cost": "free",
+  "gated_downloads": {
+    "note": "none of the SDXL files used by the recipes is gated (base, refiner, Turbo, Lightning, DMD2, Union, clip_vision_g are open downloads). Pony Diffusion V6 XL is a Civitai download (exact filename NOT FOUND).",
+    "src": [
+      "S-HF-SDXL-BASE",
+      "S-CIVITAI-PONY"
+    ]
+  },
+  "kind": [
+    "image",
+    "control"
+  ],
+  "tasks": [
+    "t2i",
+    "img2img",
+    "inpaint",
+    "control",
+    "image-prompt"
+  ],
+  "cannot": [
+    {
+      "what": "legible text: 'The model cannot render legible text' (base card; Turbo card too) - use SD3.5 / Qwen-Image / Z-Image for typography",
+      "src": [
+        "S-HF-SDXL-BASE",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "what": "compositional instructions: 'struggles with more difficult tasks which involve compositionality, such as rendering an image corresponding to \"A red cube on top of a blue sphere\"'",
+      "src": "S-HF-SDXL-BASE"
+    },
+    {
+      "what": "perfect photorealism and faces: 'The model does not achieve perfect photorealism'; 'Faces and people in general may not be generated properly'; 'The autoencoding part of the model is lossy'",
+      "src": "S-HF-SDXL-BASE"
+    },
+    {
+      "what": "resolutions far from ~1 MP (trained buckets 1024x1024 ... 1536x640); Turbo is 'fixed resolution (512x512 pix)'",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "what": "image prompting beyond concepts: ReVision 'will take concepts from the images' - identity/style locking needs IP-Adapter, which needs the ComfyUI_IPAdapter_plus pack (pending)",
+      "src": [
+        "S-EXAMPLES-SDXL",
+        "S-HF-IPADAPTER"
+      ]
+    },
+    {
+      "what": "Hyper-SD 1-step variants without custom nodes (ComfyUI-TCD for the unified LoRA; the repo's ComfyUI-HyperSDXL1StepUnetScheduler for the 1-step UNet)",
+      "src": "S-HF-HYPER"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source per the dossier (comfy_extras/nodes_clip_sdxl.py, nodes_custom_sampler.py, nodes_controlnet.py, nodes.py, comfy/supported_models.py, comfy/latent_formats.py); input names and the SetUnionControlNetType option keys taken from the v0.35.0 registry and comfy/cldm/control_types.py",
+    "nodes_verified_against_registry": "v0.35.0 - all 14 recipes passed verify_recipes.py on 2026-10-02",
+    "template_min_versions": {
+      "image_sdxl_simple, sdxl_simple_example, sdxl_refiner_prompt_example, sdxlturbo_example, sdxl_revision_text_prompts": "0.0.1"
+    },
+    "sdxl_config": "class SDXL: latent_format SDXL (4 ch, scale_factor 0.13025), memory_usage_factor 0.8, special handling for Playground-2.5 EDM and v-prediction/ZSNR checkpoints; class SDXLRefiner: latent_format SDXL, memory_usage_factor 1.0",
+    "note": "Nothing is version-pending. The ControlNet Union type keys on v0.35.0 are: auto, openpose, depth, hed/pidi/scribble/ted, canny/lineart/anime_lineart/mlsd, normal, segment, tile, repaint (comfy/cldm/control_types.py) - the dossier's v0.38.1 names (canny, scribble, seg, inpaint, lineart, blur, mlsd, normalbae, mask) do not exist on this box. The v0.35.0 registry extraction lists only 'auto' for that combo (the rest is appended at import time)."
+  },
+  "bytes_note": "The dossier records HF tree-API sizes as decimal GB to two or three places; exact byte counts are NOT FOUND in the KB, so bytes is null and size_gb carries the dossier figure (template notes quote GiB: base '6.46 GB', clip_vision_g '3.44 GB'). Phase 2 reads exact bytes from the HF tree on the box.",
+  "files": [
+    {
+      "name": "sd_xl_base_1.0.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938078334,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "base",
+      "license": "openrail++",
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Stability publishes no ComfyUI VRAM figure); 6.94 GB on disk",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the reference SDXL 1.0 base (CLIP-L + OpenCLIP-G inside, VAE inside); used by image_sdxl_simple, sdxl_simple_example, sdxl_refiner_prompt_example, sdxl_revision_text_prompts",
+      "used_by": [
+        "t2i-base",
+        "t2i-base-refiner",
+        "t2i-base-refiner-split-prompt",
+        "t2i-lightning-4step-lora",
+        "t2i-dmd2-4step",
+        "img2img-base",
+        "inpaint-base",
+        "control-union",
+        "control-union-canny",
+        "revision",
+        "revision-2ref"
+      ],
+      "src": [
+        "S-HF-SDXL-BASE",
+        "S-TPL-SIMPLE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd_xl_base_1.0_0.9vae.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938078334,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "base",
+      "license": "openrail++",
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0_0.9vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "same UNet, the older 0.9 VAE baked in",
+      "used_by": [],
+      "src": "S-HF-SDXL-BASE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd_xl_refiner_1.0.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6075981930,
+      "size_gb": 6.08,
+      "precision": "fp16",
+      "variant": "refiner",
+      "license": "openrail++",
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0/resolve/main/sd_xl_refiner_1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "second-stage model 'specialized for the final denoising steps'; OpenCLIP-G text encoder only; sibling sd_xl_refiner_1.0_0.9vae.safetensors (6.08 GB)",
+      "used_by": [
+        "t2i-base-refiner",
+        "t2i-base-refiner-split-prompt"
+      ],
+      "src": [
+        "S-HF-SDXL-REFINER",
+        "S-TPL-REFINER"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd_xl_offset_example-lora_1.0.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 49553604,
+      "size_gb": 0.0496,
+      "precision": "NOT FOUND",
+      "variant": "base",
+      "license": "openrail++",
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_offset_example-lora_1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-SDXL-BASE"
+      },
+      "quality": "Stability's official offset-noise example LoRA; no recipe",
+      "used_by": [],
+      "src": "S-HF-SDXL-BASE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sd_xl_turbo_1.0_fp16.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938081905,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "turbo",
+      "license": "Stability AI Community License (LICENSE.md); cardData sai-nc-community",
+      "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "ADD-distilled SDXL 'trained for real-time synthesis', 1-4 steps, 512x512 preferred; template sdxlturbo_example; fp32 sibling sd_xl_turbo_1.0.safetensors (13.88 GB)",
+      "used_by": [
+        "t2i-turbo"
+      ],
+      "src": [
+        "S-HF-SDXL-TURBO",
+        "S-TPL-TURBO"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sdxl_lightning_4step.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938040682,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "lightning-4step",
+      "license": "openrail++",
+      "url": "https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_4step.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'All-in-one checkpoint, for ComfyUI'; 'Please always use the correct checkpoint for the corresponding inference steps. Please use Euler sampler with sgm_uniform scheduler'; siblings sdxl_lightning_2step.safetensors (6.94), sdxl_lightning_1step_x0.safetensors (6.94, experimental x0 prediction, needs an updated ComfyUI)",
+      "used_by": [
+        "t2i-lightning-4step"
+      ],
+      "src": "S-HF-LIGHTNING",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sdxl_lightning_8step.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938040682,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "lightning-8step",
+      "license": "openrail++",
+      "url": "https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_8step.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the quality end of Lightning (8 steps)",
+      "used_by": [
+        "t2i-lightning-8step"
+      ],
+      "src": "S-HF-LIGHTNING",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sdxl_lightning_4step_lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 393854592,
+      "size_gb": 0.39,
+      "precision": "fp16",
+      "variant": "lightning-4step",
+      "license": "openrail++",
+      "url": "https://huggingface.co/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_4step_lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-LIGHTNING"
+      },
+      "quality": "'Use LoRA only if you are using non-SDXL base models. Otherwise use our full checkpoint for better quality'; siblings sdxl_lightning_2step_lora.safetensors and sdxl_lightning_8step_lora.safetensors (0.39 GB each)",
+      "used_by": [
+        "t2i-lightning-4step-lora"
+      ],
+      "src": "S-HF-LIGHTNING",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "dmd2_sdxl_4step_lora_fp16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 393854592,
+      "size_gb": 0.39,
+      "precision": "fp16",
+      "variant": "dmd2-4step",
+      "license": "CC BY-NC(-SA) 4.0 - NON-COMMERCIAL",
+      "url": "https://huggingface.co/tianweiy/DMD2/resolve/main/dmd2_sdxl_4step_lora_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-DMD2"
+      },
+      "quality": "4 steps, guidance 0, LCM scheduler timesteps [999, 749, 499, 249]; 'we might want to make the scale smaller for community models'; siblings dmd2_sdxl_4step_lora.safetensors (0.79 GB), dmd2_sdxl_4step_unet_fp16.safetensors (5.14 GB, diffusers UNet), 1-step UNets (.bin)",
+      "used_by": [
+        "t2i-dmd2-4step"
+      ],
+      "src": "S-HF-DMD2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Hyper-SDXL-8steps-CFG-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 787359648,
+      "size_gb": 0.79,
+      "precision": "NOT FOUND",
+      "variant": "hyper-sd-8step-cfg",
+      "license": "NOT FOUND (no license in cardData)",
+      "url": "https://huggingface.co/ByteDance/Hyper-SD/resolve/main/Hyper-SDXL-8steps-CFG-lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-HYPER"
+      },
+      "quality": "CFG-preserving 8-step LoRA: 'we strongly recommend making the 8-step CFGLora a standard configuration for all SDXL and SD15 models!!!'; cfg 5-8; siblings Hyper-SDXL-12steps-CFG-lora, Hyper-SDXL-{2,4,8}steps-lora (guidance 0), Hyper-SDXL-1step-lora (needs ComfyUI-TCD), 0.79 GB each. NO RECIPE: the dossier gives no ComfyUI sampler/scheduler for it",
+      "used_by": [],
+      "src": "S-HF-HYPER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Hyper-SDXL-1step-Unet-Comfyui.fp16.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938040294,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "hyper-sd-1step",
+      "license": "NOT FOUND",
+      "url": "https://huggingface.co/ByteDance/Hyper-SD/resolve/main/Hyper-SDXL-1step-Unet-Comfyui.fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "1-step UNet for ComfyUI; needs the custom scheduler node ComfyUI-HyperSDXL1StepUnetScheduler from the repo's comfyui folder - NO RECIPE (pack)",
+      "needs_pack": "ByteDance/Hyper-SD comfyui/ComfyUI-HyperSDXL1StepUnetScheduler",
+      "used_by": [],
+      "src": "S-HF-HYPER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "lcm_lora_sdxl.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 393855224,
+      "size_gb": 0.39,
+      "precision": "NOT FOUND",
+      "variant": "lcm",
+      "license": "openrail++",
+      "url": "https://huggingface.co/latent-consistency/lcm-lora-sdxl/resolve/main/pytorch_lora_weights.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-EXAMPLES-SDXL"
+      },
+      "quality": "downloaded as pytorch_lora_weights.safetensors - 'rename it to: lcm_lora_sdxl.safetensors'; 'use a low cfg, use the lcm sampler and the sgm_uniform or simple scheduler. The ModelSamplingDiscrete node with lcm set as the sampling option will slightly improve results'. NO RECIPE: exact steps/cfg NOT FOUND in the dossier",
+      "used_by": [],
+      "src": [
+        "S-HF-LCM",
+        "S-EXAMPLES-SDXL"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sdxl_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 334641162,
+      "size_gb": 0.33,
+      "precision": "fp16-safe",
+      "variant": "vae-fp16-fix",
+      "license": "MIT",
+      "url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-VAE-FIX"
+      },
+      "quality": "madebyollin fp16 fix: 'SDXL-VAE generates NaNs in fp16 because the internal activation values are too big'; this one is 'modified to run in fp16 precision without generating NaNs'. Also published as sdxl.vae.safetensors. The ORIGINAL stabilityai/sdxl-vae file has the SAME name (https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors, 0.33 GB, MIT) - keep only the fix on disk under this name",
+      "used_by": [],
+      "src": [
+        "S-HF-VAE-FIX",
+        "S-HF-SDXL-VAE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "diffusion_pytorch_model_promax.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 2513342408,
+      "size_gb": 2.51,
+      "precision": "NOT FOUND",
+      "variant": "controlnet-union-promax",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-UNION"
+      },
+      "quality": "ControlNet++ Union ProMax: Openpose, Depth, Canny, Lineart, AnimeLineart, Mlsd, Scribble, Hed, Pidi/Softedge, Teed, Segment, Normal + 'Tile Deblur, Tile variation, Tile Super Resolution, Image Inpainting, Image Outpainting'. Generic HF filename - the standard variant diffusion_pytorch_model.safetensors (2.51 GB, same repo) collides with every other diffusers ControlNet: rename on download",
+      "used_by": [
+        "control-union",
+        "control-union-canny"
+      ],
+      "src": "S-HF-UNION",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "diffusion_pytorch_model.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 2512030408,
+      "size_gb": 2.51,
+      "precision": "NOT FOUND",
+      "variant": "controlnet-union-standard",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-UNION"
+      },
+      "quality": "the standard Union (no Tile/Inpaint/Outpaint). GENERIC NAME: rename when saving (e.g. prefix with the repo) or it cannot coexist with other diffusers ControlNets; the recipes use the ProMax file instead",
+      "used_by": [],
+      "src": "S-HF-UNION",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "control-lora-canny-rank256.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 774450192,
+      "size_gb": 0.77,
+      "precision": "NOT FOUND",
+      "variant": "control-lora",
+      "license": "Stability (control-lora repo)",
+      "url": "https://huggingface.co/stabilityai/control-lora/resolve/main/control-LoRAs-rank256/control-lora-canny-rank256.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-CONTROL-LORA"
+      },
+      "quality": "Stability Control-LoRA, 'used exactly the same way (put them in the same directory) as the regular ControlNet model files' (ControlNetLoader, no SetUnionControlNetType); siblings rank256 depth / recolor / sketch (0.77 GB each), rank128 canny / depth / recolor (0.40) and control-lora-sketch-rank128-metadata.safetensors (0.40) under control-LoRAs-rank128/",
+      "used_by": [],
+      "src": [
+        "S-HF-CONTROL-LORA",
+        "S-EXAMPLES-SDXL"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "clip_vision_g.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 3689911098,
+      "size_gb": 3.69,
+      "precision": "NOT FOUND",
+      "variant": "revision",
+      "license": "Stability (same file at stabilityai/control-lora/revision/)",
+      "url": "https://huggingface.co/comfyanonymous/clip_vision_g/resolve/main/clip_vision_g.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-REVISION"
+      },
+      "quality": "OpenCLIP bigG vision tower for ReVision (CLIPVisionLoader -> CLIPVisionEncode -> unCLIPConditioning); template note says 3.44 GB (GiB)",
+      "used_by": [
+        "revision",
+        "revision-2ref"
+      ],
+      "src": [
+        "S-HF-CLIPVISION-G",
+        "S-TPL-REVISION"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 2528373448,
+      "size_gb": 2.528,
+      "precision": "NOT FOUND",
+      "variant": "ipadapter-vit-h",
+      "license": "see laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+      "url": "https://huggingface.co/Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged/resolve/main/split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-CLIPVITH"
+      },
+      "quality": "the ViT-H image encoder every *_vit-h IP-Adapter needs (also h94 models/image_encoder/model.safetensors renamed, 2.53 GB); no recipe (IP-Adapter needs a pack)",
+      "needs_pack": "cubiq/ComfyUI_IPAdapter_plus",
+      "used_by": [],
+      "src": [
+        "S-HF-CLIPVITH",
+        "S-HF-IPADAPTER"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 3689912664,
+      "size_gb": 3.69,
+      "precision": "NOT FOUND",
+      "variant": "ipadapter-bigg",
+      "license": "see h94/IP-Adapter (Apache-2.0 repo)",
+      "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-IPADAPTER"
+      },
+      "quality": "rename of h94 sdxl_models/image_encoder/model.safetensors; required only by ip-adapter_sdxl.safetensors ('vit-G SDXL model, requires bigG clip vision encoder')",
+      "needs_pack": "cubiq/ComfyUI_IPAdapter_plus",
+      "used_by": [],
+      "src": "S-HF-IPADAPTER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ip-adapter_sdxl_vit-h.safetensors",
+      "role": "ipadapter",
+      "folder": "ipadapter",
+      "bytes": 698391064,
+      "size_gb": 0.7,
+      "precision": "NOT FOUND",
+      "variant": "ipadapter",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter_sdxl_vit-h.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-IPADAPTER"
+      },
+      "quality": "'SDXL model' for the cubiq Unified Loader ('you need to name the files exactly as described'); folder models/ipadapter ('create it if not present'); siblings ip-adapter-plus_sdxl_vit-h.safetensors (0.85, 'SDXL plus model'), ip-adapter-plus-face_sdxl_vit-h.safetensors (0.85, 'SDXL face model'), ip-adapter_sdxl.safetensors (0.70, bigG encoder). NO RECIPE: custom-node pack",
+      "needs_pack": "cubiq/ComfyUI_IPAdapter_plus",
+      "used_by": [],
+      "src": "S-HF-IPADAPTER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 7105348188,
+      "size_gb": 7.11,
+      "precision": "fp16 (VAE 'Already baked in')",
+      "variant": "finetune-photoreal",
+      "license": "CreativeML Open RAIL-M; commercial API deployment needs licensing (RunDiffusion)",
+      "url": "https://huggingface.co/RunDiffusion/Juggernaut-XL-v9/resolve/main/Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "photoreal fine-tune of SDXL 1.0; card: 832x1216 / 1216x832, DPM++ 2M Karras, 30-40 steps, cfg 3-7 ('lower = more realistic'), 'Negative Prompts: start with none'. Drop into any base recipe's checkpoint port",
+      "used_by": [],
+      "src": "S-HF-JUGGERNAUT",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "RealVisXL_V5.0_fp16.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938065488,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "finetune-photoreal",
+      "license": "openrail++",
+      "url": "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "photoreal fine-tune; card: DPM++ SDE Karras 30+ steps or DPM++ 2M Karras 50+, hires-fix denoise 0.1-0.3, recommended negative 'bad hands, bad anatomy, ugly, deformed, (face asymmetry, eyes asymmetry, deformed eyes, deformed mouth, open mouth)'; fp32 sibling RealVisXL_V5.0_fp32.safetensors (13.88 GB)",
+      "used_by": [],
+      "src": "S-HF-REALVIS",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Illustrious-XL-v0.1.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938040760,
+      "size_gb": 6.94,
+      "precision": "fp16",
+      "variant": "finetune-anime",
+      "license": "Fair AI Public License 1.0-SD (derivatives must stay open-source)",
+      "url": "https://huggingface.co/OnomaAIResearch/Illustrious-xl-early-release-v0/resolve/main/Illustrious-XL-v0.1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'Illustration focused Stable Diffusion XL model ... trained on Danbooru2023' (base Kohaku-XL-Beta5); Danbooru-tag prompting with quality tags; card: Euler a, 20-28 steps, cfg 5-7.5; sibling Illustrious-XL-v0.1-GUIDED.safetensors (6.94 GB); HF created 2024-09-20",
+      "used_by": [],
+      "src": "S-HF-ILLUSTRIOUS",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "NOT FOUND (Pony Diffusion V6 XL, Civitai model 257749)",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": null,
+      "size_gb": 6.46,
+      "precision": "fp16",
+      "variant": "finetune-anime-pony",
+      "license": "modified Fair AI Public License 1.0-SD; 'Commercial inference requires permission; exceptions granted to CivitAI and Hugging Face'",
+      "url": "https://civitai.com/models/257749/pony-diffusion-v6-xl",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "exact filename NOT FOUND in this pass (community: ~6.46 GB SDXL checkpoint); 'A versatile SDXL finetune ... of various anthro, feral, or humanoid species'; MUST run with clip skip 2 (CLIPSetLastLayer -2) and the score_9 prefix; the Civitai page's 'Published: April 29, 2026' date is flagged unverified",
+      "used_by": [],
+      "src": "S-CIVITAI-PONY"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "IP-Adapter (identity / style / composition from reference images): IPAdapter Unified Loader -> IPAdapter Advanced (weight, weight_type, start_at, end_at); FaceID variants need insightface + paired LoRAs; style/composition split via IPAdapter Style and Composition. Widget defaults NOT FOUND",
+      "needs_pack": "cubiq/ComfyUI_IPAdapter_plus",
+      "folder": "ipadapter (+ clip_vision)",
+      "examples": [
+        "ip-adapter_sdxl_vit-h.safetensors 0.70 GB + CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+        "ip-adapter-plus-face_sdxl_vit-h.safetensors 0.85 GB",
+        "ip-adapter-faceid-plusv2_sdxl.bin + ip-adapter-faceid-plusv2_sdxl_lora.safetensors (h94/IP-Adapter-FaceID)",
+        "ip_plus_composition_sdxl.safetensors (ostris/ip-composition-adapter)"
+      ],
+      "class": "community node pack, official files",
+      "src": [
+        "S-HF-IPADAPTER",
+        "S-CUBIQ-README"
+      ]
+    },
+    {
+      "what": "preprocessors beyond Canny (openpose, depth, lineart, scribble, segmentation, normal, tile) for ControlNet Union",
+      "needs_pack": "Fannovel16/comfyui_controlnet_aux",
+      "class": "official (docs: 'The ControlNetApply node will not convert regular images into depthmaps, canny maps and so on for you')",
+      "src": "S-EXAMPLES-SDXL"
+    },
+    {
+      "what": "Hyper-SD unified 1-step LoRA (Hyper-SDXL-1step-lora.safetensors) with TCDScheduler ('Remember to install ComfyUI-TCD ... adjust the eta parameter'; 'Lower eta results in more detail for multi-steps inference')",
+      "needs_pack": "JettHu/ComfyUI-TCD",
+      "class": "official (publisher)",
+      "src": "S-HF-HYPER"
+    },
+    {
+      "what": "diffusers single-condition SDXL ControlNets (diffusers/controlnet-canny-sdxl-1.0, diffusers/controlnet-depth-sdxl-1.0, file diffusion_pytorch_model.fp16.safetensors; sizes not measured) - plain ControlNetLoader, no SetUnionControlNetType",
+      "needs_pack": null,
+      "class": "official (publisher)",
+      "src": "S-HF-DIFFUSERS-CN"
+    },
+    {
+      "what": "SDXL-specific text encoders: CLIPTextEncodeSDXL (text_g / text_l + width/height/crop/target size conditioning) and CLIPTextEncodeSDXLRefiner (ascore: 'An aesthetic score of 7.5 is recommended as the baseline ... Low scores (2.0-3.0): Suitable for negative prompts'); the official templates use plain CLIPTextEncode",
+      "needs_pack": null,
+      "class": "official (core nodes, docs)",
+      "src": [
+        "S-NODES-SRC",
+        "S-DOCS"
+      ]
+    },
+    {
+      "what": "GGUF for SDXL: NOT FOUND (not researched; SDXL UNets are small enough that GGUF is uncommon)",
+      "needs_pack": null,
+      "class": "not-found",
+      "src": "S-HF-SDXL-BASE"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "recipe": "t2i-base",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (6.94 GB fp16 checkpoint; no official ComfyUI VRAM figure)",
+      "why": "the plain SDXL still: 25 steps dpmpp_2m/karras, cfg 7, 1024x1024; the checkpoint port takes any SDXL fine-tune - the family's real strength is the ecosystem",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-HF-SDXL-BASE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "quality": "high",
+      "recipe": "t2i-base-refiner",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (two 6-7 GB checkpoints loaded in turn)",
+      "why": "the ensemble-of-experts pipeline: base 80% then the refiner 'specialized for the final denoising steps' adds high-frequency detail; KSamplerAdvanced hand-off with leftover noise",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-BASE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "quality": "high",
+      "recipe": "t2i-base-refiner-split-prompt",
+      "vram_gb_min": null,
+      "vram_note": "as t2i-base-refiner",
+      "why": "same pipeline with a separate refiner prompt that 'should emphasize desired visual effects rather than scene content'",
+      "src": [
+        "S-TPL-REFINER-PROMPT",
+        "S-DOCS"
+      ]
+    },
+    {
+      "task": "t2i",
+      "speed": "fastest",
+      "recipe": "t2i-turbo",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "tradeoff": "1 step at 512x512, no negative, no cfg; quality and resolution well below base; Stability Community License (commercial under US$1M with registration), not openrail++",
+      "src": [
+        "S-TPL-TURBO",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": "t2i-lightning-4step",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "tradeoff": "4 steps at cfg 1 and 1024px, openrail++; no negative prompt; a 4-step look rather than base quality",
+      "confidence": "publisher settings on the template spine (no shipped graph)",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": "t2i-lightning-8step",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "tradeoff": "8 steps - the quality end of Lightning; same constraints",
+      "confidence": "publisher settings on the template spine (no shipped graph)",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "finetune": true,
+      "recipe": "t2i-lightning-4step-lora",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "why": "the fast route for a FINE-TUNE in the checkpoint port (Juggernaut / RealVisXL / Illustrious / Pony): 'Use LoRA only if you are using non-SDXL base models'",
+      "confidence": "publisher settings on the template spine (no shipped graph)",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": "t2i-dmd2-4step",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND",
+      "tradeoff": "4 steps, lcm sampler; NON-COMMERCIAL (CC BY-NC) - never for sold output; scheduler inferred (see recipe.verify)",
+      "confidence": "publisher settings mapped to ComfyUI by the dossier; scheduler inferred",
+      "src": "S-HF-DMD2"
+    },
+    {
+      "task": "img2img",
+      "recipe": "img2img-base",
+      "vram_gb_min": null,
+      "vram_note": "as t2i-base",
+      "why": "VAEEncode + denoise 0.87 (ComfyUI_examples); output takes the input's size - scale to a trained bucket upstream",
+      "confidence": "official pattern (docs), no SDXL template",
+      "src": "S-EXAMPLES-SDXL"
+    },
+    {
+      "task": "inpaint",
+      "recipe": "inpaint-base",
+      "vram_gb_min": null,
+      "vram_note": "as t2i-base",
+      "why": "VAEEncodeForInpaint with the alpha mask, denoise 1; 'It also works with non inpainting models'; ImagePadForOutpaint in front for outpainting; Union ProMax 'repaint' type for a ControlNet-guided variant",
+      "confidence": "official pattern (docs), no SDXL template",
+      "src": "S-EXAMPLES-SDXL"
+    },
+    {
+      "task": "control",
+      "control": "any preprocessed map",
+      "recipe": "control-union",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (+2.51 GB Union)",
+      "why": "one Apache-2.0 network for openpose / depth / lineart / scribble / segment / normal / tile / repaint; the map must be preprocessed upstream (only Canny exists in core)",
+      "confidence": "official pattern (docs + node source) with the publisher's file",
+      "src": [
+        "S-HF-UNION",
+        "S-CONTROL-TYPES"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "canny",
+      "recipe": "control-union-canny",
+      "vram_gb_min": null,
+      "vram_note": "as control-union",
+      "why": "the pack-free ControlNet route: core Canny in-graph, Union type 'canny/lineart/anime_lineart/mlsd'",
+      "confidence": "official pattern (docs + node source) with the publisher's file",
+      "src": [
+        "S-HF-UNION",
+        "S-CONTROL-TYPES"
+      ]
+    },
+    {
+      "task": "image-prompt",
+      "recipe": "revision",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (+3.69 GB clip_vision_g)",
+      "why": "concepts from one reference image via unCLIPConditioning (ReVision); zero the text prompt to follow the image more closely; not identity-preserving",
+      "src": [
+        "S-TPL-REVISION",
+        "S-EXAMPLES-SDXL"
+      ]
+    },
+    {
+      "task": "image-prompt",
+      "recipe": "revision-2ref",
+      "vram_gb_min": null,
+      "vram_note": "as revision",
+      "why": "the template as shipped: two reference images blended",
+      "src": "S-TPL-REVISION"
+    },
+    {
+      "task": "t2i",
+      "style": "photoreal",
+      "recipe": "t2i-base",
+      "checkpoint": "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors",
+      "why": "fine-tune lineage, not a separate family: set the checkpoint port; card settings 832x1216 / 1216x832, DPM++ 2M Karras, 30-40 steps, cfg 3-7 ('lower = more realistic'), start with NO negative; paid-API deployment needs a RunDiffusion license",
+      "src": "S-HF-JUGGERNAUT"
+    },
+    {
+      "task": "t2i",
+      "style": "photoreal",
+      "recipe": "t2i-base",
+      "checkpoint": "RealVisXL_V5.0_fp16.safetensors",
+      "why": "fine-tune lineage: DPM++ SDE Karras 30+ steps (or 2M Karras 50+), hires-fix denoise 0.1-0.3, negative 'bad hands, bad anatomy, ugly, deformed, (face asymmetry, eyes asymmetry, deformed eyes, deformed mouth, open mouth)'; openrail++",
+      "src": "S-HF-REALVIS"
+    },
+    {
+      "task": "t2i",
+      "style": "anime / illustration",
+      "recipe": "t2i-base",
+      "checkpoint": "Illustrious-XL-v0.1.safetensors",
+      "why": "fine-tune lineage: Danbooru tag prompting with quality tags (masterpiece, best quality ...), Euler a, 20-28 steps, cfg 5-7.5; FAIPL-1.0-SD (derivatives stay open)",
+      "src": "S-HF-ILLUSTRIOUS"
+    },
+    {
+      "task": "t2i",
+      "style": "anime / furry / cartoon",
+      "recipe": "t2i-base",
+      "checkpoint": "NOT FOUND (Pony Diffusion V6 XL, Civitai model 257749)",
+      "why": "fine-tune lineage: MUST add CLIPSetLastLayer stop_at_clip_layer -2 between the checkpoint CLIP and both encoders ('otherwise you will be getting low quality blobs') and the 'score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up' prefix; Euler a, 25 steps, negative 'Generally not needed'; commercial inference needs permission; exact filename NOT FOUND",
+      "confidence": "community (Civitai page + guides)",
+      "src": [
+        "S-CIVITAI-PONY",
+        "S-COMM-PONY"
+      ]
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": null,
+      "status": "pending: Hyper-SD 8/12-step CFG LoRAs (cfg 5-8, steps 8/12) - the dossier gives no ComfyUI sampler/scheduler (the publisher's comfyui/ workflow JSONs were not read); the unified 1-step LoRA needs the ComfyUI-TCD pack; the 1-step UNet needs the repo's custom scheduler node",
+      "src": "S-HF-HYPER"
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": null,
+      "status": "pending: LCM-LoRA (lcm_lora_sdxl.safetensors) - 'low cfg', 'very few steps', lcm sampler + sgm_uniform/simple, optional ModelSamplingDiscrete lcm; exact steps/cfg NOT FOUND",
+      "src": [
+        "S-EXAMPLES-SDXL",
+        "S-HF-LCM"
+      ]
+    },
+    {
+      "task": "image-prompt",
+      "identity": true,
+      "recipe": null,
+      "status": "pending: IP-Adapter / FaceID need the cubiq ComfyUI_IPAdapter_plus pack (Phase 2 install); files recorded in profile.files and community_alternatives",
+      "src": [
+        "S-HF-IPADAPTER",
+        "S-CUBIQ-README"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "stability control-lora / diffusers controlnets",
+      "recipe": null,
+      "status": "pending: no recipe - load them with ControlNetLoader in the control-union graph WITHOUT SetUnionControlNetType ('used exactly the same way ... as the regular ControlNet model files'); files recorded",
+      "src": [
+        "S-HF-CONTROL-LORA",
+        "S-EXAMPLES-SDXL"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler|KSamplerAdvanced|SDTurboScheduler",
+      "input": "steps",
+      "meaning": "denoise steps; on base+refiner the TOTAL on both samplers",
+      "defaults": {
+        "t2i-base": 25,
+        "t2i-base-refiner": "25 (base 0-20, refiner 20-end)",
+        "revision": 26,
+        "t2i-turbo": "1 (SDTurboScheduler 1-10)",
+        "t2i-lightning-4step": 4,
+        "t2i-lightning-8step": 8,
+        "t2i-dmd2-4step": 4,
+        "img2img-base / inpaint-base": 25
+      },
+      "range": [
+        1,
+        60
+      ],
+      "official_reference_code": {
+        "base card example": "40 with high_noise_frac 0.8",
+        "Juggernaut": "30-40",
+        "RealVisXL": "30+ (SDE Karras) or 50+ (2M Karras)",
+        "Illustrious": "20-28",
+        "Pony": 25
+      },
+      "interactions": "Lightning: steps MUST equal the checkpoint's N; Hyper-SD CFG LoRAs 8 or 12; LCM 'very few'",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-TPL-REFINER",
+        "S-TPL-TURBO",
+        "S-HF-LIGHTNING",
+        "S-HF-DMD2",
+        "S-HF-JUGGERNAUT",
+        "S-HF-REALVIS",
+        "S-HF-ILLUSTRIOUS",
+        "S-CIVITAI-PONY"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler|KSamplerAdvanced|SamplerCustom",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; template note: 'recommended max 10 ... too high ... \"burn-in\"'",
+      "defaults": {
+        "t2i-base": 7.0,
+        "t2i-base-refiner": "8 on both",
+        "revision": 8.0,
+        "t2i-turbo": 1.0,
+        "lightning / dmd2 / non-CFG Hyper": 1.0,
+        "Hyper-SD CFG LoRAs": "5-8",
+        "img2img-base / inpaint-base / control-union": 7.0
+      },
+      "range": [
+        1.0,
+        10.0
+      ],
+      "official_reference_code": {
+        "Juggernaut": "3-7 ('lower = more realistic')",
+        "Illustrious": "5-7.5",
+        "LCM-LoRA": "'low cfg'"
+      },
+      "interactions": "at cfg 1 ComfyUI skips the negative pass (docs); Turbo/Lightning/DMD2 above 1 oversaturate (guidance 0 in diffusers)",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-TPL-REFINER",
+        "S-TPL-TURBO",
+        "S-HF-LIGHTNING",
+        "S-HF-HYPER",
+        "S-HF-DMD2",
+        "S-DOCS"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler|KSamplerAdvanced|KSamplerSelect",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "t2i-base, img2img, inpaint, control-union": "dpmpp_2m / karras",
+        "t2i-base-refiner": "euler / normal (both samplers)",
+        "revision": "dpmpp_3m_sde_gpu / exponential",
+        "t2i-turbo": "euler_ancestral + SDTurboScheduler sigmas",
+        "lightning": "euler / sgm_uniform (publisher: 'Please use Euler sampler with sgm_uniform scheduler')",
+        "dmd2": "lcm / sgm_uniform (scheduler inferred)",
+        "lcm-lora": "lcm / sgm_uniform or simple (+ ModelSamplingDiscrete lcm)"
+      },
+      "range": null,
+      "official_reference_code": {
+        "Juggernaut": "DPM++ 2M Karras",
+        "RealVisXL": "DPM++ SDE Karras / DPM++ 2M Karras",
+        "Illustrious, Pony": "Euler a"
+      },
+      "interactions": "template note: 'different samplers and schedulers have better results with fewer steps, while others have better success with higher steps'",
+      "src": [
+        "S-TPL-SIMPLE",
+        "S-TPL-REFINER",
+        "S-TPL-REVISION",
+        "S-TPL-TURBO",
+        "S-HF-LIGHTNING",
+        "S-EXAMPLES-SDXL",
+        "S-HF-JUGGERNAUT",
+        "S-HF-REALVIS",
+        "S-HF-ILLUSTRIOUS",
+        "S-CIVITAI-PONY"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "KSampler",
+      "input": "denoise",
+      "meaning": "img2img strength: 'the smaller the denoise value, the smaller the difference ... If denoise is 1 ... same as the empty latent'",
+      "defaults": {
+        "t2i": 1.0,
+        "img2img-base": 0.87,
+        "inpaint-base": 1.0,
+        "RealVisXL hires-fix": "0.1-0.3"
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "'ComfyUI builds a schedule for steps / denoise steps (rounded down) and keeps only its last steps + 1 sigmas'; KSamplerAdvanced uses start/end steps instead",
+      "src": [
+        "S-DOCS",
+        "S-EXAMPLES-SDXL",
+        "S-HF-REALVIS"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptyLatentImage",
+      "input": "width, height",
+      "meaning": "multiples of 8 (node step 8); 4-channel latent, 8x VAE",
+      "defaults": {
+        "templates": "1024x1024",
+        "trained buckets": [
+          "1024x1024",
+          "1152x896",
+          "896x1152",
+          "1216x832",
+          "832x1216",
+          "1344x768",
+          "768x1344",
+          "1536x640",
+          "640x1536"
+        ],
+        "turbo": "512x512 ('higher image sizes work as well')",
+        "Juggernaut": "832x1216 / 1216x832"
+      },
+      "range": null,
+      "interactions": "off-bucket sizes degrade SDXL (template note, card); img2img / inpaint take the input image's size",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-TURBO",
+        "S-HF-JUGGERNAUT",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSampler|KSamplerAdvanced|SamplerCustom",
+      "input": "seed / noise_seed",
+      "meaning": "randomize in the templates; base+refiner: only the base adds noise so the refiner's seed is irrelevant; Turbo template keeps it fixed for Auto Queue",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": [
+        "S-TPL-REFINER",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "name": "refiner switch-over",
+      "node": "KSamplerAdvanced",
+      "input": "end_at_step (base) = start_at_step (refiner)",
+      "meaning": "where the base hands the noisy latent to the refiner",
+      "defaults": {
+        "templates": "20 of 25 (80%)",
+        "card": "denoising_end 0.8 ('80/20')",
+        "docs": "'approximately the last 20% of steps'"
+      },
+      "range": null,
+      "interactions": "base: add_noise enable, start 0, return_with_leftover_noise enable; refiner: add_noise disable, end 10000, leftover disable; same total steps; refiner prompts on the REFINER CLIP, decode with the REFINER VAE",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-BASE",
+        "S-DOCS"
+      ]
+    },
+    {
+      "name": "ascore",
+      "node": "CLIPTextEncodeSDXLRefiner",
+      "input": "ascore",
+      "meaning": "aesthetic-score conditioning for the refiner (not used by the templates, which use plain CLIPTextEncode)",
+      "defaults": {
+        "node default": 6.0,
+        "docs": "7.5 positive ('the standard setting used in SDXL training'), 2.0-3.0 for negatives"
+      },
+      "range": [
+        0.0,
+        1000.0
+      ],
+      "interactions": "",
+      "src": "S-DOCS"
+    },
+    {
+      "name": "clip skip",
+      "node": "CLIPSetLastLayer",
+      "input": "stop_at_clip_layer",
+      "meaning": "stop the text encoder N layers early; ComfyUI counts -1..-12 (A1111 1..12)",
+      "defaults": {
+        "templates": "not used (-1)",
+        "Pony V6 XL": "-2 ('clip skip 2 is mandatory')"
+      },
+      "range": [
+        -24,
+        -1
+      ],
+      "interactions": "Pony without it: 'low quality blobs'",
+      "src": [
+        "S-CIVITAI-PONY",
+        "S-COMM-PONY",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "strength_model / strength_clip",
+      "node": "LoraLoader|LoraLoaderModelOnly",
+      "input": "strength_model, strength_clip",
+      "meaning": "LoRA weight",
+      "defaults": {
+        "lightning lora": "1.0 (node default; README gives none)",
+        "dmd2 lora": "1.0 ('we might want to make the scale smaller for community models')"
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": [
+        "S-HF-LIGHTNING",
+        "S-HF-DMD2"
+      ]
+    },
+    {
+      "name": "strength / start_percent / end_percent",
+      "node": "ControlNetApplyAdvanced",
+      "input": "strength, start_percent, end_percent",
+      "meaning": "ControlNet weight and schedule window",
+      "defaults": {
+        "control-union, control-union-canny": "1.0 / 0 / 1 (node defaults)"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "interactions": "several ControlNets chain through successive ControlNetApplyAdvanced nodes; the vae input is optional for SDXL ControlNets",
+      "src": [
+        "S-DOCS",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "union type",
+      "node": "SetUnionControlNetType",
+      "input": "type",
+      "meaning": "which condition the Union network should apply",
+      "defaults": {
+        "control-union": "auto",
+        "control-union-canny": "canny/lineart/anime_lineart/mlsd",
+        "v0.35.0 keys": [
+          "auto",
+          "openpose",
+          "depth",
+          "hed/pidi/scribble/ted",
+          "canny/lineart/anime_lineart/mlsd",
+          "normal",
+          "segment",
+          "tile",
+          "repaint"
+        ]
+      },
+      "range": null,
+      "interactions": "the dossier's v0.38.1 names (canny, scribble, seg, inpaint, lineart, blur, mlsd, normalbae, mask) are not valid on this box",
+      "src": [
+        "S-CONTROL-TYPES",
+        "S-NODES-SRC"
+      ]
+    },
+    {
+      "name": "unCLIP strength / noise_augmentation",
+      "node": "unCLIPConditioning",
+      "input": "strength, noise_augmentation",
+      "meaning": "how much of the reference image's concept enters the positive conditioning (ReVision)",
+      "defaults": {
+        "revision": "0.75 / 0.0"
+      },
+      "range": [
+        -10.0,
+        10.0
+      ],
+      "interactions": "zero the text (ConditioningZeroOut) 'for the final output to follow the input image more closely'",
+      "src": [
+        "S-TPL-REVISION",
+        "S-EXAMPLES-SDXL"
+      ]
+    },
+    {
+      "name": "grow_mask_by",
+      "node": "VAEEncodeForInpaint",
+      "input": "grow_mask_by",
+      "meaning": "pixels to dilate the inpaint mask",
+      "defaults": {
+        "inpaint-base": 6
+      },
+      "range": [
+        0,
+        64
+      ],
+      "interactions": "",
+      "src": "S-REGISTRY"
+    }
+  ],
+  "rules": [
+    {
+      "id": "sdxl-latent-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "EmptySD3LatentImage",
+        "input": "width",
+        "exists": true
+      },
+      "require": {
+        "node": "EmptySD3LatentImage",
+        "input": "width",
+        "equals": "__never__"
+      },
+      "message": "SDXL is a 4-channel latent (latent_formats.SDXL): EmptyLatentImage, never the 16-channel EmptySD3LatentImage",
+      "src": "S-NODES-SRC"
+    },
+    {
+      "id": "dims-multiple-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "EmptyLatentImage takes width/height in multiples of 8 (node step 8; 8x VAE)",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1024x1024",
+          "1152x896",
+          "896x1152",
+          "1216x832",
+          "832x1216",
+          "1344x768",
+          "768x1344",
+          "1536x640",
+          "640x1536",
+          "512x512"
+        ]
+      },
+      "message": "not an SDXL trained bucket (template note: 'it is recommended to use trained values': 1024x1024, 1152x896, 896x1152, 1216x832, 832x1216, 1344x768, 768x1344, 1536x640, 640x1536); 512x512 is SDXL-Turbo's native size only",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "id": "turbo-native-512",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd_xl_turbo_1\\.0"
+      },
+      "require": {
+        "node": "EmptyLatentImage",
+        "input": "width|height",
+        "equals": 512,
+        "all": true
+      },
+      "message": "SDXL-Turbo: 'Preferably, the model generates images of size 512x512' ('higher image sizes work as well'); the card lists 'fixed resolution (512x512 pix)' as a limitation",
+      "src": "S-HF-SDXL-TURBO"
+    },
+    {
+      "id": "fp16-vae-nan",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^(sd_xl_(base|refiner)_1\\.0|sd_xl_turbo_1\\.0(_fp16)?|sdxl_lightning_\\dstep(_x0)?)\\.safetensors$"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^sdxl[_.]vae\\.safetensors$"
+      },
+      "message": "the baked SDXL VAE 'generates NaNs in fp16 because the internal activation values are too big' -> black/grey images on some cards (reports on SDXL-Lightning and the refiner). The official templates decode with the baked VAE anyway; answer 'fine' when the box decodes in bf16/fp32 or the output is not black, otherwise add VAELoader(sdxl_vae.safetensors from madebyollin/sdxl-vae-fp16-fix) into VAEDecode",
+      "src": [
+        "S-HF-VAE-FIX",
+        "S-COMM-BLACK"
+      ]
+    },
+    {
+      "id": "refiner-handoff",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "refiner_handoff",
+      "args": {
+        "loader": "CheckpointLoaderSimple",
+        "base": "sd_xl_base",
+        "refiner": "sd_xl_refiner",
+        "sampler": "KSamplerAdvanced"
+      },
+      "message": "base + refiner run as two chained KSamplerAdvanced: base (model from the base checkpoint; add_noise enable; start_at_step 0; end_at_step = switch; return_with_leftover_noise enable) feeding the refiner (model from the refiner checkpoint; add_noise disable; start_at_step = switch; end_at_step 10000; return_with_leftover_noise disable), SAME total steps on both, the refiner's positive/negative encoded with the REFINER checkpoint's CLIP, VAEDecode with the REFINER VAE. Template: these settings 'SHOULD stay in place if you want this workflow to work correctly'; breaking them gives over-noised or double-noised output",
+      "src": [
+        "S-TPL-REFINER",
+        "S-TPL-REFINER-PROMPT"
+      ]
+    },
+    {
+      "id": "refiner-not-alone",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd_xl_refiner_1\\.0"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd_xl_base_1\\.0|Juggernaut|RealVisXL|Illustrious|[Pp]ony"
+      },
+      "message": "the refiner is 'specialized for the final denoising steps' of a latent the base produced; alone it is a weak img2img model with only the OpenCLIP-G encoder",
+      "src": "S-HF-SDXL-BASE"
+    },
+    {
+      "id": "distilled-ckpt-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd_xl_turbo_1\\.0|^sdxl_lightning_\\dstep"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced|SamplerCustom",
+        "input": "cfg",
+        "max": 1.0,
+        "all": true
+      },
+      "message": "SDXL-Turbo 'does not make use of guidance_scale or negative_prompt, we disable it with guidance_scale=0.0'; Lightning 'CFG set to 0' - in ComfyUI that is cfg 1.0 (the negative pass is skipped); above 1 the distilled models oversaturate",
+      "src": [
+        "S-HF-SDXL-TURBO",
+        "S-HF-LIGHTNING",
+        "S-TPL-TURBO",
+        "S-DOCS"
+      ]
+    },
+    {
+      "id": "distilled-lora-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^sdxl_lightning_\\dstep_lora|^dmd2_sdxl|^Hyper-SDXL-\\dsteps-lora|^Hyper-SDXL-1step-lora"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced|SamplerCustom",
+        "input": "cfg",
+        "max": 1.0,
+        "all": true
+      },
+      "message": "Lightning / DMD2 / non-CFG Hyper-SD LoRAs are guidance-0 distillations: cfg 1.0 in ComfyUI. Only the Hyper-SDXL-{8,12}steps-CFG-lora files keep cfg (5-8)",
+      "src": [
+        "S-HF-LIGHTNING",
+        "S-HF-DMD2",
+        "S-HF-HYPER"
+      ]
+    },
+    {
+      "id": "lightning-steps-2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LoraLoader|LoraLoaderModelOnly",
+        "input": "ckpt_name|lora_name",
+        "matches": "sdxl_lightning_2step"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "equals": 2,
+        "all": true
+      },
+      "message": "'Please always use the correct checkpoint for the corresponding inference steps': the 2-step Lightning files run at exactly 2 steps",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "id": "lightning-steps-4",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LoraLoader|LoraLoaderModelOnly",
+        "input": "ckpt_name|lora_name",
+        "matches": "sdxl_lightning_4step"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "equals": 4,
+        "all": true
+      },
+      "message": "'Please always use the correct checkpoint for the corresponding inference steps': the 4-step Lightning files run at exactly 4 steps",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "id": "lightning-steps-8",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LoraLoader|LoraLoaderModelOnly",
+        "input": "ckpt_name|lora_name",
+        "matches": "sdxl_lightning_8step"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "'Please always use the correct checkpoint for the corresponding inference steps': the 8-step Lightning files run at exactly 8 steps",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "id": "lightning-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LoraLoader|LoraLoaderModelOnly",
+        "input": "ckpt_name|lora_name",
+        "matches": "sdxl_lightning"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "sampler_name",
+        "equals": "euler",
+        "all": true
+      },
+      "message": "SDXL-Lightning: 'Please use Euler sampler with sgm_uniform scheduler'",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "id": "lightning-scheduler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LoraLoader|LoraLoaderModelOnly",
+        "input": "ckpt_name|lora_name",
+        "matches": "sdxl_lightning"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "scheduler",
+        "equals": "sgm_uniform",
+        "all": true
+      },
+      "message": "SDXL-Lightning: 'Please use Euler sampler with sgm_uniform scheduler'",
+      "src": "S-HF-LIGHTNING"
+    },
+    {
+      "id": "dmd2-lcm-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^dmd2_sdxl"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "sampler_name",
+        "equals": "lcm",
+        "all": true
+      },
+      "message": "DMD2 samples with the LCM scheduler (timesteps [999, 749, 499, 249] for 4 steps, [399] for 1 step): the lcm sampler in ComfyUI",
+      "src": "S-HF-DMD2"
+    },
+    {
+      "id": "dmd2-steps-4",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^dmd2_sdxl_4step"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "equals": 4,
+        "all": true
+      },
+      "message": "the DMD2 4-step LoRA is trained for exactly 4 steps",
+      "src": "S-HF-DMD2"
+    },
+    {
+      "id": "dmd2-noncommercial",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly|UNETLoader",
+        "input": "lora_name|unet_name",
+        "matches": "^dmd2_sdxl"
+      },
+      "require": {
+        "node": "LoraLoader|LoraLoaderModelOnly|UNETLoader",
+        "input": "lora_name|unet_name",
+        "equals": "__never__"
+      },
+      "message": "DMD2 is CC BY-NC(-SA) 4.0: non-commercial only. Fine for personal / research output; for anything sold use Lightning (openrail++) or the base",
+      "src": "S-HF-DMD2"
+    },
+    {
+      "id": "hyper-cfg-lora-range",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^Hyper-SDXL-(8|12)steps-CFG-lora"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "min": 5.0,
+        "max": 8.0,
+        "all": true
+      },
+      "message": "the Hyper-SD CFG-preserving LoRAs 'support 5~8 guidance scales' at 8 (or 12) steps - they are the ones that keep a working negative prompt",
+      "src": "S-HF-HYPER"
+    },
+    {
+      "id": "hyper-1step-needs-tcd",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^Hyper-SDXL-1step-lora"
+      },
+      "require": {
+        "node": "TCDScheduler",
+        "input": "eta",
+        "exists": true
+      },
+      "message": "the unified Hyper-SD 1-step LoRA needs the TCD scheduler ('Remember to install ComfyUI-TCD ... adjust the eta parameter'); TCDScheduler is not in ComfyUI v0.35.0 - a custom pack (JettHu/ComfyUI-TCD)",
+      "src": [
+        "S-HF-HYPER",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "lcm-lora-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoader|LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "lcm_lora_sdxl|lcm-lora"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "sampler_name",
+        "equals": "lcm",
+        "all": true
+      },
+      "message": "LCM-LoRA: 'use a low cfg, use the lcm sampler and the sgm_uniform or simple scheduler. The ModelSamplingDiscrete node with lcm set as the sampling option will slightly improve results'",
+      "src": "S-EXAMPLES-SDXL"
+    },
+    {
+      "id": "turbo-scheduler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd_xl_turbo_1\\.0"
+      },
+      "require": {
+        "node": "SDTurboScheduler",
+        "input": "steps",
+        "exists": true
+      },
+      "message": "'The proper way to use it is with the new SDTurboScheduler node' feeding SamplerCustom (the sdxlturbo_example graph); a plain KSampler works but is not the official route",
+      "src": [
+        "S-EXAMPLES-SDXL",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "id": "union-needs-type",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)^diffusion_pytorch_model(_promax)?\\.safetensors$|^(?!.*instantid/).*union"
+      },
+      "require": {
+        "node": "SetUnionControlNetType",
+        "input": "type",
+        "exists": true
+      },
+      "message": "the xinsir ControlNet Union is one network for 10+ conditions: ControlNetLoader -> SetUnionControlNetType(type) -> ControlNetApplyAdvanced; without the type node the condition is not selected ('auto' is a legal choice)",
+      "src": [
+        "S-HF-UNION",
+        "S-NODES-SRC"
+      ]
+    },
+    {
+      "id": "union-type-key",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "SetUnionControlNetType",
+        "input": "type"
+      },
+      "numeric": {
+        "in": [
+          "auto",
+          "openpose",
+          "depth",
+          "hed/pidi/scribble/ted",
+          "canny/lineart/anime_lineart/mlsd",
+          "normal",
+          "segment",
+          "tile",
+          "repaint"
+        ]
+      },
+      "message": "on ComfyUI v0.35.0 SetUnionControlNetType.type is one of: auto, openpose, depth, hed/pidi/scribble/ted, canny/lineart/anime_lineart/mlsd, normal, segment, tile, repaint (comfy/cldm/control_types.py); the newer names (canny, scribble, seg, inpaint, lineart, blur, mlsd, normalbae, mask) are rejected",
+      "src": [
+        "S-CONTROL-TYPES",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "no-deprecated-controlnet-apply",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetApply",
+        "input": "control_net",
+        "exists": true
+      },
+      "require": {
+        "node": "ControlNetApply",
+        "input": "control_net",
+        "equals": "__never__"
+      },
+      "message": "ControlNetApply ('Apply ControlNet (DEPRECATED)') is deprecated in the v0.35.0 registry: use ControlNetApplyAdvanced (positive + negative, strength, start/end)",
+      "src": [
+        "S-REGISTRY",
+        "S-DOCS"
+      ]
+    },
+    {
+      "id": "pony-clip-skip",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "[Pp]ony"
+      },
+      "require": {
+        "node": "CLIPSetLastLayer",
+        "input": "stop_at_clip_layer",
+        "equals": -2
+      },
+      "message": "Pony Diffusion V6 XL: 'Make sure you load this model with clip skip 2, otherwise you will be getting low quality blobs' -> CLIPSetLastLayer stop_at_clip_layer -2 between the checkpoint CLIP and both text encoders (A1111 counts 1..12, ComfyUI -1..-12)",
+      "src": [
+        "S-CIVITAI-PONY",
+        "S-COMM-PONY"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (none of the SDXL templates does: all 0.0.1)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "text, watermark",
+    "negative_src": [
+      "S-TPL-REFINER",
+      "S-TPL-TURBO",
+      "S-TPL-REVISION"
+    ],
+    "negative_gloss": "the ComfyUI_examples SDXL templates' negative; image_sdxl_simple ships the prompt-specific 'color, colored, lowres, blurry, out of focus, deformed, bad anatomy, extra limbs, mutated, watermark, text, logo, signature\\n' (its 'color, colored' belongs to its black-and-white statue); Turbo / Lightning / DMD2: no negative (cfg 1)",
+    "positive": [
+      {
+        "line": "Short tag-like phrases work ('evening sunset scenery blue sky nature, glass bottle with a galaxy in it'); so does prose ('a giant classical marble statue standing alone in a pure white empty void, soft diffused lighting, ...')",
+        "class": "official",
+        "src": [
+          "S-TPL-REFINER",
+          "S-TPL-SIMPLE"
+        ]
+      },
+      {
+        "line": "Refiner prompts 'should emphasize desired visual effects rather than scene content'",
+        "class": "official",
+        "src": "S-DOCS"
+      },
+      {
+        "line": "Juggernaut XL v9: 'Negative Prompts: start with none. Add specific things you don't want as you iterate'",
+        "class": "official",
+        "src": "S-HF-JUGGERNAUT"
+      },
+      {
+        "line": "RealVisXL V5.0 negative: 'bad hands, bad anatomy, ugly, deformed, (face asymmetry, eyes asymmetry, deformed eyes, deformed mouth, open mouth)'",
+        "class": "official",
+        "src": "S-HF-REALVIS"
+      },
+      {
+        "line": "Pony V6 XL prefix: 'score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up, just describe what you want, tag1, tag2'; source tags source_pony / source_furry / source_cartoon / source_anime; rating tags rating_safe / rating_questionable / rating_explicit; negative 'Generally not needed'; clip skip 2",
+        "class": "community",
+        "src": "S-CIVITAI-PONY"
+      },
+      {
+        "line": "Illustrious XL: Danbooru tags; quality tags worst quality / bad quality / average quality / good quality / best quality / masterpiece; composition tags ('upper body', 'cowboy shot', 'portrait'); 'Avoid overusing critical composition tags that may conflict'",
+        "class": "official",
+        "src": "S-HF-ILLUSTRIOUS"
+      },
+      {
+        "line": "Two encoders: CLIPTextEncodeSDXL takes text_g (OpenCLIP-G) and text_l (CLIP-L) separately plus size/crop conditioning; the official templates use one shared prompt",
+        "class": "official",
+        "src": "S-NODES-SRC"
+      }
+    ],
+    "hurts": [
+      {
+        "line": "asking for legible text ('The model cannot render legible text')",
+        "src": "S-HF-SDXL-BASE"
+      },
+      {
+        "line": "compositional instructions ('A red cube on top of a blue sphere')",
+        "src": "S-HF-SDXL-BASE"
+      },
+      {
+        "line": "negatives and cfg > 1 on Turbo / Lightning / DMD2",
+        "src": [
+          "S-HF-SDXL-TURBO",
+          "S-HF-LIGHTNING"
+        ]
+      },
+      {
+        "line": "Pony without clip skip 2 and the score tags; Illustrious without quality tags",
+        "src": [
+          "S-CIVITAI-PONY",
+          "S-HF-ILLUSTRIOUS"
+        ]
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "black / grey / NaN image after decode",
+      "cause": "'SDXL-VAE generates NaNs in fp16 because the internal activation values are too big'",
+      "fix": "VAELoader(sdxl_vae.safetensors from madebyollin/sdxl-vae-fp16-fix) into VAEDecode, or decode in fp32/bf16",
+      "src": [
+        "S-HF-VAE-FIX",
+        "S-COMM-BLACK"
+      ]
+    },
+    {
+      "symptom": "refiner output over-noised / double-noised / blurry",
+      "cause": "base return_with_leftover_noise not 'enable', refiner add_noise not 'disable', or start_at_step != base end_at_step, or different total steps",
+      "fix": "the t2i-base-refiner wiring (template: settings that 'SHOULD stay in place')",
+      "src": "S-TPL-REFINER"
+    },
+    {
+      "symptom": "refiner ignores its prompt / wrong colours",
+      "cause": "refiner prompts encoded with the base CLIP or decode with the base VAE",
+      "fix": "encode the refiner prompts with the REFINER checkpoint's CLIP and decode with its VAE (the template does both)",
+      "src": "S-TPL-REFINER"
+    },
+    {
+      "symptom": "soft, deformed, duplicated subjects at an odd size",
+      "cause": "non-native resolution",
+      "fix": "a trained bucket (1024x1024 ... 1536x640); Turbo at 512x512",
+      "src": [
+        "S-TPL-REFINER",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "symptom": "fried / oversaturated output from a distilled model",
+      "cause": "cfg > 1, wrong step count or scheduler on Turbo / Lightning / DMD2",
+      "fix": "cfg 1; Lightning: steps = checkpoint's N, euler + sgm_uniform; DMD2: 4 steps, lcm",
+      "src": [
+        "S-HF-LIGHTNING",
+        "S-HF-DMD2",
+        "S-HF-SDXL-TURBO"
+      ]
+    },
+    {
+      "symptom": "Hyper-SD 1-step does nothing useful / node missing",
+      "cause": "needs custom nodes (ComfyUI-TCD for the unified LoRA; the repo's ComfyUI-HyperSDXL1StepUnetScheduler for the 1-step UNet)",
+      "fix": "install the pack (Phase 2) or use Lightning",
+      "src": "S-HF-HYPER"
+    },
+    {
+      "symptom": "license question on a 'free' SDXL asset",
+      "cause": "the ecosystem is a license spread",
+      "fix": "base/refiner/Lightning/LCM openrail++; Turbo Stability Community License (<US$1M, register); DMD2 NON-COMMERCIAL; Juggernaut no paid-API without a license; Pony/Illustrious FAIPL-1.0-SD (derivatives stay open)",
+      "src": [
+        "S-HF-SDXL-TURBO",
+        "S-HF-DMD2",
+        "S-HF-JUGGERNAUT",
+        "S-CIVITAI-PONY",
+        "S-HF-ILLUSTRIOUS"
+      ]
+    },
+    {
+      "symptom": "Pony gives 'low quality blobs'",
+      "cause": "no clip skip 2",
+      "fix": "CLIPSetLastLayer stop_at_clip_layer -2 + the score_9 prefix",
+      "src": [
+        "S-CIVITAI-PONY",
+        "S-COMM-PONY"
+      ]
+    },
+    {
+      "symptom": "two ControlNet downloads overwrite each other",
+      "cause": "xinsir Union files are named diffusion_pytorch_model*.safetensors like every diffusers ControlNet",
+      "fix": "rename when saving to models/controlnet; the recipes use the distinct _promax name",
+      "src": "S-HF-UNION"
+    },
+    {
+      "symptom": "ControlNet has no effect on a plain photo",
+      "cause": "'The ControlNetApply node will not convert regular images into depthmaps, canny maps and so on for you'",
+      "fix": "core Canny node (control-union-canny) or comfyui_controlnet_aux for other maps",
+      "src": "S-EXAMPLES-SDXL"
+    },
+    {
+      "symptom": "SetUnionControlNetType rejects 'canny' / 'seg' / 'inpaint'",
+      "cause": "those are v0.38.1 option names; v0.35.0 uses the grouped keys",
+      "fix": "'canny/lineart/anime_lineart/mlsd', 'segment', 'repaint', ... or 'auto'",
+      "src": "S-CONTROL-TYPES"
+    },
+    {
+      "symptom": "IP-Adapter loader cannot find the model",
+      "cause": "'you need to name the files exactly as described' and pair the right CLIP-vision (ViT-H for *_vit-h, bigG for ip-adapter_sdxl)",
+      "fix": "exact filenames in models/ipadapter + the matching encoder in models/clip_vision (pack pending)",
+      "src": [
+        "S-CUBIQ-README",
+        "S-HF-IPADAPTER"
+      ]
+    },
+    {
+      "symptom": "deprecated 'Apply ControlNet(Old)' in a loaded workflow",
+      "cause": "ControlNetApply is deprecated",
+      "fix": "ControlNetApplyAdvanced",
+      "src": [
+        "S-DOCS",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "symptom": "Pony release date reads 'April 29, 2026' on Civitai",
+      "cause": "implausible fetch result; community guides predate it",
+      "fix": "treat the date as unverified; the model and settings are unaffected",
+      "src": "S-CIVITAI-PONY"
+    }
+  ],
+  "sources": {
+    "S-HF-SDXL-BASE": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0 (raw README, LICENSE.md head, API, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDXL-REFINER": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0 (raw README, API, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDXL-TURBO": {
+      "url": "https://huggingface.co/stabilityai/sdxl-turbo (raw README, LICENSE.md, API, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES-SDXL": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/sdxl/ (+ /sdturbo/, /lcm/, /controlnet/, /inpaint/, /img2img/, /lora/, /2_pass_txt2img/)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SIMPLE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_sdxl_simple.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-REFINER": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sdxl_simple_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-REFINER-PROMPT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sdxl_refiner_prompt_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-TURBO": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sdxlturbo_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-REVISION": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sdxl_revision_text_prompts.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES-SRC": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.1/comfy_extras/nodes_clip_sdxl.py (+ nodes_custom_sampler.py, nodes_controlnet.py, nodes.py, comfy/supported_models.py, comfy/latent_formats.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json - the ComfyUI v0.35.0 node registry of the pinned GPU image (local ground truth)",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-CONTROL-TYPES": {
+      "url": "KB/raw/ComfyUI/comfy/cldm/control_types.py (ComfyUI v0.35.0 UNION_CONTROLNET_TYPES) + KB/src/comfy_extras/nodes_controlnet.py",
+      "accessed": "2026-10-02",
+      "class": "official"
+    },
+    "S-DOCS": {
+      "url": "https://docs.comfy.org/built-in-nodes/ClipTextEncodeSdxlRefiner.md (+ ClipTextEncodeSdxl.md, SetUnionControlNetType.md; tutorials/basic/text-to-image.md, image-to-image.md, inpaint.md, lora.md; tutorials/controlnet/controlnet.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LIGHTNING": {
+      "url": "https://huggingface.co/ByteDance/SDXL-Lightning (raw README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-HYPER": {
+      "url": "https://huggingface.co/ByteDance/Hyper-SD (raw README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-DMD2": {
+      "url": "https://huggingface.co/tianweiy/DMD2 (raw README, API, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LCM": {
+      "url": "https://huggingface.co/latent-consistency/lcm-lora-sdxl (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-UNION": {
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0 (raw README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-IPADAPTER": {
+      "url": "https://huggingface.co/h94/IP-Adapter (raw README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CUBIQ-README": {
+      "url": "https://raw.githubusercontent.com/cubiq/ComfyUI_IPAdapter_plus/main/README.md",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HF-CONTROL-LORA": {
+      "url": "https://huggingface.co/stabilityai/control-lora (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-DIFFUSERS-CN": {
+      "url": "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0 , https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-CLIPVISION-G": {
+      "url": "https://huggingface.co/comfyanonymous/clip_vision_g (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-CLIPVITH": {
+      "url": "https://huggingface.co/Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-VAE-FIX": {
+      "url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix (raw README, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDXL-VAE": {
+      "url": "https://huggingface.co/stabilityai/sdxl-vae (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-JUGGERNAUT": {
+      "url": "https://huggingface.co/RunDiffusion/Juggernaut-XL-v9 (rendered card via summarizer + API/tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-REALVIS": {
+      "url": "https://huggingface.co/SG161222/RealVisXL_V5.0 (rendered card via summarizer + API/tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ILLUSTRIOUS": {
+      "url": "https://huggingface.co/OnomaAIResearch/Illustrious-xl-early-release-v0 (rendered card via summarizer + API/tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CIVITAI-PONY": {
+      "url": "https://civitai.com/models/257749/pony-diffusion-v6-xl",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-COMM-BLACK": {
+      "url": "https://huggingface.co/ByteDance/SDXL-Lightning/discussions/7 ; https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0/discussions/20 ; https://runaihome.com/blog/comfyui-black-image-output-fix-2026/ ; https://aiofm.info/en/guides/sdxl-vae-guide",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-COMM-PONY": {
+      "url": "https://stable-diffusion-art.com/pony-diffusion-v6-xl/ ; https://offlinecreator.com/workflow/comfyui-pony-diffusion-v6-xl-2026",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

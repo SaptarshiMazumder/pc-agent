@@ -1,0 +1,117 @@
+{
+  "recipe": {
+    "id": "upscale-video-frames",
+    "family": "upscale-models",
+    "task": "upscale-video",
+    "variant": "RealESRGAN_x4plus per frame, 4x, audio and fps passed through: the official 'Video Upscale: Real-ESRGAN' template, as is",
+    "from_template": "utility-gan_upscaler (2026-01-26): LoadVideo -> GetVideoComponents -> ImageUpscaleWithModel(RealESRGAN_x4plus.safetensors) -> CreateVideo(images, audio, fps) -> SaveVideo('video/ComfyUI', auto, auto).",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "ports": {
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name",
+        "note": "fastest alternative: realesr-general-x4v3.pth (compact SRVGG, 4.9 MB); 2x: RealESRGAN_x2plus.pth; anime frames: 4xHFA2kLUDVAESwinIR_light.pth"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the clip; frames, audio and fps come out of GetVideoComponents, audio and fps pass through to CreateVideo; the model only touches the frames"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "RealESRGAN_x4plus.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Per-frame GAN upscale: 'It can't create new detail like diffusion can, but it's much faster'. No temporal model, so expect shimmer on video (the flicker rule warns); the -2x variant averages it down, SeedVR2 removes it.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (internal 512-px tiling with OOM back-off; the whole frame batch is held as IMAGE tensors, so long clips are RAM-bound)",
+      "time_s": null,
+      "class": "official",
+      "src": [
+        "S-TPL-GAN",
+        "S-NODES-UPSCALE"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "16": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "2",
+          0
+        ],
+        "audio": [
+          "16",
+          1
+        ],
+        "fps": [
+          "16",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

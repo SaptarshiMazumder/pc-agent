@@ -1,0 +1,250 @@
+{
+  "recipe": {
+    "id": "fill-outpaint",
+    "family": "flux-1",
+    "task": "outpaint",
+    "variant": "FLUX.1 Fill [dev] bf16: ImagePadForOutpaint (pad + feathered mask) -> InpaintModelConditioning with noise_mask FALSE + DifferentialDiffusion, FluxGuidance 30",
+    "from_template": "flux_fill_outpaint_example",
+    "min_comfyui": "0.0.4",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "noise_mask": {
+        "node": "8",
+        "input": "noise_mask"
+      },
+      "differential_strength": {
+        "node": "4",
+        "input": "strength"
+      },
+      "pad_left": {
+        "node": "16",
+        "input": "left"
+      },
+      "pad_top": {
+        "node": "16",
+        "input": "top"
+      },
+      "pad_right": {
+        "node": "16",
+        "input": "right"
+      },
+      "pad_bottom": {
+        "node": "16",
+        "input": "bottom"
+      },
+      "feathering": {
+        "node": "16",
+        "input": "feathering"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to extend; the pad amounts (multiples of 8) set how much canvas is added on each side"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-fill-dev.safetensors",
+      "t5xxl_fp16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Template pads left 400, top 0, right 400, bottom 400 with feathering 24; noise_mask false for outpaint (unlike inpaint). FluxGuidance 30, 20 steps euler/normal, cfg 1.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "note": "23.8 GB bf16 model class like flux1-dev (24 GB card route); GGUF Q4-Q8 Fill quantisations exist for smaller cards (YarvixPA)",
+      "class": "not-found",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-GGUF-REPOS"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-fill-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "DifferentialDiffusion",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "strength": 1.0
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "beautiful scenery"
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "guidance": 30.0
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImagePadForOutpaint",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "left": 400,
+        "top": 0,
+        "right": 400,
+        "bottom": 400,
+        "feathering": 24
+      }
+    },
+    "8": {
+      "class_type": "InpaintModelConditioning",
+      "inputs": {
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "pixels": [
+          "16",
+          0
+        ],
+        "mask": [
+          "16",
+          1
+        ],
+        "noise_mask": false
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "8",
+          0
+        ],
+        "negative": [
+          "8",
+          1
+        ],
+        "latent_image": [
+          "8",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_Fill_outpaint"
+      }
+    }
+  }
+}

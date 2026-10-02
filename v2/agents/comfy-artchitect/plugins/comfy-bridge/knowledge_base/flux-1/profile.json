@@ -1,0 +1,2221 @@
+{
+  "schema": 2,
+  "id": "flux-1",
+  "name": "FLUX.1",
+  "publisher": "Black Forest Labs (BFL), Freiburg; Comfy-Org repackages; Turbo-Alpha LoRA by alimama-creative; Krea [dev] with Krea",
+  "release": {
+    "dev / schnell": "2024-08-01",
+    "Fill / Depth / Canny / Redux + LoRAs": "2024-11-21",
+    "Kontext [dev]": "2025-06-26",
+    "Krea [dev]": "2025-07-31",
+    "official FP8/NVFP4 repackages": "2026-01",
+    "src": [
+      "S-HF-BFL",
+      "S-BFL-KONTEXT-ANN",
+      "S-BFL-KREA-ANN",
+      "S-BFL-TOOLS-ANN",
+      "S-DATES"
+    ]
+  },
+  "license": {
+    "name": "FLUX.1 [dev] Non-Commercial License v1.1.1 (dev, Krea [dev], Kontext [dev], Fill, Depth, Canny, Redux, Depth/Canny LoRAs, Turbo-Alpha); Apache-2.0 (schnell)",
+    "commercial": false,
+    "per_variant": {
+      "flux1-dev / krea / kontext / fill / depth / canny / redux / control LoRAs / Turbo-Alpha": "FLUX.1 [dev] Non-Commercial License v1.1.1 — model use 'freely available for your non-commercial and non-production use'; OUTPUTS: 'You may use Output for any purpose (including for commercial purposes)' but not to train a competing model; clause 2.e requires content filtering or output review; commercial model licence via bfl.ai",
+      "flux1-schnell": "Apache License 2.0 — 'can be used for personal, scientific, and commercial purposes'"
+    },
+    "notes": "Comfy-Org repackages inherit the original licences. Cost axis: free (open weights) — non-commercial is still free.",
+    "src": [
+      "S-BFL-LICENSE-DEV",
+      "S-BFL-LICENSE-SCHNELL",
+      "S-HF-BFL",
+      "S-README-COMFYORG"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i",
+    "edit",
+    "inpaint",
+    "outpaint",
+    "control",
+    "style-ref"
+  ],
+  "cannot": [
+    {
+      "what": "negative prompts / real CFG: dev and schnell are guidance-distilled (cfg 1, zeroed negative); only FluxGuidance steers the dev family, and schnell ignores even that",
+      "src": [
+        "S-TPL-SCHNELL",
+        "S-SRC"
+      ]
+    },
+    {
+      "what": "commercial self-hosting of anything but schnell without a BFL licence (outputs are usable commercially)",
+      "src": "S-BFL-LICENSE-DEV"
+    },
+    {
+      "what": "Kontext: non-English prompts; it is an editing model, not a from-scratch T2I replacement",
+      "src": [
+        "S-DOCS-KONTEXT",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "what": "reliable text rendering is not claimed; 'may fail to generate output that matches the prompts. Prompt following is heavily influenced by the prompting-style.'",
+      "src": "S-BFL-HF-CARDS"
+    },
+    {
+      "what": "Fill: 'Possible color shifts in unfilled areas' / 'edge artifacts in complex textures'",
+      "src": "S-BFL-HF-CARDS"
+    },
+    {
+      "what": "resolutions far from ~1 MP; BFL TRT exports keep height and width within 768-1344",
+      "src": [
+        "S-BFL-HF-CARDS",
+        "S-VRAM-GUIDES"
+      ]
+    },
+    {
+      "what": "dev-trained LoRAs on schnell (step distillation); Turbo-Alpha is dev only",
+      "src": [
+        "S-OSTRIS",
+        "S-TURBO-ALPHA"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.0 source (comfy_extras/nodes_flux.py, nodes_edit_model.py, nodes.py, comfy/supported_models.py)",
+    "nodes_verified_against_registry": "v0.35.0 — all 17 recipes passed the offline structural check (verify_recipes.py) on 2026-10-02",
+    "note": "every FLUX.1 template's minComfyUIVersion (0.0.4 / 0.3.42) is below 0.35.0; FluxKontextMultiReferenceLatentMethod (0.3.51) is also available on the image"
+  },
+  "files": [
+    {
+      "name": "flux1-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23802932552,
+      "size_gb": 23.803,
+      "precision": "bf16",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "Comfy-Org: the bf16 model is the 24 GB route; the fp8 checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "the template default; sha256 4610115bb0c8... identical to BFL's flux1-dev.safetensors",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG"
+    },
+    {
+      "name": "flux1-dev-fp8.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 17246524772,
+      "size_gb": 17.247,
+      "precision": "fp8 all-in-one (UNET + clip_l + t5xxl + VAE)",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors",
+      "vram": {
+        "fits_gb": 16,
+        "evidence": "'smaller checkpoint ... for ComfyUI users with less VRAM (under 24gb)' (no number given; 16 is the next card size down)",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "'fp8 degrades the quality a bit'; 'Use it with the Load Checkpoint node'; cfg must be 1.0. Name collision: BFL's FLUX.1-dev-FP8 repo has a transformer-only flux1-dev-fp8.safetensors (12.327 GB, diffusion_models) which is NOT this file. The depth-LoRA template loads this 17 GB file through UNETLoader from diffusion_models (works, confuses).",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-README-COMFYORG",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-fill-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23804922408,
+      "size_gb": 23.805,
+      "precision": "bf16",
+      "variant": "fill",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/diffusion_models/flux1-fill-dev.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "Comfy-Org: the bf16 model is the 24 GB route; the fp8 checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "inpaint/outpaint model (96 input channels: latent + masked image + mask); sha identical to BFL FLUX.1-Fill-dev",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-canny-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23803351736,
+      "size_gb": 23.803,
+      "precision": "bf16",
+      "variant": "canny",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/diffusion_models/flux1-canny-dev.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "Comfy-Org: the bf16 model is the 24 GB route; the fp8 checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "full Canny model; the LoRA route rides on flux1-dev instead",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-depth-dev-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8853755624,
+      "size_gb": 8.854,
+      "precision": "NVFP4",
+      "variant": "depth",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/diffusion_models/flux1-depth-dev-nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Blackwell (RTX 50 / sm120) only for the fast path; Comfy-Org ships no full-precision Depth model (BFL has flux1-depth-dev.safetensors)",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-depth-dev-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1244440512,
+      "size_gb": 1.244,
+      "precision": "bf16 LoRA",
+      "variant": "depth-lora",
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/loras/flux1-depth-dev-lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Depth control as a LoRA on flux1-dev; BFL: 'require the base FLUX.1 [dev] model'; template strength 1",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-canny-dev-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": null,
+      "size_gb": 1.244,
+      "precision": "bf16 LoRA",
+      "variant": "canny-lora",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev-lora/resolve/main/flux1-canny-dev-lora.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Canny control as a LoRA on flux1-dev (BFL repo; gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen)",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-BFL"
+    },
+    {
+      "name": "flux1-schnell.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23782506688,
+      "size_gb": 23.783,
+      "precision": "bf16",
+      "variant": "schnell",
+      "url": "https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main/flux1-schnell.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "Comfy-Org: the bf16 model is the 24 GB route; the fp8 checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "1-4 step distilled; Apache-2.0; guidance embedding disabled; sha identical to BFL",
+      "license": "Apache-2.0",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-schnell-fp8.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 17236328572,
+      "size_gb": 17.236,
+      "precision": "fp8 all-in-one",
+      "variant": "schnell",
+      "url": "https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main/flux1-schnell-fp8.safetensors",
+      "vram": {
+        "fits_gb": 16,
+        "evidence": "'smaller checkpoint ... for ComfyUI users with less VRAM (under 24gb)' (no number given; 16 is the next card size down)",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "'weights in FP8, which makes running in ComfyUI much faster and use less memory'; Load Checkpoint node",
+      "license": "Apache-2.0",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-README-COMFYORG"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-dev-kontext_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 11904640136,
+      "size_gb": 11.905,
+      "precision": "fp8_scaled",
+      "variant": "kontext",
+      "url": "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 20,
+        "evidence": "community: 'fp8 checkpoint wants roughly 20 GB of VRAM, and full precision wants more than 30 GB', ComfyUI offloading lets smaller cards run",
+        "class": "community",
+        "src": "S-VRAM-GUIDES"
+      },
+      "quality": "the only Comfy-Org Kontext file; template default",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-krea-dev_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 11904639672,
+      "size_gb": 11.905,
+      "precision": "fp8_scaled",
+      "variant": "krea",
+      "url": "https://huggingface.co/Comfy-Org/FLUX.1-Krea-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 16,
+        "evidence": "docs.comfy.org: fp8_scaled 'recommended for low VRAM users'; bf16 'if you have enough VRAM like 24GB' (no number for fp8)",
+        "class": "official",
+        "src": "S-DOCS-KREA"
+      },
+      "quality": "'fp8 scaled version of the official krea Flux finetune'; 'recommended for low VRAM users'",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-redux-dev.safetensors",
+      "role": "style_model",
+      "folder": "style_models",
+      "bytes": 129063232,
+      "size_gb": 0.129,
+      "precision": "bf16 adapter",
+      "variant": "redux",
+      "url": "https://huggingface.co/Comfy-Org/Flux1-Redux-Dev/resolve/main/flux1-redux-dev.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "image-variation / style adapter 'for all FLUX.1 base models'; StyleModelLoader; needs the SigLIP vision encoder",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux1-kontext-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 23.803,
+      "precision": "bf16",
+      "variant": "kontext",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev/resolve/main/flux1-kontext-dev.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-precision Kontext (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen); community: >30 GB VRAM",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-BFL"
+    },
+    {
+      "name": "flux1-krea-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 23.803,
+      "precision": "bf16",
+      "variant": "krea",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Krea-dev/resolve/main/flux1-krea-dev.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "Comfy-Org: the bf16 model is the 24 GB route; the fp8 checkpoint is 'for ComfyUI users with less VRAM (under 24gb)'",
+        "class": "official",
+        "src": "S-README-COMFYORG"
+      },
+      "quality": "'if you have enough VRAM like 24GB you can use it for better quality' (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen)",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": [
+        "S-HF-BFL",
+        "S-DOCS-KREA"
+      ]
+    },
+    {
+      "name": "flux1-depth-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 23.803,
+      "precision": "bf16",
+      "variant": "depth",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev/resolve/main/flux1-depth-dev.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full Depth model (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen); use the Canny graph with a depth map as pixels",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-BFL"
+    },
+    {
+      "name": "flux1-dev-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 9.19,
+      "precision": "NVFP4",
+      "variant": "dev",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-dev-NVFP4/resolve/main/flux1-dev-nvfp4.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "official NVFP4 repackage (2026-01); Blackwell only for the fast path",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-BFL"
+    },
+    {
+      "name": "flux1-kontext-dev-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 9.19,
+      "precision": "NVFP4",
+      "variant": "kontext",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev-NVFP4/resolve/main/flux1-kontext-dev-nvfp4.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "official NVFP4 Kontext; Blackwell only",
+      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "src": "S-HF-BFL"
+    },
+    {
+      "name": "clip_l.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 246144152,
+      "size_gb": 0.246,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "CLIP-L; slot 1 of DualCLIPLoader type flux in every template",
+      "src": "S-HF-TE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9787841024,
+      "size_gb": 9.788,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "template default for dev/schnell-full/Fill/Canny/Depth/Redux/Krea; 'recommended if you have more than 32GB ram' / 'VRAM is greater than 32GB'",
+      "src": [
+        "S-HF-TE",
+        "S-EXAMPLES",
+        "S-DOCS-KREA"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 4893934904,
+      "size_gb": 4.894,
+      "precision": "fp8_e4m3fn",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'For Low VRAM' substitute (docs.comfy.org); frees ~5 GB vs fp16 (community)",
+      "src": [
+        "S-HF-TE",
+        "S-DOCS-KREA",
+        "S-VRAM-GUIDES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5157348688,
+      "size_gb": 5.157,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Kontext template default; ComfyUI_examples: 'use t5xxl_fp8_e4m3fn_scaled.safetensors instead for lower memory usage'",
+      "src": [
+        "S-HF-TE",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 335304388,
+      "size_gb": 0.335,
+      "precision": "fp32",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the FLUX.1 VAE (16-channel, /8); the URL every Comfy-Org FLUX.1 template uses; byte-identical size to BFL's ae.safetensors; sha256 afc8e282... Do not confuse with the FLUX.2 ae.safetensors (128-channel).",
+      "src": "S-HF-COMFYORG"
+    },
+    {
+      "name": "sigclip_vision_patch14_384.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 856505640,
+      "size_gb": 0.857,
+      "precision": "fp16",
+      "variant": "redux",
+      "url": "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "SigLIP vision encoder for Redux (CLIPVisionLoader)",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "FLUX.1-Turbo-Alpha.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 694082424,
+      "size_gb": 0.694,
+      "precision": "LoRA",
+      "variant": "dev-turbo",
+      "url": "https://huggingface.co/alimama-creative/FLUX.1-Turbo-Alpha/resolve/main/diffusion_pytorch_model.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "8-step distilled LoRA for FLUX.1-dev (steps 8, guidance 3.5, scale 1; 'FLUX.1-dev only'); 643 likes",
+      "source_name": "diffusion_pytorch_model.safetensors",
+      "rename_note": "the repo file is named diffusion_pytorch_model.safetensors; save it to models/loras under this name",
+      "license": "FLUX.1 [dev] Non-Commercial License (inherited)",
+      "src": "S-TURBO-ALPHA",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "lotus-depth-d-v1-1.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 1735197352,
+      "size_gb": 1.62,
+      "precision": "fp16",
+      "variant": "depth-estimator",
+      "url": "https://huggingface.co/Comfy-Org/lotus/resolve/main/lotus-depth-d-v1-1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lotus depth estimator the depth-LoRA template uses to make the depth map (SD1.5-based); size from the template note",
+      "src": "S-TPL-DEPTH-LORA",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "vae-ft-mse-840000-ema-pruned.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 334641190,
+      "size_gb": 0.3191,
+      "precision": "fp32",
+      "variant": "depth-estimator",
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-GPU table for FLUX.1)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "SD1.5 VAE for the Lotus estimator ('or you can use any SD1.5 VAE if you prefer'); 319.1 MB per the template note",
+      "src": "S-TPL-DEPTH-LORA",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "Kijai fp8 diffusion-model-only files (UNETLoader route, no all-in-one): flux1-dev-fp8-e4m3fn.safetensors 11.902 GB, flux1-dev-fp8-e5m2.safetensors 11.902 GB, flux1-schnell-fp8-e4m3fn.safetensors 11.891 GB, flux-vae-bf16.safetensors 0.168 GB",
+      "needs_pack": null,
+      "folder": "diffusion_models",
+      "node": "UNETLoader",
+      "url": "https://huggingface.co/Kijai/flux-fp8",
+      "class": "community",
+      "src": "S-KIJAI"
+    },
+    {
+      "what": "No download needed: UNETLoader weight_dtype fp8_e4m3fn / fp8_e5m2 / fp8_e4m3fn_fast on the bf16 file 'will lower the memory usage by half but might reduce quality a tiny bit'",
+      "needs_pack": null,
+      "class": "official",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "what": "GGUF quantisations for 8-16 GB cards: city96/FLUX.1-dev-gguf (Q2_K 4.03 GB ... Q4_K_S 6.81 ... Q8_0 12.71 GB), city96/FLUX.1-schnell-gguf, QuantStack/FLUX.1-Kontext-dev-GGUF (Q4_K_M 6.93 GB), YarvixPA/FLUX.1-Fill-dev-GGUF, QuantStack/FLUX.1-Krea-dev-GGUF; GGUF T5 via city96/t5-v1_1-xxl-encoder-gguf",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "diffusion_models (or unet)",
+      "node": "UnetLoaderGGUF (+ DualCLIPLoaderGGUF)",
+      "evidence": "Q8_0 ~ 16-bit quality; Q4_K_S the quality/size compromise; GGUF Q4 runs on 8-12 GB cards; 'LoRA loading is experimental but it should work with just the built-in LoRA loader node(s)'",
+      "class": "community",
+      "src": [
+        "S-GGUF-NODE",
+        "S-GGUF-REPOS",
+        "S-VRAM-GUIDES"
+      ]
+    },
+    {
+      "what": "ControlNets for FLUX.1 dev (ControlNet nodes, models/controlnet): Shakker-Labs Union Pro 2.0 (canny/soft edge/depth/pose/gray, 4.282 GB; scales canny 0.7, depth 0.8, pose 0.9, end 0.8), InstantX Union 6.604 GB, InstantX Canny, Shakker Depth, XLabs collections — covered by the controlnet family, not given FLUX.1 recipes here",
+      "needs_pack": null,
+      "folder": "controlnet",
+      "class": "official (model cards) / listed by docs.comfy.org",
+      "src": [
+        "S-SHAKKER",
+        "S-DOCS-CONTROLNET"
+      ]
+    },
+    {
+      "what": "USO subject/style reference (ByteDance) on flux1-dev-fp8: uso-flux1-dit-lora-v1.safetensors (loras) + uso-flux1-projector-v1.safetensors (model_patches) — official template flux1_dev_uso_reference_image_gen (minComfyUIVersion 0.3.57); not converted here (identity-adapters family)",
+      "needs_pack": null,
+      "class": "official",
+      "src": "S-TPL-USO"
+    },
+    {
+      "what": "schnell LoRA training needs ostris/FLUX.1-schnell-training-adapter ('activated during the training process, and disabled during sampling'); dev-trained LoRAs transfer poorly to schnell",
+      "needs_pack": null,
+      "class": "community",
+      "src": "S-OSTRIS"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "recipe": "t2i-dev",
+      "why": "the quality route: bf16 dev, 'best prompt following capability and image quality' (template index); t5xxl_fp16 needs >32 GB system RAM, else swap to t5xxl_fp8_e4m3fn",
+      "src": [
+        "S-TPL-INDEX",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 16,
+      "recipe": "t2i-dev-fp8",
+      "why": "one 17 GB file for cards 'under 24gb'; 'image quality is slightly lower than the full version'",
+      "src": [
+        "S-README-COMFYORG",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2i-dev-turbo",
+      "tradeoff": "8 steps instead of 20 with the Turbo-Alpha LoRA; community-confirmed, dev only, non-commercial",
+      "src": "S-TURBO-ALPHA"
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2i-schnell",
+      "why": "4 steps, Apache-2.0 (the only commercially licensed FLUX.1 model); guidance has no effect; dev LoRAs transfer poorly",
+      "src": [
+        "S-BFL-LICENSE-SCHNELL",
+        "S-SRC",
+        "S-OSTRIS"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 12,
+      "speed": "fast",
+      "recipe": "t2i-schnell-fp8",
+      "why": "'Ideal for low-end hardware, requires only 4 steps'; one 17 GB file; Apache-2.0",
+      "src": "S-TPL-INDEX"
+    },
+    {
+      "task": "t2i",
+      "style": "photoreal",
+      "vram_gb_min": 16,
+      "recipe": "t2i-krea-dev",
+      "why": "'focus on aesthetic photography', trained against the oversaturated 'AI look'; fp8_scaled 11.9 GB; drop-in for dev",
+      "src": [
+        "S-BFL-KREA-ANN",
+        "S-DOCS-KREA"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 20,
+      "recipe": "kontext-edit",
+      "why": "instruction editing of one image with character/style/object consistency; English only; fp8_scaled ~20 GB (community)",
+      "src": [
+        "S-TPL-KONTEXT",
+        "S-DOCS-KONTEXT",
+        "S-VRAM-GUIDES"
+      ]
+    },
+    {
+      "task": "edit",
+      "references": 2,
+      "vram_gb_min": 20,
+      "recipe": "kontext-edit-multi",
+      "why": "two images stitched side by side as one reference (the template's enabled path); output is the stitched canvas",
+      "src": "S-TPL-KONTEXT"
+    },
+    {
+      "task": "edit",
+      "references": "2+",
+      "vram_gb_min": 20,
+      "recipe": "kontext-edit-multi-ref",
+      "why": "one reference per image via chained ReferenceLatent, output size chosen; community-confirmed assembly of the template's own note",
+      "confidence": "community-confirmed",
+      "src": [
+        "S-TPL-KONTEXT",
+        "S-KONTEXT-MULTI"
+      ]
+    },
+    {
+      "task": "inpaint",
+      "vram_gb_min": 24,
+      "recipe": "fill-inpaint",
+      "why": "the Fill model with a mask (alpha / MaskEditor), guidance 30",
+      "src": "S-TPL-FILL-IN"
+    },
+    {
+      "task": "outpaint",
+      "vram_gb_min": 24,
+      "recipe": "fill-outpaint",
+      "why": "the Fill model on a padded canvas (ImagePadForOutpaint), noise_mask false",
+      "src": "S-TPL-FILL-OUT"
+    },
+    {
+      "task": "control",
+      "control": "canny",
+      "vram_gb_min": 24,
+      "recipe": "canny-lora-dev",
+      "why": "Canny LoRA on flux1-dev: 1.2 GB on top of a dev that is already on disk; prefer over the 23.8 GB full Canny model",
+      "src": [
+        "S-DOCS-CONTROLNET",
+        "S-BFL-GH"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "canny",
+      "vram_gb_min": 24,
+      "recipe": "canny-dev",
+      "why": "the full Canny [dev] checkpoint (official template)",
+      "src": "S-TPL-CANNY"
+    },
+    {
+      "task": "control",
+      "control": "depth",
+      "vram_gb_min": 24,
+      "recipe": "depth-lora-dev",
+      "why": "Depth LoRA on flux1-dev with a ready depth map (from a previous stage or any depth preprocessor)",
+      "src": "S-TPL-DEPTH-LORA"
+    },
+    {
+      "task": "control",
+      "control": "depth",
+      "vram_gb_min": 24,
+      "recipe": "depth-lora-dev-lotus",
+      "why": "same, with the template's Lotus depth estimator in-graph (+1.9 GB of SD1.5-class files) when only an RGB image is available",
+      "src": "S-TPL-DEPTH-LORA"
+    },
+    {
+      "task": "style-ref",
+      "vram_gb_min": 24,
+      "recipe": "redux-dev",
+      "why": "image variation / style transfer from one reference ('prompt with images'); works on dev or schnell",
+      "src": "S-TPL-REDUX"
+    },
+    {
+      "task": "style-ref",
+      "references": 2,
+      "vram_gb_min": 24,
+      "recipe": "redux-dev-multi",
+      "why": "mix two reference images (chained StyleModelApply)",
+      "src": "S-TPL-REDUX"
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 8,
+      "recipe": null,
+      "status": "pending: GGUF Q4-Q8 route needs the city96/ComfyUI-GGUF pack (UnetLoaderGGUF) — Phase 2 install",
+      "src": [
+        "S-GGUF-NODE",
+        "S-GGUF-REPOS"
+      ]
+    },
+    {
+      "task": "control",
+      "control": "pose|softedge|gray",
+      "recipe": null,
+      "status": "pending: FLUX.1 ControlNet Union (Shakker/InstantX) belongs to the controlnet family profile",
+      "src": "S-DOCS-CONTROLNET"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler|BasicScheduler",
+      "input": "steps",
+      "meaning": "denoising steps",
+      "defaults": {
+        "dev / Krea / Kontext / Fill / Canny / Depth": 20,
+        "schnell": 4,
+        "dev + Turbo-Alpha": 8
+      },
+      "range": [
+        4,
+        50
+      ],
+      "official_reference_code": {
+        "dev": 50,
+        "Kontext": 30,
+        "Fill": 50,
+        "Canny": 50,
+        "Depth": 30,
+        "Redux": 50,
+        "schnell": "1 to 4"
+      },
+      "interactions": "fewer steps on dev degrade quality; schnell above ~4 brings no measured benefit; Turbo-Alpha wants exactly 8",
+      "src": [
+        "S-TPL-DEV",
+        "S-BFL-HF-CARDS",
+        "S-TURBO-ALPHA"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; FLUX.1 is guidance-distilled and has no negative prompt, so cfg stays 1.0 and the negative is ConditioningZeroOut (or an empty string)",
+      "defaults": {
+        "all": 1.0
+      },
+      "range": [
+        1.0,
+        1.0
+      ],
+      "interactions": "'Flux dev and schnell do not have any negative prompt so CFG should be set to 1.0' (template note); SD-style cfg 7+ gives 'a grey or overexposed image'; cfg > 1 doubles compute",
+      "src": [
+        "S-TPL-SCHNELL",
+        "S-TECHSIFTED"
+      ]
+    },
+    {
+      "name": "guidance",
+      "node": "FluxGuidance|CLIPTextEncodeFlux",
+      "input": "guidance",
+      "meaning": "the distilled guidance embedding the dev models were trained on (guidance_embed True); replaces CFG. Without a FluxGuidance node ComfyUI uses the model default 3.5",
+      "defaults": {
+        "dev T2I templates": "none (model default 3.5)",
+        "Kontext": 2.5,
+        "Fill": 30,
+        "Canny": 30,
+        "Depth LoRA": 10,
+        "Redux": 3.5,
+        "schnell": "ignored (guidance_embed False)"
+      },
+      "range": [
+        0.0,
+        100.0
+      ],
+      "official_reference_code": {
+        "dev": 3.5,
+        "Krea": 4.5,
+        "Kontext": 2.5,
+        "Fill": 30,
+        "Canny": 30,
+        "Depth": 10,
+        "Redux": 2.5
+      },
+      "interactions": "community realism advice 2.0-3.5, 'anything above 5 looks deep-fried' (single-source); Kontext: 'Raising it hard tends to produce over-baked edits rather than better adherence'",
+      "src": [
+        "S-SRC",
+        "S-TPL-KONTEXT",
+        "S-TPL-FILL-IN",
+        "S-TPL-CANNY",
+        "S-TPL-DEPTH-LORA",
+        "S-BFL-HF-CARDS",
+        "S-CIVITAI-EDU",
+        "S-EASTONDEV"
+      ]
+    },
+    {
+      "name": "max_shift / base_shift",
+      "node": "ModelSamplingFlux",
+      "input": "max_shift, base_shift, width, height",
+      "meaning": "resolution-dependent timestep shift: shift = (w*h/256)*mm + b with mm = (max_shift-base_shift)/(4096-256); base_shift at 256 latent tokens, max_shift at 4096 (1024x1024)",
+      "defaults": {
+        "Redux template": "1.15 / 0.5",
+        "without the node": "fixed shift 1.15 (dev family); schnell config shift 1.0"
+      },
+      "range": null,
+      "interactions": "optional; template note: bypass it to disable resolution adaptation",
+      "src": [
+        "S-TPL-REDUX",
+        "S-SRC",
+        "S-DOCS-NODES"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler|KSamplerSelect|BasicScheduler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "T2I, Kontext, Redux": "euler / simple",
+        "Fill, Canny, Depth": "euler / normal"
+      },
+      "range": null,
+      "interactions": "community alternatives (dpmpp_2m + beta) exist, single-source",
+      "src": [
+        "S-TPL-DEV",
+        "S-TPL-FILL-IN",
+        "S-TPL-CANNY"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "KSampler",
+      "input": "denoise",
+      "meaning": "1.0 in every template including Kontext (full re-noise; the reference conditions via ReferenceLatent — the encoded input as latent_image only fixes the output size)",
+      "defaults": {
+        "all": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": "S-TPL-KONTEXT"
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage|ModelSamplingFlux",
+      "input": "width, height",
+      "meaning": "EmptySD3LatentImage: 16-channel latent at /8, step 16; ModelSamplingFlux step 8",
+      "defaults": {
+        "templates": "1024x1024",
+        "Kontext": "set by FluxKontextImageScale from the input"
+      },
+      "range": null,
+      "interactions": "FLUX trained to ~1 MP (community); BFL TRT note: 'height and width have to be within 768 and 1344'; Kontext preferred resolutions: 672x1568, 688x1504, 720x1456, 752x1392, 800x1328, 832x1248, 880x1184, 944x1104, 1024x1024 and their transposes",
+      "src": [
+        "S-SRC",
+        "S-BFL-HF-CARDS",
+        "S-VRAM-GUIDES"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSampler|RandomNoise",
+      "input": "seed / noise_seed",
+      "meaning": "",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-DEV"
+    },
+    {
+      "name": "Kontext references",
+      "node": "ReferenceLatent|ImageStitch|FluxKontextMultiReferenceLatentMethod",
+      "input": "latent / image2 / reference_latents_method",
+      "meaning": "one reference per ReferenceLatent (chain to append); or stitch two images into one; reference_latents_method 'offset' is the FLUX.1 default, 'index' gives each reference its own index channel",
+      "defaults": {
+        "template": "1 (+1 bypassed)",
+        "method": "offset"
+      },
+      "range": null,
+      "interactions": "each reference adds tokens -> VRAM; community uses 2-4; no official maximum for Kontext dev in ComfyUI (BFL API: up to 10); FluxKontextMultiReferenceLatentMethod needs ComfyUI >= 0.3.51",
+      "src": [
+        "S-TPL-KONTEXT",
+        "S-DOCS-NODES",
+        "S-KONTEXT-MULTI",
+        "S-DOCS-CHANGELOG"
+      ]
+    },
+    {
+      "name": "noise_mask",
+      "node": "InpaintModelConditioning",
+      "input": "noise_mask",
+      "meaning": "'Add a noise mask to the latent so sampling will only happen within the mask. Might improve results or completely break things depending on the model.'",
+      "defaults": {
+        "inpaint": true,
+        "outpaint": false
+      },
+      "range": null,
+      "interactions": "with DifferentialDiffusion strength 1 on the model",
+      "src": [
+        "S-TPL-FILL-IN",
+        "S-TPL-FILL-OUT",
+        "S-SRC"
+      ]
+    },
+    {
+      "name": "padding / feathering",
+      "node": "ImagePadForOutpaint",
+      "input": "left, top, right, bottom, feathering",
+      "meaning": "canvas added per side (step 8) and the soft edge of the generated mask",
+      "defaults": {
+        "template": "400 / 0 / 400 / 400, feathering 24"
+      },
+      "range": null,
+      "interactions": "community: grow + blur the mask (GrowMask, VAEEncodeForInpaint.grow_mask_by ~64) against seams",
+      "src": [
+        "S-TPL-FILL-OUT",
+        "S-FILL-GUIDES"
+      ]
+    },
+    {
+      "name": "Canny thresholds",
+      "node": "Canny",
+      "input": "low_threshold, high_threshold",
+      "meaning": "edge detector thresholds (0.01-0.99)",
+      "defaults": {
+        "template": "0.15 / 0.3"
+      },
+      "range": [
+        0.01,
+        0.99
+      ],
+      "interactions": "BFL diffusers sample uses CannyDetector 50/200 at 1024",
+      "src": [
+        "S-TPL-CANNY",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "name": "strength_model",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "LoRA weight",
+      "defaults": {
+        "Depth/Canny LoRA": 1.0,
+        "Turbo-Alpha": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": [
+        "S-TPL-DEPTH-LORA",
+        "S-TURBO-ALPHA"
+      ]
+    },
+    {
+      "name": "Redux strength",
+      "node": "StyleModelApply",
+      "input": "strength, strength_type",
+      "meaning": "weight of the reference image's style; multiply or attn_bias",
+      "defaults": {
+        "template": "1.0 multiply"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "interactions": "chain StyleModelApply nodes to mix images",
+      "src": [
+        "S-TPL-REDUX",
+        "S-SRC"
+      ]
+    },
+    {
+      "name": "weight_dtype",
+      "node": "UNETLoader",
+      "input": "weight_dtype",
+      "meaning": "default | fp8_e4m3fn | fp8_e4m3fn_fast | fp8_e5m2: load the bf16 file as fp8 to halve memory 'but might reduce quality a tiny bit'",
+      "defaults": {
+        "templates": "default"
+      },
+      "range": null,
+      "interactions": "fp8 saves VRAM on any card but speeds up only Ada (40-series) and newer; fp8_e4m3fn_fast only helps on Ada+",
+      "src": [
+        "S-EXAMPLES",
+        "S-GPU-GUIDES"
+      ]
+    },
+    {
+      "name": "device",
+      "node": "DualCLIPLoader",
+      "input": "device",
+      "meaning": "default | cpu: keep the 9.8 GB T5 off the GPU",
+      "defaults": {
+        "templates": "default"
+      },
+      "range": null,
+      "interactions": "the OOM fix for t5xxl_fp16 on small cards, with the fp8 T5 files",
+      "src": [
+        "S-SRC",
+        "S-VRAM-GUIDES"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-flux",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "flux"
+      },
+      "message": "FLUX.1 text encoding is DualCLIPLoader with type 'flux' (clip_l + t5xxl); any other type mis-encodes the prompt",
+      "src": [
+        "S-TPL-DEV",
+        "S-SRC"
+      ]
+    },
+    {
+      "id": "encoder-has-clip-l",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "flux"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name1|clip_name2",
+        "matches": "^clip_l\\.safetensors$"
+      },
+      "message": "one DualCLIPLoader slot must be clip_l.safetensors ('Using t5xxl_fp8_e4m3fn.safetensors in both CLIP slots of DualClipLoader' is a listed error); slot order does not matter",
+      "src": [
+        "S-DOCS-MODEL-ISSUES",
+        "S-TPL-REDUX"
+      ]
+    },
+    {
+      "id": "encoder-has-t5",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "flux"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name1|clip_name2",
+        "matches": "^t5xxl_(fp16|fp8_e4m3fn|fp8_e4m3fn_scaled)\\.safetensors$"
+      },
+      "message": "the other DualCLIPLoader slot must be a t5xxl file: t5xxl_fp16 (>32 GB RAM), t5xxl_fp8_e4m3fn or t5xxl_fp8_e4m3fn_scaled (low VRAM)",
+      "src": [
+        "S-HF-TE",
+        "S-EXAMPLES",
+        "S-DOCS-MODEL-ISSUES"
+      ]
+    },
+    {
+      "id": "vae-is-ae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^(ae|flux-vae-bf16)\\.safetensors$"
+      },
+      "message": "FLUX.1 decodes with ae.safetensors (16-channel, /8). An SDXL/SD1.5 VAE gives 'expected input[1, 16, 128, 128] to have 4 channels, but got 16 channels' -> grey/washed-out or an error; the FLUX.2 ae.safetensors is 128-channel and also wrong",
+      "src": [
+        "S-DOCS-MODEL-ISSUES",
+        "S-TPL-DEV",
+        "S-KIJAI"
+      ]
+    },
+    {
+      "id": "cfg-is-1-unet",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "FLUX.1 is guidance-distilled: 'Flux dev and schnell do not have any negative prompt so CFG should be set to 1.0'; SD-style cfg 7+ gives a grey or overexposed image; steer with FluxGuidance instead",
+      "src": [
+        "S-TPL-SCHNELL",
+        "S-DOCS-T2I",
+        "S-TECHSIFTED"
+      ]
+    },
+    {
+      "id": "cfg-is-1-checkpoint",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^flux1-"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "same as cfg-is-1-unet for the fp8 all-in-one checkpoints: 'Make sure you set CFG to 1.0 when using it'",
+      "src": "S-EXAMPLES"
+    },
+    {
+      "id": "latent-is-sd3-16ch",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-(dev|schnell|krea-dev)"
+      },
+      "require": {
+        "node": "EmptySD3LatentImage|VAEEncode|InstructPixToPixConditioning|InpaintModelConditioning",
+        "input": "",
+        "exists": true
+      },
+      "message": "FLUX.1's latent is 16-channel: text-to-image starts from EmptySD3LatentImage; edits start from the input image (VAEEncode), Canny/Depth from InstructPixToPixConditioning, Fill from InpaintModelConditioning. EmptyLatentImage (4-channel SD) or EmptyFlux2LatentImage (128-channel) are the wrong shape",
+      "src": [
+        "S-TPL-DEV",
+        "S-SRC"
+      ]
+    },
+    {
+      "id": "latent-dims-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "EmptySD3LatentImage takes width/height in multiples of 16",
+      "src": "S-SRC"
+    },
+    {
+      "id": "shift-dims-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "ModelSamplingFlux",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "ModelSamplingFlux width/height step 8; keep them equal to the latent size so the resolution-dependent shift is computed for the image actually sampled",
+      "src": [
+        "S-SRC",
+        "S-TPL-REDUX"
+      ]
+    },
+    {
+      "id": "schnell-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "matches": "^flux1-schnell"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "max": 4,
+        "all": true
+      },
+      "message": "schnell is 'latent adversarial diffusion distillation ... high-quality images in only 1 to 4 steps'; more steps bring no benefit measured in the sources and cost time",
+      "src": [
+        "S-BFL-HF-CARDS",
+        "S-TPL-SCHNELL"
+      ]
+    },
+    {
+      "id": "schnell-guidance-noop",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FluxGuidance",
+        "input": "conditioning",
+        "linked": true
+      },
+      "require": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "matches": "^(?!flux1-schnell)"
+      },
+      "message": "FluxGuidance has no effect on schnell (guidance_embed False in the FluxSchnell config): tune steps/seed/prompt instead",
+      "src": "S-SRC"
+    },
+    {
+      "id": "dev-lora-not-on-schnell",
+      "severity": "warn",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^(flux1-(depth|canny)-dev-lora|FLUX\\.1-Turbo-Alpha)"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(?!flux1-schnell)"
+      },
+      "message": "dev-trained LoRAs on schnell: 'LoRAs trained on dev seem to not work as well on schnell' (step distillation breaks down); use dev or Krea",
+      "src": [
+        "S-OSTRIS",
+        "S-TECHSIFTED"
+      ]
+    },
+    {
+      "id": "control-lora-on-dev",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^flux1-(depth|canny)-dev-lora"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-dev"
+      },
+      "message": "the Depth/Canny LoRAs 'require the base FLUX.1 [dev] model' (BFL); not for Fill, Kontext or schnell",
+      "src": [
+        "S-BFL-GH",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "id": "turbo-alpha-on-dev",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "Turbo-Alpha"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-dev"
+      },
+      "message": "FLUX.1-Turbo-Alpha is an '8-step distilled lora for FLUX.1-dev model', 'FLUX.1-dev only'",
+      "src": "S-TURBO-ALPHA"
+    },
+    {
+      "id": "turbo-alpha-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "Turbo-Alpha"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "the Turbo-Alpha card recommends 8 steps (guidance 3.5, LoRA scale 1)",
+      "src": "S-TURBO-ALPHA"
+    },
+    {
+      "id": "fill-needs-inpaint-conditioning",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-fill-dev"
+      },
+      "require": {
+        "node": "InpaintModelConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "FLUX.1 Fill is the 96-in-channel model (16 latent + 64 masked image + 16 mask): it needs InpaintModelConditioning (pixels + mask); a plain EmptySD3LatentImage gives garbage",
+      "src": [
+        "S-SRC",
+        "S-TPL-FILL-IN"
+      ]
+    },
+    {
+      "id": "fill-uses-differential-diffusion",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-fill-dev"
+      },
+      "require": {
+        "node": "DifferentialDiffusion",
+        "input": "model",
+        "linked": true
+      },
+      "message": "both Fill templates patch the model with DifferentialDiffusion (strength 1: per-pixel denoise strength from the mask) for soft mask edges",
+      "src": [
+        "S-TPL-FILL-IN",
+        "S-TPL-FILL-OUT"
+      ]
+    },
+    {
+      "id": "fill-guidance-30",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-fill-dev"
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "min": 10
+      },
+      "message": "Fill was released with guidance 30 (BFL card and both templates); the T2I default 3.5 is not what this model was trained for",
+      "src": [
+        "S-TPL-FILL-IN",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "id": "outpaint-noise-mask-off",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ImagePadForOutpaint",
+        "input": "image",
+        "linked": true
+      },
+      "require": {
+        "node": "InpaintModelConditioning",
+        "input": "noise_mask",
+        "equals": false
+      },
+      "message": "the outpaint template sets InpaintModelConditioning.noise_mask = false (inpaint sets true)",
+      "src": [
+        "S-TPL-FILL-OUT",
+        "S-TPL-FILL-IN"
+      ]
+    },
+    {
+      "id": "control-model-needs-ip2p",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-(canny|depth)-dev"
+      },
+      "require": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "the Canny/Depth models take the control image through InstructPixToPixConditioning (concat conditioning); a plain latent gives garbage",
+      "src": [
+        "S-TPL-CANNY",
+        "S-SRC"
+      ]
+    },
+    {
+      "id": "control-lora-needs-ip2p",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^flux1-(depth|canny)-dev-lora"
+      },
+      "require": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "the Depth/Canny LoRAs need InstructPixToPixConditioning with the control image as pixels, exactly as the template",
+      "src": "S-TPL-DEPTH-LORA"
+    },
+    {
+      "id": "canny-guidance-30",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "Canny",
+        "input": "image",
+        "linked": true
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "min": 10
+      },
+      "message": "Canny conditioning runs at guidance 30 (template and BFL card); Depth at 10",
+      "src": [
+        "S-TPL-CANNY",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "id": "kontext-needs-reference",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "kontext"
+      },
+      "require": {
+        "node": "ReferenceLatent",
+        "input": "latent",
+        "linked": true
+      },
+      "message": "Kontext is an editing model: the input image is VAE-encoded and attached with ReferenceLatent; without it Kontext is not a from-scratch T2I replacement",
+      "src": [
+        "S-TPL-KONTEXT",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "id": "kontext-scale-input",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "kontext"
+      },
+      "require": {
+        "node": "FluxKontextImageScale",
+        "input": "image",
+        "linked": true
+      },
+      "message": "pass references through FluxKontextImageScale: 'oversized inputs may lead to degraded model output quality or issues such as multiple subjects appearing in the output'",
+      "src": [
+        "S-DOCS-KONTEXT",
+        "S-DOCS-NODES"
+      ]
+    },
+    {
+      "id": "kontext-guidance",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "kontext"
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "max": 5
+      },
+      "message": "Kontext ships at guidance 2.5 (BFL --guidance 2.5, template); 'Raising it hard tends to produce over-baked edits rather than better adherence'",
+      "src": [
+        "S-TPL-KONTEXT",
+        "S-BFL-GH",
+        "S-EASTONDEV"
+      ]
+    },
+    {
+      "id": "redux-needs-siglip",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "StyleModelLoader",
+        "input": "style_model_name",
+        "matches": "redux"
+      },
+      "require": {
+        "node": "CLIPVisionLoader",
+        "input": "clip_name",
+        "equals": "sigclip_vision_patch14_384.safetensors"
+      },
+      "message": "Redux needs the SigLIP vision encoder (sigclip_vision_patch14_384.safetensors via CLIPVisionLoader -> CLIPVisionEncode -> StyleModelApply)",
+      "src": [
+        "S-TPL-REDUX",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "id": "nvfp4-needs-blackwell",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "nvfp4"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "NVFP4 files need Blackwell (RTX 50 / sm120) FP4 tensor cores; on 40-series and older they are slow or fail to load (ComfyUI issue #11864) — use fp8_scaled there",
+      "src": "S-NVFP4"
+    },
+    {
+      "id": "fp8-speedup-ada-only",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "matches": "fp8"
+      },
+      "require": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "equals": "__never__"
+      },
+      "message": "fp8 weights save VRAM on any card but are only faster on Ada (RTX 40) and newer; Ampere (RTX 30) has no FP8 tensor cores and upcasts — GGUF Q8_0 is the usual alternative there. Answer: fine on an Ada/Blackwell box",
+      "src": "S-GPU-GUIDES",
+      "gpu_unless": "RTX ?40|RTX ?50|RTX PRO 6000|RTX 6000 ?Ada|RTX 5880 ?Ada|Ada|L40|\bL4\b|H100|H200|H20\b|B100|B200|GB200|Blackwell|4090|4080|5090|5080"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template minComfyUIVersion (0.0.4 / 0.3.42) is below the pinned 0.35.0 image for every FLUX.1 recipe; FluxKontextMultiReferenceLatentMethod needs 0.3.51",
+      "src": [
+        "S-TPL-INDEX",
+        "S-DOCS-CHANGELOG"
+      ]
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-SCHNELL",
+      "S-DOCS-T2I"
+    ],
+    "negative_gloss": "none: at cfg 1.0 the negative is ignored ('Thanks to Flux's excellent prompt following capability, we don't need any negative prompts'); the graphs feed ConditioningZeroOut or an empty string",
+    "positive": [
+      {
+        "line": "BFL: 'Prompt following is heavily influenced by the prompting-style' — plain natural language, no SD tag soups",
+        "class": "official",
+        "src": "S-BFL-HF-CARDS"
+      },
+      {
+        "line": "Structure (BFL 'Building a Good Prompt'): [SUBJECT], [LOCATION], [STYLE], [CAMERA SETTINGS], [LIGHTING], [COLORS], [EFFECT], [ADDITIONAL ELEMENTS]; 'Start short. Add only what changes the image.'; 'Specific detail helps. Filler hurts.'; short 10-30 words, medium 30-80, long 80-300+",
+        "class": "official",
+        "src": "S-BFL-PROMPT-BUILD"
+      },
+      {
+        "line": "No negation: 'writing a person without glasses causes the model to focus on glasses'. Replace: 'no people' -> 'empty', 'deserted', 'solitary'; 'no text' -> 'clean surfaces', 'unmarked', 'blank'",
+        "class": "official",
+        "src": "S-BFL-PROMPT-TECH"
+      },
+      {
+        "line": "T5 budget: 512 tokens (~350 English words), the rest is truncated; '40-50 words is the sweet spot'",
+        "class": "community",
+        "src": "S-T5-LIMIT"
+      },
+      {
+        "line": "CLIPTextEncodeFlux (schnell full template): clip_l 'Suitable for concise keyword descriptions, such as style or theme', t5xxl 'Suitable for detailed natural language descriptions'; CLIPTextEncode sends one text to both",
+        "class": "official",
+        "src": "S-DOCS-NODES"
+      },
+      {
+        "line": "Kontext: 'Change the car color to red'; name the style ('Transform to Bauhaus art style'); preserve explicitly ('while maintaining the same facial features, hairstyle, and expression'); text edits in quotes ('Replace joy with BFL'); verbs 'change'/'replace' rather than 'transform'; step-by-step edits",
+        "class": "official",
+        "src": [
+          "S-TPL-KONTEXT",
+          "S-DOCS-KONTEXT"
+        ]
+      },
+      {
+        "line": "Kontext templates: 'Change [object] to [new state], keep [content to preserve] unchanged'; 'Change the background to [new background], keep the subject in the exact same position and pose'; 'Replace [original text] with [new text], maintain the same font style'",
+        "class": "official",
+        "src": "S-TPL-KONTEXT"
+      },
+      {
+        "line": "Kontext: English prompts only (docs.comfy.org); iterative edits with minimal drift ('Remove the object from her face' -> 'She is now taking a selfie in the streets of Freiburg' -> 'It's now snowing')",
+        "class": "official",
+        "src": [
+          "S-DOCS-KONTEXT",
+          "S-BFL-KONTEXT-PAGE"
+        ]
+      },
+      {
+        "line": "Redux: 'Even without a prompt, this model can still apply the image styles from the reference images'",
+        "class": "official",
+        "src": "S-TPL-REDUX"
+      }
+    ],
+    "structure": "subject, location, style, camera, lighting, colors, effect; 30-80 words; Kontext: 'Change X to Y, keep Z unchanged'",
+    "hurts": [
+      {
+        "line": "negation words ('no', 'without') — the model renders the thing",
+        "src": "S-BFL-PROMPT-TECH"
+      },
+      {
+        "line": "Kontext: vague verbs ('transform', 'make it a sketch'), omitting what must stay ('Kontext keeps only what you name'), non-English prompts, 'Put him on a beach' instead of 'Change the background to a beach while keeping the person in the exact same position, scale, and pose'",
+        "src": [
+          "S-TPL-KONTEXT",
+          "S-EASTONDEV"
+        ]
+      },
+      {
+        "line": "prompts beyond 512 T5 tokens (silently truncated)",
+        "src": "S-T5-LIMIT"
+      },
+      {
+        "line": "SD-style tag soups, weights and negative prompts: 'quality rarely improves with them' (single-source)",
+        "src": "S-CIVITAI-EDU"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "OOM or very slow load with t5xxl_fp16.safetensors",
+      "cause": "T5-XXL fp16 is 9.8 GB",
+      "fix": "t5xxl_fp8_e4m3fn.safetensors (4.9 GB) or t5xxl_fp8_e4m3fn_scaled; fp16 only with >32 GB RAM; DualCLIPLoader.device = cpu; GGUF T5 via DualCLIPLoaderGGUF",
+      "src": [
+        "S-EXAMPLES",
+        "S-DOCS-KREA",
+        "S-VRAM-GUIDES"
+      ]
+    },
+    {
+      "symptom": "grey / washed-out / overexposed image, or 'expected input[1, 16, 128, 128] to have 4 channels, but got 16 channels'",
+      "cause": "wrong VAE (SDXL/SD1.5/taesd on the 16-channel FLUX latent) or cfg left at SD values (7+)",
+      "fix": "VAELoader ae.safetensors; cfg 1.0; strength via FluxGuidance",
+      "src": [
+        "S-DOCS-MODEL-ISSUES",
+        "S-TECHSIFTED"
+      ]
+    },
+    {
+      "symptom": "black images with some fp8 models / LoRA + fp8",
+      "cause": "fp8 handling bug on certain checkpoints (fixed in ComfyUI v0.3.41, 2025-06-17)",
+      "fix": "update ComfyUI (the 0.35.0 image is past the fix); community: dev instead of schnell for some LoRAs",
+      "src": [
+        "S-DOCS-CHANGELOG",
+        "S-OFFLINECREATOR"
+      ]
+    },
+    {
+      "symptom": "plastic / waxy skin, 'deep-fried' look",
+      "cause": "guidance too high",
+      "fix": "FluxGuidance 2-3.5 ('anything above 5 looks deep-fried'); Krea dev was trained against 'oversaturated textures' and the 'AI look'",
+      "src": [
+        "S-CIVITAI-EDU",
+        "S-JIBMIX",
+        "S-BFL-KREA-ANN"
+      ]
+    },
+    {
+      "symptom": "Kontext repaints the whole image / changes identity or composition",
+      "cause": "under-specified prompt; too-large or odd-sized input; guidance pushed too high",
+      "fix": "'name what stays, not just what changes'; keep FluxKontextImageScale; guidance ~2-2.5; edit in steps",
+      "src": [
+        "S-DOCS-KONTEXT",
+        "S-DOCS-NODES",
+        "S-EASTONDEV"
+      ]
+    },
+    {
+      "symptom": "Fill: visible seams / color shift at the mask border",
+      "cause": "hard mask edge; no noise mask; 'Possible color shifts in unfilled areas' (BFL card limitation)",
+      "fix": "grow + blur the mask (GrowMask / VAEEncodeForInpaint.grow_mask_by 64 then lower), feathering on ImagePadForOutpaint (template 24), keep DifferentialDiffusion, noise_mask true for inpaint / false for outpaint, composite the original back outside the mask",
+      "src": [
+        "S-TPL-FILL-IN",
+        "S-FILL-GUIDES",
+        "S-BFL-HF-CARDS"
+      ]
+    },
+    {
+      "symptom": "LoRA trained on dev behaves badly on schnell",
+      "cause": "schnell is step-distilled: 'every step you train breaks down the compression more and more'",
+      "fix": "use dev (or Krea) for dev LoRAs; for schnell training use ostris/FLUX.1-schnell-training-adapter",
+      "src": [
+        "S-OSTRIS",
+        "S-TECHSIFTED"
+      ]
+    },
+    {
+      "symptom": "FluxGuidance has no visible effect on schnell",
+      "cause": "guidance_embed False in the FluxSchnell config",
+      "fix": "steps/seed/prompt; guidance only matters for the dev family",
+      "src": "S-SRC"
+    },
+    {
+      "symptom": "fp8 is not faster on RTX 30-series / earlier",
+      "cause": "Ampere has no native FP8 tensor cores (Ada does); ComfyUI upcasts",
+      "fix": "expect VRAM savings but no speedup; fp8_e4m3fn_fast only helps on Ada+; GGUF Q8_0 is the usual alternative",
+      "src": "S-GPU-GUIDES"
+    },
+    {
+      "symptom": "NVFP4 files slow or unsupported",
+      "cause": "NVFP4 needs Blackwell (RTX 50 / sm120) FP4 tensor cores",
+      "fix": "fp8_scaled on 40-series, NVFP4 only on RTX 50 (issue #11864 for 5090 loading failures)",
+      "src": "S-NVFP4"
+    },
+    {
+      "symptom": "gated download fails (401)",
+      "cause": "BFL repos require accepting the license",
+      "fix": "accept on each repo (dev, Fill, Canny, Depth, Kontext, Krea, Redux) or use the Comfy-Org mirrors (not gated)",
+      "src": "S-DOCS-T2I"
+    },
+    {
+      "symptom": "wrong DualCLIPLoader config",
+      "cause": "both slots set to T5, or type not flux",
+      "fix": "one slot clip_l.safetensors, one t5xxl_*.safetensors, type flux",
+      "src": "S-DOCS-MODEL-ISSUES"
+    },
+    {
+      "symptom": "Fill/Canny/Depth produce garbage with a plain EmptySD3LatentImage",
+      "cause": "these models need concat conditioning (Fill in_channels 96; control image for Canny/Depth)",
+      "fix": "InpaintModelConditioning (Fill) / InstructPixToPixConditioning (Canny, Depth) exactly as the templates",
+      "src": [
+        "S-TPL-FILL-IN",
+        "S-TPL-CANNY",
+        "S-SRC"
+      ]
+    },
+    {
+      "symptom": "Kontext prompt truncated",
+      "cause": "T5 512-token limit",
+      "fix": "keep edits short, chain edits",
+      "src": "S-T5-LIMIT"
+    },
+    {
+      "symptom": "macOS: 'Trying to convert Float8_e4m3fn to the MPS backend'",
+      "cause": "MPS lacks fp8",
+      "fix": "bf16 files / GGUF on Apple silicon",
+      "src": "S-MPS-COMMENT"
+    },
+    {
+      "symptom": "the depth-LoRA template's flux1-dev-fp8.safetensors via UNETLoader confuses (same filename as the all-in-one checkpoint)",
+      "cause": "the template points the 17 GB checkpoint at diffusion_models; ComfyUI can load a checkpoint's UNET through UNETLoader",
+      "fix": "the recipes here load flux1-dev.safetensors instead (or Kijai's fp8 UNET-only file); keep the all-in-one in checkpoints for the CheckpointLoaderSimple recipes",
+      "src": "S-TPL-DEPTH-LORA"
+    },
+    {
+      "symptom": "docs and template disagree (docs.comfy.org has the 'Dev' and 'Dev fp8' headings swapped relative to the JSON; flux_dev_checkpoint_example carries the UNETLoader graph)",
+      "cause": "docs drift",
+      "fix": "the template JSON is newer and wins; t2i-dev-fp8 here follows the documented CheckpointLoaderSimple path explicitly",
+      "src": [
+        "S-TPL-DEV-CKPT",
+        "S-DOCS-T2I"
+      ]
+    }
+  ],
+  "sources": {
+    "S-HF-COMFYORG": {
+      "url": "https://huggingface.co/api/models?author=Comfy-Org&search=flux (+ /api/models/<repo>/tree/main?recursive=true for Comfy-Org/flux1-dev, flux1-schnell, flux1-kontext-dev_ComfyUI, FLUX.1-Krea-dev_ComfyUI, Flux1-Redux-Dev, sigclip_vision_384, Lumina_Image_2.0_Repackaged)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BFL": {
+      "url": "https://huggingface.co/api/models?author=black-forest-labs (+ per-repo trees and cardData for FLUX.1-dev, -schnell, -Kontext-dev, -Fill-dev, -Krea-dev, -Redux-dev, -Depth-dev, -Canny-dev, -Depth-dev-lora, -Canny-dev-lora, -dev-FP8, -dev-NVFP4, -Kontext-dev-NVFP4)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-TE": {
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-README-COMFYORG": {
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev (README; also Comfy-Org/flux1-schnell, flux1-kontext-dev_ComfyUI, FLUX.1-Krea-dev_ComfyUI, Flux1-Redux-Dev)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json (commit 0bfbbbfa26)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-DEV": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_dev_full_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-DEV-CKPT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_dev_checkpoint_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SCHNELL-FULL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_schnell_full_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SCHNELL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_schnell.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-KREA": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux1_krea_dev.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-KONTEXT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_kontext_dev_basic.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FILL-IN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_fill_inpaint_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FILL-OUT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_fill_outpaint_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-DEPTH-LORA": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_depth_lora_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-CANNY": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_canny_model_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-REDUX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_redux_model_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-USO": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux1_dev_uso_reference_image_gen.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-T2I": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-1-text-to-image",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-KONTEXT": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-1-kontext-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FILL": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-1-fill-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-CONTROLNET": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-1-controlnet",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-KREA": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux1-krea-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-MODEL-ISSUES": {
+      "url": "https://docs.comfy.org/troubleshooting/model-issues",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-CHANGELOG": {
+      "url": "https://docs.comfy.org/changelog",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-NODES": {
+      "url": "https://docs.comfy.org built-in node pages: FluxGuidance, ModelSamplingFlux, ReferenceLatent, FluxKontextImageScale, FluxKontextMultiReferenceLatentMethod, CLIPTextEncodeFlux, FluxDisableGuidance",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/flux/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SRC": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/tree/v0.38.0 (comfy_extras/nodes_flux.py, nodes_model_advanced.py, nodes_sd3.py, nodes_edit_model.py, nodes.py; comfy/sd.py, supported_models.py, model_base.py, model_sampling.py, latent_formats.py, ldm/flux/model.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GGUF-NODE": {
+      "url": "https://raw.githubusercontent.com/city96/ComfyUI-GGUF/main/README.md (+ nodes.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-LICENSE-DEV": {
+      "url": "https://raw.githubusercontent.com/black-forest-labs/flux/main/model_licenses/LICENSE-FLUX1-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-LICENSE-SCHNELL": {
+      "url": "https://raw.githubusercontent.com/black-forest-labs/flux/main/model_licenses/LICENSE-FLUX1-schnell",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-GH": {
+      "url": "https://github.com/black-forest-labs/flux (model_cards/, docs/text-to-image.md, image-editing.md, fill.md, structural-conditioning.md, image-variation.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-HF-CARDS": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-dev (and -schnell, -Kontext-dev, -Fill-dev, -Redux-dev, -Depth-dev, -Canny-dev, -Krea-dev, -dev-FP8 model cards)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-KONTEXT-ANN": {
+      "url": "https://bfl.ai/announcements/flux-1-kontext-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-KREA-ANN": {
+      "url": "https://bfl.ai/announcements/flux-1-krea-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-TOOLS-ANN": {
+      "url": "https://bfl.ai/announcements/24-11-21-tools",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-LAUNCH": {
+      "url": "https://bfl.ai/announcing-black-forest-labs",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-COMFY-BLOG-KONTEXT": {
+      "url": "https://blog.comfy.org/p/flux1-kontext-dev-day-0-support",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-PROMPT-TECH": {
+      "url": "https://docs.bfl.ml/guides/prompting_unified_technical.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-PROMPT-BUILD": {
+      "url": "https://docs.bfl.ml/guides/prompting_unified_building.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-KONTEXT-PAGE": {
+      "url": "https://docs.bfl.ml/kontext/kontext_image_editing.md (the dedicated Kontext prompting guide returns 404)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SHAKKER": {
+      "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TURBO-ALPHA": {
+      "url": "https://huggingface.co/alimama-creative/FLUX.1-Turbo-Alpha",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-KIJAI": {
+      "url": "https://huggingface.co/Kijai/flux-fp8",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GGUF-REPOS": {
+      "url": "https://huggingface.co/city96/FLUX.1-dev-gguf (+ city96/FLUX.1-schnell-gguf, QuantStack/FLUX.1-Kontext-dev-GGUF, bullerwins/FLUX.1-Kontext-dev-GGUF, YarvixPA/FLUX.1-Fill-dev-GGUF, QuantStack/FLUX.1-Krea-dev-GGUF)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-OSTRIS": {
+      "url": "https://huggingface.co/ostris/FLUX.1-schnell-training-adapter",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-TECHSIFTED": {
+      "url": "dev.to/techsifted 'Flux AI Not Working' + earngenix troubleshooting",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-FILL-GUIDES": {
+      "url": "myaiforce.com flux-fill-model-inpainting-workflow + apatero.com flux-fill guide",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-VRAM-GUIDES": {
+      "url": "localaimaster.com flux-vram-requirements-by-gpu + stablediffusiontutorials.com flux-installation / kontext + comfyui-wiki kontext",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GPU-GUIDES": {
+      "url": "comfyui-wiki.com gpu-buying-guide + dev.to furkangozukara BF16/GGUF/FP8/NVFP4 comparison",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-NVFP4": {
+      "url": "runaihome.com + dev.to NVFP4 guides + https://github.com/comfyanonymous/ComfyUI/issues/11864",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-KONTEXT-MULTI": {
+      "url": "smartart.live / apatero.com / nextdiffusion.ai Kontext multi-image guides",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-T5-LIMIT": {
+      "url": "aiofm.info flux-prompting-guide + comfyui-wiki flux-1-kontext + https://huggingface.co/black-forest-labs/FLUX.1-dev/discussions/43",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-CIVITAI-EDU": {
+      "url": "https://education.civitai.com quickstart-guide-to-flux-1",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-JIBMIX": {
+      "url": "civitai Jib Mix Flux model card",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-EASTONDEV": {
+      "url": "eastondev.com 2026-08-21 Kontext character-consistency post",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-OFFLINECREATOR": {
+      "url": "offlinecreator.com aidma LoRA page",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-MPS-COMMENT": {
+      "url": "blog.comfy.org Kontext post, reader comment",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-DATES": {
+      "url": "Wikipedia 'Flux (text-to-image model)', GIGAZINE 2024-08-02, the-decoder 2024-11 (release-date corroboration)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

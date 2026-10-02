@@ -1,0 +1,87 @@
+{
+  "recipe": {
+    "id": "upscale-image-anime",
+    "family": "upscale-models",
+    "task": "upscale-image",
+    "variant": "4x-UltraSharpV2 (Kim2091, DAT2 transformer, 4x, CC-BY-NC-SA-4.0, 2025-05-23): author: 'can handle realistic images, anime, cartoons' - the one model for mixed anime/cartoon/realistic; slower than ESRGAN",
+    "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass. Model swapped to the OpenModelDB record 4x-UltraSharpV2 (4x-UltraSharpV2.safetensors 139,792,588 B; Lite build 29,590,776 B).",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "confidence_note": "official two-node graph; model choice per the OpenModelDB record (author description)",
+    "ports": {
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name",
+        "note": "4x-UltraSharpV2_Lite.safetensors (29.6 MB, faster); anime-only alternatives: 4x-AnimeSharp.safetensors (upscale-image-anime-animesharp), RealESRGAN_x4plus_anime_6B.pth (BSD-3, tiny/fast), 2x-AnimeSharpV4_RCAN.safetensors (2x, 'extremely faithful'), 4x_fatal_Anime_500000_G.pth, 4xHFA2kLUDVAESwinIR_light.pth (anime video frames)"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the anime / cartoon (or mixed) still; output = input x 4"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "4x-UltraSharpV2.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4x. DAT2 is a transformer: many times slower than an ESRGAN model of the same scale (tiled internally, so it runs anywhere). NON-COMMERCIAL licence (CC-BY-NC-SA-4.0): swap to RealESRGAN_x4plus_anime_6B.pth for commercial anime work.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM table; ImageUpscaleWithModel tiles internally at 512 px / 32 overlap and halves the tile on OOM down to 128 px, so any CUDA GPU runs it; speed, not VRAM, is the limit)",
+      "time_s": null,
+      "class": "official",
+      "src": "S-NODES-UPSCALE"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "4x-UltraSharpV2.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "2",
+          0
+        ],
+        "filename_prefix": "upscaled/ComfyUI"
+      }
+    }
+  }
+}

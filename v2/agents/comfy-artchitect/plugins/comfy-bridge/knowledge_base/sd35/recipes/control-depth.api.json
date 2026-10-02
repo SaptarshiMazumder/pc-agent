@@ -1,0 +1,354 @@
+{
+  "recipe": {
+    "id": "control-depth",
+    "family": "sd35",
+    "task": "control",
+    "variant": "Large fp8 all-in-one + SD3.5 Large Depth ControlNet; Lotus depth estimated in-graph (1-step, sigma 10000, inverted); strength 0.7; 20 steps, cfg 8, euler/normal; output sized to the depth map",
+    "from_template": "sd3.5_large_depth (subgraph 'Lotus Depth(Subgraph)' flattened)",
+    "min_comfyui": "0.3.42",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text",
+        "note": "the negative is ConditioningZeroOut(positive) as in every SD3.5 ControlNet template — there is no negative text port"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "control_strength": {
+        "node": "19",
+        "input": "strength",
+        "note": "HF card: 'start with a ControlNet strength of 0.7-0.8'"
+      },
+      "control_start": {
+        "node": "19",
+        "input": "start_percent"
+      },
+      "control_end": {
+        "node": "19",
+        "input": "end_percent"
+      },
+      "megapixels": {
+        "node": "16",
+        "input": "megapixels",
+        "note": "output size = the depth map's size = the input scaled to this many megapixels (aspect kept); 1.0 in the template"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "any photo/render; the graph scales it to ~1 MP and estimates depth itself (Lotus)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_fp8_scaled.safetensors",
+      "sd3.5_large_controlnet_depth.safetensors",
+      "lotus-depth-d-v1-1.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "As shipped, the KSampler's latent is VAEEncode(depth map), so the output has the depth map's size (~1 MP, input aspect). Template note: wire an EmptySD3LatentImage to the KSampler instead to choose the size yourself. cfg 8 is the template's value (the outlier among SD3.5 templates; reference 4.5). The Lotus VAE can be any SD1.5 VAE (template note).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM figure for any SD3.5 file)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "ImageScaleToTotalPixels.resolution_steps was not stored in the template (saved before the widget existed) — the node default 1 is written.",
+      "The template's unconnected EmptySD3LatentImage (1024x1024) is dropped; the shipped wiring (VAEEncode of the depth map as latent) is what is encoded."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_fp8_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "A cute, plush - like light green baby dragon with large, shiny eyes. It has light yellow horns and wing membranes. Its belly and parts of its wings have a soft, fuzzy texture. The dragon stands against a plain light green background, giving a warm and whimsical feel."
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "sd3.5_large_controlnet_depth.safetensors"
+      }
+    },
+    "19": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "18",
+          0
+        ],
+        "image": [
+          "31",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "strength": 0.7,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 8.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "19",
+          0
+        ],
+        "negative": [
+          "19",
+          1
+        ],
+        "latent_image": [
+          "11",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sd35/control_depth"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "20": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "lotus-depth-d-v1-1.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "21": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      }
+    },
+    "22": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "21",
+          0
+        ]
+      }
+    },
+    "23": {
+      "class_type": "LotusConditioning",
+      "inputs": {}
+    },
+    "24": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "conditioning": [
+          "23",
+          0
+        ]
+      }
+    },
+    "25": {
+      "class_type": "DisableNoise",
+      "inputs": {}
+    },
+    "26": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "scheduler": "normal",
+        "steps": 1,
+        "denoise": 1.0
+      }
+    },
+    "27": {
+      "class_type": "SetFirstSigma",
+      "inputs": {
+        "sigmas": [
+          "26",
+          0
+        ],
+        "sigma": 10000.0
+      }
+    },
+    "28": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "29": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "25",
+          0
+        ],
+        "guider": [
+          "24",
+          0
+        ],
+        "sampler": [
+          "28",
+          0
+        ],
+        "sigmas": [
+          "27",
+          0
+        ],
+        "latent_image": [
+          "22",
+          0
+        ]
+      }
+    },
+    "30": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "29",
+          0
+        ],
+        "vae": [
+          "21",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "ImageInvert",
+      "inputs": {
+        "image": [
+          "30",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "31",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    }
+  }
+}

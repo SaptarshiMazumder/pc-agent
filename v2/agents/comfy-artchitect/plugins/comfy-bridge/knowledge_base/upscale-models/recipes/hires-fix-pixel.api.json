@@ -1,0 +1,274 @@
+{
+  "recipe": {
+    "id": "hires-fix-pixel",
+    "family": "upscale-models",
+    "task": "hires-fix",
+    "variant": "pixel-space hires fix: ESRGAN 4x -> ImageScale down to the target -> VAEEncode -> second KSampler at denoise 0.5 (uni_pc_bh2 / normal / 14 steps / cfg 8) -> VAEDecode; a stage that takes an upstream image plus the checkpoint and prompts that made it",
+    "from_template": "hiresfix_esrgan_workflow (archived; ComfyUI_examples 'non-latent upscaling'): the second pass is the template's node for node and value for value (RealESRGAN_x4plus -> ImageScale bilinear 1024x1024 -> VAEEncode -> KSampler 14 steps uni_pc_bh2/normal cfg 8 denoise 0.5 -> VAEDecode -> SaveImage); the template's own first pass (DreamShaper 8, 512x512, 12 steps dpmpp_sde) is replaced by the @image slot so the stage refines whatever the previous stage produced. The template's ImageScale targets 1024x1024 on a square source; here height=0 keeps the aspect from width.",
+    "min_comfyui": null,
+    "min_comfyui_note": "NOT FOUND (archived example without minComfyUIVersion; every node is a long-standing core node present in v0.35.0)",
+    "confidence": "official",
+    "fragment": {
+      "nodes": [
+        "1",
+        "2",
+        "3",
+        "7",
+        "10",
+        "11",
+        "12"
+      ],
+      "attach": {
+        "2.image": {
+          "from": "the upstream stage's decoded IMAGE (the @image slot here)",
+          "type": "IMAGE"
+        },
+        "7.vae": {
+          "from": "the upstream VAE (the checkpoint's; node 4 here is a placeholder loader)",
+          "type": "VAE"
+        },
+        "10.model": {
+          "from": "the upstream MODEL (same checkpoint + LoRA chain as pass 1)",
+          "type": "MODEL"
+        },
+        "10.positive": {
+          "from": "the upstream positive CONDITIONING (official examples reuse pass 1's)",
+          "type": "CONDITIONING"
+        },
+        "10.negative": {
+          "from": "the upstream negative CONDITIONING",
+          "type": "CONDITIONING"
+        },
+        "11.vae": {
+          "from": "the upstream VAE",
+          "type": "VAE"
+        }
+      },
+      "replaces": "the upstream stage's SaveImage tail (keep it if both sizes are wanted; the template saves both)",
+      "standalone_context": "nodes 4/5/6 (CheckpointLoaderSimple DreamShaper_8_pruned + the template's two CLIPTextEncode) make this file a complete, validatable graph; in a splice they are the upstream's",
+      "scale_math": "ESRGAN gives 4x; ImageScale brings it to the pass-2 size (template: 512 -> 2048 -> 1024 = 2x overall). 'Since ESRGAN operates in pixel space the image must be converted to pixel space and back to latent space after being upscaled.'"
+    },
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text",
+        "note": "standalone context: the official examples reuse pass 1's prompt; the 'different prompt' example swaps checkpoint and prompt for pass 2"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text"
+      },
+      "checkpoint": {
+        "node": "4",
+        "input": "ckpt_name",
+        "note": "the checkpoint that produced the input image (the template's DreamShaper_8_pruned.safetensors is a placeholder)"
+      },
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name"
+      },
+      "target_width": {
+        "node": "3",
+        "input": "width",
+        "note": "the pass-2 width in pixels; 0 = derive from height"
+      },
+      "target_height": {
+        "node": "3",
+        "input": "height",
+        "note": "0 = keep aspect from width (template: 1024x1024 on a 512 square)"
+      },
+      "resize_method": {
+        "node": "3",
+        "input": "upscale_method",
+        "note": "bilinear (template) | lanczos | area | bicubic"
+      },
+      "denoise": {
+        "node": "10",
+        "input": "denoise",
+        "note": "0.5 (both official hires-fix examples; 0.52 pose example; 0.35 in the different-prompt example); the ESRGAN output is already sharp so lower values are plausible but no official number exists (NOT FOUND)"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler_name": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to refine at a higher resolution, typically the previous stage's decoded output; output = target_width x (aspect-derived height)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "RealESRGAN_x4plus.safetensors",
+      "DreamShaper_8_pruned.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4x ESRGAN then resize to 1024 wide (2x of the template's 512 source), VAEEncode with the checkpoint's VAE, 14 steps uni_pc_bh2/normal cfg 8 denoise 0.5. The checkpoint and prompts must be the upstream stage's (SD1.5 placeholder here).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (that of the checkpoint's img2img at the target size)",
+      "time_s": null,
+      "class": "not-found",
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port.",
+      "DreamShaper_8_pruned.safetensors (the template's checkpoint) is a placeholder: bytes NOT FOUND in the dossier; replace via the `checkpoint` port or splice onto the upstream MODEL/CLIP/VAE."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "DreamShaper_8_pruned.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          1
+        ],
+        "text": "Elegant classical woman, wearing an exquisite lace (face-covering headdress:1.2), soft warm beige tone with film-like color grading, vintage court-style dress adorned with delicate pleats and pearl decorations. In a quiet space bathed in gentle, hazy light that mimics the softness of film photography. Showcasing delicate texture, mysterious atmosphere, and a touch of retro film grain, with natural color casts and subtle light leaks reminiscent of classic analog films."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          1
+        ],
+        "text": "ugly, deformed, disfigured, mutated, glitch, abstract, blurry, lowres, low-details, bad quality, watermark, signature, text, censored, morbid, mutilated, poorly lit, bad shadow, out of focus, JPEG artifacts, duplicate, bad anatomy, bad hands, bad face, bad teeth, bad arms, bad legs, deformities, nsfw"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "3": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "2",
+          0
+        ],
+        "upscale_method": "bilinear",
+        "width": 1024,
+        "height": 0,
+        "crop": "disabled"
+      }
+    },
+    "7": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "3",
+          0
+        ],
+        "vae": [
+          "4",
+          2
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 756770419990187,
+        "steps": 14,
+        "cfg": 8.0,
+        "sampler_name": "uni_pc_bh2",
+        "scheduler": "normal",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "7",
+          0
+        ],
+        "denoise": 0.5
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "4",
+          2
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "hiresfix/ComfyUI"
+      }
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "recipe": {
+    "id": "t2i-2512-turbo-2step",
+    "task": "t2i",
+    "variant": "Qwen-Image-2512 fp8 + Wuli-art 2-step Turbo LoRA (third party), 2 steps, cfg 1, shift 3, ConditioningZeroOut negative - the draft route",
+    "from_template": "image_qwen_image_2512_with_2steps_lora (flat graph; seed fixed in the template)",
+    "min_comfyui": "0.3.49",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "3-3.1 in every template; 'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.'"
+      },
+      "width": {
+        "node": "6",
+        "input": "width",
+        "note": "native table: 1328x1328, 1664x928, 928x1664, 1472x1104, 1104x1472, 1584x1056, 1056x1584"
+      },
+      "height": {
+        "node": "6",
+        "input": "height"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2512_fp8_e4m3fn.safetensors",
+      "Wuli-Qwen-Image-2512-Turbo-LoRA-2steps-V1.0-bf16.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "defaults_note": "2 steps, cfg 1, shift 3, euler/simple; negative = ConditioningZeroOut(positive). 'Input your text prompt to quickly produce a result, though some quality is sacrificed for speed.'",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (same 20.4 GB fp8 class as Qwen-Image: expect the 24 GB figures)",
+      "time_s": null,
+      "src": "S-DOCS-QI"
+    },
+    "family": "qwen-image",
+    "packs": [],
+    "inputs": {},
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "Wuli-Qwen-Image-2512-Turbo-LoRA-2steps-V1.0-bf16.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "shift": 3.0
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "High-contrast black and white fashion photography, extreme side profile of a rugged European male model with tousled wet-look hair and stubble, wearing an unbuttoned textured black leather jacket over a fitted white crewneck shirt. Low-angle composition, dramatic side lighting carving sharp, sculpted shadows across his angular jawline and neck, minimalist stark white background, edgy tough masculine"
+      }
+    },
+    "5": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "4",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1328,
+        "height": 1328,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 2,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "Qwen-2512-2steps-LoRA"
+      }
+    }
+  }
+}

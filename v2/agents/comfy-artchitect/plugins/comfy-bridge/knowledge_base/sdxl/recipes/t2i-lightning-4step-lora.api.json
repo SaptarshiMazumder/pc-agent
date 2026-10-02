@@ -1,0 +1,195 @@
+{
+  "recipe": {
+    "id": "t2i-lightning-4step-lora",
+    "family": "sdxl",
+    "task": "t2i",
+    "variant": "SDXL-Lightning 4-step LoRA (LoraLoader) on an SDXL checkpoint, 4 steps, cfg 1, euler/sgm_uniform — the route for fine-tunes",
+    "from_template": "image_sdxl_simple spine + LoraLoader per the SDXL-Lightning README ('LoRA variant: LoraLoader(sdxl_lightning_4step_lora.safetensors) on another SDXL base'); the publisher's comfyui/sdxl_lightning_workflow_lora.json was not read",
+    "min_comfyui": "0.0.1",
+    "confidence": "official settings (publisher README) on the official template spine; not a shipped template graph",
+    "ports": {
+      "checkpoint": {
+        "node": "1",
+        "input": "ckpt_name",
+        "note": "an SDXL fine-tune: ByteDance: 'Use LoRA only if you are using non-SDXL base models. Otherwise use our full checkpoint for better quality'"
+      },
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "width": {
+        "node": "9",
+        "input": "width",
+        "note": "trained buckets: 1024x1024, 1152x896, 896x1152, 1216x832, 832x1216, 1344x768, 768x1344, 1536x640, 640x1536"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model",
+        "same_value": [
+          {
+            "node": "20",
+            "input": "strength_clip"
+          }
+        ]
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "sdxl_lightning_4step_lora.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Ships with sd_xl_base_1.0 only because it is the one exact checkpoint on file; the point of the LoRA is a fine-tune in the checkpoint port (Juggernaut, RealVisXL, Illustrious, Pony + its clip-skip -2).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (Stability publishes no ComfyUI VRAM figure for SDXL; the fp16 base is 6.94 GB on disk)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "LoraLoader (model + clip) as the dossier words it; strength 1.0 is the node default — the README gives no strength."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "20",
+          1
+        ],
+        "text": "a giant classical marble statue standing alone in a pure white empty void, soft diffused lighting, subtle shadows, surreal, minimalist, fine art photography, quiet atmosphere, sense of scale"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "20",
+          1
+        ],
+        "text": ""
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "seed": 0,
+        "steps": 4,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "sgm_uniform",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sdxl/t2i_lightning_4step_lora"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "20": {
+      "class_type": "LoraLoader",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "clip": [
+          "1",
+          1
+        ],
+        "lora_name": "sdxl_lightning_4step_lora.safetensors",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    }
+  }
+}

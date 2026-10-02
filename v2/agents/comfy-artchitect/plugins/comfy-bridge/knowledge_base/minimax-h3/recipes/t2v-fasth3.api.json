@@ -1,0 +1,298 @@
+{
+  "recipe": {
+    "id": "t2v-fasth3",
+    "family": "minimax-h3",
+    "task": "t2v",
+    "variant": "FastVideo FastH3 8-step V2 pruned int8, DMD2-distilled, 8 steps, sparse attention — pending (ComfyUI 0.36.0)",
+    "from_template": "video_fastvideo_fasth3_t2v (subgraph 'First Last Frame to Video (FastVideo FastH3)', no images)",
+    "min_comfyui": "0.36.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "prompt"
+      },
+      "width": {
+        "node": "5",
+        "input": "width"
+      },
+      "height": {
+        "node": "5",
+        "input": "height"
+      },
+      "length": {
+        "node": "5",
+        "input": "length"
+      },
+      "seed": {
+        "node": "8",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "sampler": {
+        "node": "6",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler"
+      },
+      "fps": {
+        "node": "13",
+        "input": "fps"
+      },
+      "shift_video": {
+        "node": "21",
+        "input": "shift_video"
+      },
+      "shift_audio": {
+        "node": "21",
+        "input": "shift_audio"
+      },
+      "attention_backend": {
+        "node": "22",
+        "input": "attention"
+      },
+      "sparse_keep_percent": {
+        "node": "23",
+        "input": "selection.keep_percent"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+      "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "minimax_h3_video_vae_int8_convrot.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "640x640x124 (template 1:1 at 0.4 MP), 8 steps fixed, res_multistep/simple, shift 10/3, no CFG.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "class": "not-found",
+      "src": null,
+      "note": "22.13 GB int8 build, same class as the base int8 builds"
+    },
+    "notes": [
+      "length is frames at 24 fps on the 17k+5 grid: 5, 22, ..., 107 (~4.5 s), 124 (5.17 s), 141, ..., 362 (15.1 s). The template derives it from seconds as max(5, round(s*24)) + (5 - (max(5, round(s*24)) % 17)) % 17; this recipe inlines 124.",
+      "Canvas: 768 px short edge, capped at the 768x1344 pixel area, multiples of 32. Template default 0.4 MP 16:9 = 864x480 (fast preview); 0.98 MP = 1344x768 is the official 768p and holds faces/detail; never 1.0 MP (1376x768 is above the cap).",
+      "No negative prompt, no CFG: the checkpoints are CFG-distilled and the graph uses BasicGuider. Write bans as positives.",
+      "FastH3 8-Step V2 is DMD2-distilled: exactly 8 steps; MiniMaxH3SigmaShift 10 / 3 ('sampling at shift_video 3 instead of 10 shows grid artifacts'); t2va + fl2va only ('Ref2VA ... was not distilled'). Template chain: UNETLoader -> MiniMaxH3SigmaShift -> ModelAttentionBackend ('comfy kitchen attention') -> BlockSparseAttention (vsa, keep 10%, 20-100% of sampling, sink_conditioning exact_kv_and_rows) -> scheduler/guider. Set attention_backend to 'pytorch attention' if Comfy Kitchen is unavailable; sparse attention falls back to dense silently without its kernel.",
+      "Template minComfyUIVersion 0.36.0 > the pinned 0.35.0 image: every node class exists in v0.35.0 (validator OK) but the recipe is NOT offered until the image moves. The template's CreateVideo also carries a `codec` widget that v0.35.0 has not got (dropped here)."
+    ],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos and autogrow slots, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "21": {
+      "class_type": "MiniMaxH3SigmaShift",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift_video": 10.0,
+        "shift_audio": 3.0
+      }
+    },
+    "22": {
+      "class_type": "ModelAttentionBackend",
+      "inputs": {
+        "model": [
+          "21",
+          0
+        ],
+        "attention": "comfy kitchen attention"
+      }
+    },
+    "23": {
+      "class_type": "BlockSparseAttention",
+      "inputs": {
+        "model": [
+          "22",
+          0
+        ],
+        "selection": "vsa",
+        "selection.keep_percent": 10.0,
+        "start_percent": 0.2,
+        "end_percent": 1.0,
+        "dense_blocks": "",
+        "min_tokens": 12288,
+        "extra_tokens": 256,
+        "sink_conditioning": "exact_kv_and_rows",
+        "verbose": false
+      }
+    },
+    "5": {
+      "class_type": "MiniMaxH3ImageToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, a wide-angle shot filmed from an extreme low-angle, worm's-eye perspective. In the extreme foreground of the square frame, a massive tan suede work boot features a thick, chunky brown rubber sole and tightly laced brown shoelaces, rendered slightly out of focus. Above the boot, a young adult man wears loose-fitting, olive green cargo pants, an unbuttoned dark navy blue heavy-cotton overshirt, and a tan baseball cap. He has a serious expression, looking directly down into the lens. Behind him, a modern skyscraper made of reflective glass panels stretches into an overcast, pale grey sky. Large, bold, white typography reading \"STREETWEAR\" bursts into the frame, positioned seamlessly between the man's back and the skyscraper, creating a three-dimensional interlaced title sequence effect. The man lowers his raised foot, and the massive tan boot descends rapidly, striking the pavement. He then raises both hands to adjust his cap's brim. The camera pushes in slowly, intensifying the visual scale of the figure and the floating text. [Shot 2] At 00:02.100, the camera cuts to a medium shot from a slightly elevated low-angle vantage point. The man from Shot 1 now stands fully planted on the ground against the sheer glass facade of the skyscraper. Fast-paced, neon-yellow text reading \"VOL. 1\" flashes rapidly in the extreme foreground, momentarily overlapping his navy jacket. He drops his hands and executes a sharp, forceful turn of his shoulders to the right, striking a dynamic, angular pose. His jacket flares out, revealing a neutral-toned t-shirt underneath. His gaze shifts away from the camera, looking off into the distance. The camera arcs right at a medium speed, tracking his rotation and capturing the shifting reflections of the city on the glass building behind him. [Shot 3] At 00:03.600, the camera cuts to a wide tracking shot positioned just above the pavement level. The man from Shot 1 strides purposefully forward along the grey concrete sidewalk. Clean, white typography reading \"AVAILABLE NOW\" scrolls vertically down the right side of the frame, weaving behind his swinging right arm to maintain the interlaced text aesthetic. The focus is directed toward the lower half of his body, highlighting the movement of his olive green cargo pants as they wrinkle dynamically. His heavy tan boots stomp rhythmically on the concrete. The camera pulls out at a fast speed, maintaining a constant distance just ahead of his advancing boots while the vertical grid lines of the skyscraper blur in the background.\noverall_soundscape: A faint, continuous urban hum of distant city traffic provides a subtle ambient baseline. A loud, resonant thud is heard prominently in the foreground as the heavy tan boot strikes the concrete pavement, followed by the crisp, audible rustle of thick cotton and denim as the man adjusts his cap. When the shot changes, a sharp, distinct swish of heavy fabric accompanies his sudden shoulder rotation. Finally, a rhythmic series of heavy, pronounced footsteps—thick rubber soles slapping firmly against the concrete—dominates the foreground, accompanied by the continuous, rough rustling of cargo pants.\nnon_diegetic_music: Electronic bass music, fast tempo, featuring a heavy, rhythmic drum machine beat, deep synthesizer drones, and sudden aggressive bass drops with no melodic swell.",
+        "width": 640,
+        "height": 640,
+        "length": 124
+      }
+    },
+    "6": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "res_multistep"
+      }
+    },
+    "7": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "23",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 8,
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "9": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "23",
+          0
+        ],
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "9",
+          0
+        ],
+        "sampler": [
+          "6",
+          0
+        ],
+        "sigmas": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "5",
+          1
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "fps": 24,
+        "audio": [
+          "12",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/MiniMax_H3/fasth3",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

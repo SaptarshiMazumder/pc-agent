@@ -1,0 +1,259 @@
+{
+  "recipe": {
+    "id": "t2i-radiance",
+    "task": "t2i",
+    "variant": "Chroma1-Radiance (pixel-space, 19.0 GB, WIP): ChromaRadianceOptions + EmptyChromaRadianceLatentImage + VAELoader 'pixel_space', BetaSamplingScheduler 30 steps 0.4/0.4, cfg 3.5, euler, shift 1",
+    "from_template": "image_chroma1_radiance_text_to_image (subgraph 'Chroma1 Radiance Text to Image' flattened; force_sequential_txt_ids not stored in the template -> node default false written explicitly)",
+    "min_comfyui": "0.3.60",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "11",
+        "input": "width"
+      },
+      "height": {
+        "node": "11",
+        "input": "height"
+      },
+      "seed": {
+        "node": "10",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "8",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "9",
+        "input": "sampler_name"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "1.0; 'can be raised up to 3.0 in order to help with complex compositions'"
+      },
+      "nerf_tile_size": {
+        "node": "16",
+        "input": "nerf_tile_size",
+        "note": "-1 = default 32; raise 'as large as possible until you run out of GPU memory' for speed; 0 = no tiling, 'may require a lot of VRAM'"
+      },
+      "force_sequential_txt_ids": {
+        "node": "16",
+        "input": "force_sequential_txt_ids",
+        "note": "only for upstream checkpoints trained 2026-05-22..2026-06-01 that lack the __sequential__ key"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "15",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "chroma-radiance-x0.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "defaults_note": "No VAE file: 'This Chroma1 Radiance image generation is in pixel space. No additional VAE is needed.' - VAELoader's built-in 'pixel_space' option (registry options_extra) passes pixels through VAEDecode. The 3-channel latent is created by EmptyChromaRadianceLatentImage (step 16). Model is WIP: 'expect some squiggles on the details part of the image'; pin the Comfy-Org chroma-radiance-x0 file (upstream updates hourly).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (19.0 GB diffusion file; memory_usage_factor 0.044 - pixel latents are cheap, the model is not)",
+      "time_s": null,
+      "src": "S-HF-RAD-TREE"
+    },
+    "verify": [
+      "Offline structural check on 2026-10-02: every class, link, enum and range passes EXCEPT the validator's FILE check on VAELoader.vae_name='pixel_space' - a prototype limitation (it only accepts *.safetensors or an @slot); the v0.35.0 registry itself lists 'pixel_space' under VAELoader options_extra, so the value is legal on the box. Not yet run on a box."
+    ],
+    "family": "chroma",
+    "packs": [],
+    "inputs": {}
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "chroma-radiance-x0.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "16": {
+      "class_type": "ChromaRadianceOptions",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "preserve_wrapper": true,
+        "start_sigma": 1.0,
+        "end_sigma": 0.0,
+        "nerf_tile_size": -1,
+        "force_sequential_txt_ids": false
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "16",
+          0
+        ],
+        "shift": 1.0
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "chroma",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "T5TokenizerOptions",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "min_padding": 0,
+        "min_length": 0
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "Hyperrealistic macro photograph of a team of tiny bakers-each precisely 2 inches tall-collaborating on an enormous, golden-brown croissant with flaky, layered textures. The bakers are engaged in dynamic, detailed actions: one uses a miniature wooden bucket to spread rich, creamy butter between the croissant's layers, another climbs a thin rope ladder to evenly pipe smooth, glossy chocolate filling."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "This low quality greyscale unfinished sketch is inaccurate and flawed. The image is very blurred and lacks detail with excessive chromatic aberrations and artifacts. The image is overly saturated with excessive bloom."
+      }
+    },
+    "7": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "cfg": 3.5
+      }
+    },
+    "8": {
+      "class_type": "BetaSamplingScheduler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "steps": 30,
+        "alpha": 0.4,
+        "beta": 0.4
+      }
+    },
+    "9": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "11": {
+      "class_type": "EmptyChromaRadianceLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "12": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "10",
+          0
+        ],
+        "guider": [
+          "7",
+          0
+        ],
+        "sampler": [
+          "9",
+          0
+        ],
+        "sigmas": [
+          "8",
+          0
+        ],
+        "latent_image": [
+          "11",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "pixel_space"
+      }
+    },
+    "14": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "12",
+          0
+        ],
+        "vae": [
+          "13",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "14",
+          0
+        ],
+        "filename_prefix": "Chroma-Radiance"
+      }
+    }
+  }
+}

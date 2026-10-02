@@ -1,0 +1,301 @@
+{
+  "recipe": {
+    "id": "r2v-ref2va-turbo4",
+    "family": "minimax-h3",
+    "task": "r2v",
+    "variant": "H3-Base Ref2VA int8 + ref2v turbo 4-step LoRA v0.1, 4 steps — the fast route",
+    "from_template": "video_minimax_h3_r2v (Enable Lightning LoRA = true, 4 steps)",
+    "min_comfyui": "0.30.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "prompt"
+      },
+      "width": {
+        "node": "5",
+        "input": "width"
+      },
+      "height": {
+        "node": "5",
+        "input": "height"
+      },
+      "length": {
+        "node": "5",
+        "input": "length"
+      },
+      "seed": {
+        "node": "8",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "sampler": {
+        "node": "6",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler"
+      },
+      "fps": {
+        "node": "13",
+        "input": "fps"
+      },
+      "ref_image_size": {
+        "node": "5",
+        "input": "ref_image_size"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      }
+    },
+    "inputs": {
+      "ref_image_1": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      },
+      "ref_image_2": {
+        "node": "16",
+        "input": "image",
+        "type": "IMAGE"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "minimax_h3_video_vae_int8_convrot.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "864x480x124 (template 16:9 at 0.4 MP), 4 steps, res_multistep/simple, ref_image_size match, two reference images; use the six-section Context-IR reference format.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "class": "not-found",
+      "src": null,
+      "note": "same 20.97 GB build as the fl2va recipes; reference tokens 'ride along every sampling step' so expect more than t2v at the same canvas"
+    },
+    "notes": [
+      "length is frames at 24 fps on the 17k+5 grid: 5, 22, ..., 107 (~4.5 s), 124 (5.17 s), 141, ..., 362 (15.1 s). The template derives it from seconds as max(5, round(s*24)) + (5 - (max(5, round(s*24)) % 17)) % 17; this recipe inlines 124.",
+      "Canvas: 768 px short edge, capped at the 768x1344 pixel area, multiples of 32. Template default 0.4 MP 16:9 = 864x480 (fast preview); 0.98 MP = 1344x768 is the official 768p and holds faces/detail; never 1.0 MP (1376x768 is above the cap).",
+      "No negative prompt, no CFG: the checkpoints are CFG-distilled and the graph uses BasicGuider. Write bans as positives.",
+      "Reference slots are autogrow inputs keyed `ref_images.ref_image_N` (N from 0, max 9), `ref_videos.ref_video_N` (max 3, IMAGE batches at 24 fps, 2-15 s, >= 5 frames), `ref_video_audios.ref_video_audio_N` (max 3, soundtrack of the same-numbered video) and `ref_audios.ref_audio_N` (max 3). Add or remove slots to match the stage's media; the prompt tags <Picture i> / <Video k> / <Audio j> bind in connection order, 1-based per type, images first, then videos (each soundtrack's <Audio j> right before its <Video k>), then standalone audio.",
+      "Template notes: 'beta or normal scheduler tends to outperform simple for reference-heavy prompts'; 'Ref2va's output is very sensitive to prompt wording'; ref_image_size 'max' keeps a 2048 px short edge for identity fidelity but 'can be several times slower'. Without `vae` connected, reference images/videos only condition the text encoder; without `audio_vae`, reference audio only conditions it.",
+      "The template prompt names <Audio 1> although its ref_audio slot is unconnected; tags bind only to connected inputs.",
+      "4-step ref2v turbo LoRA v0.1: 'at 4 steps a reference can end up barely applied, and a subject's pose or face angle can drift' (docs) — leave it off for the final, go to 25 steps if a reference drifts."
+    ],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos and autogrow slots, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@ref_image_1"
+      }
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@ref_image_2"
+      }
+    },
+    "5": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "prompt": "Bold comic-book ink style, heavy linework, red and blue-black palette, night city. Use <Picture 2> and <Picture 1> as reference frames and <Audio 1> exactly as it is.\nCUT 1: top-down view of the little boy superhero on the rooftop — red cape fluttering in the wind, hands planted on his hips, freckles and a cocky grin as he looks straight up into the camera. The camera slowly descends toward him as he delivers his line — as he speaks, comic-book graphic overlay text word by word in sync with his voice: \"GET READY TO\" - \"MEET\" — \"YOUR\" — \"MAKER\" — huge jagged comic lettering, white with heavy black outlines and red drop shadows, tilted at scrappy angles, until the three words hang stacked in the air above him between his face and the lens.\nTRANSITION: a violent WHIP PAN off the rooftop that SMEARS the floating words away with it, motion-streaked —\nCUT 2: low hero angle on the colossal black mech-kaiju towering over the skyline as it rears back and unleashes a GIANT terrifying ROAR — jaws wide with fangs, red eyes and chest-core flaring blinding bright, blue lightning arcing off its head, the roar's shockwave rippling dust and rattling windows down the buildings, comic-style speed-lines and ink splatter bursting from the impact of the sound. It leans INTO the camera as the roar peaks. Hold on the roar.",
+        "width": 864,
+        "height": 480,
+        "length": 124,
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "15",
+          0
+        ],
+        "ref_images.ref_image_1": [
+          "16",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "res_multistep"
+      }
+    },
+    "7": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 4,
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "9": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "9",
+          0
+        ],
+        "sampler": [
+          "6",
+          0
+        ],
+        "sigmas": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "5",
+          1
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "fps": 24,
+        "audio": [
+          "12",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/MiniMax_H3/r2v",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

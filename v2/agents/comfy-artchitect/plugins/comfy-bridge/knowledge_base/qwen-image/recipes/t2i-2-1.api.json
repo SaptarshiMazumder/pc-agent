@@ -1,0 +1,203 @@
+{
+  "recipe": {
+    "id": "t2i-2-1",
+    "task": "t2i",
+    "variant": "Qwen-Image-2.1 int8 ConvRot (7.3 GB, 7B single-stream DiT, native 2K, RGBA): TextEncodeQwenImage21 + QwenImage21Cache, 25 steps, cfg 1, euler/simple - PENDING (ComfyUI >= 0.37.2) and NON-COMMERCIAL licence",
+    "from_template": "image_qwen_image_2_1_t2i (subgraph 'Text to Image (Qwen Image 2.1)' flattened; the prompt-enhancer branch - CLIPLoader qwen3.5_9b_qwen_image_2.1_pe_t2i + TextGenerate + ComfySwitchNode, off by default - elided; ResolutionSelector 1:1 / 1 MP inlined as 1024x1024)",
+    "min_comfyui": "0.37.2",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "prompt"
+      },
+      "negative": {
+        "node": "4",
+        "input": "negative_prompt",
+        "note": "'unused while cfg is 1'"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps",
+        "note": "template 25; official 'about 40 to 50 steps with the euler sampler'; 'hands and fingers settles by about 30 steps'"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg",
+        "note": "'keep 1 for the Qwen Image 2.1 official path. Raise it only if you use a negative prompt' (cfg 2 follows dense prompts more closely; 5 degrades badly; 0.5 breaks)"
+      },
+      "sampler": {
+        "node": "7",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler"
+      },
+      "cache_device": {
+        "node": "2",
+        "input": "device",
+        "note": "QwenImage21Cache: auto / gpu / cpu / off"
+      },
+      "cache_dtype": {
+        "node": "2",
+        "input": "dtype",
+        "note": "default / int8 / int4"
+      },
+      "width": {
+        "node": "6",
+        "input": "width",
+        "note": "'Prefer multiples of 32'; native 2K = 2048x2048 (4 MP); 2.1 aspect list: 1:1 2048x2048, 4:3 2400x1792, 3:4 1792x2400, 3:2 2528x1696, 2:3 1696x2528, 16:9 2752x1536, 9:16 1536x2752"
+      },
+      "height": {
+        "node": "6",
+        "input": "height"
+      },
+      "resolution": {
+        "node": "4",
+        "input": "resolution",
+        "note": "reference-image pixel budget (unused for T2I); template 1024"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2.1_int8_convrot.safetensors",
+      "qwen3vl_8b_int8_convrot.safetensors",
+      "qwen_image_2.1_vae_bf16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 25 steps, cfg 1, euler/simple, no ModelSampling node (QwenImage21 config shift 0.69 internal), PNG output. Transparent output: wrap the prompt as 'This is an RGBA format image with transparency. [your description]. The image has an alpha channel and a transparent background.' and keep PNG. 'Targets well above the model's 2K trained size, such as 4K, lose prompt adherence'. LICENCE: Qwen Research License - NON-COMMERCIAL ONLY.",
+    "vram_evidence": {
+      "gpu": "RTX 5090 (docs timing only)",
+      "at": "1 MP",
+      "usage": "NOT FOUND; docs: ~0.3 s/it at 1 MP vs ~6 s/it at 12 MP",
+      "time_s": null,
+      "src": "S-DOCS-Q21"
+    },
+    "verify": [
+      "NOT checkable against the v0.35.0 registry: TextEncodeQwenImage21 and QwenImage21Cache were added for ComfyUI 0.37.x (template minComfyUIVersion 0.37.0 / 0.37.2). Input names (clip, prompt, negative_prompt, vae, resolution, images.image_N autogrow; model, device, dtype) are transcribed from the template links. Everything else in the graph is native on 0.35.0. PENDING until the image moves to >= 0.37.2."
+    ],
+    "family": "qwen-image",
+    "inputs": {}
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "QwenImage21Cache",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "device": "auto",
+        "dtype": "default"
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "prompt": "Greyscale fashion editorial portrait of an avant-garde woman tilted upwards in profile, captured with striking high-contrast chiaroscuro lighting. She wears oversized, thick-rimmed circular black sunglasses with matte dark lenses, concealing her upward gaze. Her attire merges high couture with tactical abstraction: a high-necked structural dress tailored from heavyweight fabric featuring a disrup",
+        "negative_prompt": "",
+        "vae": [
+          "8",
+          0
+        ],
+        "resolution": 1024
+      }
+    },
+    "6": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "4",
+          1
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImageAdvanced",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "Qwen_image_2.1",
+        "format": "png",
+        "format.bit_depth": "8-bit",
+        "format.input_color_space": "sRGB"
+      }
+    }
+  }
+}

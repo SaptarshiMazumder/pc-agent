@@ -1,0 +1,234 @@
+{
+  "recipe": {
+    "id": "upscale-video-4x",
+    "family": "flashvsr",
+    "task": "upscale-video",
+    "variant": "LacklusterOpsec fork (registry ComfyUI-FlashVSR_Stable, MIT, v1.5.1), v1.1 weights, 4x, mode full (Wan 2.1 VAE decode), bf16, sparse_sage_attention, no tiling, no chunking: the 24 GB+ row of the pack's VRAM table",
+    "from_template": "No Comfy-Org local template exists (the only one, api_wavespeed_flshvsr_video_upscale, is a paid API node and excluded). Graph as the pack README documents: LoadVideo -> GetVideoComponents -> FlashVSRInitPipe -> FlashVSRNodeAdv -> CreateVideo -> SaveVideo; values are the README's 24 GB+ VRAM row over the nodes.py defaults.",
+    "min_comfyui": null,
+    "min_comfyui_note": "NOT FOUND (neither pack states a ComfyUI minimum); the native spine nodes exist in v0.35.0",
+    "confidence": "community-confirmed",
+    "confidence_note": "the pack's own README + nodes.py + CHANGELOG (official for the pack) and the upstream lihaoyun6 README it forks, which documents the same node ids and parameters: two sources",
+    "ports": {
+      "scale": {
+        "node": "8",
+        "input": "scale",
+        "note": "2-4; official: 4x is the trained setting ('strongly recommend'), 2x only as a VRAM concession"
+      },
+      "mode": {
+        "node": "1",
+        "input": "mode",
+        "note": "tiny (TCDecoder, fast) | tiny-long (streams, 'significantly reduce VRAM used with long video input') | full (Wan VAE decode, higher quality)"
+      },
+      "vae_model": {
+        "node": "1",
+        "input": "vae_model",
+        "note": "Wan2.1 (default) | Wan2.2 | LightVAE_W2.1 ('50% less VRAM') | TAE_W2.2 | LightTAE_HY1.5; auto-downloaded from lightx2v/Autoencoders"
+      },
+      "precision": {
+        "node": "1",
+        "input": "precision",
+        "note": "fp16 | bf16 | fp8_e4m3fn ('cuts VRAM in half', PyTorch 2.1+ and Ada/Hopper) | auto (node default)"
+      },
+      "attention_mode": {
+        "node": "1",
+        "input": "attention_mode",
+        "note": "sparse_sage_attention (sm_75-sm_120) | block_sparse_attention (sm_80-sm_100, official backend) | flash_attention_2 | sdpa | sage_attention_2; keep a SPARSE backend for quality parity"
+      },
+      "force_offload": {
+        "node": "1",
+        "input": "force_offload",
+        "note": "offload all weights to CPU after the run"
+      },
+      "seed": {
+        "node": "8",
+        "input": "seed"
+      },
+      "tiled_vae": {
+        "node": "8",
+        "input": "tiled_vae",
+        "note": "lower memory at the cost of speed"
+      },
+      "tiled_dit": {
+        "node": "8",
+        "input": "tiled_dit",
+        "note": "'Significantly reduces VRAM usage at the cost of speed'"
+      },
+      "tile_size": {
+        "node": "8",
+        "input": "tile_size",
+        "note": "DiT tile, 32-1024 step 32 (default 256)"
+      },
+      "tile_overlap": {
+        "node": "8",
+        "input": "tile_overlap",
+        "note": "8-512 step 8 (default 24)"
+      },
+      "unload_dit": {
+        "node": "8",
+        "input": "unload_dit",
+        "note": "unload the DiT before decoding to cut the VRAM peak (slower); the simple node defaults it True 'Recommended for 16GB VRAM'"
+      },
+      "frame_chunk_size": {
+        "node": "8",
+        "input": "frame_chunk_size",
+        "note": "0 = all frames; N = process in chunks of N frames to prevent OOM (README table: 50-100 at 16 GB, 50 at 12 GB, 16-32 at 8 GB)"
+      },
+      "sparse_ratio": {
+        "node": "8",
+        "input": "sparse_ratio",
+        "note": "1.5 -> faster; 2.0 -> more stable"
+      },
+      "kv_ratio": {
+        "node": "8",
+        "input": "kv_ratio",
+        "note": "1.0 -> less VRAM; 3.0 -> high quality"
+      },
+      "local_range": {
+        "node": "8",
+        "input": "local_range",
+        "note": "9 -> sharper details; 11 -> more stable results"
+      },
+      "color_fix": {
+        "node": "8",
+        "input": "color_fix",
+        "note": "wavelet colour transfer to the source; keep True"
+      },
+      "resize_factor": {
+        "node": "8",
+        "input": "resize_factor",
+        "note": "0.1-1.0 pre-shrink of the input before upscaling"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the clip to upscale; frames go to the FlashVSR node, fps and audio pass from GetVideoComponents to CreateVideo. FlashVSR is a streaming model: feed a clip (>= 21 frames), not a still."
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "diffusion_pytorch_model_streaming_dmd.safetensors",
+      "LQ_proj_in.ckpt",
+      "TCDecoder.ckpt",
+      "Wan2.1_VAE.pth"
+    ],
+    "files_note": "the four files of the JunhaoZhuang/FlashVSR-v1.1 HF repo, downloaded as-is into ComfyUI/models/FlashVSR/ (the node's `model` option names the version folder); the exact subfolder layout the pack expects: NOT FOUND, follow the pack README. The fixed prompt embedding (posi_prompt.pth) ships inside the node repo.",
+    "packs": [
+      "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-FlashVSR"
+    ],
+    "packs_note": "do NOT install together with lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast: both register FlashVSRNode / FlashVSRNodeAdv / FlashVSRInitPipe (class-id collision). Optional deps: Sparse_SageAttention (Triton), flash_attn, xformers, torchao; model_paths.yaml key flashvsr_model_path.",
+    "defaults_note": "4x, full mode, Wan2.1 VAE, bf16, sparse_sage_attention, tiling off, chunking off (24 GB+ row). No text prompt: the fixed positive embedding (posi_prompt.pth) ships with the pack. Keep color_fix on.",
+    "vram_evidence": {
+      "gpu": "24 GB+ (pack README VRAM table, maintainer-provided)",
+      "at": "mode full/tiny, VAE Wan2.1/Wan2.2, tiling disabled, frame_chunk_size 0, bf16",
+      "usage": "NOT FOUND (no measured number; the table gives settings per VRAM class). Official paper figure: ~17 FPS at 768x1408 on one A100 with the reference implementation, not this pack",
+      "time_s": null,
+      "class": "community",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-HF-FLASHVSR-V11"
+      ]
+    },
+    "verify": [
+      "Native spine (LoadVideo -> GetVideoComponents -> CreateVideo -> SaveVideo) checked against the v0.35.0 registry on 2026-10-01. The FlashVSR classes are a custom pack: the offline validator reports them as 'not in v0.35.0' and, as a consequence, CreateVideo.images as 'has no output 0' (it cannot type the pack node's output). Expected for a pack recipe; resolves once the pack is installed and the live /object_info is read (Phase 2).",
+      "Input names, options and defaults are transcribed from the dossier's reading of the pack's nodes.py / README (2026-10-01), not from a registry: confirm the exact required key set against the live /object_info after install (an API prompt must carry every required widget).",
+      "`compile_dit` (Lackluster addition, default False, 'requires Triton, may fail on Windows') is placed on FlashVSRInitPipe here; the dossier does not record which node carries it - move it if /object_info puts it on FlashVSRNodeAdv.",
+      "`FlashVSRNodeAdv.pipe` / `.frames` socket names and the PIPE output index 0 are as the README's graph line reads them."
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "16": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "8",
+          0
+        ],
+        "audio": [
+          "16",
+          1
+        ],
+        "fps": [
+          "16",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/FlashVSR",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    },
+    "1": {
+      "class_type": "FlashVSRInitPipe",
+      "inputs": {
+        "model": "FlashVSR-v1.1",
+        "mode": "full",
+        "vae_model": "Wan2.1",
+        "force_offload": true,
+        "precision": "bf16",
+        "device": "auto",
+        "attention_mode": "sparse_sage_attention",
+        "compile_dit": false
+      }
+    },
+    "8": {
+      "class_type": "FlashVSRNodeAdv",
+      "inputs": {
+        "pipe": [
+          "1",
+          0
+        ],
+        "frames": [
+          "16",
+          0
+        ],
+        "scale": 4,
+        "color_fix": true,
+        "tiled_vae": false,
+        "tiled_dit": false,
+        "tile_size": 256,
+        "tile_overlap": 24,
+        "unload_dit": false,
+        "sparse_ratio": 2.0,
+        "kv_ratio": 3.0,
+        "local_range": 11,
+        "seed": 0,
+        "frame_chunk_size": 0,
+        "resize_factor": 1.0,
+        "keep_models_on_cpu": true,
+        "enable_debug": false
+      }
+    }
+  }
+}

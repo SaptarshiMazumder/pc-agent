@@ -1,0 +1,252 @@
+{
+  "recipe": {
+    "task": "control",
+    "control": "scribble",
+    "host": "sd15",
+    "variant": "SD1.5 (DreamShaper 8) + ControlNet v1.1 scribble fp16 (0.72 GB) fed a native Canny edge map; the classic single-purpose ControlNet pattern - swap the file for any control_v11*_sd15_* net with the matching map",
+    "from_template": "controlnet_example (ARCHIVED Comfy-Org template 'Scribble ControlNet', archived/controlnet_example.json)",
+    "min_comfyui": "0.3.5",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "3",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "31",
+        "32",
+        "33"
+      ],
+      "splice": "ControlNetApplyAdvanced (33) between positive/negative and KSampler; no vae (SD1.5 hints are pixel-space). Map size must match the latent (9). Mixing: feed 33's outputs into a second ControlNetApplyAdvanced with another net (docs: similar strengths, e.g. both 1.0)."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "strength": {
+        "node": "33",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "33",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "33",
+        "input": "end_percent"
+      },
+      "canny_low": {
+        "node": "31",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "31",
+        "input": "high_threshold"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "raw photo or sketch; native Canny 0.35/0.8 produces the line map the scribble net reads"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "DreamShaper_8_pruned.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors",
+      "control_v11p_sd15_scribble_fp16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "20 steps, cfg 6, euler/normal, strength 1.0, 1024x1024 as the archived template ships (SD1.5 was trained at 512; the ComfyUI_examples scribble graph uses 512x512, 16 steps, cfg 6, uni_pc). The ControlNet-v1-1 originals are openrail; the fp16 repack carries no license field.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "SD1.5 checkpoint + 0.72 GB fp16 ControlNet: the smallest footprint in this family",
+      "src": "S-EXAMPLES-CN"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "sd15-scribble-canny",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "DreamShaper_8_pruned.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "Masterpiece,best quality,high definition,high level of detail,3D,3D style,cute Q-version,Chibi,a vibrant product photo created for innovative advertising,featuring a little boy with black hair and a big laugh,Solo,holding a wooden crate,wooden crate,pasture,blue sky,white clouds,brick paved path,with pleasant houses in the background,chimneys,big trees,maple leaves,maple trees,and a lot of wheat"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "(hands), text, error, cropped, (worst quality:1.2), (low quality:1.2), normal quality, (jpeg artifacts:1.3), signature, watermark, username, blurry, artist name, monochrome, sketch, censorship, censor, (copyright:1.2), extra legs, (forehead mark) (depth of field) (emotionless) (penis)"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "31": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "low_threshold": 0.35,
+        "high_threshold": 0.8
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "control_v11p_sd15_scribble_fp16.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "image": [
+          "31",
+          0
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 599575228983496,
+        "steps": 20,
+        "cfg": 6.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "controlnet/sd15_scribble"
+      }
+    }
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "recipe": {
+    "id": "edit-e1-1",
+    "task": "edit",
+    "variant": "HiDream-E1.1 (bf16 file cast to fp8_e4m3fn_fast at load) instruction edit at 1 MP: CFGNorm 1, InstructPixToPixConditioning, DualCFGGuider text 3 / image 1.5, euler/simple 20 steps - the recommended edit route",
+    "from_template": "hidream_e1_1 (flat, 20 nodes; the two PrimitiveNodes 'CFG'=3 and 'Image CFG'=1.5 inlined; Reroute resolved; pre_cfg/resolution_steps not stored in the template -> node defaults written explicitly)",
+    "min_comfyui": "0.3.45",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "direct instruction - 'prompt refinement is no longer needed'; e.g. 'convert the image into a Ghibli style'"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "'low quality, blurry, distorted' = the official inference_e1_1.py negative_instruction. NOTE: in the template this encode feeds only InstructPixToPixConditioning.negative (cond2); DualCFGGuider.negative is wired from the POSITIVE encode (template link 452) - see defaults_note"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "12",
+        "input": "steps",
+        "note": "template 20; official 28"
+      },
+      "cfg_text": {
+        "node": "7",
+        "input": "cfg_conds",
+        "note": "3 = official guidance_scale 3.0"
+      },
+      "cfg_image": {
+        "node": "7",
+        "input": "cfg_cond2_negative",
+        "note": "1.5 = official img_guidance_scale 1.5"
+      },
+      "input_megapixels": {
+        "node": "16",
+        "input": "megapixels",
+        "note": "1 MP ('Dynamic (1M pixels)'); the aspect ratio may change slightly"
+      },
+      "weight_dtype": {
+        "node": "1",
+        "input": "weight_dtype",
+        "note": "fp8_e4m3fn_fast: fp16/bf16 E1.1 'ran out of memory on both A100 40GB and 4090D 24GB' (Comfy test); 'default' only above 40 GB"
+      },
+      "cfg_norm_strength": {
+        "node": "2",
+        "input": "strength",
+        "note": "1 = official clip_cfg_norm=True"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to edit; scaled to ~1 megapixel (area), aspect may drift"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "hidream_e1_1_bf16.safetensors",
+      "clip_l_hidream.safetensors",
+      "clip_g_hidream.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "llama_3.1_8b_instruct_fp8_scaled.safetensors",
+      "ae.safetensors"
+    ],
+    "defaults_note": "1 MP input, CFGNorm strength 1, DualCFGGuider regular cfg_conds 3 / cfg_cond2_negative 1.5 (= official 3.0 / 1.5 with clip_cfg_norm), 20 steps euler/simple (official 28), weight_dtype fp8_e4m3fn_fast. Template wiring kept verbatim, including DualCFGGuider.negative <- the Positive encode (link 452) whereas E1-Full wires the Negative encode (link 447) and the official script uses negative_instruction - a template discrepancy the dossier does not resolve; rewire DualCFGGuider.negative to node 5 to match the script. The official refine_strength=0.3 I1-Full refinement stage is NOT in the Comfy graph.",
+    "vram_evidence": {
+      "gpu": "RTX 4090D 24GB / A100 40GB",
+      "at": "1 MP",
+      "usage": "fp16 OOM on both -> fp8_e4m3fn_fast dtype in the template",
+      "time_s": null,
+      "src": "S-DOCS-E1"
+    },
+    "family": "hidream",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hidream_e1_1_bf16.safetensors",
+        "weight_dtype": "fp8_e4m3fn_fast"
+      }
+    },
+    "2": {
+      "class_type": "CFGNorm",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "strength": 1.0,
+        "pre_cfg": false
+      }
+    },
+    "3": {
+      "class_type": "QuadrupleCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_g_hidream.safetensors",
+        "clip_name2": "clip_l_hidream.safetensors",
+        "clip_name3": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "clip_name4": "llama_3.1_8b_instruct_fp8_scaled.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Change the image to let the girl's hair fall loose around her shoulders, natural and flowing. Don't change other parts"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "low quality, blurry, distorted"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "area",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "InstructPixToPixConditioning",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ],
+        "pixels": [
+          "16",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "DualCFGGuider",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "cond1": [
+          "6",
+          0
+        ],
+        "cond2": [
+          "6",
+          1
+        ],
+        "negative": [
+          "4",
+          0
+        ],
+        "cfg_conds": 3.0,
+        "cfg_cond2_negative": 1.5,
+        "style": "regular"
+      }
+    },
+    "11": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "12": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1.0
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "7",
+          0
+        ],
+        "sampler": [
+          "11",
+          0
+        ],
+        "sigmas": [
+          "12",
+          0
+        ],
+        "latent_image": [
+          "6",
+          2
+        ]
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "14",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "ComfyUI"
+      }
+    }
+  }
+}

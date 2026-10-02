@@ -227,8 +227,12 @@ class NodeInputSchema:
         all_keys = self.by_key()
         active = {k.key: k for k in self._active(inputs)}
 
-        # Dynamic combos: the selected option must exist.
-        for k in self.keys:
+        # Dynamic combos: the selected option must exist. ONLY THE COMBOS THAT APPLY: options of one
+        # combo can each carry a sub-combo under the same dotted key (SaveVideo's `format.codec`
+        # under auto, mp4, mkv and webm), each with its own choices. Checking every one of them
+        # judged `format=auto, format.codec=h264` against webm's choices (auto|av1) and refused a
+        # graph ComfyUI runs.
+        for k in active.values():
             if k.kind != "combo" or k.key not in inputs:
                 continue
             value = inputs[k.key]

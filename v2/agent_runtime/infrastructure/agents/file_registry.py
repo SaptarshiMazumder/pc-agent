@@ -805,6 +805,7 @@ class FileAgentRegistry:
             oauth=oauth,
             app=app,
             requires_local=bool(data.get("requires_local")),
+            managed=bool(data.get("managed", True)),
         )
 
     @property

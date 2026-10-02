@@ -1,0 +1,450 @@
+{
+  "recipe": {
+    "family": "ltx-2",
+    "min_comfyui": "0.32.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template ships 1280x720 (ResolutionSelector 0.9 MP 16:9 -> 1280x736); the 32-px latent grid floors both to 1280x704 (stage 1 640x352), which is what is written here."
+    ],
+    "id": "t2v-2.5",
+    "task": "t2v",
+    "variant": "LTX-2.5 22B distilled int8 (comfy-int8-convrot), two-stage: 8 fixed sigmas at half size -> x2 latent upsampler -> 3 sigmas; joint audio+video; dual CFG 1/1",
+    "from_template": "video_ltx2_5_t2v (prompt_enhance off; ResolutionSelector + math nodes resolved)",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "inert at video_cfg/audio_cfg 1 (ComfyUI skips the unconditional pass)"
+      },
+      "width": {
+        "node": "8",
+        "input": "width",
+        "note": "stage-1 latent = HALF the output width; output = 2x after LTXVLatentUpsampler; keep multiples of 32"
+      },
+      "height": {
+        "node": "8",
+        "input": "height",
+        "note": "stage-1 latent = HALF the output height; multiples of 32"
+      },
+      "length": {
+        "node": "8",
+        "input": "length",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frames_number"
+          }
+        ],
+        "note": "frames = duration x fps + 1, on the 8n+1 grid (121 = 5 s @24 fps)"
+      },
+      "fps": {
+        "node": "7",
+        "input": "frame_rate",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frame_rate"
+          },
+          {
+            "node": "43",
+            "input": "fps"
+          }
+        ]
+      },
+      "seed": {
+        "node": "11",
+        "input": "noise_seed",
+        "note": "stage-2 noise is fixed at 42 (template)"
+      },
+      "video_cfg": {
+        "nodes": [
+          "14",
+          "38"
+        ],
+        "input": "video_cfg",
+        "note": "1.0 for the distilled transformer"
+      },
+      "audio_cfg": {
+        "nodes": [
+          "14",
+          "38"
+        ],
+        "input": "audio_cfg",
+        "note": "1.0 for the distilled transformer"
+      },
+      "sigmas_stage1": {
+        "node": "13",
+        "input": "sigmas"
+      },
+      "sigmas_stage2": {
+        "node": "37",
+        "input": "sigmas"
+      },
+      "tile_size": {
+        "node": "41",
+        "input": "tile_size",
+        "note": "drop to 512 (already) / temporal 64-16 for 10 s clips on 24 GB"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "video": {
+        "node": "44",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "ltx-2.5-video-vae-bf16.safetensors",
+      "ltx-2.5-audio-vae-bf16.safetensors",
+      "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+    ],
+    "defaults_note": "1280x704 x 121 frames @24 fps (5 s) with synchronized audio; stage 1 samples 640x352. Multishot is prompt-driven (describe each cut in prose). Prompt enhancer (gemma4_e2b) and Auto Duration (duration head) are optional add-ons not in this graph.",
+    "vram_evidence": {
+      "gpu": "RTX 3090 24GB (community, HF discussion #15)",
+      "at": "1280x720x121 (5 s)",
+      "usage": "runs; 10 s froze in VAE decode until tile_size 512",
+      "time_s": null,
+      "src": "S-HF25-D15"
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-video-vae-bf16.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-audio-vae-bf16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+        "type": "ltxv",
+        "device": "default"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "A close-up of an Arctic hunter's weathered face, frost dusting his dark beard, eyes narrowed on something in the far distance, one hand slowly reaching for the rifle slung on his back. The camera slowly pulls back to reveal him crouched at the edge of an ice shelf under a low grey sky. Wind hisses across the ice; his breath is quick and shallow; a distant crack of shifting ice echoes."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "pc game, console game, video game, cartoon, childish, ugly"
+      }
+    },
+    "7": {
+      "class_type": "LTXVConditioning",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "frame_rate": 24.0
+      }
+    },
+    "8": {
+      "class_type": "EmptyLTXVLatentVideo",
+      "inputs": {
+        "width": 640,
+        "height": 352,
+        "length": 121,
+        "batch_size": 1
+      }
+    },
+    "9": {
+      "class_type": "LTXVEmptyLatentAudio",
+      "inputs": {
+        "frames_number": 121,
+        "frame_rate": 24,
+        "batch_size": 1,
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "8",
+          0
+        ],
+        "audio_latent": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "12": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler_ancestral"
+      }
+    },
+    "13": {
+      "class_type": "ManualSigmas",
+      "inputs": {
+        "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+      }
+    },
+    "14": {
+      "class_type": "LTXVDualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "video_cfg": 1.0,
+        "audio_cfg": 1.0
+      }
+    },
+    "30": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "11",
+          0
+        ],
+        "guider": [
+          "14",
+          0
+        ],
+        "sampler": [
+          "12",
+          0
+        ],
+        "sigmas": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "10",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "30",
+          0
+        ]
+      }
+    },
+    "32": {
+      "class_type": "LatentUpscaleModelLoader",
+      "inputs": {
+        "model_name": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "LTXVLatentUpsampler",
+      "inputs": {
+        "samples": [
+          "31",
+          0
+        ],
+        "upscale_model": [
+          "32",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ]
+      }
+    },
+    "34": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "33",
+          0
+        ],
+        "audio_latent": [
+          "31",
+          1
+        ]
+      }
+    },
+    "35": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 42
+      }
+    },
+    "36": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler_ancestral"
+      }
+    },
+    "37": {
+      "class_type": "ManualSigmas",
+      "inputs": {
+        "sigmas": "0.85, 0.7250, 0.4219, 0.0"
+      }
+    },
+    "38": {
+      "class_type": "LTXVDualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "video_cfg": 1.0,
+        "audio_cfg": 1.0
+      }
+    },
+    "39": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "35",
+          0
+        ],
+        "guider": [
+          "38",
+          0
+        ],
+        "sampler": [
+          "36",
+          0
+        ],
+        "sigmas": [
+          "37",
+          0
+        ],
+        "latent_image": [
+          "34",
+          0
+        ]
+      }
+    },
+    "40": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "39",
+          0
+        ]
+      }
+    },
+    "41": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "40",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 64,
+        "temporal_size": 64,
+        "temporal_overlap": 16
+      }
+    },
+    "42": {
+      "class_type": "LTXVAudioVAEDecode",
+      "inputs": {
+        "samples": [
+          "40",
+          1
+        ],
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "41",
+          0
+        ],
+        "fps": 24.0,
+        "audio": [
+          "42",
+          0
+        ],
+        "bit_depth": 8
+      }
+    },
+    "44": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "43",
+          0
+        ],
+        "filename_prefix": "video/ltx25_t2v",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

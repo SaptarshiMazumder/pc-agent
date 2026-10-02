@@ -1,0 +1,333 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "pulid",
+    "host": "flux-1",
+    "variant": "PuLID-FLUX v0.9.1 on FLUX.1 dev: zero-shot face ID (insightface antelopev2 + EVA-CLIP) patched into the MODEL with ApplyPulidFlux; BasicGuider / SamplerCustomAdvanced spine as in the pack example",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: balazik/ComfyUI-PuLID-Flux examples/pulid_flux_16bit_simple.json (UNETLoader flux1-dev, FluxGuidance 3.5, euler/simple 10 steps, 768x1024, weight 1) with pulid_flux_v0.9.1 (lldacing default, +5pp face similarity over 0.9.0) instead of 0.9.0",
+    "min_comfyui": "0.3.7",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "8",
+        "9",
+        "10",
+        "12",
+        "14",
+        "40",
+        "41",
+        "42",
+        "43"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31",
+        "32",
+        "33"
+      ],
+      "splice": "ApplyPulidFlux (33) on the MODEL line right after the loader and BEFORE any TeaCache/WaveSpeed patch (lldacing); both BasicGuider and BasicScheduler take the patched model. Conditioning untouched."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "weight": {
+        "node": "33",
+        "input": "weight"
+      },
+      "start_at": {
+        "node": "33",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "33",
+        "input": "end_at"
+      },
+      "guidance": {
+        "node": "8",
+        "input": "guidance"
+      },
+      "provider": {
+        "node": "32",
+        "input": "provider",
+        "options": [
+          "CPU",
+          "CUDA",
+          "ROCM"
+        ]
+      },
+      "seed": {
+        "node": "41",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "42",
+        "input": "steps"
+      }
+    },
+    "inputs": {
+      "face_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "one clear face; lldacing's PulidFluxOptions can pick which face when several are present"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-dev.safetensors",
+      "clip_l.safetensors",
+      "t5xxl_fp16.safetensors",
+      "ae.safetensors",
+      "pulid_flux_v0.9.1.safetensors",
+      "EVA02_CLIP_L_336_psz14_s6B.pt",
+      "1k3d68.onnx",
+      "2d106det.onnx",
+      "genderage.onnx",
+      "glintr100.onnx",
+      "scrfd_10g_bnkps.onnx",
+      "parsing_bisenet.pth",
+      "parsing_parsenet.pth",
+      "detection_Resnet50_Final.pth"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_PuLID_Flux_ll",
+        "git": "https://github.com/lldacing/ComfyUI_PuLID_Flux_ll",
+        "license": "Apache-2.0",
+        "status": "active 2025 (fixes balazik's model pollution + attn_mask); SAME node ids as balazik/ComfyUI-PuLID-Flux - install only one",
+        "pip": [
+          "insightface",
+          "onnxruntime-gpu (OR onnxruntime, never both)",
+          "facexlib"
+        ],
+        "nodes_used": [
+          "PulidFluxModelLoader",
+          "PulidFluxEvaClipLoader",
+          "PulidFluxInsightFaceLoader",
+          "ApplyPulidFlux"
+        ]
+      }
+    ],
+    "defaults_note": "weight 1.0, start 0 / end 1, FluxGuidance 3.5 ('fake CFG' ~4 upstream; true CFG 'performs worse for photorealistic'), 10 steps euler/simple, 768x1024. Upstream: later start_at = more editability, less ID fidelity; 'ID fidelity may not be high for some male inputs'. Needs CUDA compute >= 8.0; fp8 e5m2 gives blurry backgrounds - use bf16/fp16 or e4m3fn. PuLID weights Apache-2.0 but 'must comply with the FLUX.1-dev model license' (non-commercial); insightface models non-commercial (lldacing offers FaceNet instead).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": "768x1024",
+      "usage": "~22 GB VRAM (fp16 FLUX); ~12 GB with fp8 / GGUF Q8 (balazik README)",
+      "src": "S-GH-PULID-FLUX-BALAZIK"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: PulidFluxModelLoader, PulidFluxEvaClipLoader, PulidFluxInsightFaceLoader, ApplyPulidFlux",
+      "input key 'pulid_file' (model loader) is the dossier's positional reading of the example - unverified name"
+    ],
+    "id": "pulid-flux1",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "portrait of a man as a renaissance oil painting, dramatic chiaroscuro lighting"
+      }
+    },
+    "8": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ],
+        "guidance": 3.5
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face_image"
+      }
+    },
+    "30": {
+      "class_type": "PulidFluxModelLoader",
+      "inputs": {
+        "pulid_file": "pulid_flux_v0.9.1.safetensors"
+      }
+    },
+    "31": {
+      "class_type": "PulidFluxEvaClipLoader",
+      "inputs": {}
+    },
+    "32": {
+      "class_type": "PulidFluxInsightFaceLoader",
+      "inputs": {
+        "provider": "CPU"
+      }
+    },
+    "33": {
+      "class_type": "ApplyPulidFlux",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "pulid_flux": [
+          "30",
+          0
+        ],
+        "eva_clip": [
+          "31",
+          0
+        ],
+        "face_analysis": [
+          "32",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "weight": 1.0,
+        "start_at": 0.0,
+        "end_at": 1.0
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 768,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "40": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "41": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "42": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "33",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 10,
+        "denoise": 1.0
+      }
+    },
+    "43": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "33",
+          0
+        ],
+        "conditioning": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "41",
+          0
+        ],
+        "guider": [
+          "43",
+          0
+        ],
+        "sampler": [
+          "40",
+          0
+        ],
+        "sigmas": [
+          "42",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/pulid_flux1"
+      }
+    }
+  }
+}

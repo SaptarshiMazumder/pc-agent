@@ -1,0 +1,548 @@
+{
+  "recipe": {
+    "family": "ltx-2",
+    "min_comfyui": "0.32.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template ships 1280x720 (ResolutionSelector 0.9 MP 16:9 -> 1280x736); the 32-px latent grid floors both to 1280x704 (stage 1 640x352), which is what is written here.",
+      "Template pre-scales the image's longer edge to 1536 px before LTXVPreprocess; here the image is scaled to the output size with a center crop (ImageScale) instead - LTXVImgToVideoInplace fits the image to the latent either way (the template feeds a 1536-px image into a 640-px stage-1 latent)."
+    ],
+    "id": "i2v-2.5",
+    "task": "i2v",
+    "variant": "LTX-2.5 22B distilled int8, two-stage; first frame conditioned in place at 0.7 (stage 1) and 1.0 (stage 2)",
+    "from_template": "video_ltx2_5_i2v (prompt_enhance off; 'Switch to Text to Video?' false)",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "inert at video_cfg/audio_cfg 1 (ComfyUI skips the unconditional pass)"
+      },
+      "width": {
+        "node": "16",
+        "input": "width",
+        "linked_with": {
+          "node": "8",
+          "input": "width",
+          "ratio": 0.5
+        },
+        "note": "output width (multiple of 32); the stage-1 latent is half of it"
+      },
+      "height": {
+        "node": "16",
+        "input": "height",
+        "linked_with": {
+          "node": "8",
+          "input": "height",
+          "ratio": 0.5
+        }
+      },
+      "length": {
+        "node": "8",
+        "input": "length",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frames_number"
+          }
+        ],
+        "note": "frames = duration x fps + 1, on the 8n+1 grid (121 = 5 s @24 fps)"
+      },
+      "fps": {
+        "node": "7",
+        "input": "frame_rate",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frame_rate"
+          },
+          {
+            "node": "43",
+            "input": "fps"
+          }
+        ]
+      },
+      "seed": {
+        "node": "11",
+        "input": "noise_seed",
+        "note": "stage-2 noise is fixed at 42 (template)"
+      },
+      "video_cfg": {
+        "nodes": [
+          "14",
+          "38"
+        ],
+        "input": "video_cfg",
+        "note": "1.0 for the distilled transformer"
+      },
+      "audio_cfg": {
+        "nodes": [
+          "14",
+          "38"
+        ],
+        "input": "audio_cfg",
+        "note": "1.0 for the distilled transformer"
+      },
+      "sigmas_stage1": {
+        "node": "13",
+        "input": "sigmas"
+      },
+      "sigmas_stage2": {
+        "node": "37",
+        "input": "sigmas"
+      },
+      "tile_size": {
+        "node": "41",
+        "input": "tile_size",
+        "note": "drop to 512 (already) / temporal 64-16 for 10 s clips on 24 GB"
+      },
+      "image_strength_stage1": {
+        "node": "18",
+        "input": "strength",
+        "note": "0.7 (template); 1.0 = frame fully frozen"
+      },
+      "image_strength_stage2": {
+        "node": "19",
+        "input": "strength"
+      },
+      "img_compression": {
+        "node": "17",
+        "input": "img_compression",
+        "note": "18 for LTX-2.5 (template; diffusers LTX2_5_IMAGE_CRF)"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the first frame; scaled to width x height with a center crop, then H.264-recompressed at CRF 18 (LTXVPreprocess) as the model was trained"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "44",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "ltx-2.5-video-vae-bf16.safetensors",
+      "ltx-2.5-audio-vae-bf16.safetensors",
+      "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+    ],
+    "defaults_note": "1280x704 x 121 @24 fps with audio. Prompt describes what happens next and may open with 'Use the provided start image as the first frame' (docs.comfy.org).",
+    "vram_evidence": {
+      "gpu": "RTX 3090 24GB (community, HF discussion #15)",
+      "at": "1280x720x121",
+      "usage": "runs",
+      "time_s": null,
+      "src": "S-HF25-D15"
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-video-vae-bf16.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-audio-vae-bf16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+        "type": "ltxv",
+        "device": "default"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "Use the provided start image as the first frame. The figure slowly turns his head to the right, eyes scanning the horizon, while the camera follows his gaze and pans across the rooftop to reveal the city beyond. He says in a low, even voice: \"The old gods are silent. I am not.\" Distant traffic hum, a soft wind."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "pc game, console game, video game, cartoon, childish, ugly"
+      }
+    },
+    "7": {
+      "class_type": "LTXVConditioning",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "frame_rate": 24.0
+      }
+    },
+    "8": {
+      "class_type": "EmptyLTXVLatentVideo",
+      "inputs": {
+        "width": 640,
+        "height": 352,
+        "length": 121,
+        "batch_size": 1
+      }
+    },
+    "9": {
+      "class_type": "LTXVEmptyLatentAudio",
+      "inputs": {
+        "frames_number": 121,
+        "frame_rate": 24,
+        "batch_size": 1,
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "18",
+          0
+        ],
+        "audio_latent": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "12": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler_ancestral"
+      }
+    },
+    "13": {
+      "class_type": "ManualSigmas",
+      "inputs": {
+        "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+      }
+    },
+    "14": {
+      "class_type": "LTXVDualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "video_cfg": 1.0,
+        "audio_cfg": 1.0
+      }
+    },
+    "30": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "11",
+          0
+        ],
+        "guider": [
+          "14",
+          0
+        ],
+        "sampler": [
+          "12",
+          0
+        ],
+        "sigmas": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "10",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "30",
+          0
+        ]
+      }
+    },
+    "32": {
+      "class_type": "LatentUpscaleModelLoader",
+      "inputs": {
+        "model_name": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "LTXVLatentUpsampler",
+      "inputs": {
+        "samples": [
+          "31",
+          0
+        ],
+        "upscale_model": [
+          "32",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ]
+      }
+    },
+    "34": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "19",
+          0
+        ],
+        "audio_latent": [
+          "31",
+          1
+        ]
+      }
+    },
+    "35": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 42
+      }
+    },
+    "36": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler_ancestral"
+      }
+    },
+    "37": {
+      "class_type": "ManualSigmas",
+      "inputs": {
+        "sigmas": "0.85, 0.7250, 0.4219, 0.0"
+      }
+    },
+    "38": {
+      "class_type": "LTXVDualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "video_cfg": 1.0,
+        "audio_cfg": 1.0
+      }
+    },
+    "39": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "35",
+          0
+        ],
+        "guider": [
+          "38",
+          0
+        ],
+        "sampler": [
+          "36",
+          0
+        ],
+        "sigmas": [
+          "37",
+          0
+        ],
+        "latent_image": [
+          "34",
+          0
+        ]
+      }
+    },
+    "40": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "39",
+          0
+        ]
+      }
+    },
+    "41": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "40",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 64,
+        "temporal_size": 64,
+        "temporal_overlap": 16
+      }
+    },
+    "42": {
+      "class_type": "LTXVAudioVAEDecode",
+      "inputs": {
+        "samples": [
+          "40",
+          1
+        ],
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "41",
+          0
+        ],
+        "fps": 24.0,
+        "audio": [
+          "42",
+          0
+        ],
+        "bit_depth": 8
+      }
+    },
+    "44": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "43",
+          0
+        ],
+        "filename_prefix": "video/ltx25_i2v",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "width": 1280,
+        "height": 704,
+        "crop": "center"
+      }
+    },
+    "17": {
+      "class_type": "LTXVPreprocess",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "img_compression": 18
+      }
+    },
+    "18": {
+      "class_type": "LTXVImgToVideoInplace",
+      "inputs": {
+        "vae": [
+          "2",
+          0
+        ],
+        "image": [
+          "17",
+          0
+        ],
+        "latent": [
+          "8",
+          0
+        ],
+        "strength": 0.7,
+        "bypass": false
+      }
+    },
+    "19": {
+      "class_type": "LTXVImgToVideoInplace",
+      "inputs": {
+        "vae": [
+          "2",
+          0
+        ],
+        "image": [
+          "17",
+          0
+        ],
+        "latent": [
+          "33",
+          0
+        ],
+        "strength": 1.0,
+        "bypass": false
+      }
+    }
+  }
+}

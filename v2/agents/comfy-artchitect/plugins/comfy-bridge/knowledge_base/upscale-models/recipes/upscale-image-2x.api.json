@@ -1,0 +1,106 @@
+{
+  "recipe": {
+    "id": "upscale-image-2x",
+    "family": "upscale-models",
+    "task": "upscale-image",
+    "variant": "the downscale-after pattern: RealESRGAN_x4plus 4x then ImageScaleBy 0.5 (lanczos) = a 2x result with the GAN noise averaged out - the template's 'upscale 4x first, then resize down' tip",
+    "from_template": "utility-gan_upscaler note (verbatim: 'Tip: Upscale 4x first, then use a resize node to bring it down to your target resolution') + hiresfix_esrgan_workflow (ImageUpscaleWithModel -> ImageScale downscale). ImageScaleBy keeps the aspect ratio; the archived example used ImageScale to a fixed size with bilinear.",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "ports": {
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name"
+      },
+      "downscale": {
+        "node": "3",
+        "input": "scale_by",
+        "note": "0.5 = 2x overall from a 4x model; 0.75 = 3x; 0.01-8.0"
+      },
+      "downscale_method": {
+        "node": "3",
+        "input": "upscale_method",
+        "note": "lanczos (2026 templates; node tooltip: 'area' is best for downscaling, 'lanczos' for upscaling) | area | bicubic | bilinear (archived example)"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the still; output = input x 4 x downscale (2x by default)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "RealESRGAN_x4plus.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4x model, then x0.5 lanczos. Use this instead of a 2x model when the 4x model is the better one for the content; for an exact target size use ImageScale (width/height, 0 = keep aspect) in place of ImageScaleBy.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM table; ImageUpscaleWithModel tiles internally at 512 px / 32 overlap and halves the tile on OOM down to 128 px, so any CUDA GPU runs it; speed, not VRAM, is the limit)",
+      "time_s": null,
+      "class": "official",
+      "src": "S-NODES-UPSCALE"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "3",
+          0
+        ],
+        "filename_prefix": "upscaled/ComfyUI"
+      }
+    },
+    "3": {
+      "class_type": "ImageScaleBy",
+      "inputs": {
+        "image": [
+          "2",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "scale_by": 0.5
+      }
+    }
+  }
+}

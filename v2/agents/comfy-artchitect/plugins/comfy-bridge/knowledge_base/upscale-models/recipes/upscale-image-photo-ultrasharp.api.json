@@ -1,0 +1,88 @@
+{
+  "recipe": {
+    "id": "upscale-image-photo-ultrasharp",
+    "family": "upscale-models",
+    "task": "upscale-image",
+    "variant": "4x-UltraSharp (Kim2091, ESRGAN 64nf23nb, 4x, CC-BY-NC-SA-4.0): 'lots and lots of detail', 'works best on JPEG compression' - AI renders and photos that want crisp detail; the author's .safetensors build",
+    "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass. Model swapped to the OpenModelDB record 4x-UltraSharp (author HF tree: 4x-UltraSharp.safetensors 66,864,028 B; the OMDB resource itself is a Mega folder with the .pth).",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "confidence_note": "official two-node graph; the model choice follows the OpenModelDB record and docs.comfy.org's 'AI-generated renders: UltraSharp' guidance",
+    "ports": {
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name",
+        "note": "softer alternatives when UltraSharp halos an already-sharp render: RealESRGAN_x4plus.safetensors, 4xNomos8kDAT.pth, 003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the render / photo; output = input x 4"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "4x-UltraSharp.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4x. NON-COMMERCIAL licence (CC-BY-NC-SA-4.0): the licence rule warns; RealESRGAN_x4plus (BSD-3) for commercial work. docs.comfy.org: fix generation issues before upscaling an AI render.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM table; ImageUpscaleWithModel tiles internally at 512 px / 32 overlap and halves the tile on OOM down to 128 px, so any CUDA GPU runs it; speed, not VRAM, is the limit)",
+      "time_s": null,
+      "class": "official",
+      "src": "S-NODES-UPSCALE"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port.",
+      "The .safetensors URL is the author's HF repo path for the file the HF tree lists (https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.safetensors)."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "4x-UltraSharp.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "2",
+          0
+        ],
+        "filename_prefix": "upscaled/ComfyUI"
+      }
+    }
+  }
+}

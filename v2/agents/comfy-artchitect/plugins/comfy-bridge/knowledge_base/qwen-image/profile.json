@@ -1,0 +1,2334 @@
+{
+  "schema": 2,
+  "id": "qwen-image",
+  "name": "Qwen-Image / Qwen-Image-Edit (2509, 2511) / Qwen-Image-2512 / Layered / Qwen-Image-2.1",
+  "publisher": "Alibaba Qwen team; Lightning LoRAs by lightx2v/ModelTC; ControlNets by InstantX, DiffSynth-Studio and Alibaba PAI; Comfy-Org repacks",
+  "license": {
+    "name": "Apache-2.0 (Qwen-Image, Edit, Edit-2509, Edit-2511, 2512, Layered, Lightning LoRAs, Fun-2512 union); Qwen Research License - NON-COMMERCIAL (Qwen-Image-2.1 and its Fun ControlNet)",
+    "commercial": true,
+    "notes": "Everything except 2.1 is Apache-2.0 ('Qwen-Image is licensed under Apache 2.0'). Qwen-Image-2.1 (Hangzhou Tongyi Laboratory Technology Co., Ltd., licence dated 2026-09-20) is under the Qwen RESEARCH LICENSE AGREEMENT: 'You are granted a ... license ... FOR NON-COMMERCIAL PURPOSES ONLY.' 'You shall not use the Materials for any commercial purpose without obtaining a separate commercial license from us... model-business@notice.qwencloud.com'; derivative AI models must display 'Built with Qwen' or 'Improved using Qwen'; governing law China, Hangzhou courts. The 2.1 recipes are free (cost) but not commercial. DiffSynth distill: licence NOT FOUND.",
+    "src": [
+      "S-HF-QI",
+      "S-HF-QWEN-REPOS",
+      "S-LIGHTX2V",
+      "S-DIFFSYNTH-PAI"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image",
+    "control"
+  ],
+  "tasks": [
+    "t2i",
+    "edit",
+    "control",
+    "inpaint",
+    "outpaint",
+    "layer-decompose",
+    "background-removal"
+  ],
+  "cannot": [
+    {
+      "what": "Lightning-distilled runs lose on dense/small text ('the base model is more likely to produce better results') and hair-like detail ('noticeably blurred or excessively sharpened'); 'In highly complex scenes, all three models may fail'",
+      "src": "S-LIGHTX2V"
+    },
+    {
+      "what": "Edit-2509 with more than 3 input images ('Optimal performance is currently achieved with 1 to 3 input images')",
+      "src": "S-HF-QWEN-REPOS"
+    },
+    {
+      "what": "InstantX Union: 'unable to preserve some details without explicit TEXT in prompt, such as small font text'; InstantX Inpainting: 'slightly sensitive to user prompts... use descriptive prompt instead of instructive prompt'",
+      "src": "S-INSTANTX"
+    },
+    {
+      "what": "2.1 above its 2K training size ('Targets well above the model's 2K trained size, such as 4K, lose prompt adherence'); 2.1 commercially (Research licence)",
+      "src": [
+        "S-DOCS-Q21",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "what": "Edit-2511 square canvases degrade (washed out / hallucinated backgrounds at 1024^2 and 1288^2 while 832x1216 is crisp) - community",
+      "src": "S-GH-243"
+    },
+    {
+      "what": "IP-Adapter / CLIP-vision for Qwen-Image: NOT FOUND",
+      "src": "S-HF-COMFY-TREES"
+    },
+    {
+      "what": "Qwen-Image-2.1 on the pinned v0.35.0 image: TextEncodeQwenImage21 / QwenImage21Cache need ComfyUI >= 0.37.x",
+      "src": [
+        "S-REGISTRY",
+        "S-TPL-21"
+      ]
+    },
+    {
+      "what": "Distilled model + Lightning LoRA together ('do not seem to be compatible for simultaneous use')",
+      "src": "S-DOCS-QI"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_qwen.py, nodes_model_patch.py, nodes_cfg.py, nodes_flux.py, nodes_controlnet.py)",
+    "nodes_verified_against_registry": "v0.35.0 - all 22 non-2.1 recipes passed the offline structural check (verify_recipes.py) on 2026-10-02; the three 2.1 recipes fail only on the two 0.37-era classes and are pending",
+    "note": "Templates embed ComfySwitchNode-driven 'Enable Lightning LoRA' switches; each branch is its own recipe here. The 2512 ControlNet template's ResizeImageMaskNode is replaced by ImageScaleToTotalPixels (same 'scale total pixels' operation) because the generic COMFY_MATCHTYPE_V3 output type fails the offline link check."
+  },
+  "files": [
+    {
+      "name": "qwen_image_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430635136,
+      "size_gb": 20.431,
+      "precision": "fp8_e4m3fn (plain downcast)",
+      "variant": "t2i",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX 4090D 24GB, fp8_e4m3fn: 86% VRAM, ~94 s first / ~71 s second generation",
+        "class": "official",
+        "src": [
+          "S-DOCS-QI",
+          "S-TPL-T2I"
+        ]
+      },
+      "quality": "template default; 'produced by directly downcasting the original bf16 weights' -> grid artifacts with bf16-trained Lightning LoRAs (use the fp8-distilled LoRA)",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-T2I",
+        "S-LIGHTX2V"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 40861031488,
+      "size_gb": 40.861,
+      "precision": "bf16",
+      "variant": "t2i",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "reference quality; works with every bf16-trained Lightning LoRA",
+      "src": "S-HF-COMFY-TREES",
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_distill_full_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430635136,
+      "size_gb": 20.431,
+      "precision": "fp8_e4m3fn",
+      "variant": "t2i-distill",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/non_official/diffusion_models/qwen_image_distill_full_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX 4090D: 86%, ~69 s / ~36 s",
+        "class": "official",
+        "src": "S-TPL-T2I"
+      },
+      "quality": "DiffSynth-Studio distill (non_official/): 15 steps cfg 1 per its author (Comfy tested 10); 'do not seem to be compatible' with Lightning LoRAs at the same time; licence NOT FOUND; no recipe",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-DOCS-QI"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430679144,
+      "size_gb": 20.431,
+      "precision": "fp8_e4m3fn",
+      "variant": "t2i-2512",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same 20.4-20.5 GB fp8 class as Qwen-Image)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'Recommended for most users'; Dec-2025 T2I update (human realism, finer detail, text); template note '19.03 GB'",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-2512",
+        "S-DOCS-Q2512"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2512_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 40861031488,
+      "size_gb": 40.861,
+      "precision": "bf16",
+      "variant": "t2i-2512",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'If you have enough VRAM and want better quality'",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-DOCS-Q2512"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_edit_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430635136,
+      "size_gb": 20.431,
+      "precision": "fp8_e4m3fn",
+      "variant": "edit",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same 20.4-20.5 GB fp8 class as Qwen-Image)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "original Qwen-Image-Edit (2025-08-18); template image_qwen_image_edit",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-EDIT"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430698424,
+      "size_gb": 20.431,
+      "precision": "fp8_e4m3fn",
+      "variant": "edit-2509",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same 20.4-20.5 GB fp8 class as Qwen-Image)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "multi-image (1-3) editing, better consistency, ControlNet-style map inputs; templates 2509 and relight",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-2509",
+        "S-HF-QWEN-REPOS"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20533762817,
+      "size_gb": 20.534,
+      "precision": "fp8_mixed",
+      "variant": "edit-2511",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same 20.4-20.5 GB fp8 class as Qwen-Image)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Dec-2025 edit (less drift, character consistency, LoRA, industrial design, geometry); template image_qwen_image_edit_2511; community fix for fp8 noise = this fp8mixed + bf16 LoRA on ComfyUI >= 0.6.0",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-2511",
+        "S-HFD-2511"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_edit_2511_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20499083824,
+      "size_gb": 20.499,
+      "precision": "int8_convrot",
+      "variant": "edit-2511",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "template image_qwen_image_edit_2511_int8 (2026-07-10); loading on v0.35.0 NOT verified; no recipe",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-2511"
+      ],
+      "pairs_with_vae": "qwen_image_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2.1_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 7256783064,
+      "size_gb": 7.257,
+      "precision": "int8_convrot",
+      "variant": "2.1",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'loaded by the templates, lower memory'; 7B single-stream DiT, native 2K, RGBA; template note '6.76 GB'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-21",
+        "S-HF-QWEN-REPOS"
+      ],
+      "pairs_with_vae": "qwen_image_2.1_vae_bf16.safetensors",
+      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2.1_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14230280616,
+      "size_gb": 14.23,
+      "precision": "bf16",
+      "variant": "2.1",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'full precision, needs more memory'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-21"
+      ],
+      "pairs_with_vae": "qwen_image_2.1_vae_bf16.safetensors",
+      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_layered_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 40861043888,
+      "size_gb": 40.861,
+      "precision": "bf16",
+      "variant": "layered",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Layered_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_layered_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "layer decomposition (RGBA layers); template image_qwen_image_layered; shift 1",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-LAYERED"
+      ],
+      "pairs_with_vae": "qwen_image_layered_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_layered_fp8mixed.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20533591821,
+      "size_gb": 20.534,
+      "precision": "fp8_mixed",
+      "variant": "layered",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Layered_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_layered_fp8mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the template note's FP8 alternative",
+      "src": "S-HF-COMFY-TREES",
+      "pairs_with_vae": "qwen_image_layered_vae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9384670680,
+      "size_gb": 9.385,
+      "precision": "fp8_scaled",
+      "variant": "shared (Qwen-Image / Edit / 2509 / 2511 / 2512 / Layered)",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen2.5-VL-7B; CLIPLoader type 'qwen_image'; template note '8.74 GB'; 2511/Layered templates link the identical file under Comfy-Org/HunyuanVideo_1.5_repackaged",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-T2I"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 16584415576,
+      "size_gb": 16.584,
+      "precision": "bf16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-precision encoder",
+      "src": "S-HF-COMFY-TREES",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen3vl_8b_int8_convrot.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9350798360,
+      "size_gb": 9.351,
+      "precision": "int8_convrot",
+      "variant": "2.1",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen3-VL-8B for 2.1 ('loaded by the templates'); bf16 17.534 GB and w4a8 6.312 GB exist; CLIPLoader type 'qwen_image'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-21"
+      ],
+      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253806246,
+      "size_gb": 0.254,
+      "precision": "fp32",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "16-ch Wan2.1-style VAE for Qwen-Image / Edit / 2509 / 2511 / 2512 (latent_formats.Wan21)",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2.1_vae_bf16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 675509688,
+      "size_gb": 0.676,
+      "precision": "bf16",
+      "variant": "2.1",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "RGBA 4-channel VAE; 2.1 latent is 64-channel, /16 spatial. Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES"
+      ],
+      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_layered_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253816616,
+      "size_gb": 0.254,
+      "precision": "fp32",
+      "variant": "layered",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Layered_ComfyUI/resolve/main/split_files/vae/qwen_image_layered_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Layered's own VAE (RGBA layers)",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-LAYERED"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-fp8-e4m3fn-Lightning-4steps-V1.0-fp32.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1698951104,
+      "size_gb": 1.7,
+      "precision": "fp32",
+      "variant": "t2i (fp8 base)",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-fp8-e4m3fn-Lightning-4steps-V1.0-fp32.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lightning 4-step DISTILLED ON the plain fp8 base - the fix for grid artifacts on qwen_image_fp8_e4m3fn; bf16 twin 0.85 GB",
+      "src": "S-LIGHTX2V",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-Lightning-8steps-V1.0.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1698951104,
+      "size_gb": 1.7,
+      "precision": "fp32",
+      "variant": "t2i (bf16 base)",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-8steps-V1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "docs/template default 8-step; bf16-trained -> grid pattern on the plain fp8 base; V1.1 and V2.0 exist (V2.0 'reduced over-saturation ... improved skin texture')",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-T2I"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-Lightning-4steps-V1.0.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1698951104,
+      "size_gb": 1.7,
+      "precision": "fp32",
+      "variant": "t2i (bf16 base)",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "4-step V1.0 used by the InstantX / union-LoRA / 2512-controlnet templates on fp8 bases - same grid caveat on qwen_image_fp8_e4m3fn",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-INSTANTX"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1698951104,
+      "size_gb": 1.7,
+      "precision": "fp32",
+      "variant": "t2i-2512",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "template image_qwen_Image_2512; 8-step twin exists",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-2512"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Wuli-Qwen-Image-2512-Turbo-LoRA-2steps-V1.0-bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 2359534464,
+      "size_gb": 2.36,
+      "precision": "bf16",
+      "variant": "t2i-2512",
+      "url": "https://huggingface.co/Wuli-art/Qwen-Image-2512-Turbo-LoRA-2-Steps/resolve/main/Wuli-Qwen-Image-2512-Turbo-LoRA-2steps-V1.0-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "third-party 2-step turbo LoRA (template image_qwen_image_2512_with_2steps_lora)",
+      "src": [
+        "S-WULI",
+        "S-TPL-2STEP"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 849608296,
+      "size_gb": 0.85,
+      "precision": "bf16",
+      "variant": "edit",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Edit Lightning 4-step (template image_qwen_image_edit)",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-EDIT"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 849608296,
+      "size_gb": 0.85,
+      "precision": "bf16",
+      "variant": "edit-2509",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "2509 Lightning 4-step (templates 2509, relight)",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-2509"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 849608296,
+      "size_gb": 0.85,
+      "precision": "bf16",
+      "variant": "edit-2511",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "2511 Lightning 4-step (template 2511)",
+      "src": [
+        "S-LIGHTX2V",
+        "S-TPL-2511"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-InstantX-ControlNet-Union.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 3536027816,
+      "size_gb": 3.536,
+      "precision": "bf16",
+      "variant": "control",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "InstantX Union: canny, soft edge, depth, pose; conditioning scale 0.8-1.0; add 'TEXT' to prompts with text; folder models/controlnet",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-INSTANTX"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 4234599432,
+      "size_gb": 4.235,
+      "precision": "bf16",
+      "variant": "inpaint",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "InstantX Inpainting (object replacement, text modification, background replacement, outpainting); ComfyUI >= 0.3.59; descriptive prompts",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-INSTANTX"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_canny_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266838080,
+      "size_gb": 2.267,
+      "precision": "bf16",
+      "variant": "control",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_canny_diffsynth_controlnet.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "DiffSynth block-wise canny ControlNet as a model patch (ModelPatchLoader -> QwenImageDiffsynthControlnet); folder models/model_patches",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-PATCH",
+        "S-DIFFSYNTH-PAI"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_depth_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266838080,
+      "size_gb": 2.267,
+      "precision": "bf16",
+      "variant": "control",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_depth_diffsynth_controlnet.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "DiffSynth depth patch",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-DOCS-QI"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_inpaint_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266862656,
+      "size_gb": 2.267,
+      "precision": "bf16",
+      "variant": "inpaint",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_inpaint_diffsynth_controlnet.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "DiffSynth inpaint patch: wire LoadImage.mask -> QwenImageDiffsynthControlnet.mask; no recipe (docs instructions only)",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-DOCS-QI"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_union_diffsynth_lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 943906720,
+      "size_gb": 0.944,
+      "precision": "bf16",
+      "variant": "control",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/loras/qwen_image_union_diffsynth_lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "DiffSynth In-Context Control Union LoRA (canny, depth, pose, lineart, softedge, normal, openpose) + ReferenceLatent; folder models/loras",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-UNION-LORA"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 3512432536,
+      "size_gb": 3.51,
+      "precision": "bf16",
+      "variant": "control-2512",
+      "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union/resolve/main/Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "alibaba-pai Fun Union for 2512 (Apache-2.0): Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale; a ControlNet in models/controlnet (template note '3.27 GB'); a non-2602 build also exists",
+      "src": [
+        "S-DIFFSYNTH-PAI",
+        "S-TPL-2512-CN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_image_2.1_fun_controlnet_union_bf16.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 7550977992,
+      "size_gb": 7.551,
+      "precision": "bf16",
+      "variant": "control-2.1",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/model_patches/qwen_image_2.1_fun_controlnet_union_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "alibaba-pai Fun Union for 2.1 (8 conditions + inpaint) -> ModelPatchLoader + ZImageFunControlnet; int8 twin 3.779 GB; NO template; Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-DIFFSYNTH-PAI",
+        "S-NODES"
+      ],
+      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF: city96/Qwen-Image-gguf (Apache-2.0) Q2_K 7.06 .. Q4_K_M 13.07 .. Q8_0 21.76 GB; QuantStack/Qwen-Image-Edit-2509-GGUF; unsloth/Qwen-Image-Edit-2511-GGUF (Q4_K_M 13.24, Q8_0 21.76 GB)",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "unet",
+      "node": "UnetLoaderGGUF",
+      "class": "community",
+      "src": "S-GGUF"
+    },
+    {
+      "what": "lightx2v scaled fp8 bases ('converted with scaling to ensure better compatibility with the existing suite of LoRA weights trained on BF16 bases'): Qwen-Image/qwen_image_fp8_e4m3fn_scaled 20.44 GB, Qwen-Image-Edit-2509/qwen_image_edit_2509_fp8_e4m3fn_scaled 20.44 GB, qwen_image_edit_2511_fp8_e4m3fn_scaled 20.49 GB, qwen_image_2512_fp8_e4m3fn_scaled 20.49 GB; plus fused Lightning checkpoints (…_lightning_comfyui_4steps_v1.0)",
+      "needs_pack": null,
+      "class": "official (lightx2v)",
+      "src": "S-LIGHTX2V"
+    },
+    {
+      "what": "community edit LoRAs rehosted by Comfy-Org (Qwen-Image-Edit_ComfyUI/split_files/loras): Relight (trigger '重新照明,'; template image_qwen_image_edit_2509_relight), Light-Migration, Multiple-angles, Fusion, White_to_Scene, Anything2RealAlpha",
+      "needs_pack": null,
+      "class": "community",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-RELIGHT"
+      ]
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "recipe": "t2i-2512",
+      "why": "the current T2I: human realism, finer natural detail, improved text ('currently the strongest open-source model' - self-reported); 50 steps cfg 4 with the official Chinese negative",
+      "src": [
+        "S-HF-QWEN-REPOS",
+        "S-TPL-2512"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2i-2512-lightning-4step",
+      "tradeoff": "4 steps cfg 1; weaker on dense/small text and hair detail",
+      "src": [
+        "S-TPL-2512",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "draft",
+      "recipe": "t2i-2512-turbo-2step",
+      "tradeoff": "2 steps; 'some quality is sacrificed for speed'; third-party LoRA",
+      "src": [
+        "S-TPL-2STEP",
+        "S-WULI"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "quality": "original-aug-2025",
+      "recipe": "t2i",
+      "why": "the original Qwen-Image (text rendering benchmark model) when the 2512 look is not wanted; 20 steps cfg 4, ~94 s on a 4090D",
+      "src": [
+        "S-TPL-T2I",
+        "S-DOCS-QI"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "quality": "original-aug-2025",
+      "recipe": "t2i-lightning-4step",
+      "tradeoff": "4 steps cfg 1 with the fp8-distilled LoRA (no grid artifacts); ~55 s -> ~34 s",
+      "src": [
+        "S-TPL-T2I",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "recipe": "edit-2511",
+      "why": "the newest Apache edit model: less drift, better character consistency, LoRA support; 40 steps cfg 3",
+      "src": [
+        "S-TPL-2511",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "inputs": "target + reference(s)",
+      "recipe": "edit-2511-multi-image",
+      "why": "material / object / person transfer from a second image",
+      "src": "S-TPL-2511"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "edit-2511-lightning-4step",
+      "tradeoff": "4 steps cfg 1",
+      "src": "S-TPL-2511"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "quality": "2509",
+      "recipe": "edit-2509",
+      "why": "the 2509 editor without LoRA (20 steps cfg 4); 'Native Support for ControlNet' map inputs; use when 2511 drifts",
+      "src": [
+        "S-TPL-2509",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "quality": "2509",
+      "recipe": "edit-2509-lightning-4step",
+      "tradeoff": "the template's shipped default: 4 steps cfg 1",
+      "src": "S-TPL-2509"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "inputs": "target + 2 references",
+      "recipe": "edit-2509-multi-image-lightning-4step",
+      "why": "three-image compositing (optimal 1-3 inputs)",
+      "src": [
+        "S-TPL-2509",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "quality": "legacy",
+      "recipe": "edit",
+      "why": "the original single-image editor (TextEncodeQwenImageEdit); kept for compatibility, superseded by 2509/2511",
+      "src": "S-TPL-EDIT"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "quality": "legacy",
+      "recipe": "edit-lightning-4step",
+      "tradeoff": "4 steps cfg 1",
+      "src": "S-TPL-EDIT"
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "recipe": "control-instantx-union",
+      "why": "canny / soft edge / depth / pose with a ready map; 20 steps cfg 2.5",
+      "src": [
+        "S-TPL-INSTANTX",
+        "S-INSTANTX"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "control-instantx-union-lightning-4step",
+      "tradeoff": "4 steps cfg 1 (fp8-distilled LoRA)",
+      "src": "S-TPL-INSTANTX"
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "quality": "2512",
+      "recipe": "control-2512-fun-union",
+      "why": "the 2512 model with alibaba-pai's 7-condition union (Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale); 50 steps cfg 4",
+      "src": [
+        "S-TPL-2512-CN",
+        "S-DIFFSYNTH-PAI"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "quality": "patch",
+      "recipe": "control-diffsynth-patch-canny",
+      "why": "DiffSynth block-wise patch with Canny in-graph (2.3 GB patch, no ControlNet pass through the conditioning)",
+      "src": "S-TPL-PATCH"
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "quality": "patch",
+      "recipe": "control-diffsynth-patch-map",
+      "why": "same with a ready depth/canny map",
+      "src": [
+        "S-TPL-PATCH",
+        "S-DOCS-QI"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "quality": "union-lora",
+      "recipe": "control-union-lora",
+      "why": "the lightest option (0.9 GB LoRA + ReferenceLatent) covering canny, depth, pose, lineart, softedge, normal, openpose",
+      "src": "S-TPL-UNION-LORA"
+    },
+    {
+      "task": "inpaint",
+      "vram_gb_min": 24,
+      "recipe": "inpaint-instantx",
+      "why": "masked object replacement / text modification / background replacement with original pixels composited back",
+      "src": [
+        "S-TPL-INPAINT",
+        "S-INSTANTX"
+      ]
+    },
+    {
+      "task": "outpaint",
+      "vram_gb_min": 24,
+      "recipe": "outpaint-instantx-lightning-4step",
+      "why": "canvas extension with the InstantX inpainting ControlNet (the template's outpaint branch, 4 steps)",
+      "src": "S-TPL-INPAINT"
+    },
+    {
+      "task": "layer-decompose",
+      "vram_gb_min": null,
+      "recipe": "layered",
+      "why": "split an image into editable RGBA layers (recolor / replace / reposition workflows)",
+      "src": [
+        "S-TPL-LAYERED",
+        "S-DOCS-LAYERED"
+      ]
+    },
+    {
+      "task": "t2i",
+      "quality": "2.1 (2K, RGBA)",
+      "recipe": "t2i-2-1",
+      "status": "needs ComfyUI >= 0.37.2, above the pinned image (TextEncodeQwenImage21, QwenImage21Cache); also Qwen Research License - NON-COMMERCIAL ONLY",
+      "src": [
+        "S-TPL-21",
+        "S-REGISTRY",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "task": "edit",
+      "quality": "2.1 (up to 10 references)",
+      "recipe": "edit-2-1",
+      "status": "needs ComfyUI >= 0.37.0, above the pinned image; NON-COMMERCIAL licence",
+      "src": [
+        "S-TPL-21",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "task": "background-removal",
+      "recipe": "background-removal-2-1",
+      "status": "needs ComfyUI >= 0.37.0, above the pinned image; NON-COMMERCIAL licence",
+      "src": [
+        "S-TPL-21",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "task": "control",
+      "quality": "2.1",
+      "recipe": null,
+      "status": "pending: alibaba-pai Fun ControlNet-Union for 2.1 (ModelPatchLoader + ZImageFunControlnet) has no template; also 0.37+ and non-commercial",
+      "src": [
+        "S-DIFFSYNTH-PAI",
+        "S-NODES"
+      ]
+    },
+    {
+      "task": "inpaint",
+      "quality": "patch",
+      "recipe": null,
+      "status": "pending: DiffSynth inpaint patch is documented (mask -> QwenImageDiffsynthControlnet.mask) but has no template graph",
+      "src": "S-DOCS-QI"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler",
+      "input": "steps",
+      "meaning": "",
+      "defaults": {
+        "t2i": 20,
+        "t2i-2512": 50,
+        "edit": 20,
+        "edit-2509": 20,
+        "edit-2511": 40,
+        "control (instantx/patch/union)": 20,
+        "control-2512": 50,
+        "layered": 20,
+        "2.1": 25,
+        "lightning 4-step": 4,
+        "lightning 8-step": 8,
+        "wuli turbo": 2
+      },
+      "range": [
+        2,
+        50
+      ],
+      "official_reference_code": {
+        "qwen-image / edit": "50 (num_inference_steps=50)",
+        "2509 / 2511 code": 40,
+        "2.1": "about 40-50 with euler",
+        "diffsynth distill": "15 (author) / 10 (Comfy)",
+        "layered": 50
+      },
+      "interactions": "lightx2v: distilled = '12-25x speed improvement with no significant loss in performance in most cases'; InstantX note: 'The official number of steps is 50 but I think that's too much. Even just 10 steps seems to work.'",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-2512",
+        "S-TPL-2511",
+        "S-TPL-INSTANTX",
+        "S-HF-QI",
+        "S-DOCS-Q21",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "true CFG; at 1.0 ComfyUI skips the negative pass",
+      "defaults": {
+        "t2i / 2512 / 2509": 4.0,
+        "edit / instantx / patch / union": 2.5,
+        "edit-2511": 3.0,
+        "layered": 2.5,
+        "2.1": 1.0,
+        "any Lightning / Turbo LoRA": 1.0
+      },
+      "range": [
+        1.0,
+        4.0
+      ],
+      "official_reference_code": {
+        "qwen-image": "true_cfg_scale 4.0",
+        "edit": 4.0,
+        "2.1": "1 ('cfg 2 follows dense prompts more closely... cfg 5 degrades quality badly, and cfg 0.5 breaks the image')"
+      },
+      "interactions": "cfg must be 1 under Lightning (defeats the distillation otherwise); 'Set cfg to 1.0 for a speed boost at the cost of consistency' (InstantX note)",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-EDIT",
+        "S-TPL-2511",
+        "S-HF-QI",
+        "S-DOCS-Q21",
+        "S-TPL-INSTANTX"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingAuraFlow",
+      "input": "shift",
+      "meaning": "flow timestep shift (ComfyUI QwenImage config default 1.15; node default 1.73)",
+      "defaults": {
+        "t2i / 2512 / controlnets / 2511": 3.1,
+        "edit / 2509 / relight / 2-step": 3.0,
+        "layered": 1.0,
+        "2.1": "none (config 0.69 internal; no node in the template)"
+      },
+      "range": [
+        3.0,
+        3.1
+      ],
+      "official_reference_code": {
+        "lightx2v": "'We use shift=3 in distillation'"
+      },
+      "interactions": "'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.' Community (single source): shift 12-13 'solves most issues with bad outputs' with the 8-step LoRA - a last-resort knob that conflicts with the templates",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-EDIT",
+        "S-TPL-LAYERED",
+        "S-TPL-INSTANTX",
+        "S-LIGHTX2V",
+        "S-NODES",
+        "S-GH-9297"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "all templates": "euler / simple"
+      },
+      "range": null,
+      "interactions": "'Samplers like res_multistep work pretty well at cfg 1.0' (InstantX note); 2.1: 'More advanced samplers need fewer steps'",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-INSTANTX",
+        "S-DOCS-Q21"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage",
+      "input": "width, height",
+      "meaning": "multiples of 16 (node step); 1328x1328 default",
+      "defaults": {
+        "native aspect table (2512 README / Comfy notes)": [
+          "1328x1328",
+          "1664x928",
+          "928x1664",
+          "1472x1104",
+          "1104x1472",
+          "1584x1056",
+          "1056x1584"
+        ],
+        "older Qwen-Image README 4:3 / 3:4": [
+          "1472x1140",
+          "1140x1472"
+        ],
+        "2.1 official (2K)": [
+          "2048x2048",
+          "2400x1792",
+          "1792x2400",
+          "2528x1696",
+          "1696x2528",
+          "2752x1536",
+          "1536x2752"
+        ]
+      },
+      "range": null,
+      "interactions": "edit outputs follow the (scaled) input: ImageScaleToTotalPixels 1-1.5 MP or FluxKontextImageScale; inpaint max dimension 1536; 2.1 prefers multiples of 32 and 1 MP default / 4 MP native 2K",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-2512",
+        "S-HF-QI",
+        "S-HF-QWEN-REPOS",
+        "S-DOCS-Q21",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "strength",
+      "node": "CFGNorm",
+      "input": "strength",
+      "meaning": "post-CFG x0-space rescale ('attenuate-only') used by every Edit template",
+      "defaults": {
+        "edit / 2509 / 2511": 1.0,
+        "t2i": "not used"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-EDIT",
+        "S-TPL-2509",
+        "S-TPL-2511",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "strength",
+      "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply|QwenImageDiffsynthControlnet",
+      "input": "strength",
+      "meaning": "control strength",
+      "defaults": {
+        "templates": 1.0
+      },
+      "range": [
+        0.8,
+        1.0
+      ],
+      "official_reference_code": {
+        "InstantX": "conditioning scale 0.8-1.0",
+        "Fun 2.1": "control_context_scale 1.0 default"
+      },
+      "src": [
+        "S-INSTANTX",
+        "S-DIFFSYNTH-PAI",
+        "S-TPL-INSTANTX"
+      ]
+    },
+    {
+      "name": "megapixels / largest_size",
+      "node": "ImageScaleToTotalPixels|ImageScaleToMaxDimension|FluxKontextImageScale",
+      "input": "megapixels / largest_size",
+      "meaning": "input normalisation before edit/control ('to avoid poor output results caused by excessively large input image sizes')",
+      "defaults": {
+        "edit": "1.5 MP lanczos (template widget; docs say ~1 MP)",
+        "patch": "1.68 MP area",
+        "union lora": "1 MP lanczos",
+        "2512 control": "1.6 MP area",
+        "inpaint": "max 1536 area",
+        "layered": "max 640 lanczos ('1024px for high-res')",
+        "2509 / 2511 / instantx": "FluxKontextImageScale preferred resolutions"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-EDIT",
+        "S-TPL-PATCH",
+        "S-TPL-UNION-LORA",
+        "S-TPL-2512-CN",
+        "S-TPL-INPAINT",
+        "S-TPL-LAYERED",
+        "S-TPL-2509"
+      ]
+    },
+    {
+      "name": "resolution",
+      "node": "TextEncodeQwenImage21",
+      "input": "resolution",
+      "meaning": "2.1 reference pixel budget: 'Reference images are resized to about resolution x resolution pixels, at multiples of 32, preserving aspect ratio. 0 keeps each reference at its own size, rounded to a multiple of 32.'",
+      "defaults": {
+        "t2i template": 1024,
+        "edit templates": 0
+      },
+      "range": [
+        0,
+        4096
+      ],
+      "src": [
+        "S-TPL-21",
+        "S-DOCS-Q21"
+      ]
+    },
+    {
+      "name": "layers",
+      "node": "EmptyQwenImageLayeredLatentImage",
+      "input": "layers",
+      "meaning": "number of RGBA layers to decompose into",
+      "defaults": {
+        "template": 2
+      },
+      "range": null,
+      "src": "S-TPL-LAYERED"
+    },
+    {
+      "name": "seed",
+      "node": "KSampler",
+      "input": "seed",
+      "meaning": "",
+      "defaults": {
+        "templates": "randomize (2-step turbo and 2.1 T2I: fixed)"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-2STEP"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-qwen-image",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "qwen_image"
+      },
+      "message": "every Qwen-Image family model (incl. Edit, 2512, Layered, 2.1) encodes text through CLIPLoader type 'qwen_image'",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-21",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "encoder-for-qwen25vl-models",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_(?!2\\.1)"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen_2\\.5_vl_7b(_fp8_scaled|_nvfp4)?\\.safetensors$"
+      },
+      "message": "Qwen-Image / Edit / 2509 / 2511 / 2512 / Layered use the Qwen2.5-VL-7B encoder (qwen_2.5_vl_7b_fp8_scaled in every template); ComfyUI detects it at qwen25_7b.transformer.",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES",
+        "S-TPL-T2I"
+      ]
+    },
+    {
+      "id": "encoder-for-2-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_2\\.1"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen3vl_8b_"
+      },
+      "message": "Qwen-Image-2.1 uses the Qwen3-VL-8B encoder (qwen3vl_8b_int8_convrot / bf16 / w4a8), detected at qwen3vl_8b.transformer. - not the 2.5-VL file",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES",
+        "S-TPL-21"
+      ]
+    },
+    {
+      "id": "vae-16ch",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_(?!2\\.1|layered)"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "qwen_image_vae.safetensors"
+      },
+      "message": "Qwen-Image / Edit / 2509 / 2511 / 2512 decode with qwen_image_vae.safetensors (16-ch Wan2.1-style latent)",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES",
+        "S-TPL-T2I"
+      ]
+    },
+    {
+      "id": "vae-2-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_2\\.1"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "qwen_image_2.1_vae_bf16.safetensors"
+      },
+      "message": "Qwen-Image-2.1 has its own RGBA VAE (64-channel, /16 latent); the 16-ch qwen_image_vae cannot decode it",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-NODES",
+        "S-TPL-21"
+      ]
+    },
+    {
+      "id": "vae-layered",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_layered"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "qwen_image_layered_vae.safetensors"
+      },
+      "message": "Qwen-Image-Layered decodes RGBA layers with qwen_image_layered_vae.safetensors",
+      "src": [
+        "S-HF-COMFY-TREES",
+        "S-TPL-LAYERED"
+      ]
+    },
+    {
+      "id": "shift-min-3",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_(?!2\\.1|layered)"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "min": 3.0,
+        "all": true
+      },
+      "message": "every Qwen-Image / Edit / 2512 template sets ModelSamplingAuraFlow shift 3-3.1 (lightx2v distilled at shift 3); the node default 1.73 and the config's 1.15 are not template values",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-EDIT",
+        "S-TPL-2512",
+        "S-LIGHTX2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "shift-template-window",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_(?!2\\.1|layered)"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "max": 3.1,
+        "all": true
+      },
+      "message": "above 3.1 you are outside every template; the note allows raising shift against blurry/dark output, and one community report uses 12-13 with the 8-step LoRA - treat as a last resort",
+      "src": [
+        "S-TPL-INSTANTX",
+        "S-GH-9297"
+      ]
+    },
+    {
+      "id": "shift-layered-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_layered"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Qwen-Image-Layered runs at shift 1.0 (both layered templates), not the 3-3.1 of the other Qwen models",
+      "src": "S-TPL-LAYERED"
+    },
+    {
+      "id": "cfg-1-under-lightning",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "Lightning|Turbo-LoRA"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "under a Lightning / Turbo LoRA cfg is 1.0 (every template's switch sets 1); cfg > 1 defeats the distillation and doubles the cost",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-2512",
+        "S-TPL-EDIT",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "id": "steps-4-under-4step-lora",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "4steps"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 4,
+        "all": true
+      },
+      "message": "a 4-step Lightning LoRA is sampled at 4 steps (template switch value)",
+      "src": [
+        "S-TPL-2512",
+        "S-TPL-EDIT",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "id": "steps-8-under-8step-lora",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "8steps"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "an 8-step Lightning LoRA is sampled at 8 steps",
+      "src": [
+        "S-TPL-T2I",
+        "S-LIGHTX2V"
+      ]
+    },
+    {
+      "id": "steps-2-under-2step-lora",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "2steps"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 2,
+        "all": true
+      },
+      "message": "the Wuli 2-step Turbo LoRA is sampled at 2 steps",
+      "src": "S-TPL-2STEP"
+    },
+    {
+      "id": "fp8-base-needs-fp8-lightning",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^Qwen-Image-Lightning-(4|8)steps"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(?!qwen_image_fp8_e4m3fn\\.safetensors$).+"
+      },
+      "message": "qwen_image_fp8_e4m3fn.safetensors 'was produced by directly downcasting the original bf16 weights'; the bf16-trained Qwen-Image-Lightning LoRAs produce 'a grid-like pattern' on it. On the plain fp8 base use Qwen-Image-fp8-e4m3fn-Lightning-4steps-V1.0 (distilled on fp8), or switch to the bf16 / lightx2v scaled-fp8 base",
+      "src": [
+        "S-LIGHTX2V",
+        "S-GRID-ISSUE"
+      ]
+    },
+    {
+      "id": "edit-uses-edit-encoder",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_edit_(2509|2511)"
+      },
+      "require": {
+        "node": "TextEncodeQwenImageEditPlus",
+        "input": "clip",
+        "linked": true
+      },
+      "message": "Edit-2509 / 2511 condition on the input image(s) through TextEncodeQwenImageEditPlus (Picture 1..3 + reference_latents); plain CLIPTextEncode gives the model no image",
+      "src": [
+        "S-TPL-2509",
+        "S-TPL-2511",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "edit-original-encoder",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_edit_(fp8|bf16)"
+      },
+      "require": {
+        "node": "TextEncodeQwenImageEdit|TextEncodeQwenImageEditPlus",
+        "input": "clip",
+        "linked": true
+      },
+      "message": "the original Qwen-Image-Edit conditions through TextEncodeQwenImageEdit (image + vae for the reference latent)",
+      "src": [
+        "S-TPL-EDIT",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "cfgnorm-on-edit",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_edit"
+      },
+      "require": {
+        "node": "CFGNorm",
+        "input": "strength",
+        "equals": 1.0
+      },
+      "message": "every official Qwen-Image-Edit template (Edit, 2509, 2511, relight) inserts CFGNorm strength 1 after ModelSamplingAuraFlow",
+      "src": [
+        "S-TPL-EDIT",
+        "S-TPL-2509",
+        "S-TPL-2511",
+        "S-TPL-RELIGHT"
+      ]
+    },
+    {
+      "id": "edit-latent-is-input",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "TextEncodeQwenImageEdit|TextEncodeQwenImageEditPlus",
+        "input": "clip",
+        "linked": true
+      },
+      "require": {
+        "node": "VAEEncode",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "the Edit templates start from VAEEncode(input image) as latent_image (full denoise; it fixes the output size to the scaled input) - an empty latent breaks the size/alignment",
+      "src": [
+        "S-TPL-EDIT",
+        "S-TPL-2509",
+        "S-TPL-2511"
+      ]
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage|EmptyQwenImageLayeredLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "the Qwen latent nodes take width/height in multiples of 16; control recipes that size from GetImageSize need a control image already at a multiple of 16",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "native-aspect",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1328x1328",
+          "1664x928",
+          "928x1664",
+          "1472x1104",
+          "1104x1472",
+          "1584x1056",
+          "1056x1584",
+          "1472x1140",
+          "1140x1472"
+        ]
+      },
+      "message": "not in Qwen-Image's native aspect table (1:1 1328x1328, 16:9 1664x928, 9:16 928x1664, 4:3 1472x1104, 3:4 1104x1472, 3:2 1584x1056, 2:3 1056x1584; the older README's 4:3/3:4 were 1472x1140 / 1140x1472) - it runs, but the model was trained at these",
+      "src": [
+        "S-TPL-T2I",
+        "S-TPL-2512",
+        "S-HF-QI",
+        "S-HF-QWEN-REPOS"
+      ]
+    },
+    {
+      "id": "controlnet-strength",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply",
+        "input": "strength"
+      },
+      "numeric": {
+        "min": 0.8,
+        "max": 1.0
+      },
+      "message": "InstantX recommends conditioning scale 0.8-1.0; templates use 1.0",
+      "src": [
+        "S-INSTANTX",
+        "S-TPL-INSTANTX"
+      ]
+    },
+    {
+      "id": "controlnet-has-vae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^Qwen-Image-"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply",
+        "input": "vae",
+        "linked": true
+      },
+      "message": "the Qwen ControlNets (InstantX union/inpainting, Fun 2512) are applied with the VAE connected (ControlNetApplyAdvanced.vae / ControlNetInpaintingAliMamaApply.vae) in every template",
+      "src": [
+        "S-TPL-INSTANTX",
+        "S-TPL-INPAINT",
+        "S-TPL-2512-CN"
+      ]
+    },
+    {
+      "id": "union-lora-reference-latent",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^qwen_image_union_diffsynth_lora"
+      },
+      "require": {
+        "node": "ReferenceLatent",
+        "input": "latent",
+        "linked": true
+      },
+      "message": "the DiffSynth union control LoRA takes its control map as a ReferenceLatent on the conditioning (VAEEncode of the map on both positive and negative); without it the LoRA has no control signal",
+      "src": [
+        "S-TPL-UNION-LORA",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "controlnet-on-matching-base",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^Qwen-Image-2512-Fun"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_2512"
+      },
+      "message": "the alibaba-pai Fun ControlNet-Union 2602 is trained for Qwen-Image-2512 (template pairs it with qwen_image_2512_fp8_e4m3fn)",
+      "src": [
+        "S-TPL-2512-CN",
+        "S-DIFFSYNTH-PAI"
+      ]
+    },
+    {
+      "id": "layered-latent-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image_layered"
+      },
+      "require": {
+        "node": "EmptyQwenImageLayeredLatentImage",
+        "input": "layers",
+        "exists": true
+      },
+      "message": "Layered samples into EmptyQwenImageLayeredLatentImage (layers x H x W) and decodes after LatentCut(t, 1) -> LatentCutToBatch(t, 1); EmptySD3LatentImage is the wrong shape",
+      "src": "S-TPL-LAYERED"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs at least this ComfyUI: the 2.1 templates need 0.37.0 / 0.37.2 (> pinned 0.35.0: TextEncodeQwenImage21, QwenImage21Cache); InstantX inpainting >= 0.3.59; everything else <= 0.8.0",
+      "src": [
+        "S-TPL-INDEX",
+        "S-REGISTRY",
+        "S-INSTANTX"
+      ]
+    }
+  ],
+  "prompting": {
+    "negative_default": " ",
+    "negative_src": [
+      "S-HF-QI",
+      "S-HF-QE"
+    ],
+    "negative_note": "A single space is the official negative for Qwen-Image / Edit / 2509 / 2511 ('using an empty string if you do not have specific concept to remove'); Comfy templates ship \"\" or \" \" interchangeably. Ignored whenever cfg is 1 (every Lightning branch, all of 2.1).",
+    "negative_alternatives": {
+      "qwen-image-2512 (official, verbatim)": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲。",
+      "comfy 2512 templates": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲 (no trailing full stop)"
+    },
+    "positive_suffix": {
+      "english": ", Ultra HD, 4K, cinematic composition.",
+      "chinese": ", 超清，4K，电影级构图.",
+      "src": "S-HF-QI"
+    },
+    "positive": [
+      {
+        "line": "Append the official 'magic' suffix ', Ultra HD, 4K, cinematic composition.' (English) / ', 超清，4K，电影级构图.' (Chinese) to T2I prompts",
+        "class": "official",
+        "src": "S-HF-QI"
+      },
+      {
+        "line": "Text rendering: put the exact strings in double quotes inside a scene description - 'A coffee shop entrance features a chalkboard sign reading \"Qwen Coffee 😊 $2 per cup,\" with a neon light beside it displaying \"通义千问\".' Scripts: English, Chinese, Korean, Japanese",
+        "class": "official",
+        "src": [
+          "S-HF-QI",
+          "S-DOCS-QI"
+        ]
+      },
+      {
+        "line": "Edit instructions are imperative sentences: 'Change the rabbit's color to purple, with a flash light background.'; 2509 two-image: 'The magician bear is on the left, the alchemist bear is on the right, facing each other in the central park square.'; 2511: 'Change the furniture leather difference in image 1 to the fur material in image 2.' - refer to inputs as image 1 / image 2 / image 3",
+        "class": "official",
+        "src": [
+          "S-HF-QE",
+          "S-HF-QWEN-REPOS",
+          "S-TPL-2511"
+        ]
+      },
+      {
+        "line": "2.1 addresses references by tag: 'Keep the character and pose in <image1> unchanged, put this light blue denim shirt from <image2> on the character, preserve the original facial features, hair, body shape and pose'; paint a coloured mark on image_1 and name the colour to target a region ('change the jacket in the red area')",
+        "class": "official",
+        "src": "S-DOCS-Q21"
+      },
+      {
+        "line": "2.1 RGBA output: 'This is an RGBA image with transparency. A cute cartoon dragon sticker. The image has alpha channel and the background is transparent.' - save PNG",
+        "class": "official",
+        "src": [
+          "S-HF-QWEN-REPOS",
+          "S-TPL-21"
+        ]
+      },
+      {
+        "line": "InstantX ControlNets: 'it is highly suggested to add TEXT into prompt if there are text elements' ('a poster with text InstantX Team on the top'); InstantX inpainting: describe the ENTIRE image descriptively, not instructively",
+        "class": "official",
+        "src": "S-INSTANTX"
+      },
+      {
+        "line": "Layered: the prompt describes the whole input including occluded content; it does not control individual layers",
+        "class": "official",
+        "src": "S-TPL-LAYERED"
+      },
+      {
+        "line": "Relight LoRA (2509): prepend its trigger '重新照明,' (the template does it with StringConcatenate)",
+        "class": "community",
+        "src": "S-TPL-RELIGHT"
+      }
+    ],
+    "structure": "T2I: full scene description with quoted text strings + the magic suffix. Edit: one imperative instruction naming image 1/2/3. 2.1: <imageN> tags.",
+    "hurts": [
+      {
+        "line": "cfg > 1 with Lightning LoRAs (defeats the distillation)",
+        "src": [
+          "S-TPL-T2I",
+          "S-LIGHTX2V"
+        ]
+      },
+      {
+        "line": "dense / small text and hair detail under Lightning",
+        "src": "S-LIGHTX2V"
+      },
+      {
+        "line": "negative prompts at cfg 1 (ignored)",
+        "src": "S-DOCS-Q21"
+      },
+      {
+        "line": "4K targets on 2.1; more than 3 inputs on 2509; instructive prompts for InstantX inpaint",
+        "src": [
+          "S-DOCS-Q21",
+          "S-HF-QWEN-REPOS",
+          "S-INSTANTX"
+        ]
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "grid-like pattern over the image",
+      "cause": "plain fp8 base (qwen_image_fp8_e4m3fn) + a bf16-trained Lightning LoRA",
+      "fix": "Qwen-Image-fp8-e4m3fn-Lightning-4steps-V1.0 (fp8-distilled), or the bf16 / lightx2v scaled-fp8 base",
+      "src": [
+        "S-LIGHTX2V",
+        "S-GRID-ISSUE"
+      ]
+    },
+    {
+      "symptom": "distilled model + Lightning LoRA misbehaves",
+      "cause": "'do not seem to be compatible for simultaneous use'",
+      "fix": "one or the other",
+      "src": "S-DOCS-QI"
+    },
+    {
+      "symptom": "blurry / dark / bad outputs",
+      "cause": "shift too low for the run",
+      "fix": "'Increase the shift' (template note); community last resort 12-13 with the 8-step LoRA; GGUF 2512 blur reports exist",
+      "src": [
+        "S-TPL-INSTANTX",
+        "S-GH-9297",
+        "S-HFD-2512GGUF"
+      ]
+    },
+    {
+      "symptom": "Edit-2511 fp8 gives noise/garbage",
+      "cause": "fp8 + LoRA on an older ComfyUI",
+      "fix": "ComfyUI >= 0.6.0 with qwen_image_edit_2511_fp8mixed + the bf16 2511 Lightning LoRA (the template's pairing), or lightx2v's fused qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0",
+      "src": "S-HFD-2511"
+    },
+    {
+      "symptom": "Edit-2511 washed-out or hallucinated backgrounds",
+      "cause": "square canvases (1024^2, 1288^2)",
+      "fix": "non-square canvases such as 832x1216, or test both",
+      "src": "S-GH-243"
+    },
+    {
+      "symptom": "poor edit / control quality",
+      "cause": "oversized inputs",
+      "fix": "ImageScaleToTotalPixels 1-1.5 MP or FluxKontextImageScale; inpaint max dimension 1536; 2.1 resolution budget (a 3000x4000 ref at 0 samples at 12 MP)",
+      "src": [
+        "S-TPL-EDIT",
+        "S-TPL-INPAINT",
+        "S-DOCS-Q21"
+      ]
+    },
+    {
+      "symptom": "2511 result ignores references with a third-party repack",
+      "cause": "reference latent method",
+      "fix": "FluxKontextMultiReferenceLatentMethod index_timestep_zero on both conditionings (not needed for Comfy-Org files)",
+      "src": "S-TPL-2511"
+    },
+    {
+      "symptom": "licence surprise",
+      "cause": "Qwen-Image-2.1 is NOT Apache-2.0",
+      "fix": "Qwen Research License, non-commercial only (and its Fun ControlNet inherits it); Qwen-Image / Edit / 2509 / 2511 / 2512 / Layered are Apache-2.0",
+      "src": "S-HF-QWEN-REPOS"
+    },
+    {
+      "symptom": "negative prompt does nothing",
+      "cause": "cfg 1 (Lightning branches, 2.1 default)",
+      "fix": "raise cfg only if the negative is needed",
+      "src": "S-DOCS-Q21"
+    },
+    {
+      "symptom": "2.1 enhancer output is worse",
+      "cause": "refine_prompt on without thinking",
+      "fix": "'turn thinking on together with the enhancer' ('loses quality without it'); the PE model file differs for T2I (pe_t2i) and edit (pe_i2i)",
+      "src": "S-TPL-21"
+    },
+    {
+      "symptom": "InstantX inpainting node errors",
+      "cause": "ComfyUI < 0.3.59",
+      "fix": "pinned 0.35.0 is fine; DiffSynth inpaint needs mask wired from LoadImage and the Canny bypassed",
+      "src": [
+        "S-INSTANTX",
+        "S-DOCS-QI"
+      ]
+    },
+    {
+      "symptom": "control file not in the dropdown",
+      "cause": "wrong folder",
+      "fix": "InstantX / Fun-2512 -> models/controlnet; DiffSynth patches and Fun-2.1 -> models/model_patches; DiffSynth union -> models/loras",
+      "src": "S-HF-COMFY-TREES"
+    },
+    {
+      "symptom": "oversaturated skin with the 8-step LoRA",
+      "cause": "V1.0",
+      "fix": "Lightning V2.0 'produces images with reduced over-saturation, resulting in improved skin texture' (T2I only; no Edit V2.0)",
+      "src": "S-LIGHTX2V"
+    },
+    {
+      "symptom": "the edit template's ImageScaleToTotalPixels seems to do nothing",
+      "cause": "in image_qwen_image_edit the node's output is unconnected",
+      "fix": "the 'edit' recipes wire it in (1.5 MP) as the note intends",
+      "src": "S-TPL-EDIT"
+    }
+  ],
+  "sources": {
+    "S-HF-QI": {
+      "url": "https://huggingface.co/Qwen/Qwen-Image (raw README, API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QE": {
+      "url": "https://huggingface.co/Qwen/Qwen-Image-Edit (raw README, API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN-REPOS": {
+      "url": "https://huggingface.co/Qwen/Qwen-Image-Edit-2509 , Qwen-Image-Edit-2511 , Qwen-Image-2512 , Qwen-Image-2.1 (+ LICENSE) , Qwen-Image-Layered (API + READMEs)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-QI": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-QE": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-QE2511": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit-2511.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-Q2512": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-2512.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-Q21": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-2-1.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-LAYERED": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-layered",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2I": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2512": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_Image_2512.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2STEP": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_2512_with_2steps_lora.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_edit.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2509": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_edit_2509.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2511": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_edit_2511.json and image_qwen_image_edit_2511_int8.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-RELIGHT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_edit_2509_relight.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INSTANTX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_instantx_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INPAINT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_instantx_inpainting_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-PATCH": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_controlnet_patch.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-UNION-LORA": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_union_control_lora.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2512-CN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_Image_2512_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-LAYERED": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_layered.json and image_qwen_image_layered_control.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-21": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_2_1_t2i.json , image_qwen_image_2_1_image_edit.json , image_qwen_image_2_1_background_removal.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_qwen.py, nodes_model_patch.py, nodes_cfg.py, nodes_flux.py, nodes_controlnet.py, nodes_model_advanced.py, comfy/supported_models.py, comfy/latent_formats.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json (native node registry of the pinned image, ComfyUI v0.35.0) and KB/templates_unknown_node_types.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFY-TREES": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/{Qwen-Image_ComfyUI, Qwen-Image-Edit_ComfyUI, Qwen-Image-2.1, Qwen-Image-DiffSynth-ControlNets, Qwen-Image-InstantX-ControlNets, Qwen-Image-Layered_ComfyUI}/tree/main?recursive=true (+ raw READMEs)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LIGHTX2V": {
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning , Qwen-Image-Edit-2511-Lightning , Qwen-Image-2512-Lightning (trees, READMEs) and https://github.com/ModelTC/Qwen-Image-Lightning",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-INSTANTX": {
+      "url": "https://huggingface.co/InstantX/Qwen-Image-ControlNet-Union and https://huggingface.co/InstantX/Qwen-Image-ControlNet-Inpainting",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DIFFSYNTH-PAI": {
+      "url": "https://huggingface.co/DiffSynth-Studio/Qwen-Image-Blockwise-ControlNet-Canny , https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union , https://huggingface.co/alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-WULI": {
+      "url": "https://huggingface.co/Wuli-art/Qwen-Image-2512-Turbo-LoRA-2-Steps",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GGUF": {
+      "url": "https://huggingface.co/city96/Qwen-Image-gguf , https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF , https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF (trees)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/qwen_image/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-9297": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/issues/9297",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-GRID-ISSUE": {
+      "url": "https://github.com/ModelTC/Qwen-Image-Lightning/issues/32 (fp8 grid artifacts; the lightx2v README documents the fix)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-2511": {
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/discussions/1 ('fp8 model is broken')",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GH-243": {
+      "url": "https://github.com/QwenLM/Qwen-Image/issues/243 (2511 square outputs degrade)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-2512GGUF": {
+      "url": "https://huggingface.co/unsloth/Qwen-Image-2512-GGUF/discussions/2",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

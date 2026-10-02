@@ -1,0 +1,242 @@
+{
+  "recipe": {
+    "id": "control-union",
+    "family": "sdxl",
+    "task": "control",
+    "variant": "SDXL base + xinsir ControlNet Union ProMax, type 'auto', a PREPROCESSED control map in; strength 1.0; 25 steps, cfg 7, dpmpp_2m/karras",
+    "from_template": "generic ComfyUI ControlNet pattern (docs.comfy.org controlnet tutorial / nodes_controlnet.py): ControlNetLoader -> SetUnionControlNetType -> ControlNetApplyAdvanced, on the image_sdxl_simple spine; no SDXL ControlNet template exists",
+    "min_comfyui": "0.0.1",
+    "confidence": "official pattern (docs + node source) with the publisher's file; not a shipped graph",
+    "ports": {
+      "checkpoint": {
+        "node": "1",
+        "input": "ckpt_name",
+        "note": "any SDXL 1.0 checkpoint (fine-tunes: see profile.selection)"
+      },
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "width": {
+        "node": "9",
+        "input": "width",
+        "note": "trained buckets: 1024x1024, 1152x896, 896x1152, 1216x832, 832x1216, 1344x768, 768x1344, 1536x640, 640x1536"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "control_type": {
+        "node": "3",
+        "input": "type",
+        "note": "v0.35.0 options: auto, openpose, depth, hed/pidi/scribble/ted, canny/lineart/anime_lineart/mlsd, normal, segment, tile, repaint (comfy/cldm/control_types.py); newer ComfyUI names them differently"
+      },
+      "control_strength": {
+        "node": "19",
+        "input": "strength",
+        "note": "node defaults 1.0 / 0 / 1"
+      },
+      "control_start": {
+        "node": "19",
+        "input": "start_percent"
+      },
+      "control_end": {
+        "node": "19",
+        "input": "end_percent"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "an already-preprocessed map (openpose skeleton, depth, lineart, scribble, segmentation, normal, tile, repaint input): 'The ControlNetApply node will not convert regular images into depthmaps, canny maps and so on for you'"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "diffusion_pytorch_model_promax.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "One network for Openpose, Depth, Canny, Lineart, AnimeLineart, Mlsd, Scribble, Hed, Pidi/Softedge, Teed, Segment, Normal + ProMax Tile/Inpaint/Outpaint (Apache-2.0). Set control_type to the map you feed, or leave 'auto'. Preprocessors other than Canny need comfyui_controlnet_aux (a pack).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (Stability publishes no ComfyUI VRAM figure for SDXL; the fp16 base is 6.94 GB on disk)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "SetUnionControlNetType.type is written with the v0.35.0 key from comfy/cldm/control_types.py; the v0.35.0 registry extraction lists only 'auto' for this combo (the other keys come from UNION_CONTROLNET_TYPES at import time) and the validator does not check plain-combo values, so the key was checked by hand against the source.",
+      "The dossier's type names (canny, scribble, seg, inpaint, lineart, blur, mlsd, normalbae, mask) are v0.38.1's; on this box the canny family is one key: 'canny/lineart/anime_lineart/mlsd'.",
+      "ControlNetApplyAdvanced.vae is left unwired: optional for SDXL ControlNets (required only by the SD3.5 ones)."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "a giant classical marble statue standing alone in a pure white empty void, soft diffused lighting, subtle shadows, surreal, minimalist, fine art photography, quiet atmosphere, sense of scale"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 7.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "19",
+          0
+        ],
+        "negative": [
+          "19",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sdxl/control_union"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "18": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "diffusion_pytorch_model_promax.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "SetUnionControlNetType",
+      "inputs": {
+        "control_net": [
+          "18",
+          0
+        ],
+        "type": "auto"
+      }
+    },
+    "19": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "3",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    }
+  }
+}

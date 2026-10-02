@@ -1,0 +1,296 @@
+{
+  "recipe": {
+    "id": "upscale-video-3b",
+    "family": "seedvr2",
+    "task": "upscale-video",
+    "variant": "3B Int8 (3.46 GB): the official template file for both image and video; docs: 'lower VRAM'; scale 2; whole clip sampled as one latent (template default); use the -chunked variant on OOM or long clips",
+    "from_template": "utility_seedvr2_3b_int8_upscale_video (subgraph 'Upscale Video (SeedVR2 3B Int8)' flattened; the trim_video switch resolved OFF so 'Video Slice' is elided - trim upstream; the split_latent switch resolved OFF: the whole clip is one latent, the template default). Template resize node is ResizeImageMaskNode ('scale by multiplier', lanczos). Written here as ImageScaleBy (lanczos, scale_by): the same lanczos resample of the IMAGE (RGBA passes through), because the offline validator cannot type ResizeImageMaskNode's COMFY_MATCHTYPE_V3 socket. Swap back on the box if the v3 node is preferred.",
+    "min_comfyui": "0.28.0",
+    "confidence": "official",
+    "ports": {
+      "scale": {
+        "node": "4",
+        "input": "scale_by",
+        "note": "upscale factor; the DiT restores at the resolution it is handed (template default 4 for stills, 2 for video). VRAM and time scale with output megapixels x frames"
+      },
+      "seed": {
+        "node": "8",
+        "input": "seed",
+        "note": "one-step models still consume noise: the seed changes micro-detail"
+      },
+      "denoise": {
+        "node": "8",
+        "input": "denoise",
+        "note": "1.0 = full restore (template); lower values are exposed by the template but undocumented"
+      },
+      "sampler_name": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "euler (template); no official guidance beyond the default"
+      },
+      "scheduler": {
+        "node": "8",
+        "input": "scheduler",
+        "note": "simple (template)"
+      },
+      "color_correction_method": {
+        "node": "10",
+        "input": "color_correction_method",
+        "note": "none (template) | lab (node default, 'most faithful', most memory) | wavelet | adain"
+      },
+      "unet_name": {
+        "node": "1",
+        "input": "unet_name",
+        "note": "swap precision/size here: see profile.files (same graph for every seedvr2_* file)"
+      },
+      "vae_name": {
+        "node": "2",
+        "input": "vae_name",
+        "note": "seedvr2_ema_vae_fp16.safetensors or ema_vae_fp16.safetensors (identical model)"
+      },
+      "tile_size": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "tile_size",
+        "note": "VAE spatial tile (template 512)"
+      },
+      "tile_overlap": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "overlap",
+        "note": "VAE spatial overlap (template 128)"
+      },
+      "temporal_size": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "temporal_size",
+        "note": "frames the VAE encodes/decodes at a time (template 64 for video, 4096 for stills)"
+      },
+      "temporal_overlap_vae": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "temporal_overlap",
+        "note": "VAE temporal overlap (template 8)"
+      }
+    },
+    "inputs": {
+      "video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "the clip to restore/upscale; frames, audio, fps and bit_depth are read by GetVideoComponents and audio/fps/bit_depth pass through to CreateVideo unchanged. The frame count is padded to 4n+1 by SeedVR2Preprocess and cropped back by SeedVR2PostProcessing."
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "seedvr2_3b_int8_convrot.safetensors",
+      "seedvr2_ema_vae_fp16.safetensors"
+    ],
+    "packs": [],
+    "precision_alternatives": {
+      "same graph, swap unet_name": [
+        "seedvr2_3b_fp16.safetensors",
+        "seedvr2_3b_fp8_e4m3fn.safetensors",
+        "seedvr2_3b_mxfp8.safetensors",
+        "seedvr2_3b_nvfp4.safetensors"
+      ]
+    },
+    "defaults_note": "scale 2 (template default for video); 1 step / cfg 1 / euler / simple / denoise 1; VAE tiling 512/128, temporal 64/8; color correction none; source fps, audio and bit depth preserved (linked from GetVideoComponents, never literals). Template tip for long inputs: trim and process segments, or switch to the -chunked variant.",
+    "vram_evidence": {
+      "gpu": "RTX 5090 (official 17-cell resolution sweep + T bisection, 3B fp16)",
+      "at": "1920x1080 output frames",
+      "usage": "max_latent_frames = (free_GiB - 8.5 - 4*0.55) / (0.55 * output_megapixels); pixel frames = 4*latent_frames - 3. Example (3B fp16, RTX 5090): 1920x1080 output = 2.07 Mpx -> 1.14 GiB per latent frame; 24 GiB free -> ~11 latent frames ~ 41 pixel frames per chunk",
+      "time_s": null,
+      "class": "official",
+      "src": "S-SEEDVR-CONSTANTS"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template resize node is ResizeImageMaskNode ('scale by multiplier', lanczos). Written here as ImageScaleBy (lanczos, scale_by): the same lanczos resample of the IMAGE (RGBA passes through), because the offline validator cannot type ResizeImageMaskNode's COMFY_MATCHTYPE_V3 socket. Swap back on the box if the v3 node is preferred."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "seedvr2_3b_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "seedvr2_ema_vae_fp16.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@video"
+      }
+    },
+    "16": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ]
+      }
+    },
+    "4": {
+      "class_type": "ImageScaleBy",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "scale_by": 2.0
+      }
+    },
+    "5": {
+      "class_type": "SeedVR2Preprocess",
+      "inputs": {
+        "resized_images": [
+          "4",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "VAEEncodeTiled",
+      "inputs": {
+        "pixels": [
+          "5",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 128,
+        "temporal_size": 64,
+        "temporal_overlap": 8
+      }
+    },
+    "7": {
+      "class_type": "SeedVR2Conditioning",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "vae_conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 959948902156062,
+        "steps": 1,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "8",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 128,
+        "temporal_size": 64,
+        "temporal_overlap": 8
+      }
+    },
+    "10": {
+      "class_type": "SeedVR2PostProcessing",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "original_resized_images": [
+          "4",
+          0
+        ],
+        "color_correction_method": "none"
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "10",
+          0
+        ],
+        "audio": [
+          "16",
+          1
+        ],
+        "fps": [
+          "16",
+          2
+        ],
+        "bit_depth": [
+          "16",
+          3
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/Upscaled_seedVR2",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

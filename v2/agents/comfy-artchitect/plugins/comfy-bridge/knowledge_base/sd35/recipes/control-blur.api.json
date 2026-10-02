@@ -1,0 +1,218 @@
+{
+  "recipe": {
+    "id": "control-blur",
+    "family": "sd35",
+    "task": "control",
+    "variant": "Large fp8 all-in-one + SD3.5 Large Blur ControlNet ('for high-fidelity upscaling'); pre-blurred input at strength 1.0; 30 steps, cfg 4, euler/simple",
+    "from_template": "sd3.5_large_blur",
+    "min_comfyui": "0.3.5",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text",
+        "note": "the negative is ConditioningZeroOut(positive) as in every SD3.5 ControlNet template — there is no negative text port"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "control_strength": {
+        "node": "19",
+        "input": "strength",
+        "note": "HF card: 'start with a ControlNet strength of 0.7-0.8'"
+      },
+      "control_start": {
+        "node": "19",
+        "input": "start_percent"
+      },
+      "control_end": {
+        "node": "19",
+        "input": "end_percent"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      }
+    },
+    "inputs": {
+      "blurred_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "a PRE-BLURRED image (HF card: GaussianBlur kernel_size=50); template note: 'Please use the preprocessed images, or install comfyui_controlnet_aux' — no in-graph blur"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_fp8_scaled.safetensors",
+      "sd3.5_large_controlnet_blur.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Blur ControlNet = structure from a low-frequency version of an image: re-render / upscale / restyle while keeping layout. The latent is EmptySD3LatentImage 1024x1024; the control image is resized to it by ComfyUI.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM figure for any SD3.5 file)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_fp8_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "crystal butterfly above the sea, white, hyper detailed, with diamonds"
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "sd3.5_large_controlnet_blur.safetensors"
+      }
+    },
+    "19": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "18",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "19",
+          0
+        ],
+        "negative": [
+          "19",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sd35/control_blur"
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@blurred_image"
+      }
+    }
+  }
+}

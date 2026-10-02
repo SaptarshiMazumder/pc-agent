@@ -1,0 +1,361 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "infiniteyou",
+    "host": "flux-1",
+    "variant": "InfiniteYou (ByteDance InfuseNet, aes_stage2 fp8) - a ControlNet-shaped identity module: ArcFace ID embedding -> InfuseNetApply on positive/negative, like ControlNetApplyAdvanced with an extra id_embedding; the official example runs it on FLUX.1-schnell fp8 at 4 steps",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: bytedance/ComfyUI_InfiniteYou examples/infinite_you_workflow.json (flux1-schnell-fp8-e4m3fn fp8_e4m3fn_fast, t5xxl_fp8 + clip_l, CLIPTextEncodeFlux guidance 3.5, 4 steps cfg 1 euler/beta, 864x1152, aes_stage2 fp8, 8 tokens, CUDA, EmptyImage as the pose source)",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35"
+      ],
+      "splice": "InfuseNetApply (35) sits where ControlNetApplyAdvanced would: host positive/negative in, patched positive/negative out, vae wired. Its image is the pose/control image - the example feeds a blank EmptyImage; replace 32 with a LoadImage of a pose photo to steer head position. Model line untouched."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "t5xxl",
+        "note": "set clip_l to the same text"
+      },
+      "prompt_clip_l": {
+        "node": "6",
+        "input": "clip_l"
+      },
+      "guidance": {
+        "node": "6",
+        "input": "guidance"
+      },
+      "width": {
+        "nodes": [
+          "9",
+          "32",
+          "33"
+        ],
+        "input": "width"
+      },
+      "height": {
+        "nodes": [
+          "9",
+          "32",
+          "33"
+        ],
+        "input": "height"
+      },
+      "strength": {
+        "node": "35",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "35",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "35",
+        "input": "end_percent"
+      },
+      "id_tokens": {
+        "node": "30",
+        "input": "image_proj_num_tokens",
+        "options": [
+          8,
+          16
+        ]
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "face_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the identity photo (ArcFace embedding via antelopev2)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-schnell-fp8-e4m3fn.safetensors",
+      "t5xxl_fp8_e4m3fn.safetensors",
+      "clip_l.safetensors",
+      "ae.safetensors",
+      "aes_stage2/infusenet_aes_fp8e4m3fn.safetensors",
+      "aes_stage2/image_proj_model.bin",
+      "1k3d68.onnx",
+      "2d106det.onnx",
+      "genderage.onnx",
+      "glintr100.onnx",
+      "scrfd_10g_bnkps.onnx"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_InfiniteYou",
+        "git": "https://github.com/bytedance/ComfyUI_InfiniteYou",
+        "registry": "https://registry.comfy.org/publishers/yuminjia/nodes/infiniteyou",
+        "license": "Apache-2.0 (code); weights CC-BY-NC-4.0",
+        "pip": [
+          "insightface",
+          "onnxruntime-gpu (OR onnxruntime, never both)",
+          "facexlib"
+        ],
+        "nodes_used": [
+          "IDEmbeddingModelLoader",
+          "ExtractIDEmbedding",
+          "ExtractFacePoseImage",
+          "InfuseNetLoader",
+          "InfuseNetApply"
+        ]
+      }
+    ],
+    "defaults_note": "aes_stage2 = better text alignment/aesthetics; sim_stage1 = higher identity similarity (swap both files). strength 1, 0-1, 4 steps cfg 1 (schnell). The weights are trained for FLUX.1-dev (bf16 ~43 GB / fp8 ~24 GB per the README); the pack example uses schnell fp8 - a dev fp8 UNET with 20 steps and FluxGuidance is the documented target. WEIGHTS ARE CC-BY-NC-4.0: non-commercial only. face_analysis_provider CUDA needs onnxruntime-gpu.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "'around 24GB' (fp8) / 'around 43GB' (bf16) per the pack README",
+      "src": "S-GH-INFU"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: IDEmbeddingModelLoader, ExtractIDEmbedding, ExtractFacePoseImage, InfuseNetLoader, InfuseNetApply",
+      "input key 'infusenet_name' unverified (positional reading of the example); IDEmbeddingModelLoader keys are the pack source names per the dossier",
+      "EmptyLatentImage (pack example) replaced by EmptySD3LatentImage, FLUX.1's 16-channel latent, 2026-10-02"
+    ],
+    "id": "infiniteyou-flux1",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-schnell-fp8-e4m3fn.safetensors",
+        "weight_dtype": "fp8_e4m3fn_fast"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+        "clip_name2": "clip_l.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncodeFlux",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "clip_l": "A man in a tailored navy suit standing in a sunlit atrium, editorial photograph, shallow depth of field",
+        "t5xxl": "A man in a tailored navy suit standing in a sunlit atrium, editorial photograph, shallow depth of field",
+        "guidance": 3.5
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face_image"
+      }
+    },
+    "30": {
+      "class_type": "IDEmbeddingModelLoader",
+      "inputs": {
+        "image_proj_model_name": "aes_stage2/image_proj_model.bin",
+        "image_proj_num_tokens": 8,
+        "face_analysis_provider": "CUDA",
+        "face_analysis_det_size": "AUTO"
+      }
+    },
+    "31": {
+      "class_type": "ExtractIDEmbedding",
+      "inputs": {
+        "face_detector": [
+          "30",
+          0
+        ],
+        "arcface_model": [
+          "30",
+          1
+        ],
+        "image_proj_model": [
+          "30",
+          2
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "32": {
+      "class_type": "EmptyImage",
+      "inputs": {
+        "width": 864,
+        "height": 1152,
+        "batch_size": 1,
+        "color": 0
+      }
+    },
+    "33": {
+      "class_type": "ExtractFacePoseImage",
+      "inputs": {
+        "face_detector": [
+          "30",
+          0
+        ],
+        "image": [
+          "32",
+          0
+        ],
+        "width": 864,
+        "height": 1152
+      }
+    },
+    "34": {
+      "class_type": "InfuseNetLoader",
+      "inputs": {
+        "infusenet_name": "aes_stage2/infusenet_aes_fp8e4m3fn.safetensors"
+      }
+    },
+    "35": {
+      "class_type": "InfuseNetApply",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "id_embedding": [
+          "31",
+          0
+        ],
+        "control_net": [
+          "34",
+          0
+        ],
+        "image": [
+          "33",
+          0
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0,
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 864,
+        "height": 1152,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 4,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "beta",
+        "positive": [
+          "35",
+          0
+        ],
+        "negative": [
+          "35",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/infiniteyou"
+      }
+    }
+  }
+}

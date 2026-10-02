@@ -1,0 +1,1900 @@
+{
+  "schema": 2,
+  "id": "wan-2.2",
+  "name": "Wan 2.2",
+  "publisher": "Alibaba Wan Team (Wan-AI); Fun/VACE-Fun variants by Alibaba PAI; Lightning LoRAs by lightx2v",
+  "license": {
+    "name": "Apache-2.0",
+    "commercial": true,
+    "notes": "All Wan 2.2 weights, the Fun/VACE-Fun variants and the Lightning LoRAs are Apache 2.0; free for commercial use with the license notice kept.",
+    "src": [
+      "S-WAN-README",
+      "S-DOCS-WAN22",
+      "S-LIGHTNING-HF"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "video"
+  ],
+  "tasks": [
+    "t2v",
+    "i2v",
+    "flf2v",
+    "control",
+    "inpaint",
+    "camera",
+    "vace",
+    "s2v",
+    "animate"
+  ],
+  "cannot": [
+    {
+      "what": "generate audio (S2V consumes audio, nothing produces it)",
+      "src": "S-WAN-README"
+    },
+    {
+      "what": "more than ~5 s in one pass: 81 frames @16 fps (14B) or 121 frames @24 fps (5B); longer output is chunked (S2V/Animate extend in 77-frame chunks)",
+      "src": [
+        "S-WAN-CONFIGS",
+        "S-TPL-S2V"
+      ]
+    },
+    {
+      "what": "native resolutions above 720p: 480p/720p (14B), 720p (5B)",
+      "src": "S-WAN-CONFIGS"
+    },
+    {
+      "what": "Lightning 4-step LoRAs lose motion dynamics and can reverse vehicle direction in large-motion shots",
+      "src": [
+        "S-TPL-FLF2V",
+        "S-LIGHTNING-HF"
+      ]
+    },
+    {
+      "what": "VACE has no style reference: object/background reference only, one reference_image",
+      "src": "S-TPL-VACE-REF2V"
+    },
+    {
+      "what": "Fun Control 5B: 'the result most of the time will not be very good' (Comfy-Org)",
+      "src": "S-TPL-5BFUNCTRL"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.0 source (comfy_extras/nodes_wan.py, nodes.py)",
+    "nodes_verified_against_registry": "v0.35.0 — every recipe passed the offline structural check (verify_recipes.py) on 2026-10-01",
+    "note": "Wan Animate 2 needs ComfyUI >= 0.36.0 (template minComfyUIVersion): NOT available on the pinned image."
+  },
+  "files": [
+    {
+      "name": "wan2.2_ti2v_5B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 9999658848,
+      "precision": "fp16",
+      "variant": "ti2v-5b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+      "vram": {
+        "fits_gb": 8,
+        "evidence": "'should fit well on 8GB vram with the ComfyUI native offloading'",
+        "class": "official",
+        "src": "S-DOCS-WAN22"
+      },
+      "quality": "dense 5B; 720p @24 fps; fast; the small-card and fast-draft choice",
+      "pairs_with_vae": "wan2.2_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14293923632,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "t2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX4090D 24GB, 640x640x81: 84% VRAM, ~536 s (pair)",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "template default",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14293923632,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "t2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as high-noise (loaded in turn)",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "template default",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_t2v_high_noise_14B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 28577095592,
+      "precision": "fp16",
+      "variant": "t2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (file alone exceeds 24 GB)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "highest fidelity; pair + encoder = 68.5 GB, exceeds the 60 GB rented disk",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_t2v_low_noise_14B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 28577095592,
+      "precision": "fp16",
+      "variant": "t2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "highest fidelity",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14294742832,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "i2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX4090D 24GB, 640x640x81: 84%, ~536 s; with 4-step LoRA 83%, ~97 s",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      "quality": "template default for I2V and FLF2V",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14294742832,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "i2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as high-noise",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      "quality": "template default",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_high_noise_14B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 28577914792,
+      "precision": "fp16",
+      "variant": "i2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "highest fidelity; exceeds the 60 GB disk as a pair",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_low_noise_14B_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 28577914792,
+      "precision": "fp16",
+      "variant": "i2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "highest fidelity",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_control_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14296064656,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-control-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_control_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX4090D 24GB, 640x640x81: 83%, ~524 s; with LoRA 89%, ~138 s",
+        "class": "official",
+        "src": "S-DOCS-FUNCTRL"
+      },
+      "quality": "controls: Canny, Depth, OpenPose, MLSD, trajectory; trained 81 frames @16 fps at 512/768/1024",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_control_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14296064656,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-control-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_control_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as high-noise",
+        "class": "official",
+        "src": "S-DOCS-FUNCTRL"
+      },
+      "quality": "",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_control_5B_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 10003303280,
+      "precision": "bf16",
+      "variant": "fun-control-5b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_control_5B_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (5B class ~8 GB)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "officially weak: 'most of the time will not be very good'",
+      "pairs_with_vae": "wan2.2_vae.safetensors",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-5BFUNCTRL"
+      ]
+    },
+    {
+      "name": "wan2.2_fun_inpaint_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14294743520,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-inpaint-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_inpaint_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX4090D 24GB 640x640x81: 83% / 89% with LoRA",
+        "class": "official",
+        "src": "S-DOCS-FUNINP"
+      },
+      "quality": "start-end frame (InP)",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_inpaint_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 14294743520,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-inpaint-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_inpaint_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as high-noise",
+        "class": "official",
+        "src": "S-DOCS-FUNINP"
+      },
+      "quality": "",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 15301408048,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-camera-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX4090D 24GB 640x640x81: 84% ~536 s; with LoRA 89% ~108 s",
+        "class": "official",
+        "src": "S-DOCS-FUNCAM"
+      },
+      "quality": "camera moves: pan/zoom/rotate from WanCameraEmbedding",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 15301408048,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "fun-camera-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as high-noise",
+        "class": "official",
+        "src": "S-DOCS-FUNCAM"
+      },
+      "quality": "",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_vace_high_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17346056104,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "vace-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_vace_high_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no Comfy-Org template)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "reference + control + inpaint in one model (VACE blocks included)",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_fun_vace_low_noise_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17346056104,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "vace-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_fun_vace_low_noise_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_s2v_14B_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16394832474,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "s2v-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'requires less VRAM' (no number)",
+        "class": "official",
+        "src": "S-DOCS-S2V"
+      },
+      "quality": "'try wan2.2_s2v_14B_bf16 to reduce quality degradation'",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_s2v_14B_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 32591643778,
+      "precision": "bf16",
+      "variant": "s2v-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_s2v_14B_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "less degradation than fp8",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_animate_14B_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34549787368,
+      "precision": "bf16",
+      "variant": "animate-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_animate_14B_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "original bf16; the template loads Kijai's fp8 instead",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_animate_14B_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 18413068672,
+      "precision": "int8_convrot",
+      "variant": "animate-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_animate_14B_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "quantised Animate (uploaded 2026-07-03)",
+      "pairs_with_vae": "wan_2.1_vae.safetensors",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 6735906897,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "shared",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "loaded by every template on a 24 GB card",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "every Wan 2.2 template uses this one; CLIPLoader type 'wan'",
+      "src": "S-HF-WAN21-TREE"
+    },
+    {
+      "name": "umt5_xxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 11366399385,
+      "precision": "fp16",
+      "variant": "shared",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "used by the Wan2.1 VACE templates",
+        "class": "official",
+        "src": "S-TPL-VACE-V2V"
+      },
+      "quality": "full precision encoder",
+      "src": "S-HF-WAN21-TREE"
+    },
+    {
+      "name": "wan_2.1_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253815318,
+      "precision": "fp32",
+      "variant": "shared-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-EXAMPLES"
+      },
+      "quality": "16-channel, 8x spatial, 4x temporal: REQUIRED by every 14B model",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 1409400960,
+      "precision": "fp32",
+      "variant": "shared-5b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-EXAMPLES"
+      },
+      "quality": "48-channel, 16x spatial, 4x temporal: ONLY for the 5B models",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "clip_vision_h.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 1264219396,
+      "precision": "fp16",
+      "variant": "animate-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-ANIMATE"
+      },
+      "quality": "Animate only; Wan 2.2 I2V/FLF2V/Fun/S2V load NO clip vision",
+      "src": "S-HF-WAN21-TREE"
+    },
+    {
+      "name": "wav2vec2_large_english_fp16.safetensors",
+      "role": "audio_encoder",
+      "folder": "audio_encoders",
+      "bytes": 630997322,
+      "precision": "fp16",
+      "variant": "s2v-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-DOCS-S2V"
+      },
+      "quality": "S2V audio encoder; create the audio_encoders folder if missing",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1226977424,
+      "precision": "bf16",
+      "variant": "t2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "lightx2v Seko V1.1; 4 steps, cfg 1; loses dynamics",
+      "src": [
+        "S-HF-TREE",
+        "S-HF-REPACK-COMMITS"
+      ]
+    },
+    {
+      "name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1226977424,
+      "precision": "bf16",
+      "variant": "t2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "pair of the above",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1226977424,
+      "precision": "bf16",
+      "variant": "i2v-14b",
+      "expert": "high",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      "quality": "lightx2v Seko V1; templates also use it on Fun Control/InP/Camera high-noise",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1226977424,
+      "precision": "bf16",
+      "variant": "i2v-14b",
+      "expert": "low",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      "quality": "pair of the above",
+      "src": "S-HF-TREE"
+    },
+    {
+      "name": "wan2.2_animate_14B_relight_lora_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1436673432,
+      "precision": "bf16",
+      "variant": "animate-14b",
+      "expert": null,
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_animate_14B_relight_lora_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-ANIMATE"
+      },
+      "quality": "Animate replacement (Mix) mode relighting",
+      "src": "S-HF-TREE"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF quantised 14B pairs (QuantStack) for 12-16 GB cards",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "unet",
+      "node": "UnetLoaderGGUF",
+      "examples": [
+        "QuantStack/Wan2.2-I2V-A14B-GGUF HighNoise/LowNoise Q4_K_M 9.65 GB each",
+        "Q8_0 15.41 GB each"
+      ],
+      "evidence": "RTX 3060 12 GB ran the Q3_K_S I2V pair at 840x420x81 in ~900 s",
+      "class": "community",
+      "src": [
+        "S-QS-TREES",
+        "S-NEXTDIFF-GGUF"
+      ]
+    },
+    {
+      "what": "newer Lightning LoRAs with better motion: lightx2v 250928 preview and Seko-V2.0 (2025-11-08)",
+      "needs_pack": null,
+      "class": "official (lightx2v), not in the Comfy-Org repack",
+      "src": "S-LIGHTNING-GH"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "recipe": "t2v-14b",
+      "why": "the quality route; 84% of 24 GB at 640x640x81, ~9 min",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2v-14b-lightning",
+      "tradeoff": "~5x faster (536 s -> 108 s) at the cost of motion dynamics; not for large-motion shots",
+      "src": [
+        "S-TPL-T2V",
+        "S-LIGHTNING-HF"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 8,
+      "recipe": "t2v-5b",
+      "why": "dense 5B at 720p/24 fps; fits 8 GB with offloading; the draft/small-card route",
+      "src": "S-DOCS-WAN22"
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "recipe": "i2v-14b",
+      "why": "the quality route",
+      "src": "S-TPL-I2V"
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "i2v-14b-lightning",
+      "tradeoff": "536 s -> 97 s; loses dynamics",
+      "src": "S-TPL-I2V"
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 8,
+      "recipe": "i2v-5b",
+      "why": "the draft/small-card route",
+      "src": "S-DOCS-WAN22"
+    },
+    {
+      "task": "flf2v",
+      "vram_gb_min": 24,
+      "recipe": "flf2v-14b",
+      "why": "first+last frame with the I2V models (no extra files over i2v-14b)",
+      "src": "S-TPL-FLF2V"
+    },
+    {
+      "task": "inpaint",
+      "vram_gb_min": 24,
+      "recipe": "fun-inpaint-14b",
+      "why": "start-end frame with the Fun InP models; same conditioning node family as FLF2V — prefer flf2v-14b when the I2V models are already on disk",
+      "src": [
+        "S-TPL-FUNINP",
+        "S-NODES"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 24,
+      "recipe": "fun-control-14b",
+      "why": "pose/depth/canny/MLSD/trajectory control video + reference image; the 5B Fun Control is officially weak",
+      "src": [
+        "S-DOCS-FUNCTRL",
+        "S-TPL-5BFUNCTRL"
+      ]
+    },
+    {
+      "task": "camera",
+      "vram_gb_min": 24,
+      "recipe": "fun-camera-14b",
+      "why": "named camera moves (pan/zoom/rotate) on a start image",
+      "src": "S-DOCS-FUNCAM"
+    },
+    {
+      "task": "vace",
+      "vram_gb_min": 24,
+      "recipe": "vace-14b",
+      "why": "reference image + control video + masks in one; NO official Wan 2.2 template — community-confirmed graph",
+      "confidence": "community-confirmed",
+      "src": [
+        "S-MITTIMI",
+        "S-SBCODE"
+      ]
+    },
+    {
+      "task": "s2v",
+      "recipe": null,
+      "status": "pending: recipe after the node registry confirms AudioEncoderLoader/AudioEncoderEncode input names",
+      "src": "S-TPL-S2V"
+    },
+    {
+      "task": "animate",
+      "recipe": null,
+      "status": "pending: needs packs comfyui_controlnet_aux, ComfyUI-KJNodes, ComfyUI-segment-anything-2 (Phase 2 installs); Wan Animate 2 needs ComfyUI >= 0.36.0, above the pinned image",
+      "src": [
+        "S-TPL-ANIMATE",
+        "S-TPL-ANIMATE2"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSamplerAdvanced|KSampler",
+      "input": "steps",
+      "meaning": "total flow-matching denoise steps; on 14B split across the two experts",
+      "defaults": {
+        "t2v-14b": 20,
+        "i2v-14b": 20,
+        "flf2v-14b": 20,
+        "fun-*-14b": 20,
+        "t2v-5b": 20,
+        "i2v-5b": 20,
+        "lightning": 4
+      },
+      "range": [
+        4,
+        40
+      ],
+      "official_reference_code": {
+        "t2v/i2v": 40,
+        "5b": 50,
+        "s2v": 40,
+        "animate": 20
+      },
+      "interactions": "Lightning: 4 total (2+2) at cfg 1; community uses 8 (4+4) for better motion",
+      "src": [
+        "S-TPL-T2V",
+        "S-WAN-CONFIGS",
+        "S-HFD-5"
+      ]
+    },
+    {
+      "name": "split",
+      "node": "KSamplerAdvanced",
+      "input": "end_at_step (high) = start_at_step (low)",
+      "meaning": "where the high-noise expert hands over to the low-noise expert",
+      "defaults": {
+        "20 steps": 10,
+        "lightning 4 steps": 2
+      },
+      "range": null,
+      "official_reference_code": {
+        "boundary": "0.875 (T2V) / 0.900 (I2V) of the noise timeline, not a step count"
+      },
+      "interactions": "high: add_noise=enable, start_at_step=0, return_with_leftover_noise=enable; low: add_noise=disable, end_at_step=10000, return_with_leftover_noise=disable",
+      "src": [
+        "S-TPL-T2V",
+        "S-WAN-CONFIGS"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSamplerAdvanced|KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; both samplers get the same value in the templates",
+      "defaults": {
+        "t2v-14b": 3.5,
+        "i2v-14b": 3.5,
+        "fun-*-14b": 3.5,
+        "flf2v-14b": 4.0,
+        "t2v-5b": 5.0,
+        "i2v-5b": 5.0,
+        "fun-control-5b": 5.0,
+        "fun-inpaint-5b": 6.0,
+        "s2v no-LoRA": 6.0,
+        "any distilled LoRA": 1.0
+      },
+      "range": [
+        1.0,
+        6.0
+      ],
+      "official_reference_code": {
+        "t2v": "(3.0 low, 4.0 high)",
+        "i2v": "(3.5, 3.5)",
+        "5b": 5.0,
+        "s2v": 4.5,
+        "animate": 1.0
+      },
+      "interactions": "cfg must be 1.0 with Lightning/lightx2v LoRAs; too high -> oversaturation",
+      "src": [
+        "S-TPL-T2V",
+        "S-WAN-CONFIGS",
+        "S-SEARCH-COLOR"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingSD3",
+      "input": "shift",
+      "meaning": "timestep/sigma shift of the flow schedule; higher spends more steps at high noise (layout), lower at detail",
+      "defaults": {
+        "t2v-14b": 5.0,
+        "i2v-14b": 5.0,
+        "t2v-14b-lightning": 5.0,
+        "flf2v-14b": 8.0,
+        "fun-*-14b": 8.0,
+        "t2v-5b": 8.0,
+        "i2v-5b": 8.0,
+        "vace-14b": 8.0,
+        "s2v": 8.0,
+        "animate": 8.0
+      },
+      "range": [
+        3.0,
+        12.0
+      ],
+      "official_reference_code": {
+        "t2v": 12.0,
+        "i2v": 5.0,
+        "5b": 5.0,
+        "s2v": 3.0,
+        "animate": 5.0
+      },
+      "interactions": "node default is 3.0 — never leave it at the default for Wan; Lightning author: 'Euler with shift = 5'",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES-CORE",
+        "S-WAN-CONFIGS",
+        "S-HFD-5"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSamplerAdvanced|KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "14b two-expert": "euler / simple",
+        "5b": "uni_pc / simple",
+        "s2v": "uni_pc / simple",
+        "animate": "euler / simple"
+      },
+      "range": null,
+      "official_reference_code": {
+        "sample_solver": "unipc (choice dpm++)"
+      },
+      "interactions": "Lightning: euler/simple at 4 steps",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-5B",
+        "S-WAN-GENERATE"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "KSampler",
+      "input": "denoise",
+      "meaning": "KSampler only; KSamplerAdvanced uses the step range instead",
+      "defaults": {
+        "5b": 1.0,
+        "s2v": 1.0,
+        "animate": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": "S-TPL-5B"
+    },
+    {
+      "name": "length",
+      "node": "EmptyHunyuanLatentVideo|WanImageToVideo|WanFirstLastFrameToVideo|WanFunInpaintToVideo|Wan22FunControlToVideo|WanCameraImageToVideo|WanCameraEmbedding|WanVaceToVideo|Wan22ImageToVideoLatent",
+      "input": "length",
+      "meaning": "frames; must be 4n+1 (latent frames = (length-1)/4 + 1)",
+      "defaults": {
+        "14b": 81,
+        "5b": 121,
+        "s2v chunk": 77,
+        "animate chunk": 77
+      },
+      "range": [
+        5,
+        121
+      ],
+      "interactions": "81 @16 fps = 5 s; 121 @24 fps = 5 s; S2V chunk needs >= 73; longer than one pass = chunking (S2V/Animate extend) — not a single 161-frame latent",
+      "src": [
+        "S-NODES",
+        "S-WAN-CONFIGS",
+        "S-TPL-S2V"
+      ]
+    },
+    {
+      "name": "fps",
+      "node": "CreateVideo",
+      "input": "fps",
+      "meaning": "the model's native rate; the container fps must match it",
+      "defaults": {
+        "14b": 16,
+        "5b": 24,
+        "s2v": 16,
+        "animate": 16
+      },
+      "range": null,
+      "interactions": "setting 24 on a 14B output does not add frames, it speeds the clip up",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-5B",
+        "S-WAN-CONFIGS"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "(latent/conditioning node)",
+      "input": "width, height",
+      "meaning": "multiples of 16 (14B nodes step=16); the 5B latent node steps by 32",
+      "defaults": {
+        "14b native": [
+          "1280x720",
+          "720x1280",
+          "832x480",
+          "480x832"
+        ],
+        "5b native": [
+          "1280x704",
+          "704x1280"
+        ],
+        "s2v extra": [
+          "1024x704",
+          "704x1024",
+          "704x1280",
+          "1280x704"
+        ],
+        "animate": [
+          "1280x720",
+          "720x1280"
+        ],
+        "templates (low-VRAM)": "640x640"
+      },
+      "range": null,
+      "interactions": "Fun models trained at 512/768/1024; off-native sizes work but are not what the model was trained on; Lightning slow-motion was resolution-dependent in one report (1280x720 normal, 832x480 slow)",
+      "src": [
+        "S-NODES",
+        "S-WAN-CONFIGS",
+        "S-HF-FUNCTRL",
+        "S-HFD-20"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSamplerAdvanced",
+      "input": "noise_seed",
+      "meaning": "only the high-noise sampler's seed matters (it adds the noise); the low-noise sampler's seed is irrelevant",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "name": "strength_model",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "LoRA weight",
+      "defaults": {
+        "lightning": 1.0,
+        "relight": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "community motion fix: 0.6-0.8 on high-noise, 1.0 on low, cfg 2-3.5 on high / 1 on low, 8 steps",
+      "src": [
+        "S-TPL-T2V",
+        "S-HFD-5"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "vae-for-14b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^wan2\\.2_.*_14B_.*\\.safetensors$"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "wan_2.1_vae.safetensors"
+      },
+      "message": "every 14B Wan 2.2 model decodes with wan_2.1_vae.safetensors (16-ch); wan2.2_vae.safetensors (48-ch) is for the 5B only — the #1 reported Wan 2.2 error ('expected input ... to have 36/48 channels')",
+      "src": [
+        "S-EXAMPLES",
+        "S-HFD-REPACK3",
+        "S-GH-13670"
+      ]
+    },
+    {
+      "id": "vae-for-5b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^wan2\\.2_.*_5B_.*\\.safetensors$"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "wan2.2_vae.safetensors"
+      },
+      "message": "the 5B models need wan2.2_vae.safetensors (48-channel, 16x); with the 2.1 VAE the latent shape is wrong",
+      "src": [
+        "S-EXAMPLES",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "clip-type-wan",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^wan2\\.2_"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "wan"
+      },
+      "message": "Wan text encoding is CLIPLoader with type 'wan' on umt5_xxl; any other type mis-encodes the prompt",
+      "src": "S-NODES-CORE"
+    },
+    {
+      "id": "encoder-is-umt5",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "wan"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^umt5_xxl_(fp8_e4m3fn_scaled|fp16)\\.safetensors$"
+      },
+      "message": "the Wan text encoder is umt5_xxl (fp8 scaled or fp16)",
+      "src": "S-HF-WAN21-TREE"
+    },
+    {
+      "id": "lora-on-matching-expert",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "_high_noise"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_high_noise_"
+      },
+      "message": "a *_high_noise LoRA belongs on the high-noise model branch (and *_low_noise on the low): 'high noise and low noise models and LoRAs need to be used correspondingly'",
+      "src": "S-DOCS-FUNCTRL"
+    },
+    {
+      "id": "lora-on-matching-expert-low",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "_low_noise"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_low_noise_"
+      },
+      "message": "a *_low_noise LoRA belongs on the low-noise model branch",
+      "src": "S-DOCS-FUNCTRL"
+    },
+    {
+      "id": "lora-task-matches-model",
+      "severity": "warn",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^wan2\\.2_t2v_lightx2v"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^wan2\\.2_t2v_"
+      },
+      "message": "the T2V Lightning LoRA on a non-T2V model: 'many key values don't match ... significant dynamic and quality loss' (the S2V template does it knowingly)",
+      "src": "S-DOCS-S2V"
+    },
+    {
+      "id": "cfg-under-distill",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "lightx2v|lightning|distill"
+      },
+      "require": {
+        "node": "KSamplerAdvanced|KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "with a distilled 4-step LoRA every sampler runs at cfg 1.0 (the template's switch sets 1); cfg above 1 is the community motion-recovery trick only on a no-LoRA high-noise pass",
+      "src": [
+        "S-TPL-T2V",
+        "S-HFD-5"
+      ]
+    },
+    {
+      "id": "steps-under-distill",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "lightx2v|lightning|distill"
+      },
+      "require": {
+        "node": "KSamplerAdvanced|KSampler",
+        "input": "steps",
+        "max": 8,
+        "all": true
+      },
+      "message": "distilled LoRAs are 4-step (community: up to 8); 20 steps under a Lightning LoRA wastes time and over-bakes",
+      "src": [
+        "S-TPL-T2V",
+        "S-HFD-5"
+      ]
+    },
+    {
+      "id": "shift-set",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^wan2\\.2_"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "min": 5.0,
+        "max": 12.0,
+        "all": true
+      },
+      "message": "every Wan 2.2 recipe sets ModelSamplingSD3 shift 5-8 (official code 5-12); the node default 3.0 is wrong for Wan",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES-CORE",
+        "S-WAN-CONFIGS"
+      ]
+    },
+    {
+      "id": "frames-4n+1",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanLatentVideo|WanImageToVideo|WanFirstLastFrameToVideo|WanFunInpaintToVideo|Wan22FunControlToVideo|WanCameraImageToVideo|WanCameraEmbedding|WanVaceToVideo|Wan22ImageToVideoLatent|WanSoundImageToVideo|WanAnimateToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "modulo": [
+          4,
+          1
+        ]
+      },
+      "message": "Wan frame counts are 4n+1 (81 = 5 s @16 fps, 121 = 5 s @24 fps); 80 is not a legal length",
+      "src": [
+        "S-NODES",
+        "S-DOCS-FUNINP"
+      ]
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanLatentVideo|WanImageToVideo|WanFirstLastFrameToVideo|WanFunInpaintToVideo|Wan22FunControlToVideo|WanCameraImageToVideo|WanCameraEmbedding|WanVaceToVideo|WanSoundImageToVideo|WanAnimateToVideo",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "Wan 14B conditioning nodes take width/height in multiples of 16",
+      "src": "S-NODES"
+    },
+    {
+      "id": "dims-multiple-32-5b",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "Wan22ImageToVideoLatent",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 32
+      },
+      "message": "the 5B latent node (16x VAE) takes width/height in multiples of 32",
+      "src": "S-NODES"
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanLatentVideo|WanImageToVideo|WanFirstLastFrameToVideo|WanFunInpaintToVideo|Wan22FunControlToVideo|WanCameraImageToVideo|WanVaceToVideo",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1280x720",
+          "720x1280",
+          "832x480",
+          "480x832",
+          "640x640"
+        ]
+      },
+      "message": "not a size the 14B model was trained at (1280x720, 720x1280, 832x480, 480x832); it runs, but expect weaker results than at a native size",
+      "src": "S-WAN-CONFIGS"
+    },
+    {
+      "id": "native-size-5b",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "Wan22ImageToVideoLatent",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1280x704",
+          "704x1280"
+        ]
+      },
+      "message": "the 5B model's native sizes are 1280x704 and 704x1280",
+      "src": "S-WAN-CONFIGS"
+    },
+    {
+      "id": "fps-matches-model",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_14B_"
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "equals": 16
+      },
+      "message": "14B models generate at 16 fps; a different container fps changes playback speed, not smoothness",
+      "src": "S-WAN-CONFIGS"
+    },
+    {
+      "id": "fps-matches-model-5b",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_5B_"
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "equals": 24
+      },
+      "message": "5B models generate at 24 fps",
+      "src": "S-WAN-CONFIGS"
+    },
+    {
+      "id": "moe-split",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "moe_two_expert_split",
+      "args": {
+        "loader": "UNETLoader",
+        "high": "_high_noise_",
+        "low": "_low_noise_",
+        "sampler": "KSamplerAdvanced"
+      },
+      "message": "a 14B high/low pair runs as two chained KSamplerAdvanced: high (add_noise enable, start 0, end = split, return_with_leftover_noise enable) feeding low (add_noise disable, start = split, end 10000, return_with_leftover_noise disable), same steps/cfg on both, low's model chain reaching the low-noise loader",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-I2V"
+      ]
+    },
+    {
+      "id": "no-single-expert",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "moe_both_experts_present",
+      "args": {
+        "loader": "UNETLoader",
+        "high": "_high_noise_",
+        "low": "_low_noise_"
+      },
+      "message": "a high-noise model without its low-noise partner (or the reverse) is half a model: both experts are always loaded",
+      "src": "S-WAN-README"
+    },
+    {
+      "id": "vace-trim",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "vace_trim_wired",
+      "args": {
+        "source": "WanVaceToVideo",
+        "output": 3,
+        "sink": "TrimVideoLatent",
+        "input": "trim_amount"
+      },
+      "message": "WanVaceToVideo.trim_latent must feed TrimVideoLatent.trim_amount before VAEDecode, or the reference image's latent frames appear as noise at the start",
+      "src": [
+        "S-NODES",
+        "S-MITTIMI"
+      ]
+    },
+    {
+      "id": "s2v-min-frames",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "WanSoundImageToVideo|WanSoundImageToVideoExtend",
+        "input": "length"
+      },
+      "numeric": {
+        "min": 73
+      },
+      "message": "S2V needs at least 73 frames per chunk (official code motion_frames = 73)",
+      "src": "S-TPL-S2V"
+    },
+    {
+      "id": "i2v-has-start-image",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "WanImageToVideo",
+        "input": "positive",
+        "exists": true
+      },
+      "require": {
+        "node": "WanImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "message": "WanImageToVideo without start_image is a T2V graph with the wrong node: wire the image",
+      "src": "S-TPL-I2V"
+    },
+    {
+      "id": "no-clip-vision-on-i2v",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "WanImageToVideo|WanFirstLastFrameToVideo",
+        "input": "clip_vision_output",
+        "linked": true
+      },
+      "require": {
+        "node": "CLIPVisionLoader",
+        "input": "clip_name",
+        "equals": "__never__"
+      },
+      "message": "Wan 2.2 I2V/FLF2V have no CLIP-vision in their config and the official templates load none; a clip_vision_output is a Wan 2.1 habit — remove it",
+      "src": [
+        "S-WAN-CONFIGS",
+        "S-TPL-I2V"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (Wan Animate 2: 0.36.0 > 0.35.0)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+    "negative_src": [
+      "S-WAN-CONFIGS",
+      "S-TPL-I2V"
+    ],
+    "negative_gloss": "vivid tones, overexposed, static, blurry details, subtitles, style, artwork, painting, picture, still, overall gray, worst/low quality, JPEG artifacts, ugly, incomplete, extra fingers, badly drawn hands/face, deformed, disfigured, malformed limbs, fused fingers, motionless picture, cluttered background, three legs, many people in background, walking backwards",
+    "positive": [
+      {
+        "line": "Rich, extended prompts: the publisher recommends prompt extension because detail 'effectively enrich[es] the details in the generated videos'",
+        "class": "official",
+        "src": "S-WAN-README"
+      },
+      {
+        "line": "Structure that the official examples follow: subject + action + camera move + lighting/style, in English or Chinese",
+        "class": "official",
+        "src": [
+          "S-TPL-T2V",
+          "S-DOCS-FUNCTRL"
+        ]
+      },
+      {
+        "line": "I2V: the image carries the subject; the prompt describes motion, camera and atmosphere",
+        "class": "single-source",
+        "src": "S-SEARCH-I2V"
+      },
+      {
+        "line": "80-120 words; opening scene -> camera motion -> reveal/payoff",
+        "class": "single-source",
+        "src": "S-VIEWCOMFY"
+      },
+      {
+        "line": "Camera vocabulary the model follows: pan left/right, tilt up/down, dolly in/out, orbital arc, crane up, tracking shot, slow zoom, handheld, static camera; pace: slow-motion, time-lapse",
+        "class": "community",
+        "src": "S-SEARCH-PROMPT"
+      },
+      {
+        "line": "Animate prompts describe the character and background ('Character Description: ... Background description: ...')",
+        "class": "official",
+        "src": "S-TPL-ANIMATE2"
+      }
+    ],
+    "hurts": [
+      {
+        "line": "too-short prompts: the model fills gaps with its own defaults",
+        "src": "S-VIEWCOMFY"
+      },
+      {
+        "line": "words implying stillness (the official negative bans 静态/静止)",
+        "src": "S-WAN-CONFIGS"
+      },
+      {
+        "line": "very large motion under a Lightning LoRA: artifacts, reversed vehicle direction",
+        "src": "S-LIGHTNING-HF"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "'expected input ... to have 36 channels, but got 32' / '48 channels, but got 16'",
+      "cause": "wrong VAE for the model (2.2 VAE on a 14B, 2.1 VAE on the 5B) or an outdated ComfyUI / a conflicting custom node",
+      "fix": "14B -> wan_2.1_vae.safetensors; 5B -> wan2.2_vae.safetensors",
+      "src": [
+        "S-HFD-REPACK3",
+        "S-GH-13670"
+      ]
+    },
+    {
+      "symptom": "out of memory",
+      "cause": "resolution x frames too large for the card",
+      "fix": "drop to 640x640 or 832x480, keep 81 frames, use fp8_scaled; 5B fits 8 GB with offloading; GGUF pairs for 12 GB",
+      "src": [
+        "S-TPL-FLF2V",
+        "S-DOCS-WAN22",
+        "S-NEXTDIFF-GGUF"
+      ]
+    },
+    {
+      "symptom": "slow-motion / lifeless video",
+      "cause": "Lightning 4-step LoRA (official: 'loss of video dynamics')",
+      "fix": "the 20-step no-LoRA recipe for the final; or LoRA 0.6-0.8 on high / 1.0 on low with cfg 2-3.5 on high, 8 steps; or the newer 250928 / V2.0 LoRAs",
+      "src": [
+        "S-TPL-FLF2V",
+        "S-HFD-20",
+        "S-HFD-5",
+        "S-LIGHTNING-GH"
+      ]
+    },
+    {
+      "symptom": "LoRA 'key values don't match' warnings, poor result",
+      "cause": "LoRA on the wrong expert or the wrong task's LoRA",
+      "fix": "high LoRA on the high branch, low on low; T2V LoRAs on T2V, I2V LoRAs on I2V/Fun/FLF2V",
+      "src": [
+        "S-DOCS-FUNCTRL",
+        "S-DOCS-S2V"
+      ]
+    },
+    {
+      "symptom": "first frame brighter / 'overbaked'; contrast drifts on extensions",
+      "cause": "VAE first-frame behaviour; chained I2V",
+      "fix": "S2V template hack: duplicate the first latent frame (LatentCut + LatentConcat) and drop it after decode",
+      "src": [
+        "S-TPL-S2V",
+        "S-GH-KJ1541"
+      ]
+    },
+    {
+      "symptom": "noise in the first VACE frames",
+      "cause": "the reference image occupies leading latent frames",
+      "fix": "TrimVideoLatent with trim_amount from WanVaceToVideo.trim_latent",
+      "src": [
+        "S-NODES",
+        "S-MITTIMI"
+      ]
+    },
+    {
+      "symptom": "I2V ignores the image",
+      "cause": "start_image not wired (5B template ships with LoadImage bypassed); t2v files used for i2v",
+      "fix": "wire start_image; use the i2v model files",
+      "src": [
+        "S-DOCS-WAN22",
+        "S-TPL-5B"
+      ]
+    },
+    {
+      "symptom": "length rejected / off-by-one frames",
+      "cause": "length not 4n+1",
+      "fix": "81, 85, 89 ... (5 s @16 fps = 81)",
+      "src": "S-NODES"
+    },
+    {
+      "symptom": "oversaturated colours",
+      "cause": "cfg above template values",
+      "fix": "cfg <= 3.5-6 (per recipe), 1.0 under distilled LoRAs; the default negative already bans vivid/overexposed",
+      "src": "S-SEARCH-COLOR"
+    },
+    {
+      "symptom": "Animate ignores the reference / wrong mode",
+      "cause": "background_video + character_mask still connected in Move mode (bypass still passes them)",
+      "fix": "disconnect them for Move; width/height multiples of 16",
+      "src": "S-DOCS-ANIMATE"
+    },
+    {
+      "symptom": "docs and template disagree",
+      "cause": "docs drift (e.g. docs' I2V steps name the t2v files)",
+      "fix": "the template JSON wins; this profile was built from the JSON",
+      "src": [
+        "S-DOCS-WAN22",
+        "S-TPL-FUNCTRL"
+      ]
+    }
+  ],
+  "sources": {
+    "S-WAN-README": {
+      "url": "https://github.com/Wan-Video/Wan2.2",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-WAN-CONFIGS": {
+      "url": "https://raw.githubusercontent.com/Wan-Video/Wan2.2/main/wan/configs/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-WAN-GENERATE": {
+      "url": "https://raw.githubusercontent.com/Wan-Video/Wan2.2/main/generate.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ANIMATE": {
+      "url": "https://huggingface.co/Wan-AI/Wan2.2-Animate-14B",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LIGHTNING-HF": {
+      "url": "https://huggingface.co/lightx2v/Wan2.2-Lightning",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LIGHTNING-GH": {
+      "url": "https://raw.githubusercontent.com/ModelTC/Wan2.2-Lightning/main/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-WAN22": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2_2",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-ANIMATE": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2-2-animate",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-S2V": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2-2-s2v",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FUNCTRL": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2-2-fun-control",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FUNINP": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2-2-fun-inp",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FUNCAM": {
+      "url": "https://docs.comfy.org/tutorials/video/wan/wan2-2-fun-camera",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/wan22/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-REPACK-COMMITS": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/commits/main",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-TREE": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-WAN21-TREE": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/tree/main/split_files",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FUNCTRL": {
+      "url": "https://huggingface.co/alibaba-pai/Wan2.2-Fun-A14B-Control",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_t2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_i2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-5B": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_5B_ti2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FLF2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_flf2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FUNCTRL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_fun_control.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FUNINP": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_fun_inpaint.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FUNCAM": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_fun_camera.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-5BFUNCTRL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_5B_fun_control.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-S2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_s2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-ANIMATE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan2_2_14B_animate.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-ANIMATE2": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan_animate2.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-VACE-V2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan_vace_14B_v2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-VACE-REF2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_wan_vace_14B_ref2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.0/comfy_extras/nodes_wan.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES-CORE": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.0/nodes.py (+ comfy_extras/nodes_model_advanced.py, nodes_hunyuan.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HFD-20": {
+      "url": "https://huggingface.co/lightx2v/Wan2.2-Lightning/discussions/20",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-5": {
+      "url": "https://huggingface.co/lightx2v/Wan2.2-Lightning/discussions/5",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-REPACK3": {
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/discussions/3",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GH-13670": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/issues/13670",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GH-KJ1541": {
+      "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1541",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-NEXTDIFF-GGUF": {
+      "url": "https://www.nextdiffusion.ai/tutorials/how-to-run-wan22-image-to-video-gguf-models-in-comfyui-low-vram",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-MITTIMI": {
+      "url": "https://mittimi.blogspot.com/2025/09/wan22-vace-native-workflow-with-comfyui.html",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SBCODE": {
+      "url": "https://sbcode.net/genai/wan2.2-VACE/",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-QS-TREES": {
+      "url": "https://huggingface.co/QuantStack (Wan2.2 GGUF repos)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-VIEWCOMFY": {
+      "url": "https://www.viewcomfy.com/blog/wan2.2_prompt_guide_with_examples",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH-PROMPT": {
+      "url": "web search: wink.ai, mimicpc, instasd, whatlab prompt guides",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SEARCH-I2V": {
+      "url": "web search (single guide)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH-COLOR": {
+      "url": "web search (apatero colour-grading guide)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

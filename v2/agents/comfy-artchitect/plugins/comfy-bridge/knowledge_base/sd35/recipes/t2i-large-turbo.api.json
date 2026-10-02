@@ -1,0 +1,186 @@
+{
+  "recipe": {
+    "id": "t2i-large-turbo",
+    "family": "sd35",
+    "task": "t2i",
+    "variant": "Large Turbo (ADD-distilled) original fp16 checkpoint (gated) + TripleCLIPLoader, 4 steps, cfg 1.2, euler/sgm_uniform",
+    "from_template": "Comfy-Org sd3.5-t2i-fp16-workflow.json with the Turbo checkpoint; steps/cfg from ComfyUI_examples ('set steps to 4 and cfg to 1.2'); no Turbo template exists",
+    "min_comfyui": "0.3.5",
+    "confidence": "official guidance (ComfyUI_examples text + Stability reference config: shift 3.0, cfg 1.0, steps 4, euler) on the Comfy-Org workflow graph — not a shipped template graph",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text",
+        "note": "official default is the empty string; SD3.5 negatives hurt (see rules)"
+      },
+      "checkpoint": {
+        "node": "1",
+        "input": "ckpt_name",
+        "note": "an original Stability checkpoint (no text encoders inside); its CLIP output is unused"
+      },
+      "t5": {
+        "node": "5",
+        "input": "clip_name3",
+        "note": "t5xxl_fp8_e4m3fn_scaled (default) or t5xxl_fp16 with >32 GB system RAM"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_turbo.safetensors",
+      "clip_l.safetensors",
+      "clip_g.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4 steps only; cfg 1.0 (reference) to 1.2 (ComfyUI_examples); the negative is effectively inert this close to cfg 1. Normal settings (20-40 steps, cfg 4-5) waste the distillation and over-guide. Ungated alternative: city96 GGUF (needs ComfyUI-GGUF).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM figure for any SD3.5 file)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "min_comfyui 0.3.5 is sd3.5_simple_example's; the Comfy-Org repo workflow JSON carries no minComfyUIVersion.",
+      "The Comfy-Org fp8 workflow names 't5xxl_fp8.safetensors' (a renamed copy); the exact repo file t5xxl_fp8_e4m3fn_scaled.safetensors is used here.",
+      "cfg 1.2 is ComfyUI_examples' number; Stability's sd3_infer.py uses 1.0 and the HF card (diffusers) 0.0 — all three are 'no real guidance'."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_turbo.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "TripleCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "clip_g.safetensors",
+        "clip_name3": "t5xxl_fp8_e4m3fn_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": "a bottle with a rainbow galaxy inside it on top of a wooden table on a snowy mountain top with the ocean and clouds in the background"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "5",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 4,
+        "cfg": 1.2,
+        "sampler_name": "euler",
+        "scheduler": "sgm_uniform",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sd35/t2i_large_turbo"
+      }
+    }
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "recipe": {
+    "id": "t2i-schnell-fp8",
+    "family": "flux-1",
+    "task": "t2i",
+    "variant": "FLUX.1 [schnell] fp8 all-in-one checkpoint via CheckpointLoaderSimple; 4 steps, cfg 1 — the fastest, smallest FLUX.1 route (Apache-2.0)",
+    "from_template": "flux_schnell",
+    "min_comfyui": "0.0.4",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "ignored at cfg 1.0; kept empty as the template does"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-schnell-fp8.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 4 steps, euler/simple, cfg 1.0. Template note (verbatim): 'Note that Flux dev and schnell do not have any negative prompt so CFG should be set to 1.0. Setting CFG to 1.0 means the negative prompt is ignored.'",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "note": "Comfy-Org: FP8 'makes running in ComfyUI much faster and use less memory'; template: 'Ideal for low-end hardware'",
+      "class": "official",
+      "src": [
+        "S-README-COMFYORG",
+        "S-TPL-INDEX"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "flux1-schnell-fp8.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "a bottle with a beautiful rainbow galaxy inside it on top of a wooden table in the middle of a modern kitchen beside a plate of vegetables and mushrooms and a wine glasse that contains a planet earth with a plate with a half eaten apple pie on it"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": ""
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 4,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_Schnell"
+      }
+    }
+  }
+}

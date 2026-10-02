@@ -1,0 +1,2459 @@
+{
+  "schema": 2,
+  "id": "controlnet",
+  "name": "ControlNet and structural control adapters (SD1.5 / SDXL / FLUX.1 / SD3.5 / Qwen-Image / Z-Image)",
+  "publisher": "lllyasviel (SD1.5 v1.1); xinsir (SDXL union); Stability AI (SD3.5 nets, Control-LoRA); Black Forest Labs (FLUX.1 Canny/Depth); InstantX / Shakker-Labs / XLabs (FLUX unions); InstantX + DiffSynth-Studio + alibaba-pai (Qwen-Image); alibaba-pai (Z-Image Fun)",
+  "license": {
+    "name": "per model (see files[].license)",
+    "commercial": "depends on the net: Apache-2.0 (xinsir, Qwen InstantX/DiffSynth/2512 Fun, Z-Image Fun); Stability Community License (SD3.5, free under US$1M revenue); FLUX.1 [dev] Non-Commercial (every FLUX ControlNet: BFL, InstantX, Shakker, XLabs); openrail (SD1.5 v1.1); Qwen Research License (Qwen-2.1 Fun, not Apache)",
+    "notes": "a control adapter inherits nothing from its host but runs with it: a FLUX.1 ControlNet on FLUX.1-dev is non-commercial twice over",
+    "src": [
+      "S-HF-BFL-CANNY",
+      "S-HF-SD35-CN",
+      "S-HF-XINSIR",
+      "S-HF-QWEN-INSTANTX-REPACK",
+      "S-HF-QWEN21-FUN",
+      "S-HF-CN11"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "control"
+  ],
+  "tasks": [
+    "control",
+    "inpaint"
+  ],
+  "stage_kind": "adapter: every recipe is a FRAGMENT WITH AN ANCHOR - a full minimal graph for one host family whose recipe.anchor says which node ids belong to the host and which to the adapter, so a pipeline can splice the adapter nodes into that host's own recipe",
+  "controls": [
+    "canny",
+    "depth",
+    "pose",
+    "lineart",
+    "softedge/scribble",
+    "mlsd",
+    "normal",
+    "segment",
+    "tile",
+    "blur",
+    "inpaint",
+    "union"
+  ],
+  "hosts": [
+    "flux-1",
+    "sd35",
+    "qwen-image",
+    "z-image",
+    "sdxl",
+    "sd15"
+  ],
+  "cannot": [
+    {
+      "what": "turn a photo into a control map by itself: 'Each ControlNet/T2I adapter needs the image that is passed to it to be in a specific format like depthmaps, canny maps and so on ... The ControlNetApply node will not convert regular images' (preprocess with native Canny / Lotus / DA3 / SDPose or the aux pack)",
+      "src": "S-EXAMPLES-CN"
+    },
+    {
+      "what": "commercial use with any FLUX.1 ControlNet (BFL, InstantX, Shakker, XLabs): FLUX.1 [dev] Non-Commercial License",
+      "src": [
+        "S-HF-BFL-CANNY",
+        "S-HF-INSTANTX-FLUX-UNION",
+        "S-HF-SHAKKER-PRO",
+        "S-HF-XLABS-CN"
+      ]
+    },
+    {
+      "what": "pick a mode on FLUX Union Pro 2.0 with SetUnionControlNetType: 'Mode embedding removed' - the node is a no-op; the preprocessed image alone selects the behaviour",
+      "src": "S-HF-SHAKKER-PRO2"
+    },
+    {
+      "what": "tile / repaint with the plain xinsir union file: 'Control type ... is out of range ... Please consider using the ProMax ControlNet Union model'",
+      "src": "S-CN-LOADER"
+    },
+    {
+      "what": "load the Qwen-Image-2.1 Fun union natively on the 0.35.0 image (needs ComfyUI >= v0.38.0)",
+      "src": "S-CN-REL"
+    },
+    {
+      "what": "give per-GPU VRAM numbers: no official tables exist for any ControlNet; rule of thumb from ComfyUI_examples - the net 'is run once every iteration', so add roughly its file size (in working dtype) to the host's footprint; T2I-Adapters run once in total",
+      "src": "S-EXAMPLES-CN"
+    },
+    {
+      "what": "Anima ControlNet-LLLite: license NOT FOUND, not profiled here (template image_anima_lllite_depth_control_to_image, AnimaLLLiteApply)",
+      "src": "S-TPL-ANIMA-LLLITE"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "ComfyUI master sources fetched 2026-10-01 (nodes.py, comfy_extras/nodes_controlnet.py, comfy/controlnet.py, comfy/cldm/control_types.py, comfy_extras/nodes_canny.py)",
+    "nodes_verified_against_registry": "v0.35.0 - all 13 recipes passed the offline structural check (verify_recipes.py) on 2026-10-02",
+    "note": "SetUnionControlNetType.type lists only 'auto' in the registry snapshot because the node builds its list from comfy/cldm/control_types.py at runtime (8 more keys); the recipes use the source's keys. Qwen-Image-2.1 Fun union needs ComfyUI >= 0.38.0: NOT available on the pinned image. ControlNetApply is deprecated in v0.35.0 (registry flag)."
+  },
+  "files": [
+    {
+      "name": "flux1-canny-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23803351736,
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/diffusion_models/flux1-canny-dev.safetensors",
+      "host": "flux-1",
+      "control": "canny",
+      "precision": "bf16",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [
+        "flux1-canny-full"
+      ],
+      "note": "a full finetuned transformer that REPLACES flux1-dev; loaded by UNETLoader + InstructPixToPixConditioning",
+      "src": [
+        "S-HF-COMFY-FLUX1",
+        "S-HF-BFL-CANNY"
+      ]
+    },
+    {
+      "name": "flux1-depth-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 23803351200,
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev/resolve/main/flux1-depth-dev.safetensors",
+      "host": "flux-1",
+      "control": "depth",
+      "precision": "bf16",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "full Depth model; the same graph as flux1-canny-full with a depth map in place of Canny (no template; the depth LoRA recipe is the official one). Comfy-Org also hosts flux1-depth-dev-nvfp4.safetensors (8,853,755,624 B)",
+      "src": "S-HF-BFL-DEPTH"
+    },
+    {
+      "name": "flux1-canny-dev-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1244443944,
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev-lora/resolve/main/flux1-canny-dev-lora.safetensors",
+      "host": "flux-1",
+      "control": "canny",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "LoraLoaderModelOnly on flux1-dev + InstructPixToPixConditioning, exactly like flux1-depth-lora with Canny in place of the Lotus chain",
+      "src": "S-HF-BFL-CANNY-LORA"
+    },
+    {
+      "name": "flux1-depth-dev-lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1244440512,
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/loras/flux1-depth-dev-lora.safetensors",
+      "host": "flux-1",
+      "control": "depth",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [
+        "flux1-depth-lora"
+      ],
+      "src": [
+        "S-HF-COMFY-FLUX1",
+        "S-HF-BFL-DEPTH-LORA"
+      ]
+    },
+    {
+      "name": "flux1-dev-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17246524772,
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors",
+      "host": "flux-1",
+      "precision": "fp8 (all-in-one checkpoint: transformer + both text encoders + VAE)",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [
+        "flux1-depth-lora"
+      ],
+      "note": "the depth-LoRA template loads this all-in-one file from models/diffusion_models with UNETLoader; same bytes as the models/checkpoints copy. NOT the 12.3 GB BFL FLUX.1-dev-FP8 transformer of the same name.",
+      "src": "S-HF-COMFY-FLUX1"
+    },
+    {
+      "name": "clip_l.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 246144152,
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+      "host": "flux-1",
+      "recipes": [
+        "flux1-canny-full",
+        "flux1-depth-lora"
+      ],
+      "src": [
+        "S-HF-FLUX-TE",
+        "S-HF-SD35-FP8"
+      ]
+    },
+    {
+      "name": "t5xxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9787841024,
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+      "host": "flux-1",
+      "recipes": [
+        "flux1-canny-full",
+        "flux1-depth-lora"
+      ],
+      "note": "t5xxl_fp8_e4m3fn.safetensors (4,893,934,904 B, same repo) is the low-VRAM substitute",
+      "src": [
+        "S-HF-FLUX-TE",
+        "S-HF-SD35-FP8"
+      ]
+    },
+    {
+      "name": "ae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 335304388,
+      "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+      "host": "flux-1 / z-image",
+      "recipes": [
+        "flux1-canny-full",
+        "flux1-depth-lora",
+        "zimage-fun-union-canny"
+      ],
+      "note": "the FLUX VAE; the Z-Image template links the byte-identical copy at Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors",
+      "src": [
+        "S-HF-LUMINA-VAE",
+        "S-HF-ZIMAGE-COMFY"
+      ]
+    },
+    {
+      "name": "diffusion_pytorch_model.safetensors (InstantX FLUX.1-dev-Controlnet-Union)",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 6603953920,
+      "url": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Union/resolve/main/diffusion_pytorch_model.safetensors",
+      "host": "flux-1",
+      "control": "union (canny, tile, depth, blur, pose, gray, low quality)",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "no Comfy-Org template (NOT FOUND); ControlNetLoader -> SetUnionControlNetType (index-by-position, see rules) -> ControlNetApplyAdvanced with vae. Rename on disk (generic filename).",
+      "src": "S-HF-INSTANTX-FLUX-UNION"
+    },
+    {
+      "name": "diffusion_pytorch_model.safetensors (Shakker-Labs FLUX.1-dev-ControlNet-Union-Pro)",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 6603953920,
+      "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors",
+      "host": "flux-1",
+      "control": "union",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "same 7 modes 'trained with more steps and datasets'; recommended conditioning scale 0.3-0.8; fp8: Kijai/flux-fp8 flux_shakker_labs_union_pro-fp8_e4m3fn.safetensors 3,301,998,248 B",
+      "src": "S-HF-SHAKKER-PRO"
+    },
+    {
+      "name": "diffusion_pytorch_model.safetensors (Shakker-Labs FLUX.1-dev-ControlNet-Union-Pro-2.0)",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 4281779224,
+      "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/main/diffusion_pytorch_model.safetensors",
+      "host": "flux-1",
+      "control": "canny, soft edge, depth, pose, gray (no tile)",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "'Mode embedding removed' - SetUnionControlNetType is a no-op; per-mode strength canny 0.7 / soft edge 0.7 / depth 0.8 / pose 0.9 / gray 0.9, end_percent 0.8 (0.65 pose)",
+      "src": [
+        "S-HF-SHAKKER-PRO2",
+        "S-WIKI-PRO2"
+      ]
+    },
+    {
+      "name": "flux-canny-controlnet-v3.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 1487623552,
+      "url": "https://huggingface.co/XLabs-AI/flux-controlnet-collections/resolve/main/flux-canny-controlnet-v3.safetensors",
+      "host": "flux-1",
+      "control": "canny",
+      "license": "FLUX.1 [dev] Non-Commercial License",
+      "recipes": [],
+      "note": "native ControlNetLoader loads XLabs nets (load_controlnet_flux_xlabs_mistoline); depth (midas) and hed v3 are the same size",
+      "src": "S-HF-XLABS-CN"
+    },
+    {
+      "name": "sd3.5_large_fp8_scaled.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 14934922866,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/sd3.5_large_fp8_scaled.safetensors",
+      "host": "sd35",
+      "precision": "fp8_scaled",
+      "license": "Stability Community License",
+      "recipes": [
+        "sd35-canny",
+        "sd35-depth",
+        "sd35-blur"
+      ],
+      "src": "S-HF-SD35-FP8"
+    },
+    {
+      "name": "sd3.5_large_controlnet_canny.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_canny.safetensors",
+      "host": "sd35",
+      "control": "canny",
+      "license": "Stability Community License (free; commercial up to US$1M annual revenue)",
+      "recipes": [
+        "sd35-canny"
+      ],
+      "note": "embedded control_type 1; ComfyUI rescales the canny map itself",
+      "src": [
+        "S-HF-SD35-CN-REPACK",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "name": "sd3.5_large_controlnet_depth.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_depth.safetensors",
+      "host": "sd35",
+      "control": "depth",
+      "license": "Stability Community License",
+      "recipes": [
+        "sd35-depth"
+      ],
+      "note": "embedded control_type 2; ComfyUI inverts the map (1.0 - a)",
+      "src": [
+        "S-HF-SD35-CN-REPACK",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "name": "sd3.5_large_controlnet_blur.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 8654590644,
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_blur.safetensors",
+      "host": "sd35",
+      "control": "blur",
+      "license": "Stability Community License",
+      "recipes": [
+        "sd35-blur"
+      ],
+      "note": "embedded control_type 0",
+      "src": [
+        "S-HF-SD35-CN-REPACK",
+        "S-HF-SD35-CN"
+      ]
+    },
+    {
+      "name": "qwen_image_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430635136,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors",
+      "host": "qwen-image",
+      "precision": "fp8_e4m3fn",
+      "license": "Apache-2.0",
+      "recipes": [
+        "qwen-instantx-union-depth",
+        "qwen-instantx-inpaint",
+        "qwen-diffsynth-canny",
+        "qwen-union-lora-canny"
+      ],
+      "src": "S-HF-QWEN-COMFY"
+    },
+    {
+      "name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20430679144,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
+      "host": "qwen-image",
+      "precision": "fp8_e4m3fn",
+      "license": "Apache-2.0",
+      "recipes": [
+        "qwen2512-fun-union-canny"
+      ],
+      "src": "S-HF-QWEN-COMFY"
+    },
+    {
+      "name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9384670680,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "host": "qwen-image",
+      "recipes": [
+        "qwen-instantx-union-depth",
+        "qwen-instantx-inpaint",
+        "qwen-diffsynth-canny",
+        "qwen-union-lora-canny",
+        "qwen2512-fun-union-canny"
+      ],
+      "note": "CLIPLoader type 'qwen_image'",
+      "src": "S-HF-QWEN-COMFY"
+    },
+    {
+      "name": "qwen_image_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253806246,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "host": "qwen-image",
+      "recipes": [
+        "qwen-instantx-union-depth",
+        "qwen-instantx-inpaint",
+        "qwen-diffsynth-canny",
+        "qwen-union-lora-canny",
+        "qwen2512-fun-union-canny"
+      ],
+      "src": "S-HF-QWEN-COMFY"
+    },
+    {
+      "name": "Qwen-Image-Lightning-4steps-V1.0.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1698951104,
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors",
+      "host": "qwen-image",
+      "recipes": [
+        "qwen-instantx-union-depth"
+      ],
+      "note": "4 steps, cfg 1; the controlnet / 2512 / union-LoRA templates carry it (bypassed except in the InstantX template)",
+      "src": "S-HF-LIGHTX2V-QWEN",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Qwen-Image-InstantX-ControlNet-Union.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 3536027816,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors",
+      "host": "qwen-image",
+      "control": "union (canny, soft edge, depth, pose)",
+      "license": "Apache-2.0",
+      "recipes": [
+        "qwen-instantx-union-depth"
+      ],
+      "note": "InstantX recommends conditioning scale 0.8-1.0 for all four types",
+      "src": [
+        "S-HF-QWEN-INSTANTX-REPACK",
+        "S-HF-QWEN-INSTANTX"
+      ]
+    },
+    {
+      "name": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 4234599432,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+      "host": "qwen-image",
+      "control": "inpaint / outpaint",
+      "license": "Apache-2.0",
+      "recipes": [
+        "qwen-instantx-inpaint"
+      ],
+      "note": "applied with ControlNetInpaintingAliMamaApply (concat_mask net)",
+      "src": "S-HF-QWEN-INSTANTX-REPACK"
+    },
+    {
+      "name": "qwen_image_canny_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266838080,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_canny_diffsynth_controlnet.safetensors",
+      "host": "qwen-image",
+      "control": "canny",
+      "license": "Apache-2.0 (repack)",
+      "recipes": [
+        "qwen-diffsynth-canny"
+      ],
+      "note": "ModelPatchLoader + QwenImageDiffsynthControlnet; create models/model_patches if missing",
+      "src": "S-HF-QWEN-DIFFSYNTH"
+    },
+    {
+      "name": "qwen_image_depth_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266838080,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_depth_diffsynth_controlnet.safetensors",
+      "host": "qwen-image",
+      "control": "depth",
+      "license": "Apache-2.0 (repack)",
+      "recipes": [],
+      "note": "swap into qwen-diffsynth-canny with a depth map (Lotus chain or aux pack) in place of Canny",
+      "src": "S-HF-QWEN-DIFFSYNTH"
+    },
+    {
+      "name": "qwen_image_inpaint_diffsynth_controlnet.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2266862656,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_inpaint_diffsynth_controlnet.safetensors",
+      "host": "qwen-image",
+      "control": "inpaint",
+      "license": "Apache-2.0 (repack)",
+      "recipes": [],
+      "note": "QwenImageDiffsynthControlnet with its optional mask input",
+      "src": "S-HF-QWEN-DIFFSYNTH"
+    },
+    {
+      "name": "qwen_image_union_diffsynth_lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 943906720,
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/loras/qwen_image_union_diffsynth_lora.safetensors",
+      "host": "qwen-image",
+      "control": "union LoRA (canny, depth, lineart, softedge, normal, openpose)",
+      "license": "Apache-2.0 (repack)",
+      "recipes": [
+        "qwen-union-lora-canny"
+      ],
+      "note": "LoraLoaderModelOnly + ReferenceLatent on positive AND negative",
+      "src": "S-HF-QWEN-DIFFSYNTH"
+    },
+    {
+      "name": "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 3512432536,
+      "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union/resolve/main/Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
+      "host": "qwen-image",
+      "control": "union (Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale)",
+      "license": "Apache-2.0",
+      "recipes": [
+        "qwen2512-fun-union-canny"
+      ],
+      "note": "the repo also has ...-Union.safetensors (same size); native ControlNetLoader (load_controlnet_qwen_fun), strength soft-scaled by sqrt",
+      "src": "S-HF-QWEN2512-FUN"
+    },
+    {
+      "name": "Qwen-Image-2.1-Fun-Controlnet-Union.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 7550979904,
+      "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union/resolve/main/Qwen-Image-2.1-Fun-Controlnet-Union.safetensors",
+      "host": "qwen-image 2.1",
+      "control": "union (8 conditions + inpaint)",
+      "license": "Qwen Research License (NOT Apache)",
+      "recipes": [],
+      "note": "native loading needs ComfyUI >= v0.38.0 (above the 0.35.0 image); no Comfy-Org template (NOT FOUND)",
+      "src": [
+        "S-HF-QWEN21-FUN",
+        "S-CN-REL"
+      ]
+    },
+    {
+      "name": "z_image_turbo_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 12309866400,
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+      "host": "z-image",
+      "precision": "bf16",
+      "license": "Apache-2.0",
+      "recipes": [
+        "zimage-fun-union-canny"
+      ],
+      "src": "S-HF-ZIMAGE-COMFY"
+    },
+    {
+      "name": "qwen_3_4b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 8044982048,
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+      "host": "z-image",
+      "recipes": [
+        "zimage-fun-union-canny"
+      ],
+      "note": "CLIPLoader type 'lumina2'",
+      "src": "S-HF-ZIMAGE-COMFY"
+    },
+    {
+      "name": "Z-Image-Turbo-Fun-Controlnet-Union.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 3101572408,
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors",
+      "host": "z-image",
+      "control": "union 1.0 (Canny, HED, Depth, Pose, MLSD)",
+      "license": "Apache-2.0",
+      "recipes": [
+        "zimage-fun-union-canny"
+      ],
+      "note": "loaded as a model patch (ModelPatchLoader) and applied with QwenImageDiffsynthControlnet; author: control_context_scale 0.65-0.80 optimal. v2.x files (6.7 GB, inpaint+tile) in the -2.1 repo: native loading NOT FOUND",
+      "src": "S-HF-ZIMAGE-FUN"
+    },
+    {
+      "name": "sd_xl_base_1.0.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 6938078334,
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+      "host": "sdxl",
+      "precision": "fp16",
+      "recipes": [
+        "sdxl-union-xinsir"
+      ],
+      "src": "S-HF-SDXL-BASE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "diffusion_pytorch_model_promax.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 2513342408,
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors",
+      "host": "sdxl",
+      "control": "union ProMax (openpose, depth, hed/pidi/scribble/ted, canny/lineart/anime_lineart/mlsd, normal, segment, tile, repaint)",
+      "license": "Apache-2.0",
+      "recipes": [
+        "sdxl-union-xinsir"
+      ],
+      "note": "needs SetUnionControlNetType; tile/repaint ONLY with this ProMax file",
+      "src": [
+        "S-HF-XINSIR",
+        "S-GH-XINSIR"
+      ]
+    },
+    {
+      "name": "diffusion_pytorch_model.safetensors (xinsir controlnet-union-sdxl-1.0)",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 2512030408,
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors",
+      "host": "sdxl",
+      "control": "union (6 types, no tile/repaint)",
+      "license": "Apache-2.0",
+      "recipes": [],
+      "note": "rename on disk (e.g. controlnet-union-sdxl-1.0.safetensors); picking tile/repaint raises 'Control type ... is out of range ... Please consider using the ProMax ControlNet Union model'",
+      "src": "S-HF-XINSIR"
+    },
+    {
+      "name": "control-lora-canny-rank256.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 774450192,
+      "url": "https://huggingface.co/stabilityai/control-lora/resolve/main/control-LoRAs-rank256/control-lora-canny-rank256.safetensors",
+      "host": "sdxl",
+      "control": "canny",
+      "license": "other (Stability)",
+      "recipes": [],
+      "note": "'used exactly the same way as the regular ControlNet model files'; depth 774,445,779 / recolor 774,446,618 / sketch 774,454,911 B in the same folder",
+      "src": "S-HF-CONTROL-LORA"
+    },
+    {
+      "name": "mistoLine_rank256.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 774423024,
+      "url": "https://huggingface.co/TheMistoAI/MistoLine/resolve/main/mistoLine_rank256.safetensors",
+      "host": "sdxl",
+      "control": "lineart (anyline)",
+      "license": "openrail++",
+      "recipes": [],
+      "note": "pairs with AnyLineArtPreprocessor_aux; mistoLine_fp16.safetensors 2,502,139,104 B",
+      "src": "S-HF-MISTOLINE"
+    },
+    {
+      "name": "diffusion_pytorch_model.fp16.safetensors (diffusers controlnet-canny-sdxl-1.0)",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 2502139136,
+      "url": "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0/resolve/main/diffusion_pytorch_model.fp16.safetensors",
+      "host": "sdxl",
+      "control": "canny",
+      "license": "openrail++",
+      "recipes": [],
+      "note": "classic single-type SDXL net; depth twin 2,502,139,134 B; rename on disk",
+      "src": "S-HF-DIFFUSERS-XL"
+    },
+    {
+      "name": "DreamShaper_8_pruned.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 2132625894,
+      "url": "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors",
+      "host": "sd15",
+      "recipes": [
+        "sd15-scribble-canny"
+      ],
+      "src": "S-HF-DREAMSHAPER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "vae-ft-mse-840000-ema-pruned.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 334641190,
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors",
+      "host": "sd15 / Lotus depth",
+      "recipes": [
+        "sd15-scribble-canny",
+        "flux1-depth-lora",
+        "sd35-depth",
+        "qwen-instantx-union-depth"
+      ],
+      "note": "SD1.5 VAE; the Lotus depth chain uses it ('or any SD1.5 VAE')",
+      "src": "S-HF-SDVAE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "control_v11p_sd15_scribble_fp16.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 722601100,
+      "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_scribble_fp16.safetensors",
+      "host": "sd15",
+      "control": "scribble",
+      "license": "openrail (lllyasviel originals); the fp16 repack has no license field",
+      "recipes": [
+        "sd15-scribble-canny"
+      ],
+      "src": [
+        "S-HF-CN11-FP16",
+        "S-HF-CN11"
+      ]
+    },
+    {
+      "name": "control_v11p_sd15_canny_fp16.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 722601100,
+      "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_canny_fp16.safetensors",
+      "host": "sd15",
+      "control": "canny",
+      "recipes": [],
+      "note": "every control_v11*_sd15_*_fp16 file is 722,601,100 B (tile 722,601,104); names: canny, depth (f1p), openpose, scribble, lineart, mlsd, normalbae, seg, softedge, inpaint, s2_lineart_anime, e_ip2p, e_shuffle, f1e_tile",
+      "src": "S-HF-CN11-FP16"
+    },
+    {
+      "name": "control_v11p_sd15_openpose_fp16.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 722601100,
+      "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_openpose_fp16.safetensors",
+      "host": "sd15",
+      "control": "openpose",
+      "recipes": [],
+      "note": "map from OpenposePreprocessor / DWPreprocessor (aux pack); docs mixing example pairs it with scribble at 1.0 / 1.0",
+      "src": "S-HF-CN11-FP16"
+    },
+    {
+      "name": "control_v11f1p_sd15_depth_fp16.safetensors",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 722601100,
+      "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11f1p_sd15_depth_fp16.safetensors",
+      "host": "sd15",
+      "control": "depth",
+      "recipes": [],
+      "src": "S-HF-CN11-FP16"
+    },
+    {
+      "name": "t2iadapter_depth_sd14v1.pth",
+      "role": "controlnet",
+      "folder": "controlnet",
+      "bytes": 309487667,
+      "url": "https://huggingface.co/TencentARC/T2I-Adapter/resolve/main/models/t2iadapter_depth_sd14v1.pth",
+      "host": "sd15",
+      "control": "depth (T2I-Adapter)",
+      "license": "NOT FOUND (no license field)",
+      "recipes": [],
+      "note": "same ControlNetLoader/apply nodes; 'runs once in total' vs ControlNet every step; ComfyUI_examples depth_t2i_adapter graph",
+      "src": [
+        "S-HF-T2I",
+        "S-EXAMPLES-CN"
+      ]
+    },
+    {
+      "name": "lotus-depth-d-v1-1.safetensors",
+      "role": "preprocessor",
+      "folder": "diffusion_models",
+      "bytes": 1735197352,
+      "url": "https://huggingface.co/Comfy-Org/lotus/resolve/main/lotus-depth-d-v1-1.safetensors",
+      "host": "any (depth preprocessor)",
+      "recipes": [
+        "flux1-depth-lora",
+        "sd35-depth",
+        "qwen-instantx-union-depth"
+      ],
+      "note": "1-step depth model used by the official depth templates (UNETLoader + LotusConditioning + SamplerCustomAdvanced/DisableNoise/SetFirstSigma + ImageInvert); needs an SD1.5 VAE",
+      "src": "S-HF-LOTUS"
+    }
+  ],
+  "preprocessors": {
+    "note": "ControlNetApply* nodes do NOT convert a photo into a map ('The ControlNetApply node will not convert regular images'); the map must be made first. SD3.5 is the only family where ComfyUI applies the file-specific post-processing itself (canny rescale, depth 1.0 - a).",
+    "native": [
+      {
+        "control": "canny",
+        "node": "Canny",
+        "inputs": {
+          "low_threshold": 0.4,
+          "high_threshold": 0.8
+        },
+        "template_values": {
+          "flux1-canny-full": [
+            0.15,
+            0.3
+          ],
+          "sd35-canny": [
+            0.3,
+            0.6
+          ],
+          "qwen-diffsynth-canny": [
+            0.1,
+            0.2
+          ],
+          "qwen-union-lora-canny": [
+            0.26,
+            0.35
+          ],
+          "qwen2512-fun-union-canny": [
+            0.33,
+            0.35
+          ],
+          "zimage-fun-union-canny": [
+            0.1,
+            0.32
+          ],
+          "sd15-scribble-canny": [
+            0.35,
+            0.8
+          ]
+        },
+        "src": [
+          "S-CN-CANNY",
+          "S-REGISTRY"
+        ]
+      },
+      {
+        "control": "depth",
+        "node": "Lotus chain: UNETLoader(lotus-depth-d-v1-1) + VAELoader(SD1.5 VAE) + VAEEncode + LotusConditioning + BasicGuider + DisableNoise + KSamplerSelect(euler) + BasicScheduler(normal,1) + SetFirstSigma(10000 | 999) + SamplerCustomAdvanced + VAEDecode + ImageInvert",
+        "files": [
+          "lotus-depth-d-v1-1.safetensors",
+          "vae-ft-mse-840000-ema-pruned.safetensors"
+        ],
+        "used_by": [
+          "flux1-depth-lora",
+          "sd35-depth",
+          "qwen-instantx-union-depth"
+        ],
+        "src": [
+          "S-TPL-FLUX-DEPTH-LORA",
+          "S-TPL-SD35-DEPTH",
+          "S-TPL-QWEN-INSTANTX"
+        ]
+      },
+      {
+        "control": "depth",
+        "node": "LoadDA3Model (models/geometry_estimation, e.g. depth_anything_3_mono_large.safetensors) + DA3Inference (resolution 504, upper_bound_resize, mono) + DA3Render (depth, v2_style)",
+        "templates": [
+          "utility_depth_anything3_image_depth_estimation",
+          "image_anima_lllite_depth_control_to_image"
+        ],
+        "src": [
+          "S-DOCS-PREPROC",
+          "S-REGISTRY"
+        ]
+      },
+      {
+        "control": "depth",
+        "node": "LoadMoGeModel + MoGeInference + MoGeRender; MarigoldV2PostProcess (template image_marigold_v2_depth_estimation)",
+        "src": "S-DOCS-PREPROC"
+      },
+      {
+        "control": "pose",
+        "node": "SDPoseKeypointExtractor + SDPoseDrawKeypoints (Comfy-Org/SDPose: sdpose_wholebody_fp16.safetensors, rt_detr_v4-x-hgnet_fp16.safetensors)",
+        "templates": [
+          "video_minimax_h3_fun_controlnet_union"
+        ],
+        "src": "S-TPL-MINIMAX-CN"
+      }
+    ],
+    "pack": {
+      "name": "comfyui_controlnet_aux",
+      "git": "https://github.com/Fannovel16/comfyui_controlnet_aux",
+      "manager_name": "ComfyUI's ControlNet Auxiliary Preprocessors (exact Manager listing string NOT VERIFIED)",
+      "annotator_weights": "auto-download from Hugging Face (lllyasviel/Annotators ...) into custom_nodes/comfyui_controlnet_aux/ckpts; override with config.yaml annotator_ckpts_path or env AUX_ANNOTATOR_CKPTS_PATH",
+      "common_input": {
+        "resolution": {
+          "type": "INT",
+          "default": 512,
+          "min": 64,
+          "max": 16384,
+          "step": 64,
+          "note": "detection resolution, output resized back; use >= the generation size (community practice)"
+        }
+      },
+      "classes": {
+        "canny": [
+          "CannyEdgePreprocessor (low_threshold 100, high_threshold 200, 0-255)"
+        ],
+        "depth": [
+          "DepthAnythingV2Preprocessor (ckpt_name depth_anything_v2_vitg|vitl|vitb|vits.pth, default vitl)",
+          "DepthAnythingPreprocessor",
+          "Zoe_DepthAnythingPreprocessor",
+          "Zoe-DepthMapPreprocessor",
+          "MiDaS-DepthMapPreprocessor (a, bg_threshold)",
+          "LeReS-DepthMapPreprocessor",
+          "Metric3D-DepthMapPreprocessor"
+        ],
+        "normal": [
+          "BAE-NormalMapPreprocessor",
+          "MiDaS-NormalMapPreprocessor",
+          "DSINE-NormalMapPreprocessor",
+          "Metric3D-NormalMapPreprocessor"
+        ],
+        "pose": [
+          "OpenposePreprocessor (detect_hand/body/face, scale_stick_for_xinsr_cn enable|disable - enable for xinsir union)",
+          "DWPreprocessor (bbox_detector yolox_l.onnx, pose_estimator dw-ll_ucoco_384_bs5.torchscript.pt)",
+          "AnimalPosePreprocessor",
+          "MediaPipe-FaceMeshPreprocessor"
+        ],
+        "lineart": [
+          "LineArtPreprocessor (coarse)",
+          "AnimeLineArtPreprocessor",
+          "LineartStandardPreprocessor",
+          "Manga2Anime_LineArt_Preprocessor",
+          "AnyLineArtPreprocessor_aux (merge_with_lineart, resolution default 1280; MistoLine's preprocessor)"
+        ],
+        "softedge / scribble": [
+          "HEDPreprocessor (safe)",
+          "PiDiNetPreprocessor",
+          "TEEDPreprocessor",
+          "FakeScribblePreprocessor",
+          "ScribblePreprocessor",
+          "Scribble_XDoG_Preprocessor",
+          "Scribble_PiDiNet_Preprocessor",
+          "BinaryPreprocessor"
+        ],
+        "mlsd": [
+          "M-LSDPreprocessor (score_threshold 0.1, dist_threshold 0.1)"
+        ],
+        "segment": [
+          "OneFormer-ADE20K / OneFormer-COCO / UniFormer (README names; class ids NOT FETCHED)"
+        ],
+        "tile": [
+          "TilePreprocessor (pyrUp_iters 3)",
+          "TTPlanet_TileGF_Preprocessor",
+          "TTPlanet_TileSimple_Preprocessor"
+        ],
+        "misc": [
+          "ShufflePreprocessor",
+          "ColorPreprocessor",
+          "ImageLuminanceDetector",
+          "ImageIntensityDetector",
+          "AIO_Preprocessor (preprocessor combo + resolution: any of the above by name)"
+        ]
+      },
+      "src": "S-GH-AUX"
+    },
+    "advanced": {
+      "name": "ComfyUI-Advanced-ControlNet",
+      "git": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+      "why": "timestep/latent keyframes (strength schedules), effect_mask, Auto1111-style soft weights, T2I-Adapter/Control-LoRA/LLLite/SparseCtrl/Reference; 'vanilla ControlNet nodes are also compatible'",
+      "nodes": [
+        "ACN_ControlNetLoaderAdvanced",
+        "ACN_AdvancedControlNetApply_v2",
+        "TimestepKeyframe",
+        "LatentKeyframe",
+        "ACN_ScaledSoftControlNetWeights"
+      ],
+      "src": "S-GH-ACN"
+    }
+  },
+  "selection": [
+    {
+      "task": "control",
+      "host": "flux-1",
+      "control": "canny",
+      "recipe": "flux1-canny-full",
+      "why": "the official BFL Canny model (full transformer, highest fidelity); needs the 23.8 GB file in place of flux1-dev",
+      "src": "S-TPL-FLUX-CANNY"
+    },
+    {
+      "task": "control",
+      "host": "flux-1",
+      "control": "depth",
+      "recipe": "flux1-depth-lora",
+      "why": "1.2 GB LoRA on the flux1-dev you already have + Lotus depth; the canny LoRA works the same way with native Canny",
+      "src": "S-TPL-FLUX-DEPTH-LORA"
+    },
+    {
+      "task": "control",
+      "host": "flux-1",
+      "control": "pose / tile / blur / gray (union)",
+      "recipe": null,
+      "status": "pending: no Comfy-Org template for the InstantX / Shakker FLUX unions (NOT FOUND); graph = ControlNetLoader -> SetUnionControlNetType (index-by-position) -> ControlNetApplyAdvanced with vae; files listed, non-commercial",
+      "src": [
+        "S-DOCS-FLUX-CN",
+        "S-GH-4823"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "sd35",
+      "control": "canny",
+      "recipe": "sd35-canny",
+      "why": "official; 8.65 GB net on the 14.9 GB fp8 checkpoint",
+      "src": "S-TPL-SD35-CANNY"
+    },
+    {
+      "task": "control",
+      "host": "sd35",
+      "control": "depth",
+      "recipe": "sd35-depth",
+      "why": "official; Lotus depth in-graph",
+      "src": "S-TPL-SD35-DEPTH"
+    },
+    {
+      "task": "control",
+      "host": "sd35",
+      "control": "blur",
+      "recipe": "sd35-blur",
+      "why": "re-detail a blurred / low-res image (upscale-like); feed the blurred image directly",
+      "src": "S-TPL-SD35-BLUR"
+    },
+    {
+      "task": "control",
+      "host": "qwen-image",
+      "control": "canny / soft edge / depth / pose (union)",
+      "recipe": "qwen-instantx-union-depth",
+      "why": "Comfy day-1 supported InstantX union, 3.5 GB, with the Lightning 4-step LoRA (fast); swap the preprocessor for the other three types",
+      "src": [
+        "S-TPL-QWEN-INSTANTX",
+        "S-BLOG-QWEN-INSTANTX"
+      ]
+    },
+    {
+      "task": "inpaint",
+      "host": "qwen-image",
+      "control": "inpaint / outpaint",
+      "recipe": "qwen-instantx-inpaint",
+      "why": "the only dedicated inpainting ControlNet here; mask from the image alpha, pixels pasted back",
+      "src": "S-TPL-QWEN-INSTANTX-INPAINT"
+    },
+    {
+      "task": "control",
+      "host": "qwen-image",
+      "control": "canny (also depth, inpaint patches)",
+      "recipe": "qwen-diffsynth-canny",
+      "why": "2.3 GB model patch on the MODEL line - cheapest Qwen control; leaves conditioning untouched",
+      "src": [
+        "S-TPL-QWEN-PATCH",
+        "S-BLOG-QWEN-CN"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "qwen-image",
+      "control": "canny / depth / lineart / softedge / normal / openpose (union LoRA)",
+      "recipe": "qwen-union-lora-canny",
+      "why": "0.94 GB LoRA + ReferenceLatent; the widest map coverage for Qwen at the smallest download",
+      "src": "S-TPL-QWEN-UNION-LORA"
+    },
+    {
+      "task": "control",
+      "host": "qwen-image",
+      "control": "canny / HED / depth / pose / MLSD / scribble / grayscale (union)",
+      "recipe": "qwen2512-fun-union-canny",
+      "why": "the 2512 base; native ControlNetLoader; 50 steps cfg 4 (turbo variant 4 / 1)",
+      "src": "S-TPL-QWEN2512-CN"
+    },
+    {
+      "task": "control",
+      "host": "qwen-image 2.1",
+      "control": "union",
+      "recipe": null,
+      "status": "needs ComfyUI >= 0.38.0, above the pinned image (Qwen-Image-2.1-Fun-Controlnet-Union; Qwen Research License)",
+      "src": [
+        "S-CN-REL",
+        "S-HF-QWEN21-FUN"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "z-image",
+      "control": "canny / HED / depth / pose / MLSD (union)",
+      "recipe": "zimage-fun-union-canny",
+      "why": "8-step turbo host, 3.1 GB patch; lower strength toward 0.65-0.8 per the author",
+      "src": [
+        "S-TPL-ZIMAGE-CN",
+        "S-HF-ZIMAGE-FUN"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "sdxl",
+      "control": "any of 8 union types",
+      "recipe": "sdxl-union-xinsir",
+      "why": "one 2.5 GB net for every SDXL control; COMMUNITY-CONFIRMED graph (no official template)",
+      "confidence": "community-confirmed",
+      "src": [
+        "S-EXAMPLES-CN",
+        "S-HF-XINSIR",
+        "S-CN-NODES"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "sdxl",
+      "control": "canny / depth / lineart (single nets)",
+      "recipe": null,
+      "status": "pending: Control-LoRA, MistoLine and diffusers nets listed in files; same ControlNetApplyAdvanced graph as sdxl-union-xinsir without SetUnionControlNetType - no template",
+      "src": [
+        "S-HF-CONTROL-LORA",
+        "S-HF-MISTOLINE"
+      ]
+    },
+    {
+      "task": "control",
+      "host": "sd15",
+      "control": "scribble (any control_v11 net)",
+      "recipe": "sd15-scribble-canny",
+      "why": "the archived official SD1.5 example; smallest footprint; swap the net + map for canny / depth / openpose / ...",
+      "src": "S-TPL-SD15-CN"
+    },
+    {
+      "task": "control",
+      "host": "sd15",
+      "control": "depth (T2I-Adapter)",
+      "recipe": null,
+      "status": "pending: ComfyUI_examples depth_t2i_adapter graph (ControlNetLoader t2iadapter_depth_sd14v1.pth, raw depth map, 832x384, 20 steps cfg 8 uni_pc_bh2) - archived example only, license NOT FOUND",
+      "src": "S-EXAMPLES-CN"
+    },
+    {
+      "task": "control",
+      "host": "video (wan-2.2 / minimax-h3 / ltx-2)",
+      "recipe": null,
+      "status": "see those families: wan-2.2 fun-control-14b / vace-14b, video_minimax_h3_fun_controlnet_union (MiniMaxH3FunControlNetApply), video_ltx2_canny/depth/pose_to_video",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "params": [
+    {
+      "name": "strength",
+      "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply",
+      "input": "strength",
+      "meaning": "multiplies the control residuals; 0 = node bypass. Qwen / Z-Image Fun nets are applied as sqrt(strength) ('Fun checkpoints are more sensitive to high strengths ... strength=1.0 stays unchanged while >1 grows more gently')",
+      "defaults": {
+        "sd35-canny": 0.66,
+        "sd35-depth": 0.7,
+        "sd35-blur": 1.0,
+        "qwen-instantx-*": 1.0,
+        "qwen2512-fun-union-canny": 1.0,
+        "sdxl-union-xinsir": 1.0,
+        "sd15-scribble-canny": 1.0
+      },
+      "publisher": {
+        "xinsir": "1.0 per condition",
+        "SD3.5": "start with 0.7-0.8",
+        "FLUX Union Pro 1.0": "0.3-0.8 (InstantX examples 0.5 single, 0.2-0.4 multi)",
+        "FLUX Union Pro 2.0": "canny 0.7, soft edge 0.7, depth 0.8, pose 0.9, gray 0.9",
+        "Qwen InstantX": "0.8-1.0",
+        "Qwen/Z-Image Fun": "1.0 (soft-scaled); MiniMax template: 'Raise strength above 1 only if the control drifts'"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "src": [
+        "S-CN-NODES",
+        "S-CN-LOADER",
+        "S-HF-XINSIR",
+        "S-HF-SD35-CN",
+        "S-HF-SHAKKER-PRO",
+        "S-HF-SHAKKER-PRO2",
+        "S-HF-QWEN-INSTANTX",
+        "S-TPL-MINIMAX-CN"
+      ]
+    },
+    {
+      "name": "start_percent / end_percent",
+      "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply",
+      "input": "start_percent, end_percent",
+      "meaning": "fraction of the sampling schedule during which the net is active ('0.2 means ControlNet guidance begins when 20% of diffusion is complete'); a lower end frees the last steps for detail",
+      "defaults": {
+        "all templates": [
+          0.0,
+          1.0
+        ]
+      },
+      "publisher": {
+        "FLUX Union Pro 2.0": "end 0.8 (canny, soft edge, depth, gray), 0.65 (pose)",
+        "InstantID depth helper": "0.0-0.35 at 0.65"
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "src": [
+        "S-DOCS-CN",
+        "S-HF-SHAKKER-PRO2"
+      ]
+    },
+    {
+      "name": "vae",
+      "node": "ControlNetApplyAdvanced",
+      "input": "vae (optional)",
+      "meaning": "REQUIRED by latent-space hint nets - SD3.5, FLUX InstantX/Shakker unions, Qwen InstantX / Fun; QwenImageDiffsynthControlnet and ControlNetInpaintingAliMamaApply take vae as a required input. SD1.5 / SDXL (xinsir, Control-LoRA) are pixel-space: leave it unwired",
+      "defaults": {
+        "every official template": "the host VAE"
+      },
+      "src": [
+        "S-CN-NODES",
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN-INSTANTX"
+      ]
+    },
+    {
+      "name": "type",
+      "node": "SetUnionControlNetType",
+      "input": "type",
+      "meaning": "selects the task embedding of a union net; auto sends an empty list (xinsir: hint goes through the plain input_hint_block without the task branch). Indices: openpose 0, depth 1, hed/pidi/scribble/ted 2, canny/lineart/anime_lineart/mlsd 3, normal 4, segment 5, tile 6, repaint 7",
+      "options": [
+        "auto",
+        "openpose",
+        "depth",
+        "hed/pidi/scribble/ted",
+        "canny/lineart/anime_lineart/mlsd",
+        "normal",
+        "segment",
+        "tile",
+        "repaint"
+      ],
+      "flux_union_mapping": "InstantX / Shakker Pro 1.0 reuse the SDXL labels by INDEX: openpose->0 canny, depth->1 tile, hed/pidi/scribble/ted->2 depth, canny/lineart/anime_lineart/mlsd->3 blur, normal->4 pose, segment->5 gray, tile->6 low quality (ComfyUI issue #4823, open; confirmed by the source paths)",
+      "src": [
+        "S-CN-NODES",
+        "S-CN-TYPES",
+        "S-GH-4823"
+      ]
+    },
+    {
+      "name": "strength (model patch)",
+      "node": "QwenImageDiffsynthControlnet",
+      "input": "strength",
+      "meaning": "the patch-style control's weight (Qwen DiffSynth patches, Z-Image Fun union)",
+      "defaults": {
+        "qwen-diffsynth-canny": 1.0,
+        "zimage-fun-union-canny": 1.0
+      },
+      "publisher": {
+        "Z-Image Fun": "control_context_scale 0.65-0.80 optimal (template ships 1.0)"
+      },
+      "range": [
+        -10.0,
+        10.0
+      ],
+      "src": [
+        "S-REGISTRY",
+        "S-HF-ZIMAGE-FUN"
+      ]
+    },
+    {
+      "name": "canny thresholds",
+      "node": "Canny",
+      "input": "low_threshold, high_threshold",
+      "meaning": "native edge detector; DiT templates use low values (0.1-0.35), SD3.5 0.3/0.6, SD1.5 0.35/0.8; node defaults 0.4/0.8",
+      "range": [
+        0.01,
+        0.99
+      ],
+      "src": [
+        "S-CN-CANNY",
+        "S-TPL-FLUX-CANNY",
+        "S-TPL-SD35-CANNY"
+      ]
+    },
+    {
+      "name": "guidance",
+      "node": "FluxGuidance",
+      "input": "guidance",
+      "meaning": "FLUX distilled guidance; the control templates set it per model",
+      "defaults": {
+        "flux1-canny-full": 30.0,
+        "flux1-depth-lora": 10.0,
+        "generic FLUX": 3.5
+      },
+      "src": [
+        "S-TPL-FLUX-CANNY",
+        "S-TPL-FLUX-DEPTH-LORA"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingAuraFlow",
+      "input": "shift",
+      "meaning": "'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.'",
+      "defaults": {
+        "qwen-image": 3.1,
+        "z-image": 3.0
+      },
+      "src": [
+        "S-TPL-QWEN-PATCH",
+        "S-TPL-ZIMAGE-CN"
+      ]
+    },
+    {
+      "name": "steps / cfg",
+      "node": "KSampler",
+      "input": "steps, cfg",
+      "meaning": "the host's values; control nets do not change them",
+      "defaults": {
+        "flux1 (IP2P)": "20 / 1.0",
+        "sd35-canny": "32 / 4.5",
+        "sd35-depth": "20 / 8",
+        "sd35-blur": "30 / 4",
+        "qwen fp8": "20 / 2.5 (Qwen team 50 / 4.0)",
+        "qwen + Lightning 4-step": "4 / 1.0",
+        "qwen2512": "50 / 4",
+        "z-image turbo": "8 / 1.0 res_multistep",
+        "sdxl": "25 / 8",
+        "sd15": "20 / 6"
+      },
+      "src": [
+        "S-TPL-FLUX-CANNY",
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN-INSTANTX-INPAINT",
+        "S-TPL-QWEN2512-CN",
+        "S-TPL-ZIMAGE-CN",
+        "S-TPL-SDXL-SIMPLE",
+        "S-TPL-SD15-CN"
+      ]
+    },
+    {
+      "name": "control image size",
+      "node": "ImageScale|ImageScaleToTotalPixels|ImageScaleToMaxDimension|FluxKontextImageScale|GetImageSize",
+      "input": "width/height, megapixels, largest_size",
+      "meaning": "the templates either scale the control image to the latent (SD3.5 canny: 1024x1024 center) or derive the latent from the control image (GetImageSize -> EmptySD3LatentImage; VAEEncode of the map as latent_image). Qwen caps 1-1.68 MP or 1536 px; Z-Image: enable the 1024 scale above ~2500 px; InstantX inpaint 'shouldn't be too large (such as more than 3000)'",
+      "src": [
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN2512-CN",
+        "S-TPL-ZIMAGE-CN",
+        "S-TPL-QWEN-INSTANTX-INPAINT"
+      ]
+    },
+    {
+      "name": "resolution",
+      "node": "comfyui_controlnet_aux preprocessors",
+      "input": "resolution",
+      "meaning": "detection resolution, output resized back; >= generation size for crisp maps (community practice)",
+      "defaults": {
+        "aux": 512,
+        "AnyLineArtPreprocessor_aux": 1280
+      },
+      "range": [
+        64,
+        16384
+      ],
+      "src": "S-GH-AUX"
+    },
+    {
+      "name": "chaining",
+      "node": "ControlNetApplyAdvanced",
+      "input": "positive/negative of the previous apply node",
+      "meaning": "a second apply node fed by the first's outputs runs both nets (set_previous_controlnet), each with its own strength/start/end; docs: 'recommended to set similar strength values' (both 1.0 in the openpose+scribble example)",
+      "src": [
+        "S-CN-NODES",
+        "S-DOCS-CN-MIX"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "union-type-set",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)^(?!.*qwen)(?!.*instantid/).*(union|promax)"
+      },
+      "require": {
+        "node": "SetUnionControlNetType",
+        "input": "type",
+        "exists": true
+      },
+      "message": "a union ControlNet (xinsir SDXL / FLUX union) needs SetUnionControlNetType between the loader and the apply node. Qwen-Image's InstantX union is the exception: its official template uses none.",
+      "src": [
+        "S-CN-NODES",
+        "S-CN-TYPES",
+        "S-HF-SHAKKER-PRO2"
+      ]
+    },
+    {
+      "id": "union-type-explicit",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)^(?!.*qwen)(?!.*instantid/).*(union|promax)"
+      },
+      "require": {
+        "node": "SetUnionControlNetType",
+        "input": "type",
+        "in": [
+          "openpose",
+          "depth",
+          "hed/pidi/scribble/ted",
+          "canny/lineart/anime_lineart/mlsd",
+          "normal",
+          "segment",
+          "tile",
+          "repaint"
+        ]
+      },
+      "message": "prefer an explicit SetUnionControlNetType type over 'auto': a union ControlNet needs SetUnionControlNetType between loader and apply with an explicit type: 'auto' sends an empty list and the hint bypasses the task embedding (xinsir); FLUX Union Pro 2.0 is the one exception (no mode embedder - the node is a no-op there)",
+      "src": [
+        "S-CN-NODES",
+        "S-CN-TYPES",
+        "S-HF-SHAKKER-PRO2"
+      ]
+    },
+    {
+      "id": "promax-for-tile-repaint",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "SetUnionControlNetType",
+        "input": "type",
+        "in": [
+          "tile",
+          "repaint"
+        ]
+      },
+      "require": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)promax"
+      },
+      "message": "tile and repaint exist only in the ProMax union file; the plain xinsir union raises 'Control type ... is out of range ... Please consider using the ProMax ControlNet Union model'",
+      "src": "S-CN-LOADER"
+    },
+    {
+      "id": "no-deprecated-controlnetapply",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetApply",
+        "input": "conditioning",
+        "exists": true
+      },
+      "require": {
+        "node": "ControlNetApply",
+        "input": "conditioning",
+        "equals": "__never__"
+      },
+      "message": "ControlNetApply is DEPRECATED in v0.35.0 (one conditioning, applies to uncond too); use ControlNetApplyAdvanced with positive + negative (+ vae where required)",
+      "src": [
+        "S-CN-NODES",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "vae-for-latent-hint-nets",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)^sd3\\.5_|qwen-image|fun-controlnet|flux|shakker|instantx"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply",
+        "input": "vae",
+        "linked": true
+      },
+      "message": "SD3.5, FLUX InstantX/Shakker unions and Qwen InstantX/Fun nets condition in latent space: wire the host VAE into the apply node (every official template does)",
+      "src": [
+        "S-CN-NODES",
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN-INSTANTX",
+        "S-TPL-QWEN2512-CN"
+      ]
+    },
+    {
+      "id": "flux-canny-depth-not-a-controlnet-file",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^flux1-(canny|depth)-dev"
+      },
+      "require": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "equals": "__never__"
+      },
+      "message": "BFL FLUX.1 Canny/Depth [dev] are full transformers (UNETLoader, diffusion_models) or LoRAs (LoraLoaderModelOnly), conditioned with InstructPixToPixConditioning - never models/controlnet files",
+      "src": [
+        "S-TPL-FLUX-CANNY",
+        "S-DOCS-FLUX-CN"
+      ]
+    },
+    {
+      "id": "flux-control-model-needs-ip2p",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-(canny|depth)-dev"
+      },
+      "require": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "flux1-canny-dev / flux1-depth-dev read the control image through InstructPixToPixConditioning (positive, negative, vae, pixels -> positive, negative, latent); without it they are a broken flux1-dev",
+      "src": "S-TPL-FLUX-CANNY"
+    },
+    {
+      "id": "flux-control-lora-needs-ip2p",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^flux1-(canny|depth)-dev-lora"
+      },
+      "require": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "matches": "^flux1-dev"
+      },
+      "message": "the BFL Canny/Depth LoRAs go on a flux1-dev model (fp8 or bf16) and still need InstructPixToPixConditioning for the control image",
+      "src": "S-TPL-FLUX-DEPTH-LORA"
+    },
+    {
+      "id": "flux-control-lora-ip2p-present",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^flux1-(canny|depth)-dev-lora"
+      },
+      "require": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "a FLUX control LoRA without InstructPixToPixConditioning gets no control image",
+      "src": "S-TPL-FLUX-DEPTH-LORA"
+    },
+    {
+      "id": "flux-control-cfg-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0
+      },
+      "message": "FLUX control templates run cfg 1.0 with ConditioningZeroOut as negative; guidance comes from FluxGuidance",
+      "src": [
+        "S-TPL-FLUX-CANNY",
+        "S-TPL-FLUX-DEPTH-LORA"
+      ]
+    },
+    {
+      "id": "flux-canny-guidance-30",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux1-canny-dev"
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "equals": 30.0
+      },
+      "message": "the official Canny-dev template sets FluxGuidance 30 (not the usual 3.5)",
+      "src": "S-TPL-FLUX-CANNY"
+    },
+    {
+      "id": "flux-depth-lora-guidance-10",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^flux1-depth-dev-lora"
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "equals": 10.0
+      },
+      "message": "the official Depth-LoRA template sets FluxGuidance 10",
+      "src": "S-TPL-FLUX-DEPTH-LORA"
+    },
+    {
+      "id": "sd35-controlnet-on-sd35",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^sd3\\.5_large_controlnet_"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^sd3\\.5_large"
+      },
+      "message": "sd3.5_large_controlnet_* nets are SD3.5 Large nets (the loader reads their embedded control_type); load them on an sd3.5_large checkpoint",
+      "src": [
+        "S-CN-LOADER",
+        "S-TPL-SD35-CANNY"
+      ]
+    },
+    {
+      "id": "sd35-strength-range",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^sd3\\.5_large_controlnet_"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength",
+        "min": 0.6,
+        "max": 1.0
+      },
+      "message": "Stability: 'Start with a ControlNet strength of 0.7-0.8'; templates use 0.66 (canny), 0.7 (depth), 1.0 (blur)",
+      "src": [
+        "S-HF-SD35-CN",
+        "S-TPL-SD35-CANNY",
+        "S-TPL-SD35-BLUR"
+      ]
+    },
+    {
+      "id": "xinsir-strength-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)promax|controlnet-union-sdxl"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength",
+        "equals": 1.0
+      },
+      "message": "xinsir: 'Default setting is 1.0 for each condition input'",
+      "src": "S-HF-XINSIR"
+    },
+    {
+      "id": "flux-union-index-by-position",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)flux.*union|union.*flux|shakker|instantx.*flux"
+      },
+      "require": {
+        "node": "SetUnionControlNetType",
+        "input": "type",
+        "in": [
+          "openpose",
+          "depth",
+          "hed/pidi/scribble/ted",
+          "canny/lineart/anime_lineart/mlsd",
+          "normal",
+          "segment",
+          "tile",
+          "repaint"
+        ]
+      },
+      "message": "FLUX InstantX / Shakker Pro 1.0 unions take the SetUnionControlNetType INDEX, not its label: openpose=0 canny, depth=1 tile, hed/pidi/scribble/ted=2 depth, canny/lineart/anime_lineart/mlsd=3 blur, normal=4 pose, segment=5 gray, tile=6 low quality (issue #4823). Pro 2.0 ignores the node entirely. Name the file so this rule can see it (the HF name is the generic diffusion_pytorch_model.safetensors).",
+      "src": [
+        "S-GH-4823",
+        "S-CN-TYPES",
+        "S-HF-SHAKKER-PRO2"
+      ]
+    },
+    {
+      "id": "flux-union-strength",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)flux.*union|union.*flux|shakker|instantx.*flux"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength",
+        "min": 0.3,
+        "max": 0.9
+      },
+      "message": "FLUX Union Pro 1.0: conditioning scale 0.3-0.8 (InstantX examples 0.5 single / 0.2-0.4 multi); Pro 2.0: canny 0.7, soft edge 0.7, depth 0.8, pose 0.9, gray 0.9 with end_percent 0.8 (0.65 pose)",
+      "src": [
+        "S-HF-SHAKKER-PRO",
+        "S-HF-SHAKKER-PRO2",
+        "S-HF-INSTANTX-FLUX-UNION"
+      ]
+    },
+    {
+      "id": "qwen-instantx-strength",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "Qwen-Image-InstantX-ControlNet-Union"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength",
+        "min": 0.8,
+        "max": 1.0
+      },
+      "message": "InstantX recommends controlnet_conditioning_scale 0.8-1.0 for all four Qwen union types",
+      "src": "S-HF-QWEN-INSTANTX"
+    },
+    {
+      "id": "qwen-instantx-inpaint-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "InstantX-ControlNet-Inpainting"
+      },
+      "require": {
+        "node": "ControlNetInpaintingAliMamaApply",
+        "input": "control_net",
+        "linked": true
+      },
+      "message": "the Qwen InstantX inpainting net (17-channel concat_mask) is applied with ControlNetInpaintingAliMamaApply (positive, negative, control_net, vae, image, mask), not ControlNetApplyAdvanced",
+      "src": [
+        "S-CN-NODES",
+        "S-TPL-QWEN-INSTANTX-INPAINT"
+      ]
+    },
+    {
+      "id": "fun-strength-max-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "(?i)fun-controlnet"
+      },
+      "require": {
+        "node": "ControlNetApplyAdvanced",
+        "input": "strength",
+        "max": 1.0
+      },
+      "message": "Fun nets are already soft-scaled by sqrt(strength) in ComfyUI ('more sensitive to high strengths'); stay at 1.0 - 'Raise strength above 1 only if the control drifts' (MiniMax template)",
+      "src": [
+        "S-CN-LOADER",
+        "S-TPL-MINIMAX-CN"
+      ]
+    },
+    {
+      "id": "zimage-fun-strength",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "^Z-Image-Turbo-Fun"
+      },
+      "require": {
+        "node": "QwenImageDiffsynthControlnet",
+        "input": "strength",
+        "min": 0.65,
+        "max": 1.0
+      },
+      "message": "alibaba-pai: 'optimal range for control_context_scale is from 0.65 to 0.80'; the template ships 1.0 - lower it if the control dominates",
+      "src": [
+        "S-HF-ZIMAGE-FUN",
+        "S-TPL-ZIMAGE-CN"
+      ]
+    },
+    {
+      "id": "patch-control-uses-diffsynth-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "diffsynth_controlnet|^Z-Image-Turbo-Fun"
+      },
+      "require": {
+        "node": "QwenImageDiffsynthControlnet",
+        "input": "model_patch",
+        "linked": true
+      },
+      "message": "DiffSynth / Z-Image Fun control files are MODEL PATCHES (models/model_patches): ModelPatchLoader -> QwenImageDiffsynthControlnet(model, model_patch, vae, image) on the model line - not ControlNetLoader",
+      "src": [
+        "S-TPL-QWEN-PATCH",
+        "S-TPL-ZIMAGE-CN"
+      ]
+    },
+    {
+      "id": "qwen-lightning-cfg-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "Qwen-Image-Lightning-4steps"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0
+      },
+      "message": "with the 4-step Lightning LoRA the templates run cfg 1.0 (table: fp8 20 steps / cfg 2.5; + Lightning 4 steps / cfg 1.0)",
+      "src": "S-TPL-QWEN-INSTANTX"
+    },
+    {
+      "id": "qwen-lightning-4-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "Qwen-Image-Lightning-4steps"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "max": 4
+      },
+      "message": "4-step distilled LoRA: more steps waste time and over-bake",
+      "src": "S-TPL-QWEN-INSTANTX"
+    },
+    {
+      "id": "qwen-shift-3.1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^qwen_image"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "equals": 3.1
+      },
+      "message": "every Qwen control template sets ModelSamplingAuraFlow shift 3.1; raise if blurry/dark, lower for detail (template note)",
+      "src": "S-TPL-QWEN-PATCH"
+    },
+    {
+      "id": "zimage-turbo-cfg-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_turbo"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0
+      },
+      "message": "Z-Image-Turbo is distilled: cfg 1, 8 steps, res_multistep/simple, negative = ConditioningZeroOut (template)",
+      "src": "S-TPL-ZIMAGE-CN"
+    },
+    {
+      "id": "sd15-controlnet-on-sd15",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "^control_v11|^t2iadapter_"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "(?i)^(?!sd_xl|sd3\\.5|flux)"
+      },
+      "message": "ControlNet v1.1 / T2I-Adapter sd14/sd15 files are SD1.5 only",
+      "src": [
+        "S-HF-CN11",
+        "S-HF-T2I"
+      ]
+    },
+    {
+      "id": "qwen21-fun-needs-0.38",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "matches": "Qwen-Image-2\\.1-Fun"
+      },
+      "require": {
+        "node": "ControlNetLoader",
+        "input": "control_net_name",
+        "equals": "__never__"
+      },
+      "message": "Qwen-Image-2.1 Fun union loads natively only from ComfyUI v0.38.0 - above the pinned 0.35.0 image",
+      "src": "S-CN-REL"
+    },
+    {
+      "id": "control-image-matches-latent",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "control_image_matches_latent",
+      "args": {
+        "apply": "ControlNetApplyAdvanced|ControlNetInpaintingAliMamaApply|QwenImageDiffsynthControlnet|InstructPixToPixConditioning",
+        "image_input": "image|pixels",
+        "latent": "EmptyLatentImage|EmptySD3LatentImage|VAEEncode|InstructPixToPixConditioning"
+      },
+      "message": "the control map must have the latent's size/aspect: the templates scale the map to the latent (ImageScale 1024x1024 center), size the latent from the map (GetImageSize -> EmptySD3LatentImage) or VAE-encode the map as the latent; a mismatched map is stretched",
+      "src": [
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN2512-CN",
+        "S-TPL-ZIMAGE-CN"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (all 13 recipes here are <= 0.8.0; Qwen-2.1 Fun needs 0.38.0)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-FLUX-CANNY",
+      "S-TPL-QWEN-INSTANTX",
+      "S-TPL-QWEN2512-CN"
+    ],
+    "negative_note": "ControlNet is prompt-independent conditioning - the negative belongs to the HOST. cfg-1 DiT templates (FLUX, Qwen + Lightning, Z-Image) use ConditioningZeroOut as negative; the Qwen InstantX templates use '' / ' '; the Qwen-2512 template ships the Chinese negative kept in qwen2512-fun-union-canny: 低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲",
+    "positive": [
+      {
+        "line": "Write the host's normal prompt; the map decides structure, the prompt decides content and style - describe what fills the edges/depth, not the layout",
+        "class": "official",
+        "src": "S-EXAMPLES-CN"
+      },
+      {
+        "line": "Z-Image Fun: a 'detailed prompt' is recommended for stability",
+        "class": "official",
+        "src": "S-HF-ZIMAGE-FUN"
+      },
+      {
+        "line": "Qwen InstantX: 'Set cfg to 1.0 for a speed boost at the cost of consistency. Samplers like res_multistep work pretty well at cfg 1.0'",
+        "class": "official",
+        "src": "S-TPL-QWEN-INSTANTX"
+      }
+    ],
+    "structure": "the host family's prompt rules apply unchanged",
+    "hurts": [
+      {
+        "line": "feeding a raw photo where a map is expected: the net reads it as the wrong signal",
+        "src": "S-EXAMPLES-CN"
+      },
+      {
+        "line": "a prompt that contradicts the map (the net wins on layout, the result fights)",
+        "src": "S-DOCS-CN"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "union net ignores the chosen condition / behaves like a weak generic net",
+      "cause": "SetUnionControlNetType left on auto (xinsir), or a FLUX union with the SDXL-labelled type picked by name instead of index",
+      "fix": "set the type explicitly; on FLUX InstantX / Shakker Pro 1.0 pick by position (see rules); Pro 2.0 ignores the node",
+      "src": [
+        "S-CN-NODES",
+        "S-GH-4823"
+      ]
+    },
+    {
+      "symptom": "'Control type ... is out of range ... Please consider using the ProMax ControlNet Union model'",
+      "cause": "tile / repaint chosen with the plain xinsir union file",
+      "fix": "use diffusion_pytorch_model_promax.safetensors",
+      "src": "S-CN-LOADER"
+    },
+    {
+      "symptom": "latent-hint net errors or produces garbage",
+      "cause": "vae not wired into ControlNetApplyAdvanced for SD3.5 / FLUX InstantX-Shakker / Qwen InstantX-Fun",
+      "fix": "wire the host VAE (all official templates do)",
+      "src": "S-CN-NODES"
+    },
+    {
+      "symptom": "'ERROR: controlnet file is invalid' for flux1-canny-dev / flux1-depth-dev",
+      "cause": "a full BFL control transformer dropped into models/controlnet",
+      "fix": "UNETLoader (diffusion_models) or LoraLoaderModelOnly (loras) + InstructPixToPixConditioning",
+      "src": [
+        "S-CN-NODES",
+        "S-TPL-FLUX-CANNY"
+      ]
+    },
+    {
+      "symptom": "output ignores the control or follows a blurry version of the photo",
+      "cause": "raw photo fed as the control image",
+      "fix": "preprocess first: native Canny / Lotus / DA3 / SDPose, or comfyui_controlnet_aux (profile.preprocessors)",
+      "src": "S-EXAMPLES-CN"
+    },
+    {
+      "symptom": "Fun / Z-Image control dominates, flat or over-constrained result",
+      "cause": "strength above the author's range; ComfyUI already sqrt-scales Fun strengths",
+      "fix": "Z-Image Fun 0.65-0.80; Qwen Fun 1.0 (above 1 only if the control drifts)",
+      "src": [
+        "S-HF-ZIMAGE-FUN",
+        "S-CN-LOADER",
+        "S-TPL-MINIMAX-CN"
+      ]
+    },
+    {
+      "symptom": "poor results with a large input",
+      "cause": "oversized control image",
+      "fix": "Qwen templates cap at 1-1.68 MP or 1536 px max side; Z-Image: enable ImageScaleToMaxDimension(1024) above ~2500 px; InstantX inpaint: keep under ~3000 px",
+      "src": [
+        "S-TPL-QWEN-UNION-LORA",
+        "S-TPL-ZIMAGE-CN",
+        "S-TPL-QWEN-INSTANTX-INPAINT"
+      ]
+    },
+    {
+      "symptom": "depth-controlled SD3.5 image looks inverted (near/far swapped)",
+      "cause": "the SD3.5 depth net expects DepthFM-style maps and ComfyUI applies 1.0 - a internally; a map of the opposite polarity flips twice",
+      "fix": "the Lotus chain's ImageInvert output is what the template feeds; with another depth source, flip the map (ImageInvert) if results invert",
+      "src": [
+        "S-CN-LOADER",
+        "S-TPL-SD35-DEPTH"
+      ]
+    },
+    {
+      "symptom": "stretched or misaligned structure",
+      "cause": "control map and latent sizes differ",
+      "fix": "scale the map to the latent or size the latent from the map (GetImageSize / VAEEncode), as the templates do",
+      "src": [
+        "S-TPL-SD35-CANNY",
+        "S-TPL-QWEN2512-CN"
+      ]
+    },
+    {
+      "symptom": "'Please use the preprocessed images' / blur net does nothing useful",
+      "cause": "SD3.5 blur expects an already blurred / low-res image",
+      "fix": "blur or downscale the image first (or install comfyui_controlnet_aux), template note",
+      "src": "S-TPL-SD35-BLUR"
+    },
+    {
+      "symptom": "legacy graph with ControlNetApply",
+      "cause": "old ComfyUI_examples pattern; the node is deprecated and applies to uncond too",
+      "fix": "ControlNetApplyAdvanced with positive + negative",
+      "src": [
+        "S-CN-NODES",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "symptom": "Qwen-Image-2.1 Fun union fails to load",
+      "cause": "needs ComfyUI >= 0.38.0 (third-party packs >= 0.37.0)",
+      "fix": "not available on the 0.35.0 image; use the 2512 Fun union or InstantX union",
+      "src": "S-CN-REL"
+    },
+    {
+      "symptom": "license surprise",
+      "cause": "FLUX ControlNets inherit FLUX.1-dev Non-Commercial; Qwen-2.1 Fun is Qwen Research License; SD3.5 is Community License",
+      "fix": "for commercial work prefer xinsir (SDXL), Qwen InstantX / DiffSynth / 2512 Fun, Z-Image Fun (Apache-2.0)",
+      "src": [
+        "S-HF-BFL-CANNY",
+        "S-HF-QWEN21-FUN",
+        "S-HF-SD35-CN"
+      ]
+    }
+  ],
+  "sources": {
+    "S-CN-NODES": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/nodes.py (+ comfy_extras/nodes_controlnet.py) - ControlNetLoader, ControlNetApplyAdvanced, SetUnionControlNetType, ControlNetInpaintingAliMamaApply, QwenImageDiffsynthControlnet, InstructPixToPixConditioning",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CN-TYPES": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy/cldm/control_types.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CN-LOADER": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy/controlnet.py (load_controlnet_sd35, QwenFunControlNet sqrt(strength), format detection)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CN-CANNY": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy_extras/nodes_canny.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CN-REL": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/releases (v0.38.0: 'Support Qwen-Image 2.1 union fun controlnet')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB node_schemas_v0.35.0.json - the pinned image's node registry (ComfyUI v0.35.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES-CN": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES-SD3": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/sd3/#sd35-controlnets",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-CN": {
+      "url": "https://docs.comfy.org/tutorials/controlnet/controlnet",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-CN-MIX": {
+      "url": "https://docs.comfy.org/tutorials/controlnet/mixing-controlnets",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FLUX-CN": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-1-controlnet",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-QWEN": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-QWEN2512": {
+      "url": "https://docs.comfy.org/tutorials/image/qwen/qwen-image-2512",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-ZIMAGE": {
+      "url": "https://docs.comfy.org/tutorials/image/z-image/z-image-turbo",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-PREPROC": {
+      "url": "https://docs.comfy.org/tutorials/utility/preprocessors",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FLUX-CANNY": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_canny_model_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FLUX-DEPTH-LORA": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/flux_depth_lora_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SD35-CANNY": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_canny_controlnet_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SD35-DEPTH": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_depth.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SD35-BLUR": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sd3.5_large_blur.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-QWEN-INSTANTX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_instantx_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-QWEN-INSTANTX-INPAINT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_instantx_inpainting_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-QWEN-PATCH": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_controlnet_patch.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-QWEN-UNION-LORA": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_image_union_control_lora.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-QWEN2512-CN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_qwen_Image_2512_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-ZIMAGE-CN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image_turbo_fun_union_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SD15-CN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/controlnet_example.json (archived 'Scribble ControlNet')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-SDXL-SIMPLE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/sdxl_simple_example.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-MINIMAX-CN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_fun_controlnet_union.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-ANIMA-LLLITE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_anima_lllite_depth_control_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG-SD35": {
+      "url": "https://blog.comfy.org/sd3-5-large-controlnet/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG-QWEN-INSTANTX": {
+      "url": "https://blog.comfy.org/p/day-1-support-of-qwen-image-instantx",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG-QWEN-CN": {
+      "url": "https://blog.comfy.org/p/comfyui-now-supports-qwen-image-controlnet",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-XINSIR": {
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-XINSIR": {
+      "url": "https://github.com/xinsir6/ControlNetPlus",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-CONTROL-LORA": {
+      "url": "https://huggingface.co/stabilityai/control-lora",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-MISTOLINE": {
+      "url": "https://huggingface.co/TheMistoAI/MistoLine",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-DIFFUSERS-XL": {
+      "url": "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0 and https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-CN11": {
+      "url": "https://huggingface.co/lllyasviel/ControlNet-v1-1",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-CN11-FP16": {
+      "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-T2I": {
+      "url": "https://huggingface.co/TencentARC/T2I-Adapter",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BFL-CANNY": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BFL-DEPTH": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BFL-CANNY-LORA": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev-lora",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BFL-DEPTH-LORA": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev-lora",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFY-FLUX1": {
+      "url": "https://huggingface.co/Comfy-Org/flux1-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FLUX-TE": {
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-FP8": {
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8 (also hosts byte-identical clip_l / t5xxl copies used for the exact sizes)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LUMINA-VAE": {
+      "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-INSTANTX-FLUX-UNION": {
+      "url": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SHAKKER-PRO": {
+      "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SHAKKER-PRO2": {
+      "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-XLABS-CN": {
+      "url": "https://huggingface.co/XLabs-AI/flux-controlnet-collections",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-CN": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-controlnets",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SD35-CN-REPACK": {
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN-INSTANTX-REPACK": {
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN-INSTANTX": {
+      "url": "https://huggingface.co/InstantX/Qwen-Image-ControlNet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN-DIFFSYNTH": {
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN-COMFY": {
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LIGHTX2V-QWEN": {
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN2512-FUN": {
+      "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-QWEN21-FUN": {
+      "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ZIMAGE-FUN": {
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ZIMAGE-FUN21": {
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ZIMAGE-COMFY": {
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LOTUS": {
+      "url": "https://huggingface.co/Comfy-Org/lotus",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDVAE": {
+      "url": "https://huggingface.co/stabilityai/sd-vae-ft-mse-original",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDXL-BASE": {
+      "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-DREAMSHAPER": {
+      "url": "https://huggingface.co/Lykon/DreamShaper",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-AUX": {
+      "url": "https://github.com/Fannovel16/comfyui_controlnet_aux (README, utils.py, node_wrappers/*.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-ACN": {
+      "url": "https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-4823": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/issues/4823 (FLUX union label/index mismatch; open)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-WIKI-PRO2": {
+      "url": "https://comfyui-wiki.com/en/news/2025-04-19-flux-controlnet-union-pro-2",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

@@ -1,0 +1,287 @@
+{
+  "recipe": {
+    "id": "layered",
+    "task": "layer-decompose",
+    "variant": "Qwen-Image-Layered bf16 (40.9 GB): decompose an image into RGBA layers - ReferenceLatent of the input on both conditionings, EmptyQwenImageLayeredLatentImage (layers 2), shift 1, 20 steps cfg 2.5, LatentCut/LatentCutToBatch, layered VAE",
+    "from_template": "image_qwen_image_layered (subgraph 'Image to Layers (Qwen-Image-Layered)' flattened; the bypassed 'Text to Layers' subgraph and its SaveImage elided; PrimitiveStringMultiline prompt inlined)",
+    "min_comfyui": "0.6.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "optional: describes the WHOLE input including occluded content; 'It is not designed to control the semantic content of individual layers explicitly'"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text"
+      },
+      "layers": {
+        "node": "6",
+        "input": "layers",
+        "note": "number of RGBA layers; template 2"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "1.0 for Layered (not 3)"
+      },
+      "max_dimension": {
+        "node": "16",
+        "input": "largest_size",
+        "note": "'For input size, 640px is recommended, 1024px for high-res'"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to decompose; scaled to max 640 px; sizes multiples of 16"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE",
+        "note": "a batch of RGBA layer images (one per layer) after LatentCut index 1 drops the composite slot"
+      }
+    },
+    "files": [
+      "qwen_image_layered_bf16.safetensors",
+      "qwen_image_layered_vae.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    ],
+    "defaults_note": "shift 1, 20 steps, cfg 2.5; 'This model is slow. The original sampling settings are steps: 50 and CFG: 4.0. It will at least double the generated time.' Needs its own VAE (qwen_image_layered_vae) and the bf16 diffusion file (fp8mixed exists). The sibling template image_qwen_image_layered_control uses DiffSynth's qwen_image_layered_control_bf16 (weight_dtype fp8_e4m3fn) with a text prompt naming the element to extract ('guitar').",
+    "vram_evidence": {
+      "gpu": null,
+      "at": "640 px",
+      "usage": "NOT FOUND (40.9 GB bf16 file; template note offers an FP8 alternative)",
+      "time_s": null,
+      "src": "S-TPL-LAYERED"
+    },
+    "family": "qwen-image",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_layered_bf16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 1.0
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "A cinematic medium shot of a beautiful young woman with fair skin and a joyful, radiant smile, looking back over her shoulder. She has voluminous, curly auburn hair styled in a loose, windblown updo. She is standing on a rugged, rocky coastline overlooking a sun-drenched ocean. She wears a vintage, long-sleeved, high-collared dress in an off-white, crinkled fabric with delicate smocking on the bo"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_layered_vae.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToMaxDimension",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "largest_size": 640
+      }
+    },
+    "11": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "4",
+          0
+        ],
+        "latent": [
+          "11",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "latent": [
+          "11",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "GetImageSize",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "EmptyQwenImageLayeredLatentImage",
+      "inputs": {
+        "width": [
+          "14",
+          0
+        ],
+        "height": [
+          "14",
+          1
+        ],
+        "layers": 2,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 2.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "12",
+          0
+        ],
+        "negative": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "17": {
+      "class_type": "LatentCut",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "dim": "t",
+        "index": 1,
+        "amount": 16384
+      }
+    },
+    "18": {
+      "class_type": "LatentCutToBatch",
+      "inputs": {
+        "samples": [
+          "17",
+          0
+        ],
+        "dim": "t",
+        "slice_size": 1
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "18",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "Qwen-image-layers"
+      }
+    }
+  }
+}

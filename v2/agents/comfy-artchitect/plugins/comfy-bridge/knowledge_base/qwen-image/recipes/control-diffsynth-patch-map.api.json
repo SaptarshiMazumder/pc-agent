@@ -1,0 +1,230 @@
+{
+  "recipe": {
+    "id": "control-diffsynth-patch-map",
+    "task": "control",
+    "variant": "Qwen-Image fp8 + DiffSynth depth (or canny) model patch driven by a READY control map, 20 steps, cfg 2.5",
+    "from_template": "image_qwen_image_controlnet_patch with the 'Image processing' group removed (docs: 'Depth: feed a depth map instead of Canny') and the depth patch loaded",
+    "min_comfyui": "0.3.52",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "template \" \""
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "3-3.1 in every template; 'Increase the shift if you get too many blurry/dark/bad images. Decrease if you want to try increasing detail.'"
+      },
+      "control_strength": {
+        "node": "12",
+        "input": "strength"
+      },
+      "patch_name": {
+        "node": "11",
+        "input": "name",
+        "note": "qwen_image_canny_diffsynth_controlnet / qwen_image_depth_diffsynth_controlnet / qwen_image_inpaint_diffsynth_controlnet (models/model_patches)"
+      }
+    },
+    "inputs": {
+      "control_map": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "a ready depth (default patch) or canny map; sets the output size via its VAE encode"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_fp8_e4m3fn.safetensors",
+      "qwen_image_depth_diffsynth_controlnet.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "defaults_note": "As control-diffsynth-patch-canny with the depth patch; switch patch_name to the canny patch for an edge map.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (same 20.4 GB fp8 class as Qwen-Image: expect the 24 GB figures)",
+      "time_s": null,
+      "src": "S-DOCS-QI"
+    },
+    "family": "qwen-image",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.1
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Conceptual makeup, a fairy girl with pink hair, pink shimmery scales dotted at the corners of her eyes, starry eyeshadow, makeup painting, thin eyebrows, three-dimensional features, a glossy finish, dazzling gold powder, silver fine glitter, a sense of layering and depth in the makeup, decorated with gold ornaments, pearlescent eyeshadow, dreamy makeup, soft pastels and subtle sparkles, a mysteri"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": " "
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "11": {
+      "class_type": "ModelPatchLoader",
+      "inputs": {
+        "name": "qwen_image_depth_diffsynth_controlnet.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_map"
+      }
+    },
+    "12": {
+      "class_type": "QwenImageDiffsynthControlnet",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "model_patch": [
+          "11",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "strength": 1.0
+      }
+    },
+    "6": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "15",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "12",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 2.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "ComfyUI"
+      }
+    }
+  }
+}

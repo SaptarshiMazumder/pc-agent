@@ -1,0 +1,359 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "instantid",
+    "host": "sdxl",
+    "variant": "InstantID + a secondary depth ControlNet: a pose photo drives both the InstantID keypoints (image_kps) and a Stability Control-LoRA depth net (Zoe depth from comfyui_controlnet_aux) at strength 0.65 for the first 35% of sampling",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: cubiq/ComfyUI_InstantID examples/InstantID_depth.json (control-lora-depth-rank256, Zoe-DepthMapPreprocessor 1024, ControlNetApplyAdvanced 0.65 / 0 / 0.35) on the instantid-sdxl base",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "16",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36"
+      ],
+      "splice": "ApplyInstantID (33) as in instantid-sdxl, then ControlNetApplyAdvanced (36) chained on ITS positive/negative outputs (second controlnet after the first); the KSampler takes 33's MODEL and 36's conditioning. The pose photo (16) feeds image_kps and the Zoe depth preprocessor."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "weight": {
+        "node": "33",
+        "input": "weight"
+      },
+      "start_at": {
+        "node": "33",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "33",
+        "input": "end_at"
+      },
+      "depth_strength": {
+        "node": "36",
+        "input": "strength"
+      },
+      "depth_start": {
+        "node": "36",
+        "input": "start_percent"
+      },
+      "depth_end": {
+        "node": "36",
+        "input": "end_percent"
+      },
+      "depth_resolution": {
+        "node": "35",
+        "input": "resolution"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "face_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "whose face"
+      },
+      "pose_image": {
+        "node": "16",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "whose pose/composition: keypoints (image_kps) and depth come from this one"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "ip-adapter.bin",
+      "instantid/diffusion_pytorch_model.safetensors",
+      "control-lora-depth-rank256.safetensors",
+      "1k3d68.onnx",
+      "2d106det.onnx",
+      "genderage.onnx",
+      "glintr100.onnx",
+      "scrfd_10g_bnkps.onnx"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_InstantID",
+        "git": "https://github.com/cubiq/ComfyUI_InstantID",
+        "license": "Apache-2.0",
+        "status": "maintenance only since 2025-04-14",
+        "pip": [
+          "insightface",
+          "onnxruntime-gpu (OR onnxruntime, never both)"
+        ],
+        "nodes_used": [
+          "InstantIDModelLoader",
+          "InstantIDFaceAnalysis",
+          "ApplyInstantID"
+        ]
+      },
+      {
+        "name": "comfyui_controlnet_aux",
+        "git": "https://github.com/Fannovel16/comfyui_controlnet_aux",
+        "manager_name": "ComfyUI's ControlNet Auxiliary Preprocessors",
+        "nodes_used": [
+          "Zoe-DepthMapPreprocessor"
+        ]
+      }
+    ],
+    "defaults_note": "as instantid-sdxl; depth net 0.65 strength, end_percent 0.35 (early steps only - composition, then the face). Control-LoRA license 'other' (Stability).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "instantid-sdxl + 0.77 GB Control-LoRA + Zoe annotator weights (auto-download)",
+      "src": "S-GH-INSTANTID"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: InstantIDModelLoader, InstantIDFaceAnalysis, ApplyInstantID, Zoe-DepthMapPreprocessor",
+      "input key 'instantid_file' unverified"
+    ],
+    "id": "instantid-sdxl-depth",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "comic character, graphic illustration, comic art, graphic novel art, vibrant, highly detailed"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "photograph, deformed, glitch, noisy, realistic, stock photo"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1016,
+        "height": 1016,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face_image"
+      }
+    },
+    "30": {
+      "class_type": "InstantIDModelLoader",
+      "inputs": {
+        "instantid_file": "ip-adapter.bin"
+      }
+    },
+    "31": {
+      "class_type": "InstantIDFaceAnalysis",
+      "inputs": {
+        "provider": "CPU"
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "instantid/diffusion_pytorch_model.safetensors"
+      }
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@pose_image"
+      }
+    },
+    "33": {
+      "class_type": "ApplyInstantID",
+      "inputs": {
+        "instantid": [
+          "30",
+          0
+        ],
+        "insightface": [
+          "31",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "weight": 0.8,
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "image_kps": [
+          "16",
+          0
+        ]
+      }
+    },
+    "34": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "control-lora-depth-rank256.safetensors"
+      }
+    },
+    "35": {
+      "class_type": "Zoe-DepthMapPreprocessor",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "resolution": 1024
+      }
+    },
+    "36": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "33",
+          1
+        ],
+        "negative": [
+          "33",
+          2
+        ],
+        "control_net": [
+          "34",
+          0
+        ],
+        "image": [
+          "35",
+          0
+        ],
+        "strength": 0.65,
+        "start_percent": 0.0,
+        "end_percent": 0.35
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "33",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 4.5,
+        "sampler_name": "ddpm",
+        "scheduler": "karras",
+        "positive": [
+          "36",
+          0
+        ],
+        "negative": [
+          "36",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/instantid_sdxl_depth"
+      }
+    }
+  }
+}

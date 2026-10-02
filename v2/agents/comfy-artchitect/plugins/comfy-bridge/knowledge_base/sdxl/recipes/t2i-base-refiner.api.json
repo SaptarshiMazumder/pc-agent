@@ -1,0 +1,261 @@
+{
+  "recipe": {
+    "id": "t2i-base-refiner",
+    "family": "sdxl",
+    "task": "t2i",
+    "variant": "SDXL 1.0 base + refiner, one shared prompt, 25 steps split 20/5 (80/20), cfg 8, euler/normal, KSamplerAdvanced hand-off",
+    "from_template": "sdxl_simple_example (PrimitiveNodes for prompts / steps / end_at_step inlined)",
+    "min_comfyui": "0.0.1",
+    "confidence": "official",
+    "ports": {
+      "width": {
+        "node": "9",
+        "input": "width",
+        "note": "trained buckets: 1024x1024, 1152x896, 896x1152, 1216x832, 832x1216, 1344x768, 768x1344, 1536x640, 640x1536"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "seed": {
+        "node": "10",
+        "input": "noise_seed",
+        "note": "only the base sampler adds noise; the refiner's seed is irrelevant"
+      },
+      "steps": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "steps",
+        "linked_with": {
+          "node": "10",
+          "input": "end_at_step",
+          "node2": "11",
+          "input2": "start_at_step",
+          "ratio": 0.8
+        },
+        "note": "total steps on BOTH samplers; the switch-over step is 80% of it (template 25 -> 20; card 'high_noise_frac 0.8')"
+      },
+      "refiner_switch_step": {
+        "node": "10",
+        "input": "end_at_step",
+        "same_value": [
+          {
+            "node": "11",
+            "input": "start_at_step"
+          }
+        ],
+        "note": "base end_at_step == refiner start_at_step; 20 of 25 in the template"
+      },
+      "cfg": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "cfg"
+      },
+      "sampler": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "nodes": [
+          "10",
+          "11"
+        ],
+        "input": "scheduler"
+      },
+      "prompt": {
+        "nodes": [
+          "6",
+          "3"
+        ],
+        "input": "text",
+        "note": "the template feeds one PrimitiveNode to both the base and the refiner encoders (inlined here)"
+      },
+      "negative": {
+        "nodes": [
+          "7",
+          "4"
+        ],
+        "input": "text"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "sd_xl_refiner_1.0.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Base: add_noise enable, steps 0->20 of 25, return_with_leftover_noise enable. Refiner: add_noise disable, 20->end, leftover disable, its OWN CLIP for the prompts and its OWN VAE for the decode. Template note: these 'SHOULD stay in place if you want this workflow to work correctly'. cfg 8 / euler / normal on both.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (Stability publishes no ComfyUI VRAM figure for SDXL; the fp16 base is 6.94 GB on disk)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "2": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_refiner_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "evening sunset scenery blue sky nature, glass bottle with a galaxy in it"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          1
+        ],
+        "text": "evening sunset scenery blue sky nature, glass bottle with a galaxy in it"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "add_noise": "enable",
+        "noise_seed": 0,
+        "steps": 25,
+        "cfg": 8.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "start_at_step": 0,
+        "end_at_step": 20,
+        "return_with_leftover_noise": "enable"
+      }
+    },
+    "11": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "add_noise": "disable",
+        "noise_seed": 0,
+        "steps": 25,
+        "cfg": 8.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "3",
+          0
+        ],
+        "negative": [
+          "4",
+          0
+        ],
+        "latent_image": [
+          "10",
+          0
+        ],
+        "start_at_step": 20,
+        "end_at_step": 10000,
+        "return_with_leftover_noise": "disable"
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "2",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sdxl/t2i_base_refiner"
+      }
+    }
+  }
+}

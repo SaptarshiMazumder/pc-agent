@@ -1,0 +1,263 @@
+{
+  "recipe": {
+    "id": "control-canny",
+    "family": "sd35",
+    "task": "control",
+    "variant": "Large fp8 all-in-one + SD3.5 Large Canny ControlNet; in-graph Canny (0.3/0.6) on a 1024x1024 center-cropped copy of the image; strength 0.66; 32 steps, cfg 4.5, euler/simple",
+    "from_template": "sd3.5_large_canny_controlnet_example",
+    "min_comfyui": "0.3.5",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text",
+        "note": "the negative is ConditioningZeroOut(positive) as in every SD3.5 ControlNet template — there is no negative text port"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "control_strength": {
+        "node": "19",
+        "input": "strength",
+        "note": "HF card: 'start with a ControlNet strength of 0.7-0.8'"
+      },
+      "control_start": {
+        "node": "19",
+        "input": "start_percent"
+      },
+      "control_end": {
+        "node": "19",
+        "input": "end_percent"
+      },
+      "width": {
+        "node": "9",
+        "input": "width",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "width"
+          }
+        ],
+        "note": "keep the ImageScale size equal to the latent size (template: both 1024)"
+      },
+      "height": {
+        "node": "9",
+        "input": "height",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "height"
+          }
+        ]
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "canny_low": {
+        "node": "17",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "17",
+        "input": "high_threshold"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "any photo/render; the graph scales it to 1024x1024 (center crop) and extracts Canny edges itself"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_fp8_scaled.safetensors",
+      "sd3.5_large_controlnet_canny.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "ControlNetApplyAdvanced WITH its vae input wired (SD3.5 ControlNets need the VAE); ControlNetApplySD3 is deprecated. HF card preprocessing reference: grayscale -> cv2.Canny(100, 200); the template uses the core Canny node at 0.3/0.6.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM figure for any SD3.5 file)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_fp8_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "crystal pink dragon on a blue mystery sky, hyperdetailed"
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "sd3.5_large_controlnet_canny.safetensors"
+      }
+    },
+    "19": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "18",
+          0
+        ],
+        "image": [
+          "17",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "strength": 0.66,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 32,
+        "cfg": 4.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "19",
+          0
+        ],
+        "negative": [
+          "19",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sd35/control_canny"
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "bilinear",
+        "width": 1024,
+        "height": 1024,
+        "crop": "center"
+      }
+    },
+    "17": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "low_threshold": 0.3,
+        "high_threshold": 0.6
+      }
+    }
+  }
+}

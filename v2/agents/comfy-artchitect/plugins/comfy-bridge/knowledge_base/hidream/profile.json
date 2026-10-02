@@ -1,0 +1,1396 @@
+{
+  "schema": 2,
+  "id": "hidream",
+  "name": "HiDream-I1 / HiDream-E1",
+  "publisher": "HiDream.ai (HiDream-ai); Comfy-Org repack",
+  "license": {
+    "name": "MIT (transformer); Llama 3.1 Community License (Llama encoder); Apache-2.0 (VAE, T5)",
+    "commercial": true,
+    "notes": "'The Transformer models in this repository are licensed under the MIT License'. Components: 'The VAE is from FLUX.1 [schnell], licensed under Apache 2.0'; text encoders google/t5-v1_1-xxl (Apache 2.0) and meta-llama/Meta-Llama-3.1-8B-Instruct ('licensed under the Llama 3.1 Community License Agreement'). 'You own all content you create with this model'; commercial applications permitted; usage restrictions (no illegal/harmful content etc.). MIT covers the transformer only - the Llama-3.1 encoder's licence matters for redistribution.",
+    "src": [
+      "S-HF-I1",
+      "S-DOCS-I1"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i",
+    "edit"
+  ],
+  "cannot": [
+    {
+      "what": "run small: bf16/fp16 diffusion files 'may need more than 27GB of VRAM', fp8 'requires more than 16GB'; the four encoders add ~16 GB of files (Llama alone 9 GB)",
+      "src": "S-DOCS-I1"
+    },
+    {
+      "what": "E1-Full at any size but 768x768 ('in actual testing with other dimensions, the image performance is poor')",
+      "src": "S-DOCS-E1"
+    },
+    {
+      "what": "E1 style changes with consistency ('has difficulty maintaining consistency when changing image styles')",
+      "src": "S-DOCS-E1"
+    },
+    {
+      "what": "negative prompts on Dev/Fast (distilled, cfg 1)",
+      "src": "S-DOCS-I1"
+    },
+    {
+      "what": "ControlNet / IP-Adapter / inpaint / img2img: no official models or templates (NOT FOUND)",
+      "src": [
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "what": "the official E1.1 refine_strength=0.3 I1-Full refinement pass is not in the Comfy template",
+      "src": "S-GH-E1"
+    },
+    {
+      "what": "HiDream-O1-Image (2026-05, templates image_hidream_o1*) is a different, later model - out of this profile's scope",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_hidream.py, nodes_ip2p.py, nodes_custom_sampler.py, nodes_cfg.py)",
+    "nodes_verified_against_registry": "v0.35.0 - every recipe passed the offline structural check (verify_recipes.py) on 2026-10-02",
+    "note": "Native HiDream needs at least commit 9ad792f92706e2179c58b2e5348164acafa69288 (docs) - far below 0.35.0. QuadrupleCLIPLoader detects each encoder by content, so the I1 (clip_l, clip_g, t5, llama) and E1 (clip_g, clip_l, t5, llama) orders both load. CLIPTextEncodeHiDream (separate clip_l/clip_g/t5xxl/llama strings) exists but every template uses plain CLIPTextEncode."
+  },
+  "files": [
+    {
+      "name": "hidream_i1_full_fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17105946040,
+      "size_gb": 17.106,
+      "precision": "fp8",
+      "variant": "i1-full",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_full_fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "fp8 'requires more than 16GB of VRAM' (docs); community: 'barely less than 24GB VRAM at 1024x1024'",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "template default for Full (template note '15.93 GB')",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-FULL"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_i1_full_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34211673776,
+      "size_gb": 34.212,
+      "precision": "fp16",
+      "variant": "i1-full",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_full_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'may need more than 27GB of VRAM' (docs)",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "full precision; the 'Official sampling settings' note names this file",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-FULL"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_i1_dev_fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17105946040,
+      "size_gb": 17.106,
+      "precision": "fp8",
+      "variant": "i1-dev",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_dev_fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "fp8 'requires more than 16GB of VRAM' (docs); community: 'barely less than 24GB VRAM at 1024x1024'",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "template default for Dev ('Distilled dev', 28 steps)",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-DEV"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_i1_dev_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34211675392,
+      "size_gb": 34.212,
+      "precision": "bf16",
+      "variant": "i1-dev",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_dev_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'may need more than 27GB of VRAM' (docs)",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "full precision Dev (ComfyUI_examples workflow)",
+      "src": [
+        "S-HF-TREE",
+        "S-EXAMPLES"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_i1_fast_fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17105946040,
+      "size_gb": 17.106,
+      "precision": "fp8",
+      "variant": "i1-fast",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_fast_fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "fp8 'requires more than 16GB of VRAM' (docs); community: 'barely less than 24GB VRAM at 1024x1024'",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "template default for Fast ('Distilled fast', 16 steps)",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-FAST"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_i1_fast_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34211675392,
+      "size_gb": 34.212,
+      "precision": "bf16",
+      "variant": "i1-fast",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_i1_fast_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'may need more than 27GB of VRAM' (docs)",
+        "class": "official",
+        "src": "S-DOCS-I1"
+      },
+      "quality": "full precision Fast",
+      "src": "S-HF-TREE",
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_e1_full_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34211675392,
+      "size_gb": 34.212,
+      "precision": "bf16",
+      "variant": "e1-full",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_e1_full_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "~500 s first run on a Colab L4 22.5 GB (docs)",
+        "class": "official",
+        "src": "S-DOCS-E1"
+      },
+      "quality": "instruction edit, 768x768 only; docs '34.2GB', template '31.86 GB'; superseded by E1.1",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-E1",
+        "S-DOCS-E1"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hidream_e1_1_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34211675392,
+      "size_gb": 34.212,
+      "precision": "bf16 (loaded as fp8_e4m3fn_fast)",
+      "variant": "e1-1",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/diffusion_models/hidream_e1_1_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "fp16 'ran out of memory on both A100 40GB and 4090D 24GB' -> template loads with weight_dtype fp8_e4m3fn_fast",
+        "class": "official",
+        "src": "S-DOCS-E1"
+      },
+      "quality": "recommended edit model: 1 MP dynamic, direct instructions, 'better in image quality and editing accuracy compared to HiDream-E1-Full'",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-E11",
+        "S-HF-E1"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "clip_l_hidream.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 247586528,
+      "size_gb": 0.248,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/text_encoders/clip_l_hidream.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "long CLIP-L (OpenAI ViT-L); QuadrupleCLIPLoader; docs '236.12MB'",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-I1"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "clip_g_hidream.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 1389743104,
+      "size_gb": 1.39,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/text_encoders/clip_g_hidream.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "long CLIP-G (OpenCLIP ViT-bigG); docs '1.29GB'",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-I1"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5157348688,
+      "size_gb": 5.157,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "T5-XXL (long text parsing); 'you may have already downloaded this file'; docs '4.8GB'",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-I1"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "llama_3.1_8b_instruct_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9081258056,
+      "size_gb": 9.081,
+      "precision": "fp8_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Llama-3.1-8B-Instruct (instruction understanding) - the 4th, mandatory encoder; avoids the gated meta-llama download; Llama 3.1 Community License; docs '8.46GB'",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 335304388,
+      "size_gb": 0.335,
+      "precision": "fp32",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HiDream-I1_ComfyUI/resolve/main/split_files/vae/ae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'This is Flux's VAE model' (FLUX.1 schnell autoencoder, Apache-2.0); HiDream latent_format = Flux",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-I1",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF I1 (city96, MIT): Full/Dev/Fast Q2_K 6.56 .. Q4_K_M 11.48 .. Q8_0 18.69 GB, F16/BF16 34.2 GB; docs link the Full/Dev repos; community: 'GGUF Q8 works with 24GB'",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "unet",
+      "node": "UnetLoaderGGUF",
+      "class": "community",
+      "src": [
+        "S-GGUF",
+        "S-DOCS-I1",
+        "S-COMMUNITY-VRAM"
+      ]
+    },
+    {
+      "what": "NF4 (hykilpikonna/HiDream-I1-nf4) via the SanDiegoDude/ComfyUI-HiDream-Sampler custom node; file names NOT FOUND",
+      "needs_pack": "SanDiegoDude/ComfyUI-HiDream-Sampler",
+      "class": "official (docs link)",
+      "src": "S-DOCS-I1"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "recipe": "t2i-i1-full",
+      "why": "the quality route: full model, cfg 5 with an effective negative, 50 steps; 'Best-in-Class Prompt Following'; Chinese prompts; text in images",
+      "src": [
+        "S-TPL-FULL",
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "balanced",
+      "recipe": "t2i-i1-dev",
+      "tradeoff": "distilled: 28 steps at cfg 1, no negative; shift 6",
+      "src": [
+        "S-TPL-DEV",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2i-i1-fast",
+      "tradeoff": "distilled: 16 steps at cfg 1, no negative; same file size as Full - fast in steps, not in VRAM",
+      "src": [
+        "S-TPL-FAST",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "recipe": "edit-e1-1",
+      "why": "the recommended editor: 1 MP dynamic size, direct instructions, 'better in image quality and editing accuracy compared to HiDream-E1-Full'; fp8_e4m3fn_fast cast fits 24 GB",
+      "src": [
+        "S-TPL-E11",
+        "S-HF-E1",
+        "S-DOCS-E1"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "quality": "legacy-768",
+      "recipe": "edit-e1-full",
+      "tradeoff": "fixed 768x768 output, 34 GB bf16 file loaded at default dtype, weaker than E1.1; only when the 768 square is wanted",
+      "src": [
+        "S-TPL-E1",
+        "S-DOCS-E1"
+      ]
+    },
+    {
+      "task": "control",
+      "recipe": null,
+      "status": "NOT FOUND: no HiDream ControlNet / IP-Adapter / inpaint model",
+      "src": "S-DOCS-I1"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler|BasicScheduler",
+      "input": "steps",
+      "meaning": "",
+      "defaults": {
+        "i1-full": 50,
+        "i1-dev": 28,
+        "i1-fast": 16,
+        "e1-full": 28,
+        "e1-1": 20
+      },
+      "range": [
+        16,
+        50
+      ],
+      "official_reference_code": {
+        "i1": "50 / 28 / 16",
+        "e1-full": 28,
+        "e1.1": "28 (template 20)"
+      },
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-DEV",
+        "S-TPL-FAST",
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-HF-I1",
+        "S-GH-E1"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "I1 guidance; Dev/Fast are distilled and take none",
+      "defaults": {
+        "i1-full": 5.0,
+        "i1-dev": 1.0,
+        "i1-fast": 1.0
+      },
+      "range": [
+        1.0,
+        5.0
+      ],
+      "official_reference_code": {
+        "diffusers": "guidance_scale=5.0, '0.0 for Dev&Fast'"
+      },
+      "interactions": "'For the dev and fast versions, negative prompts are not needed, so please set the cfg parameter to 1.0'",
+      "src": [
+        "S-TPL-FULL",
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "name": "cfg_conds / cfg_cond2_negative",
+      "node": "DualCFGGuider",
+      "input": "cfg_conds, cfg_cond2_negative",
+      "meaning": "E1 dual guidance: regular style = cfg_function(middle=cond2, uncond=negative, cfg2) + (cond1 - cond2) * cfg1 -> cfg_conds scales text guidance, cfg_cond2_negative scales image guidance; at cfg2 ~ 1 the negative pass is skipped",
+      "defaults": {
+        "e1-full": "5 / 2",
+        "e1-1": "3 / 1.5"
+      },
+      "range": null,
+      "official_reference_code": {
+        "e1-full pipeline": "guidance_scale 5.0, image_guidance_scale 4.0",
+        "e1.1 script": "guidance_scale 3.0, img_guidance_scale 1.5"
+      },
+      "src": [
+        "S-NODES",
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-HF-E1",
+        "S-GH-E1"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingSD3",
+      "input": "shift",
+      "meaning": "flow shift per variant; the HiDream model config default is 3.0 (E1 templates carry no ModelSampling node and inherit it)",
+      "defaults": {
+        "i1-full": 3.0,
+        "i1-dev": 6.0,
+        "i1-fast": 3.0,
+        "e1-full": "none (config 3.0)",
+        "e1-1": "none (config 3.0)"
+      },
+      "range": [
+        3.0,
+        6.0
+      ],
+      "interactions": "Dev at 3.0 or Full at 6.0 is a mis-setting; ModelSamplingSD3 node default 3.0, multiplier 1000",
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-DEV",
+        "S-TPL-FAST",
+        "S-NODES",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler|KSamplerSelect+BasicScheduler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "i1-full": "uni_pc / simple (docs: lcm / normal optional)",
+        "i1-dev": "lcm / normal",
+        "i1-fast": "lcm / normal",
+        "e1-full": "euler / normal",
+        "e1-1": "euler / simple"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-DEV",
+        "S-TPL-FAST",
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage|ImageScale|ImageScaleToTotalPixels",
+      "input": "width, height / megapixels",
+      "meaning": "I1: 1024x1024 in every template (other sizes NOT FOUND officially; multiples of 16); E1-Full: input forced to 768x768; E1.1: input scaled to 1 MP ('may cause the aspect ratio to differ from the original input image')",
+      "defaults": {
+        "i1": "1024x1024",
+        "e1-full": "768x768",
+        "e1-1": "1 MP"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-DOCS-E1",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "weight_dtype",
+      "node": "UNETLoader",
+      "input": "weight_dtype",
+      "meaning": "cast at load",
+      "defaults": {
+        "i1 (fp8 files)": "default",
+        "e1-full (bf16)": "default",
+        "e1-1 (bf16)": "fp8_e4m3fn_fast"
+      },
+      "range": null,
+      "interactions": "E1.1 fp16/bf16 OOMs on 24-40 GB cards -> fp8_e4m3fn_fast",
+      "src": [
+        "S-TPL-E11",
+        "S-DOCS-E1"
+      ]
+    },
+    {
+      "name": "strength",
+      "node": "CFGNorm",
+      "input": "strength",
+      "meaning": "E1.1 only: post-CFG normalisation matching the official clip_cfg_norm=True",
+      "defaults": {
+        "e1-1": 1.0
+      },
+      "range": null,
+      "src": [
+        "S-TPL-E11",
+        "S-GH-E1",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSampler|RandomNoise",
+      "input": "seed / noise_seed",
+      "meaning": "",
+      "defaults": {
+        "templates": "randomize"
+      },
+      "range": null,
+      "src": "S-TPL-FULL"
+    }
+  ],
+  "rules": [
+    {
+      "id": "quad-encoder-llama",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_"
+      },
+      "require": {
+        "node": "QuadrupleCLIPLoader",
+        "input": "clip_name4",
+        "matches": "^llama_3\\.1_8b_instruct"
+      },
+      "message": "HiDream needs all FOUR text encoders through QuadrupleCLIPLoader (recipe 'hidream: long clip-l, long clip-g, t5xxl, llama_8b_3.1_instruct'); the Llama-3.1-8B-Instruct encoder is mandatory - a Dual/Triple CLIP loader cannot drive HiDream",
+      "src": [
+        "S-NODES",
+        "S-DOCS-I1",
+        "S-TPL-FULL"
+      ]
+    },
+    {
+      "id": "quad-encoder-t5",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_"
+      },
+      "require": {
+        "node": "QuadrupleCLIPLoader",
+        "input": "clip_name3",
+        "matches": "^t5xxl_"
+      },
+      "message": "the third QuadrupleCLIPLoader slot is T5-XXL (t5xxl_fp8_e4m3fn_scaled in every template)",
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-E11",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "quad-encoder-clip-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_"
+      },
+      "require": {
+        "node": "QuadrupleCLIPLoader",
+        "input": "clip_name1",
+        "matches": "^clip_(l|g)_hidream\\.safetensors$"
+      },
+      "message": "slots 1 and 2 are the long CLIP-L and CLIP-G HiDream encoders (clip_l_hidream / clip_g_hidream, either order - the I1 templates use l,g and the E1 templates g,l; ComfyUI detects by content)",
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-E1",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "quad-encoder-clip-2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_"
+      },
+      "require": {
+        "node": "QuadrupleCLIPLoader",
+        "input": "clip_name2",
+        "matches": "^clip_(l|g)_hidream\\.safetensors$"
+      },
+      "message": "as quad-encoder-clip-1 for the second slot",
+      "src": [
+        "S-TPL-FULL",
+        "S-TPL-E1",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "vae-is-flux-ae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "ae.safetensors"
+      },
+      "message": "HiDream decodes with the FLUX VAE ae.safetensors ('This is Flux's VAE model'; latent_format Flux)",
+      "src": [
+        "S-DOCS-I1",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "full-shift",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_full"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 3.0,
+        "all": true
+      },
+      "message": "HiDream-I1-Full: shift 3.0 (official sampling settings)",
+      "src": [
+        "S-TPL-FULL",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "full-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_full"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 5.0,
+        "all": true
+      },
+      "message": "HiDream-I1-Full official cfg is 5.0 (diffusers guidance_scale 5.0); Full is the only I1 variant that uses CFG and a negative",
+      "src": [
+        "S-TPL-FULL",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "full-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_full"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 50,
+        "all": true
+      },
+      "message": "HiDream-I1-Full official steps: 50",
+      "src": [
+        "S-TPL-FULL",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "full-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_full"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "sampler_name",
+        "in": [
+          "uni_pc",
+          "lcm"
+        ],
+        "all": true
+      },
+      "message": "Full: sampler uni_pc / scheduler simple (official), '(Optional) lcm / normal' (docs)",
+      "src": [
+        "S-TPL-FULL",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "dev-shift",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_dev"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 6.0,
+        "all": true
+      },
+      "message": "HiDream-I1-Dev: shift 6.0 - 'Dev at 3.0 ... is a mis-setting'",
+      "src": [
+        "S-TPL-DEV",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "dev-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_dev"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Dev is distilled: cfg 1.0, no negative prompt ('Important')",
+      "src": [
+        "S-TPL-DEV",
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "dev-steps-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_dev"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 28,
+        "all": true
+      },
+      "message": "Dev official: 28 steps, lcm / normal",
+      "src": [
+        "S-TPL-DEV",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "fast-shift",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_fast"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 3.0,
+        "all": true
+      },
+      "message": "HiDream-I1-Fast: shift 3.0",
+      "src": [
+        "S-TPL-FAST",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "fast-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_fast"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Fast is distilled: cfg 1.0, no negative prompt",
+      "src": [
+        "S-TPL-FAST",
+        "S-DOCS-I1",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "fast-steps-sampler",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_fast"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 16,
+        "all": true
+      },
+      "message": "Fast official: 16 steps, lcm / normal",
+      "src": [
+        "S-TPL-FAST",
+        "S-HF-I1"
+      ]
+    },
+    {
+      "id": "distilled-sampler-lcm",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_i1_(dev|fast)"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "sampler_name",
+        "equals": "lcm",
+        "all": true
+      },
+      "message": "Dev and Fast official sampler is lcm with the normal scheduler",
+      "src": [
+        "S-TPL-DEV",
+        "S-TPL-FAST",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "id": "e1-full-768-w",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_full"
+      },
+      "require": {
+        "node": "ImageScale",
+        "input": "width",
+        "equals": 768
+      },
+      "message": "E1-Full only works at 768x768: 'The image will be scaled to 768*768. Using other dimensions may not yield particularly good results' (docs: 'poor or even significantly different')",
+      "src": [
+        "S-TPL-E1",
+        "S-DOCS-E1",
+        "S-HF-E1"
+      ]
+    },
+    {
+      "id": "e1-full-768-h",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_full"
+      },
+      "require": {
+        "node": "ImageScale",
+        "input": "height",
+        "equals": 768
+      },
+      "message": "as e1-full-768-w for the height",
+      "src": [
+        "S-TPL-E1",
+        "S-DOCS-E1"
+      ]
+    },
+    {
+      "id": "e1-dual-cfg",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1"
+      },
+      "require": {
+        "node": "DualCFGGuider",
+        "input": "cfg_conds",
+        "exists": true
+      },
+      "message": "E1 / E1.1 edit with DualCFGGuider (text cfg + image cfg) over InstructPixToPixConditioning and SamplerCustomAdvanced; a plain KSampler has no image-guidance term",
+      "src": [
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "e1-ip2p",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1"
+      },
+      "require": {
+        "node": "InstructPixToPixConditioning",
+        "input": "pixels",
+        "linked": true
+      },
+      "message": "the source image enters E1 through InstructPixToPixConditioning (concat_latent_image on the conditioning + the output latent); VAEEncode alone is not an E1 edit",
+      "src": [
+        "S-TPL-E1",
+        "S-TPL-E11",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "e1-1-cfgnorm",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_1"
+      },
+      "require": {
+        "node": "CFGNorm",
+        "input": "strength",
+        "equals": 1.0
+      },
+      "message": "E1.1 runs with CFGNorm strength 1 (= official clip_cfg_norm=True)",
+      "src": [
+        "S-TPL-E11",
+        "S-GH-E1"
+      ]
+    },
+    {
+      "id": "e1-1-cfg-values",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_1"
+      },
+      "require": {
+        "node": "DualCFGGuider",
+        "input": "cfg_conds",
+        "equals": 3.0
+      },
+      "message": "E1.1 official guidance_scale 3.0 (cfg_conds) and img_guidance_scale 1.5 (cfg_cond2_negative); E1-Full's 5 / 2 are too strong for E1.1",
+      "src": [
+        "S-TPL-E11",
+        "S-GH-E1"
+      ]
+    },
+    {
+      "id": "e1-1-fp8-cast",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_1"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "weight_dtype",
+        "equals": "fp8_e4m3fn_fast"
+      },
+      "message": "E1.1 at fp16/bf16 'ran out of memory on both A100 40GB and 4090D 24GB' - load with weight_dtype fp8_e4m3fn_fast on anything under ~40 GB",
+      "src": [
+        "S-TPL-E11",
+        "S-DOCS-E1"
+      ]
+    },
+    {
+      "id": "e1-1-input-1mp",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hidream_e1_1"
+      },
+      "require": {
+        "node": "ImageScaleToTotalPixels",
+        "input": "megapixels",
+        "equals": 1.0
+      },
+      "message": "E1.1 is 'Dynamic (1M pixels)': scale the input to 1 MP (ImageScaleToTotalPixels area 1.0) as the template does",
+      "src": [
+        "S-TPL-E11",
+        "S-HF-E1"
+      ]
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "EmptySD3LatentImage takes width/height in multiples of 16",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs at least this ComfyUI (all HiDream templates are <= 0.3.45, below the pinned 0.35.0)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "bad ugly jpeg artifacts",
+    "negative_src": "S-TPL-FULL",
+    "negative_alternatives": {
+      "e1 / e1.1 templates and official E1.1 script": "low quality, blurry, distorted",
+      "e1 HF card": "low resolution, blur",
+      "dev / fast": "inert (cfg 1)"
+    },
+    "positive": [
+      {
+        "line": "I1: natural-language scene descriptions; text in images via a quoted string ('A cat holding a sign that says \"HiDream.ai\".'); 'Chinese prompt support significantly outperforming similar open-source models'",
+        "class": "official",
+        "src": [
+          "S-HF-I1",
+          "S-DOCS-I1"
+        ]
+      },
+      {
+        "line": "E1-Full instruction format (exact): 'Editing Instruction: {instruction}. Target Image Description: {description}' - e.g. 'Editing Instruction: Convert the image into a Ghibli style. Target Image Description: A person in a light pink t-shirt with short dark hair, depicted in a Ghibli style against a plain background.' (the official instruction_refinement.py generates the description with a VLM; the Comfy template uses a plain imperative)",
+        "class": "official",
+        "src": "S-HF-E1"
+      },
+      {
+        "line": "E1.1: direct instructions ('convert the image into a Ghibli style'); 'prompt refinement is no longer needed'; template: 'Change the image to let the girl's hair fall loose around her shoulders, natural and flowing. Don't change other parts'",
+        "class": "official",
+        "src": [
+          "S-GH-E1",
+          "S-TPL-E11"
+        ]
+      },
+      {
+        "line": "'try to make your prompts as complete as possible'; 'You may need to modify the prompt multiple times or generate multiple times to get better results'",
+        "class": "official",
+        "src": "S-DOCS-E1"
+      },
+      {
+        "line": "Negative prompt only matters on I1-Full (template 'bad ugly jpeg artifacts') and on the E1 image-cfg path",
+        "class": "official",
+        "src": [
+          "S-TPL-FULL",
+          "S-DOCS-I1"
+        ]
+      }
+    ],
+    "structure": "I1: full-sentence scene description (subject, style, lighting, text in quotes). E1.1: one direct edit instruction + what must stay unchanged. E1-Full: 'Editing Instruction: ... Target Image Description: ...'",
+    "hurts": [
+      {
+        "line": "style-change edits (E1 loses consistency)",
+        "src": "S-DOCS-E1"
+      },
+      {
+        "line": "non-768 inputs on E1-Full",
+        "src": "S-DOCS-E1"
+      },
+      {
+        "line": "vague edit instructions",
+        "src": "S-DOCS-E1"
+      },
+      {
+        "line": "negative prompts / cfg > 1 on Dev and Fast",
+        "src": "S-DOCS-I1"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "out of memory",
+      "cause": "bf16/fp16 diffusion files need >27 GB, fp8 >16 GB; E1.1 fp16 OOMs even on A100 40 GB",
+      "fix": "fp8 I1 files; E1.1 with weight_dtype fp8_e4m3fn_fast; community: Q8 GGUF (18.7 GB) fits 24 GB; offload encoders (--lowvram)",
+      "src": [
+        "S-DOCS-I1",
+        "S-DOCS-E1",
+        "S-COMMUNITY-VRAM"
+      ]
+    },
+    {
+      "symptom": "encoder load fails / gated download",
+      "cause": "trying the diffusers meta-llama path or fewer than four encoders",
+      "fix": "QuadrupleCLIPLoader with the four Comfy-Org fp8-scaled files (Llama is 9 GB)",
+      "src": [
+        "S-DOCS-I1",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "washed / wrong output on Dev or Fast",
+      "cause": "cfg above 1 or a negative prompt on a distilled variant",
+      "fix": "cfg 1.0, ignore the negative",
+      "src": "S-DOCS-I1"
+    },
+    {
+      "symptom": "Dev looks off",
+      "cause": "shift 3.0 on Dev (needs 6.0) or 6.0 on Full/Fast (need 3.0)",
+      "fix": "per-variant shift: Full 3, Dev 6, Fast 3",
+      "src": [
+        "S-TPL-FULL",
+        "S-DOCS-I1"
+      ]
+    },
+    {
+      "symptom": "E1-Full edit is poor or wildly different",
+      "cause": "input not 768x768",
+      "fix": "ImageScale bilinear 768x768 center (the recipe does it)",
+      "src": "S-DOCS-E1"
+    },
+    {
+      "symptom": "E1.1 output aspect differs from the input",
+      "cause": "ImageScaleToTotalPixels to 1 MP may change the ratio",
+      "fix": "crop/resize deliberately before the stage if the exact ratio matters",
+      "src": "S-DOCS-E1"
+    },
+    {
+      "symptom": "E1.1 result differs from the official demo",
+      "cause": "the official pipeline adds a refine_strength=0.3 I1-Full refinement pass that the Comfy graph lacks; template also uses 20 steps vs 28",
+      "fix": "raise steps to 28; accept the difference or chain an I1-Full img2img pass",
+      "src": "S-GH-E1"
+    },
+    {
+      "symptom": "E1.1 negative seems ignored",
+      "cause": "the official template wires the Positive encode into DualCFGGuider.negative (link 452); only InstructPixToPixConditioning.negative receives the negative text",
+      "fix": "rewire DualCFGGuider.negative to the Negative encode (as E1-Full and the official script do) if the negative must act",
+      "src": [
+        "S-TPL-E11",
+        "S-TPL-E1",
+        "S-GH-E1"
+      ]
+    },
+    {
+      "symptom": "'unknown model' on an old build",
+      "cause": "ComfyUI before commit 9ad792f9",
+      "fix": "the pinned 0.35.0 image is far newer",
+      "src": "S-DOCS-I1"
+    },
+    {
+      "symptom": "GGUF / NF4 files invisible",
+      "cause": "need custom nodes",
+      "fix": "ComfyUI-GGUF 'Unet Loader (GGUF)' / ComfyUI-HiDream-Sampler (Phase 2 installs)",
+      "src": "S-DOCS-I1"
+    },
+    {
+      "symptom": "licence question when redistributing",
+      "cause": "MIT covers the transformer only",
+      "fix": "the Llama-3.1 encoder is under the Llama 3.1 Community License; VAE/T5 Apache-2.0",
+      "src": "S-HF-I1"
+    }
+  ],
+  "sources": {
+    "S-DOCS-I1": {
+      "url": "https://docs.comfy.org/tutorials/image/hidream/hidream-i1.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-E1": {
+      "url": "https://docs.comfy.org/tutorials/image/hidream/hidream-e1.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FULL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/hidream_i1_full.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-DEV": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/hidream_i1_dev.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FAST": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/hidream_i1_fast.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-E1": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/hidream_e1_full.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-E11": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/hidream_e1_1.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-TREE": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/HiDream-I1_ComfyUI/tree/main?recursive=true (+ raw README)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-I1": {
+      "url": "https://huggingface.co/HiDream-ai/HiDream-I1-Full , -Dev , -Fast (raw README + API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-E1": {
+      "url": "https://huggingface.co/HiDream-ai/HiDream-E1-Full and https://huggingface.co/HiDream-ai/HiDream-E1-1 (raw README + API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-I1": {
+      "url": "https://raw.githubusercontent.com/HiDream-ai/HiDream-I1/main/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-E1": {
+      "url": "https://raw.githubusercontent.com/HiDream-ai/HiDream-E1/main/README.md and inference_e1_1.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_hidream.py, nodes_ip2p.py, nodes_custom_sampler.py (DualCFGGuider), nodes_cfg.py (CFGNorm), nodes_model_advanced.py, comfy/supported_models.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json (native node registry of the pinned image, ComfyUI v0.35.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/hidream/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GGUF": {
+      "url": "https://huggingface.co/city96/HiDream-I1-Full-gguf , -Dev-gguf , -Fast-gguf (tree API)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-COMMUNITY-VRAM": {
+      "url": "https://huggingface.co/HiDream-ai/HiDream-I1-Full/discussions/13 ; https://www.nextdiffusion.ai/tutorials/run-hidream-in-comfyui-step-by-step-guide",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

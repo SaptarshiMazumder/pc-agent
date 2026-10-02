@@ -1,0 +1,174 @@
+{
+  "recipe": {
+    "id": "t2i-dev-turbo",
+    "family": "flux-1",
+    "task": "t2i",
+    "variant": "FLUX.1 [dev] bf16 + alimama-creative FLUX.1-Turbo-Alpha 8-step distilled LoRA; 8 steps, cfg 1 — the fast dev route",
+    "from_template": "flux_dev_full_text_to_image + LoraLoaderModelOnly; no official Comfy-Org template for the Turbo LoRA. Settings from the LoRA card (alimama-creative/FLUX.1-Turbo-Alpha, 643 likes): '8-step distilled lora for FLUX.1-dev model', recommended steps 8, guidance 3.5, LoRA scale 1, 'FLUX.1-dev only'. Community-confirmed.",
+    "min_comfyui": "0.3.42",
+    "confidence": "community-confirmed",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "FLUX.1-Turbo-Alpha.safetensors",
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-dev.safetensors",
+      "t5xxl_fp16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "8 steps, cfg 1.0, LoRA strength 1.0, model-default guidance 3.5 (the card's recommendation). The HF file is named diffusion_pytorch_model.safetensors; it is saved to models/loras as FLUX.1-Turbo-Alpha.safetensors (rename on download). License: inherits FLUX.1 [dev] Non-Commercial. Dev only: not for schnell.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "note": "as t2i-dev plus a 0.69 GB LoRA",
+      "class": "not-found",
+      "src": "S-TURBO-ALPHA"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A fairy tale scene of a young girl with silver curly hair wearing a delicate white dress, standing among crystal butterflies and glowing glass roses. The scene is filled with soft magical light, like a dream from a fantasy world."
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "seed": 0,
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_Dev_turbo"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "FLUX.1-Turbo-Alpha.safetensors",
+        "strength_model": 1.0
+      }
+    }
+  }
+}

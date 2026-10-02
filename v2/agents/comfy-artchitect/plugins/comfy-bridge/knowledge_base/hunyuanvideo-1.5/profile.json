@@ -1,0 +1,1992 @@
+{
+  "schema": 2,
+  "id": "hunyuanvideo-1.5",
+  "name": "HunyuanVideo 1.5",
+  "publisher": "Tencent Hunyuan (github.com/Tencent-Hunyuan/HunyuanVideo-1.5; HF tencent/HunyuanVideo-1.5); ComfyUI files repackaged by Comfy-Org; 4-step LoRA by lightx2v",
+  "license": {
+    "name": "Tencent Hunyuan Community License Agreement",
+    "commercial": true,
+    "territory_excluded": [
+      "European Union",
+      "United Kingdom",
+      "South Korea"
+    ],
+    "mau_cap": 100000000,
+    "notes": "'THIS LICENSE AGREEMENT DOES NOT APPLY IN THE EUROPEAN UNION, UNITED KINGDOM AND SOUTH KOREA AND IS EXPRESSLY LIMITED TO THE TERRITORY'; 'Territory' = 'worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea'; 'You must not use, reproduce, modify, distribute, or display the Tencent Hunyuan Works, Output or results of the Tencent Hunyuan Works outside the Territory'. Section 4: if monthly active users 'is greater than 100 million monthly active users in the preceding calendar month, You must request a license from Tencent'. Royalty-free otherwise, derivatives allowed with notices; a 'Tencent Hunyuan' mark licence only as required by the attribution clause 3(c). The repackaged companion files carry their own licences (Qwen2.5-VL, ByT5, SigLIP).",
+    "src": [
+      "S-LICENSE",
+      "S-GH"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "video"
+  ],
+  "tasks": [
+    "t2v",
+    "i2v",
+    "sr"
+  ],
+  "cannot": [
+    {
+      "what": "generate audio: the model is silent (no audio VAE / vocoder)",
+      "src": "S-GH"
+    },
+    {
+      "what": "first+last frame, reference / multi-subject, video editing: not in 1.5 itself; those arrived in HY-OmniWeaving (2026-04-03, built on 1.5), which has no ComfyUI core node file, supported_models entry, Comfy-Org template or repack - only an unverified community plugin",
+      "src": [
+        "S-OMNI",
+        "S-NODES",
+        "S-SEARCH-OMNI-PLUGIN"
+      ]
+    },
+    {
+      "what": "720p T2V CFG-distilled and the 720p T2V sparse model: 'Coming soon' in the GitHub table, not in the Comfy-Org repack",
+      "src": [
+        "S-GH",
+        "S-HF-REPACK"
+      ]
+    },
+    {
+      "what": "the sparse-attention checkpoint (720p_i2v_distilled_sparse, 33.3 GB fp32) 'require[s] H-series GPUs' with flex-block-attn and is not repackaged",
+      "src": [
+        "S-GH",
+        "S-HF-TENCENT"
+      ]
+    },
+    {
+      "what": "clips other than 121 frames without a warning: the reference CLI warns 'Attempting to generate {n} frames...' for anything but 121; docs say '5-10 second videos' (10 s 720p is the SSTA benchmark case)",
+      "src": "S-GH"
+    },
+    {
+      "what": "480p native Comfy size: NOT FOUND exactly (the CLI uses '--resolution 480p --aspect_ratio 16:9'; the nodes default to 848x480)",
+      "src": [
+        "S-GH",
+        "S-NODES"
+      ]
+    },
+    {
+      "what": "official per-variant ComfyUI VRAM figures: NOT FOUND ('consumer GPUs (24GB VRAM)' from the Comfy blog; '14 GB (with model offloading enabled)' from the reference code)",
+      "src": [
+        "S-BLOG",
+        "S-GH"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_hunyuan.py, comfy/supported_models.py) per the dossier; input names taken from the v0.35.0 registry (node_schemas_v0.35.0.json)",
+    "nodes_verified_against_registry": "v0.35.0 - all 6 recipes passed verify_recipes.py on 2026-10-01",
+    "template_min_versions": {
+      "video_hunyuan_video_1.5_720p_t2v": "0.3.71",
+      "video_hunyuan_video_1.5_720p_i2v": "0.3.71"
+    },
+    "note": "Both templates need ComfyUI 0.3.71 (native support announced 2025-11-24), far below the pinned 0.35.0: nothing is version-pending. Exact ComfyUI release tag of native support: NOT FOUND."
+  },
+  "files": [
+    {
+      "name": "hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368128,
+      "size_gb": 16.653,
+      "size_note": "template note 15.51 GB",
+      "precision": "fp16",
+      "variant": "720p-t2v",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "'consumer GPUs (24GB VRAM)' (Comfy blog); reference code 'Minimum GPU Memory: 14 GB (with model offloading enabled)'; template note: set weight_dtype fp8_e4m3fn on OOM",
+        "class": "official",
+        "src": [
+          "S-BLOG",
+          "S-GH",
+          "S-TPL-T2V"
+        ]
+      },
+      "quality": "template default (T2V). Tencent: cfg 6 / shift 9 / 50 steps; the template runs cfg 6 / shift 7 / 20 steps",
+      "official_settings": {
+        "cfg": 6,
+        "shift": 9,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-720p",
+        "t2v-720p-sr1080p"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_720p_i2v_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368128,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "720p-i2v",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_i2v_fp16.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as 720p T2V",
+        "class": "official",
+        "src": "S-BLOG"
+      },
+      "quality": "template default (I2V). Tencent: cfg 6 / shift 7 / 50 steps",
+      "official_settings": {
+        "cfg": 6,
+        "shift": 7,
+        "steps": 50
+      },
+      "used_by": [
+        "i2v-720p",
+        "i2v-720p-sr1080p"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_720p_i2v_cfg_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368136,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "720p-i2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_i2v_cfg_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "CFG-distilled: cfg 1 (no unconditional pass, 2x faster per step), shift 7, 'must use 50 steps to generate correct results'; no template",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 7,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_720p_i2v_cfg_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8330399746,
+      "size_gb": 8.33,
+      "precision": "fp8_scaled",
+      "variant": "720p-i2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_i2v_cfg_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (half the fp16 size)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp8 twin of the above",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 7,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": "S-HF-REPACK",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_t2v_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368128,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "480p-t2v",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_t2v_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "480p T2V: cfg 6 / shift 5 / 50 steps; no template",
+      "official_settings": {
+        "cfg": 6,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_i2v_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368128,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "480p-i2v",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "480p I2V: cfg 6 / shift 5 / 50 steps; no template",
+      "official_settings": {
+        "cfg": 6,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_t2v_cfg_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368136,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "480p-t2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_t2v_cfg_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "480p T2V CFG-distilled: cfg 1 / shift 5 / 50 steps (mandatory); pairs with the lightx2v 4-step LoRA",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8330399746,
+      "size_gb": 8.33,
+      "size_note": "the dossier lists this file as the '_fp8_scaled' twin of the fp16 name",
+      "precision": "fp8_scaled",
+      "variant": "480p-t2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_t2v_cfg_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND; 8.3 GB file, the smallest T2V route",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "used by t2v-480p-cfg-distilled: cfg 1, shift 5, 50 steps ('must use 50 steps')",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-480p-cfg-distilled"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_i2v_cfg_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16653368136,
+      "size_gb": 16.653,
+      "precision": "fp16",
+      "variant": "480p-i2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_cfg_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "480p I2V CFG-distilled: cfg 1 / shift 5 / 50 steps; no template",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_i2v_cfg_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8330399746,
+      "size_gb": 8.33,
+      "precision": "fp8_scaled",
+      "variant": "480p-i2v-cfg-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_cfg_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp8 twin",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 5,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": "S-HF-REPACK",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_i2v_step_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16662813912,
+      "size_gb": 16.663,
+      "precision": "fp16",
+      "variant": "480p-i2v-step-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "'a single RTX 4090 can generate videos within 75 seconds' (reference code)",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "step-distilled (2025-12-05): cfg 1, shift 7, '8 or 12 steps (recommended)', 4 possible 'with slightly reduced quality'; 'end-to-end generation time is reduced by 75%'",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 7,
+        "steps": "8 or 12"
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8335127098,
+      "size_gb": 8.335,
+      "size_note": "the dossier lists this file as the '_fp8_scaled' twin of the fp16 name",
+      "precision": "fp8_scaled",
+      "variant": "480p-i2v-step-distilled",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as the fp16 file (RTX 4090, 75 s); fp8 is half the size",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "used by i2v-480p-step-distilled: the fastest / smallest I2V route",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 7,
+        "steps": "8 or 12"
+      },
+      "used_by": [
+        "i2v-480p-step-distilled"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_720p_sr_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16662949072,
+      "size_gb": 16.663,
+      "precision": "fp16",
+      "variant": "sr-480-to-720",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_sr_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "480->720 super-resolution, step-distilled: cfg 1 / shift 2 / 6 steps, with hunyuanvideo15_latent_upsampler_720p; no template (in_channels 98 model class HunyuanVideo15_SR_Distilled)",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 2,
+        "steps": 6
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_720p_sr_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8335262258,
+      "size_gb": 8.335,
+      "precision": "fp8_scaled",
+      "variant": "sr-480-to-720",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_sr_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp8 twin; see the fp8-SR + fp16-VAE pitfall",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 2,
+        "steps": 6
+      },
+      "used_by": [],
+      "src": "S-HF-REPACK",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_1080p_sr_distilled_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16662949080,
+      "size_gb": 16.663,
+      "size_note": "template note 15.52 GB",
+      "precision": "fp16",
+      "variant": "sr-720-to-1080",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_1080p_sr_distilled_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND for the SR stage (the template ships it bypassed)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "720->1080 super-resolution, step-distilled: cfg 1 / shift 2 / 8 steps (template: split 4/4, noise augmentation 0.7); the template's bypassed 'Video Upscale 1080P' group",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 2,
+        "steps": 8
+      },
+      "used_by": [
+        "t2v-720p-sr1080p",
+        "i2v-720p-sr1080p"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH",
+        "S-TPL-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_1080p_sr_distilled_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8335262258,
+      "size_gb": 8.335,
+      "precision": "fp8_scaled",
+      "variant": "sr-720-to-1080",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_1080p_sr_distilled_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp8 twin; with the fp16 VAE in the stock template it raised 'Expected tensor to have size 98 at dimension 1, but got size 64' (HF repack #5, unresolved) - the recipes use the fp16 SR file",
+      "official_settings": {
+        "cfg": 1,
+        "shift": 2,
+        "steps": 8
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-HFD-5"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo15_latent_upsampler_720p.safetensors",
+      "role": "latent_upscaler",
+      "folder": "latent_upscale_models",
+      "bytes": 85854616,
+      "size_gb": 0.086,
+      "precision": "NOT FOUND",
+      "variant": "sr-480-to-720",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_720p.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-REPACK"
+      },
+      "quality": "LatentUpscaleModelLoader -> HunyuanVideo15LatentUpscaleWithModel for 480->720 (pairs with hunyuanvideo1.5_720p_sr_distilled)",
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo15_latent_upsampler_1080p.safetensors",
+      "role": "latent_upscaler",
+      "folder": "latent_upscale_models",
+      "bytes": 201404760,
+      "size_gb": 0.201,
+      "precision": "NOT FOUND",
+      "variant": "sr-720-to-1080",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_1080p.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "720->1080 latent upsampler used by the template's SR group (bilinear, 1920x1080, crop disabled)",
+      "used_by": [
+        "t2v-720p-sr1080p",
+        "i2v-720p-sr1080p"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-TPL-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo1.5_t2v_480p_lightx2v_4step_lora_rank_32_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 341065682,
+      "size_gb": 0.341,
+      "precision": "bf16",
+      "variant": "480p-t2v",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/loras/hunyuanvideo1.5_t2v_480p_lightx2v_4step_lora_rank_32_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-REPACK"
+      },
+      "quality": "community 4-step distill (lightx2v) for 480p T2V; settings only from HF repack discussion #2 (strength ~0.5, 6-8 steps, lower shift, cfg 1); a 720p version is requested, not published (#4); no template, no recipe",
+      "used_by": [],
+      "src": [
+        "S-HF-REPACK",
+        "S-HFD-2",
+        "S-HFD-4"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9384670680,
+      "size_gb": 9.385,
+      "size_note": "template note 8.74 GB",
+      "precision": "fp8_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "loaded by both templates on a 24 GB card",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "Qwen2.5-VL 7B; DualCLIPLoader.clip_name1 with type 'hunyuan_video_15'; also the Kandinsky 5 encoder",
+      "used_by": [
+        "t2v-720p",
+        "t2v-720p-sr1080p",
+        "t2v-480p-cfg-distilled",
+        "i2v-720p",
+        "i2v-720p-sr1080p",
+        "i2v-480p-step-distilled"
+      ],
+      "src": "S-HF-REPACK",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 16584415576,
+      "size_gb": 16.584,
+      "precision": "bf16/fp16 (full)",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-precision encoder; not used by the templates",
+      "used_by": [],
+      "src": "S-HF-REPACK",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "byt5_small_glyphxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 438643184,
+      "size_gb": 0.439,
+      "size_note": "template note 418.3 MB",
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "ByT5-small + Glyph: the 'glyph-aware text encoding' for bilingual in-video text; DualCLIPLoader.clip_name2",
+      "used_by": [
+        "t2v-720p",
+        "t2v-720p-sr1080p",
+        "t2v-480p-cfg-distilled",
+        "i2v-720p",
+        "i2v-720p-sr1080p",
+        "i2v-480p-step-distilled"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuanvideo15_vae_fp16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 2521292758,
+      "size_gb": 2.521,
+      "size_note": "template note 2.35 GB",
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "3D causal VAE: 32 channels, 16x spatial, 4x temporal - REQUIRED by every 1.5 model; not the HunyuanVideo 1.0 VAE (hunyuan_video_vae_bf16, 16-ch, 8x)",
+      "used_by": [
+        "t2v-720p",
+        "t2v-720p-sr1080p",
+        "t2v-480p-cfg-distilled",
+        "i2v-720p",
+        "i2v-720p-sr1080p",
+        "i2v-480p-step-distilled"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-GH",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sigclip_vision_patch14_384.safetensors",
+      "role": "clip_vision",
+      "folder": "clip_vision",
+      "bytes": 856505640,
+      "size_gb": 0.857,
+      "size_note": "template note 816.8 MB",
+      "precision": "NOT FOUND",
+      "variant": "i2v",
+      "url": "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors",
+      "url_mirror": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/clip_vision/sigclip_vision_patch14_384.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      "quality": "SigLIP vision encoder for I2V (model vision_in_dim 1152): CLIPVisionLoader -> CLIPVisionEncode crop 'center' -> HunyuanVideo15ImageToVideo.clip_vision_output; T2V loads none",
+      "used_by": [
+        "i2v-720p",
+        "i2v-720p-sr1080p",
+        "i2v-480p-step-distilled"
+      ],
+      "src": [
+        "S-HF-REPACK",
+        "S-TPL-I2V",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "disk_note": {
+    "t2v-720p set": "16.7 + 9.4 + 0.4 + 2.5 = ~29 GB",
+    "+ 1080p SR": "+16.7 + 0.2 = ~46 GB (two 16.7 GB diffusion models loaded in turn)",
+    "i2v-720p set": "~30 GB (+0.9 GB SigLIP)",
+    "480p fp8 routes": "8.3 + 9.4 + 0.4 + 2.5 (+0.9) = ~21-22 GB",
+    "src": [
+      "S-HF-REPACK"
+    ]
+  },
+  "community_alternatives": [
+    {
+      "what": "Capybara v0.1 (xgen-universe): a 14B T2V/T2I/TV2V/TI2I derivative 'based on HunyuanVideo1.5' shipped in the same Comfy-Org repack (capybara_v0.1.safetensors, 16.653 GB) with four Capybara templates dated 2026-02-23; not Tencent's model, precision/params from an official source NOT FOUND; HF #8: 'Unable to maintain character consistency' (open)",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": [
+        "S-HF-REPACK",
+        "S-SEARCH-CAPYBARA",
+        "S-HFD-8"
+      ]
+    },
+    {
+      "what": "HY-OmniWeaving (Tencent Hunyuan + ZJU, 2026-04-03): T2V, first-frame I2V, key-frame interpolation, up to 4 reference images, video-to-video editing on a 1.5 backbone; 33.4 GB transformer + 16.6 GB text encoder; same EU/UK/South-Korea licence exclusion; NOT in ComfyUI core v0.38.1; community plugin jaskirat05/ComfyUI-OmniWeaving (unverified)",
+      "needs_pack": "ComfyUI-OmniWeaving (unverified)",
+      "class": "official model / single-source plugin",
+      "src": [
+        "S-OMNI",
+        "S-SEARCH-OMNI-PLUGIN"
+      ]
+    },
+    {
+      "what": "MagCache: '1.7x speedup ... with 20 inference steps' (community); the core EasyCache node is in the templates, bypassed",
+      "needs_pack": "NOT FOUND",
+      "class": "community",
+      "src": "S-GH"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "recipe": "t2v-720p",
+      "why": "the official template path: 720p T2V fp16, 1280x720x121 @24 fps, cfg 6 / shift 7 / 20 steps (Tencent's best-quality settings: 50 steps, shift 9 - the recipe's ports); silent output",
+      "src": [
+        "S-TPL-T2V",
+        "S-BLOG",
+        "S-GH"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "quality": "1080p",
+      "recipe": "t2v-720p-sr1080p",
+      "why": "the same template with its 'Video Upscale 1080P' group enabled: 1080p latent upsampler + 1080p SR distilled model (cfg 1, shift 2, 8 steps split 4/4, noise augmentation 0.7) -> 1920x1080; SR-stage VRAM NOT FOUND",
+      "tradeoff": "a second 16.7 GB model and a second sampling pass",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 14,
+      "speed": "small",
+      "recipe": "t2v-480p-cfg-distilled",
+      "why": "the smallest T2V: 8.3 GB fp8 CFG-distilled 480p file at cfg 1 (no unconditional pass), shift 5, 50 steps (mandatory); reference code: 14 GB minimum with offloading - ComfyUI figure NOT FOUND; no dedicated template (same graph as t2v-720p with Tencent's table settings)",
+      "confidence": "official settings; graph derived from the T2V template",
+      "src": [
+        "S-GH",
+        "S-HF-REPACK",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "recipe": "i2v-720p",
+      "why": "the official template path: 720p I2V fp16 with SigLIP clip-vision, cfg 6 / shift 7 / 20 steps (Tencent: 50 steps)",
+      "src": [
+        "S-TPL-I2V",
+        "S-BLOG"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "quality": "1080p",
+      "recipe": "i2v-720p-sr1080p",
+      "why": "i2v-720p plus the 1080p SR stage; the SR node also receives vae, start_image and clip_vision_output (template)",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "i2v-480p-step-distilled",
+      "why": "480p I2V step-distilled fp8: cfg 1, shift 7, 8 steps ('8 or 12 recommended'); 'a single RTX 4090 can generate videos within 75 seconds', 'end-to-end generation time is reduced by 75%'; no dedicated template",
+      "tradeoff": "480p (848x480 node default; exact Comfy 480p size NOT FOUND); 4 steps possible 'with slightly reduced quality'",
+      "confidence": "official settings; graph derived from the I2V template",
+      "src": [
+        "S-GH",
+        "S-HF-REPACK",
+        "S-TPL-I2V"
+      ]
+    },
+    {
+      "task": "sr",
+      "recipe": null,
+      "status": "pending (480->720): hunyuanvideo1.5_720p_sr_distilled + hunyuanvideo15_latent_upsampler_720p at cfg 1 / shift 2 / 6 steps exist in the repack with Tencent's settings, but no Comfy-Org template pairs them with the 480p models; the 1080p SR path is covered by the *-sr1080p recipes",
+      "src": [
+        "S-GH",
+        "S-HF-REPACK"
+      ]
+    },
+    {
+      "task": "t2v",
+      "recipe": null,
+      "speed": "4-step",
+      "status": "pending: the lightx2v 4-step LoRA (480p T2V) has only single-source community settings (strength ~0.5, 6-8 steps, lower shift, cfg 1; HF repack #2) and no template; 720p LoRA not published (#4)",
+      "src": [
+        "S-HFD-2",
+        "S-HFD-4"
+      ]
+    },
+    {
+      "task": "t2v",
+      "recipe": null,
+      "status": "not available: 720p T2V CFG-distilled and 720p T2V sparse are 'Coming soon' (GitHub table), not repackaged",
+      "src": [
+        "S-GH",
+        "S-HF-REPACK"
+      ]
+    },
+    {
+      "task": "flf2v",
+      "recipe": null,
+      "status": "not this family: no first+last-frame, reference or edit mode in 1.5; HY-OmniWeaving has them but is not native in ComfyUI",
+      "src": [
+        "S-GH",
+        "S-OMNI",
+        "S-NODES"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "BasicScheduler",
+      "input": "steps",
+      "meaning": "flow-matching denoise steps (SamplerCustomAdvanced takes the sigmas from BasicScheduler, scheduler 'simple')",
+      "defaults": {
+        "template (720p t2v/i2v)": 20,
+        "Tencent (all non-step-distilled, incl. CFG-distilled)": 50,
+        "480p i2v step-distilled": "8 or 12 (4 possible)",
+        "SR 480->720": 6,
+        "SR 720->1080": "8 (template: split 4/4)"
+      },
+      "range": [
+        4,
+        50
+      ],
+      "official_reference_code": {
+        "all non-step-distilled": 50
+      },
+      "interactions": "template note: '50 inference steps just take too long ... by default we set the step to 20 steps. If you want a better quality, please try the original settings'; CFG-distilled 'must use 50 steps to generate correct results'",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "CFGGuider",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; at 1.0 ComfyUI skips the unconditional pass (the negative prompt is unused)",
+      "defaults": {
+        "480p/720p t2v & i2v": 6.0,
+        "cfg-distilled / step-distilled / SR": 1.0
+      },
+      "range": [
+        1.0,
+        6.0
+      ],
+      "official_reference_code": {
+        "base": 6,
+        "distilled": 1
+      },
+      "interactions": "cfg 6 on a distilled file over-guides",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingSD3",
+      "input": "shift",
+      "meaning": "flow shift of the sigma schedule",
+      "defaults": {
+        "template (both)": 7.0,
+        "480p t2v / i2v (incl. cfg-distilled)": 5.0,
+        "720p t2v": 9.0,
+        "720p i2v": 7.0,
+        "480p i2v step-distilled": 7.0,
+        "SR (both)": 2.0,
+        "ComfyUI model default": "7.0 (HunyuanVideo15), 2.0 (SR)"
+      },
+      "range": [
+        2.0,
+        9.0
+      ],
+      "official_reference_code": {
+        "480p": 5,
+        "720p_t2v": 9,
+        "720p_i2v": 7,
+        "sr": 2
+      },
+      "interactions": "DISAGREEMENT recorded: the T2V template runs shift 7 where Tencent's table says 9 for 720p T2V ('Please strictly follow the configuration below to guarantee the best generation results'); the recipe ships the template value and exposes the port",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSamplerSelect|BasicScheduler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "all": "euler / simple"
+      },
+      "range": null,
+      "official_reference_code": {
+        "solver": "flow-matching Euler (generate.py); scheduler not named"
+      },
+      "interactions": "",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "length",
+      "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+      "input": "length",
+      "meaning": "pixel frames; latent frames = (length-1)//4+1; node step 4 -> 4n+1",
+      "defaults": {
+        "template": 121,
+        "reference CLI --video_length": 121
+      },
+      "range": [
+        5,
+        241
+      ],
+      "interactions": "121 = 5 s @24 fps; any other value makes the reference CLI warn 'Attempting to generate {n} frames...'; docs: '5-10 second videos' (10 s 720p is the SSTA benchmark)",
+      "src": [
+        "S-NODES",
+        "S-GH",
+        "S-DOCS"
+      ]
+    },
+    {
+      "name": "fps",
+      "node": "CreateVideo",
+      "input": "fps",
+      "meaning": "the model's native rate",
+      "defaults": {
+        "all": 24
+      },
+      "range": null,
+      "official_reference_code": {
+        "imageio.mimwrite": "fps=24"
+      },
+      "interactions": "a different container fps changes playback speed",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+      "input": "width, height",
+      "meaning": "pixels; latent = /16; node step 16",
+      "defaults": {
+        "720p models (template)": "1280x720",
+        "480p models": "NOT FOUND exactly in Comfy terms (CLI '--resolution 480p --aspect_ratio 16:9'); node default 848x480",
+        "aspect": "16:9 default"
+      },
+      "range": null,
+      "interactions": "480p file + 720p SR is the cheaper 720p path (no template)",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "noise_augmentation (SR)",
+      "node": "HunyuanVideo15SuperResolution",
+      "input": "noise_augmentation",
+      "meaning": "noise added to the upscaled latent before the SR pass",
+      "defaults": {
+        "template": 0.7,
+        "node default": 0.7
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "Tencent guidance NOT FOUND; the template splits the 8-step SR schedule at step 4 ('Split at matching sigma to the noise scale'): first half SR conditioning + fresh noise (seed 889), second half DisableNoise + the plain text conditioning",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "SR target size",
+      "node": "HunyuanVideo15LatentUpscaleWithModel",
+      "input": "width, height, upscale_method, crop",
+      "meaning": "resamples the latent to (W/16, H/16) then model.resample_latent; step 8; 0 keeps aspect",
+      "defaults": {
+        "template": "1920x1080, bilinear, crop disabled"
+      },
+      "range": null,
+      "interactions": "720->1080 with hunyuanvideo15_latent_upsampler_1080p; 480->720 with _720p + the 720p SR model (6 steps)",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "tiled decode",
+      "node": "VAEDecodeTiled",
+      "input": "tile_size, overlap, temporal_size, temporal_overlap",
+      "meaning": "tiled video VAE decode ('Use the VAE Decode (Tiled) if it takes too long')",
+      "defaults": {
+        "I2V and SR (template)": "512 / 64 / 64 / 4096",
+        "T2V main path (bypassed)": "512 / 64 / 64 / 8"
+      },
+      "range": null,
+      "interactions": "Tencent ComfyUI README: 'If you enable the Tiled VAE decoding node, please set the temporal_size to the maximum value (4096) to avoid generating artifacts' - the T2V template's bypassed node still carries 8",
+      "src": [
+        "S-GH-COMFY",
+        "S-TPL-T2V",
+        "S-TPL-I2V"
+      ]
+    },
+    {
+      "name": "weight_dtype",
+      "node": "UNETLoader",
+      "input": "weight_dtype",
+      "meaning": "on-load quantisation of the fp16 file",
+      "defaults": {
+        "template": "default"
+      },
+      "range": null,
+      "interactions": "template note: 'If you don't have enough VRAM and encounter the OOM error, please try to set the weight_dtype to fp8_e4n3fn' (sic: fp8_e4m3fn); or load the _fp8_scaled files",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "name": "EasyCache",
+      "node": "EasyCache",
+      "input": "reuse_threshold, start_percent, end_percent, verbose",
+      "meaning": "step-reuse cache",
+      "defaults": {
+        "template (bypassed)": "0.2, 0.15, 0.95, false"
+      },
+      "range": null,
+      "interactions": "'EasyCache can speed up this workflow, but it will also sacrifice the video quality' - not in the recipes",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "name": "seed",
+      "node": "RandomNoise",
+      "input": "noise_seed",
+      "meaning": "main-pass noise; the SR stage has its own RandomNoise (template 889) then DisableNoise for the second half",
+      "defaults": {
+        "template main": 887963123424675,
+        "template SR": 889
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-T2V"
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-hunyuan-video-15",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hunyuanvideo1\\.5_"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "hunyuan_video_15"
+      },
+      "message": "HunyuanVideo 1.5 text encoding is DualCLIPLoader with type 'hunyuan_video_15' (Qwen2.5-VL + ByT5 glyph); 'hunyuan_video' is the 1.0 tokenizer and 'kandinsky5' the Kandinsky one",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-REG-035"
+      ]
+    },
+    {
+      "id": "encoder-1-is-qwen25vl",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "hunyuan_video_15"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name1",
+        "matches": "^qwen_2\\.5_vl_7b(_fp8_scaled)?\\.safetensors$"
+      },
+      "message": "clip_name1 is Qwen2.5-VL 7B (qwen_2.5_vl_7b_fp8_scaled, template; or the 16.6 GB full file)",
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-REPACK"
+      ]
+    },
+    {
+      "id": "encoder-2-is-byt5-glyph",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "hunyuan_video_15"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name2",
+        "equals": "byt5_small_glyphxl_fp16.safetensors"
+      },
+      "message": "clip_name2 is the ByT5-small glyph encoder (byt5_small_glyphxl_fp16) that gives 1.5 its bilingual in-video text",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "vae-is-1.5",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hunyuanvideo1\\.5_"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "hunyuanvideo15_vae_fp16.safetensors"
+      },
+      "message": "every 1.5 model (incl. the SR models) decodes with hunyuanvideo15_vae_fp16 (32-ch, 16x spatial, 4x temporal); the HunyuanVideo 1.0 VAE hunyuan_video_vae_bf16 (16-ch, 8x) is a different latent space (it is the Kandinsky 5 VAE)",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "frames-4n+1",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "modulo": [
+          4,
+          1
+        ]
+      },
+      "message": "1.5 frame counts are 4n+1 (latent frames = (length-1)//4+1; node step 4): 121 = 5 s @24 fps; the reference CLI warns for anything but 121",
+      "src": [
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "frames-121-expected",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "in": [
+          121
+        ]
+      },
+      "message": "the reference CLI default is 121 frames and it warns 'Attempting to generate {n} frames...' for any other value; docs promise 5-10 s but only 121 is the tested length",
+      "src": "S-GH"
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "1.5 latent nodes take width/height in multiples of 16 (16x spatial VAE)",
+      "src": "S-NODES"
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1280x720",
+          "848x480"
+        ]
+      },
+      "message": "the 720p models were run at 1280x720 by the templates; the 480p models' exact Comfy size is NOT FOUND (node default 848x480, CLI '480p 16:9'); other sizes are untested here",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "sr-dims-multiple-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "HunyuanVideo15LatentUpscaleWithModel",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "the SR latent upscale node steps width/height by 8 (0 keeps aspect); template 1920x1080",
+      "src": "S-NODES"
+    },
+    {
+      "id": "model-matches-resolution",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hunyuanvideo1\\.5_720p_(t2v|i2v)"
+      },
+      "require": {
+        "node": "EmptyHunyuanVideo15Latent|HunyuanVideo15ImageToVideo",
+        "input": "width x height",
+        "in": [
+          "1280x720"
+        ]
+      },
+      "message": "a 720p file is paired with a 720p latent (1280x720) in the templates; 480p files are a separate set of checkpoints - do not run a 720p file at 480p or the reverse (settings table is per resolution)",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "cfg-1-on-distilled",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_(cfg_distilled|step_distilled|sr_distilled)_"
+      },
+      "require": {
+        "node": "CFGGuider",
+        "input": "cfg",
+        "equals": 1.0
+      },
+      "message": "every distilled 1.5 checkpoint (CFG-distilled, step-distilled, SR) runs at cfg 1; 'Using cfg 6 on a distilled file over-guides' - the SR CFGGuiders in the template are both 1",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "cfg-distilled-needs-50-steps",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_cfg_distilled_"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "equals": 50
+      },
+      "message": "'The cfg distilled model we provided, must use 50 steps to generate correct results' (Tencent) - the template's 20-step shortcut does not apply to it",
+      "src": "S-GH"
+    },
+    {
+      "id": "step-distilled-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_step_distilled_"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "in": [
+          8,
+          12
+        ]
+      },
+      "message": "the 480p I2V step-distilled model is for '8 or 12 steps (recommended)'; 4 works 'with slightly reduced quality'; 20 or 50 wastes its distillation",
+      "src": "S-GH"
+    },
+    {
+      "id": "step-distilled-shift-7",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_480p_i2v_step_distilled_"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 7.0
+      },
+      "message": "Tencent: step-distilled 480p I2V runs at shift 7 (not the 480p base's 5)",
+      "src": "S-GH"
+    },
+    {
+      "id": "shift-480p-base",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_480p_(t2v|i2v)_(fp16|fp8_scaled|cfg_distilled_)"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 5.0
+      },
+      "message": "Tencent's table: 480p T2V/I2V (and their CFG-distilled twins) use flow shift 5",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "shift-720p-t2v",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_720p_t2v_"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "min": 7.0,
+        "max": 9.0
+      },
+      "message": "720p T2V: the template runs shift 7, Tencent's table says 9 ('strictly follow the configuration ... to guarantee the best generation results') - both recorded; stay between them",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "shift-720p-i2v",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_720p_i2v_"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 7.0
+      },
+      "message": "720p I2V: shift 7 in both the template and Tencent's table (and the ComfyUI model default)",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "sr-shift-2",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 2.0
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_sr_distilled_"
+      },
+      "message": "shift 2 is the SR models' schedule (HunyuanVideo15_SR_Distilled default 2.0); a generation model under shift 2 is off-distribution",
+      "src": [
+        "S-NODES",
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "sr-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_1080p_sr_distilled_"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "equals": 8
+      },
+      "message": "720->1080 SR: 8 steps (template splits them 4/4 with SplitSigmas); 480->720 SR: 6 steps",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "sr-needs-its-upsampler",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_1080p_sr_distilled_"
+      },
+      "require": {
+        "node": "LatentUpscaleModelLoader",
+        "input": "model_name",
+        "equals": "hunyuanvideo15_latent_upsampler_1080p.safetensors"
+      },
+      "message": "the 1080p SR model works on a latent first resampled by hunyuanvideo15_latent_upsampler_1080p (HunyuanVideo15LatentUpscaleWithModel) and conditioned by HunyuanVideo15SuperResolution (98-channel concat latent); the 720p SR model pairs with _720p",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "sr-conditioning-present",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_sr_distilled_"
+      },
+      "require": {
+        "node": "HunyuanVideo15SuperResolution",
+        "input": "noise_augmentation",
+        "min": 0.0
+      },
+      "message": "an SR model expects HunyuanVideo15SuperResolution's (2C+2)-channel concat latent (upscaled latent + flag channel + optional encoded start image); feeding it a plain latent gives the in_channels 98 mismatch",
+      "src": [
+        "S-NODES",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "sr-fp16-not-fp8",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_sr_distilled_fp8_scaled"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "the fp8_scaled 1080p SR file with the fp16 VAE raised 'Expected tensor to have size 98 at dimension 1, but got size 64' in the stock template (HF repack #5, unresolved, single source) - use the fp16 SR file, or verify first",
+      "src": "S-HFD-5"
+    },
+    {
+      "id": "i2v-has-start-image",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "HunyuanVideo15ImageToVideo",
+        "input": "positive",
+        "exists": true
+      },
+      "require": {
+        "node": "HunyuanVideo15ImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "message": "HunyuanVideo15ImageToVideo without start_image is a T2V graph with the wrong node: wire the image (or use EmptyHunyuanVideo15Latent)",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "i2v-has-clip-vision",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "HunyuanVideo15ImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "require": {
+        "node": "HunyuanVideo15ImageToVideo",
+        "input": "clip_vision_output",
+        "linked": true
+      },
+      "message": "the node accepts clip_vision_output as optional, but the template and the model (vision_in_dim 1152) use SigLIP: CLIPVisionLoader(sigclip_vision_patch14_384) -> CLIPVisionEncode crop 'center'",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "i2v-uses-i2v-weights",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "HunyuanVideo15ImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_i2v_"
+      },
+      "message": "the I2V node is paired with an _i2v_ checkpoint in the template; the original transformers are 'per task' - a T2V file with image conditioning is NOT FOUND",
+      "src": [
+        "S-TPL-I2V",
+        "S-HF-REPACK"
+      ]
+    },
+    {
+      "id": "tiled-decode-temporal-4096",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "VAEDecodeTiled",
+        "input": "temporal_size"
+      },
+      "numeric": {
+        "min": 4096
+      },
+      "message": "'If you enable the Tiled VAE decoding node, please set the temporal_size to the maximum value (4096) to avoid generating artifacts' (Tencent ComfyUI README); the T2V template's bypassed node still carries 8",
+      "src": "S-GH-COMFY"
+    },
+    {
+      "id": "fps-24",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^hunyuanvideo1\\.5_"
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "equals": 24
+      },
+      "message": "1.5 generates at 24 fps (reference code fps=24); another container fps changes playback speed",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "easycache-costs-quality",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "EasyCache",
+        "input": "model",
+        "linked": true
+      },
+      "require": {
+        "node": "EasyCache",
+        "input": "model",
+        "equals": "__never__"
+      },
+      "message": "'EasyCache can speed up this workflow, but it will also sacrifice the video quality' - the templates ship it bypassed",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "id": "lightx2v-lora-on-480p-t2v",
+      "severity": "warn",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "lightx2v"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_480p_t2v_"
+      },
+      "message": "the lightx2v 4-step LoRA was trained for 480p T2V (a 720p version is requested, not published - HF repack #4); community settings only: strength ~0.5, 6-8 steps, lower shift, cfg 1 (#2)",
+      "src": [
+        "S-HF-REPACK",
+        "S-HFD-2",
+        "S-HFD-4"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "both templates need ComfyUI >= 0.3.71, below the pinned 0.35.0; nothing pending for version",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-GH",
+      "S-TPL-T2V"
+    ],
+    "negative_note": "the official default negative is EMPTY (generate.py --negative_prompt '' ; both templates ''); at cfg 1 (distilled / SR) a negative is unused anyway",
+    "positive": [
+      {
+        "line": "T2V core formula (official handbook): 'Prompt = Subject + Motion + Scene + [Shot Type] + [Camera Movement] + [Lighting] + [Style] + [Atmosphere]' ('Basic Usage: Subject + Motion + Scene'; 'Advanced Usage: Freely add more control tags')",
+        "class": "official",
+        "src": "S-HANDBOOK"
+      },
+      {
+        "line": "I2V core formula: 'Prompt = Subject Motion Dynamics + Scene Motion Dynamics + [Camera Movement]' - 'The first frame of the video comes from the uploaded image, while the content of subsequent frames will be generated according to the text prompt'",
+        "class": "official",
+        "src": "S-HANDBOOK"
+      },
+      {
+        "line": "Longer is better: 'By writing longer and more detailed prompts, the generated video will be significantly improved. We encourage you to craft comprehensive and descriptive prompts'; the reference pipeline rewrites prompts with an LLM by default (--rewrite) and warns of 'lower quality video generation' without it - ComfyUI has no rewriter, so write the long form yourself",
+        "class": "official",
+        "src": "S-GH"
+      },
+      {
+        "line": "Camera Movement Library (verbatim phrases the model follows): 'The camera moves upward/downward', 'The camera moves to the left/right', 'The camera moves forward' (dolly in), 'The camera moves back' (dolly out), 'The camera tilts up/down', 'The camera pans to the left/right', 'The camera circles around', 'The camera rotates 360 degrees', 'The camera follows', 'The camera remains static'",
+        "class": "official",
+        "src": "S-HANDBOOK"
+      },
+      {
+        "line": "Style keywords: photorealistic/cinematic, Film Noir, cyberpunk, Low-Poly 3D, Chinese ink wash 'Xieyi style', 2D animation, watercolor; lighting control: style, direction, light quality, shadow details, colour temperature, reflections, silhouettes",
+        "class": "official",
+        "src": "S-HANDBOOK"
+      },
+      {
+        "line": "In-video text: put the exact words in quotes - examples render \"Hunyuan Video 1.5\" and \"混元视频 1.5\"; Chinese and English are supported (glyph-aware ByT5 encoder)",
+        "class": "official",
+        "src": [
+          "S-HANDBOOK",
+          "S-GH"
+        ]
+      },
+      {
+        "line": "Template T2V example (verbatim): 'A paper airplane released from the top of a skyscraper, gliding through urban canyons, crossing traffic, flying over streets, spiraling upward between buildings. The camera follows the paper airplane's perspective, shooting cityscape in first-person POV, finally flying toward the sunset, disappearing in golden light. Creative camera movement, free perspective, dreamlike colors.'",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      {
+        "line": "'Strong instruction following for camera movements, physics, and emotional expressions'; 'Supports diverse styles (realistic, anime, 3D)'",
+        "class": "official",
+        "src": "S-GH"
+      }
+    ],
+    "structure": "Subject + Motion + Scene, then shot type, one camera-movement phrase from the library, lighting, style, atmosphere - one detailed paragraph; for I2V describe only what moves (subject, scene, camera), not what the image already shows",
+    "hurts": [
+      {
+        "line": "short prompts without the reference pipeline's rewriter: 'may result in lower quality video generation'",
+        "src": "S-GH"
+      },
+      {
+        "line": "re-describing the start image in I2V (the handbook formula is motion + camera only)",
+        "src": "S-HANDBOOK"
+      },
+      {
+        "line": "relying on a negative prompt at cfg 1 (distilled / SR recipes): it is skipped",
+        "src": "S-GH"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "artifacts after a tiled decode",
+      "cause": "VAEDecodeTiled temporal_size below 4096 (the T2V template's bypassed node carries 8)",
+      "fix": "temporal_size 4096 (official ComfyUI README); the I2V and SR tiled nodes already have it",
+      "src": "S-GH-COMFY"
+    },
+    {
+      "symptom": "soft / less faithful result than Tencent's samples",
+      "cause": "the templates trade quality for time: 20 steps and shift 7 vs 50 steps and shift 9 (720p T2V)",
+      "fix": "steps 50 (+ shift 9 for 720p T2V) through the recipe ports - 'Please strictly follow the configuration below to guarantee the best generation results'",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "symptom": "over-guided / burnt output on a distilled file",
+      "cause": "cfg 6 on a CFG-distilled, step-distilled or SR checkpoint",
+      "fix": "cfg 1; CFG-distilled also needs 50 steps; step-distilled 8/12 steps at shift 7",
+      "src": "S-GH"
+    },
+    {
+      "symptom": "out of memory",
+      "cause": "16.7 GB fp16 model + 9.4 GB encoder at 720p x 121",
+      "fix": "UNETLoader.weight_dtype fp8_e4m3fn (template note) or the _fp8_scaled files; VAEDecodeTiled (temporal 4096); 480p routes; reference code: 14 GB with offloading",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "symptom": "'Expected tensor to have size 98 at dimension 1, but got size 64' in the SR stage",
+      "cause": "fp8_scaled 1080p SR file with the fp16 VAE in the stock template (HF repack #5, unresolved)",
+      "fix": "use hunyuanvideo1.5_1080p_sr_distilled_fp16 (the recipes do); single-source",
+      "src": "S-HFD-5"
+    },
+    {
+      "symptom": "black 1920x1072 frames from the SR stage",
+      "cause": "original / LightX2V-packaged SR weights, or a Comfy-Org SR file predating Kijai's 2025-11-26 fp8-scaling fix ('The SR model doesn't actually use the t_embedder layer ... made the scale_weight zeros too')",
+      "fix": "use the Comfy-Org hunyuanvideo1.5_*_sr_distilled_* files; re-download if your copy predates 2025-11-26",
+      "src": "S-HFD-2"
+    },
+    {
+      "symptom": "4-step LoRA gives poor results",
+      "cause": "default strength/steps/shift with the lightx2v LoRA",
+      "fix": "community (#2): strength ~0.5, 6-8 steps, lower shift, cfg 1; feed the first sampler's latent straight into HunyuanVideo15LatentUpscaleWithModel for a two-stage upscale - single-source, no recipe",
+      "src": "S-HFD-2"
+    },
+    {
+      "symptom": "I2V ignores the image or drifts",
+      "cause": "start_image or clip_vision_output not wired; T2V weights used with the I2V node",
+      "fix": "LoadImage -> HunyuanVideo15ImageToVideo.start_image and CLIPVisionEncode(center) -> clip_vision_output with sigclip_vision_patch14_384; use the _i2v_ file",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH"
+      ]
+    },
+    {
+      "symptom": "'Attempting to generate {n} frames...' warning / odd length",
+      "cause": "length not 121 (or not 4n+1)",
+      "fix": "121 frames (5 s @24 fps); 4n+1 otherwise",
+      "src": [
+        "S-GH",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "faster but worse video",
+      "cause": "EasyCache enabled",
+      "fix": "leave it bypassed for finals ('sacrifice the video quality')",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "symptom": "need audio, first+last frame, reference or editing",
+      "cause": "not in 1.5",
+      "fix": "another family (LTX-2 for audio; Wan 2.2 for FLF2V/VACE); OmniWeaving is not native in ComfyUI",
+      "src": [
+        "S-GH",
+        "S-OMNI"
+      ]
+    },
+    {
+      "symptom": "licence question from an EU/UK/Korean user or a 100M-MAU product",
+      "cause": "the Tencent Hunyuan Community License excludes the EU, UK and South Korea (works AND outputs) and caps MAU at 100 million without a Tencent licence",
+      "fix": "do not offer this family there; see profile.license",
+      "src": "S-LICENSE"
+    },
+    {
+      "symptom": "Capybara templates behave differently",
+      "cause": "capybara_v0.1 is a third-party 14B derivative, not Tencent's 1.5 (consistency complaints, HF #8)",
+      "fix": "treat it as a separate model; not covered by these recipes",
+      "src": [
+        "S-HF-REPACK",
+        "S-HFD-8"
+      ]
+    }
+  ],
+  "sources": {
+    "S-GH": {
+      "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5 README (news/dates, architecture, 'Minimum GPU Memory: 14 GB (with model offloading enabled)', model table incl. 'Coming soon', inference configuration table, CLI flags --negative_prompt '' and --video_length 121, 'must use 50 steps', step-distilled '8 or 12 steps', 'within 75 seconds' on RTX 4090, prompt-rewrite note, 'longer and more detailed prompts')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-COMFY": {
+      "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/ComfyUI/README.md (Comfy checkpoint link, template links, 'set the temporal_size to the maximum value (4096)', recommended configurations incl. SR rows)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LICENSE": {
+      "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/LICENSE (Tencent Hunyuan Community License Agreement: Territory excludes EU/UK/South Korea; 100M MAU clause)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HANDBOOK": {
+      "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/assets/HunyuanVideo_1_5_Prompt_Handbook_EN.md (T2V/I2V core formulas, style and lighting control, Camera Movement Library, text rendering examples)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-TENCENT": {
+      "url": "https://huggingface.co/tencent/HunyuanVideo-1.5 (API: files/sizes incl. 720p_i2v_distilled_sparse 33.307 GB, createdAt 2025-11-18)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-REPACK": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged (README: folder layout, workflow table incl. Capybara; API: files/sizes, createdAt 2025-11-19)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS": {
+      "url": "https://docs.comfy.org/tutorials/video/hunyuan/hunyuan-video-1-5.md ('5-10 second videos', template walk-through)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG": {
+      "url": "https://blog.comfy.org/p/hunyuanvideo-15-native-support (2025-11-24; 'consumer GPUs (24GB VRAM)')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json (minComfyUIVersion 0.3.71, dates 2025-11-21)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_hunyuan_video_1.5_720p_t2v.json (graph, 'Sampler settings' note with Tencent's table, OOM note, EasyCache note, SR group)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_hunyuan_video_1.5_720p_i2v.json (graph with SigLIP clip-vision; VAEDecodeTiled 4096; SR stage with vae/start_image/clip_vision_output)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_hunyuan.py (EmptyHunyuanVideo15Latent, HunyuanVideo15ImageToVideo, HunyuanVideo15SuperResolution, HunyuanVideo15LatentUpscaleWithModel, LatentUpscaleModelLoader), comfy/supported_models.py (HunyuanVideo15 shift 7.0, vision_in_dim 1152; HunyuanVideo15_SR_Distilled in_channels 98, shift 2.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REG-035": {
+      "url": "KB/node_schemas_v0.35.0.json (ComfyUI v0.35.0 node registry: exact input names/options; DualCLIPLoader type list incl. hunyuan_video_15)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-OMNI": {
+      "url": "https://github.com/Tencent-Hunyuan/OmniWeaving README + License.txt; https://huggingface.co/tencent/HY-OmniWeaving (README head, API files/sizes, createdAt 2026-03-31)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HFD-2": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/discussions/2 (upscaling how-to, black SR frames from non-Comfy weights, Kijai's fp8-scaling fix 2025-11-26, 4-step LoRA settings)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-4": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/discussions/4 ('720p version of hunyuanvideo1.5_t2v_lightx2v lora' requested, open)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-5": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/discussions/5 (fp8 SR + fp16 VAE: 'Expected tensor to have size 98 at dimension 1, but got size 64', unresolved)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HFD-8": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/discussions/8 ('The capybara_v0.1 Unable to maintain character consistency', open)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH-CAPYBARA": {
+      "url": "web search summary: xgen-universe/Capybara ('a 14B model for T2V, T2I, TV2V, and TI2I that is based on HunyuanVideo1.5 ...')",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH-OMNI-PLUGIN": {
+      "url": "web search summary (deepwiki): jaskirat05/ComfyUI-OmniWeaving - existence only, unverified",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

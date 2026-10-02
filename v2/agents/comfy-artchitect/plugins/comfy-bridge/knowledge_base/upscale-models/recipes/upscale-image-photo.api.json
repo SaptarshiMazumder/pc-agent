@@ -1,0 +1,86 @@
+{
+  "recipe": {
+    "id": "upscale-image-photo",
+    "family": "upscale-models",
+    "task": "upscale-image",
+    "variant": "RealESRGAN_x4plus (ESRGAN 64nf23nb, 4x, BSD-3-Clause, Comfy-Org repack): the official template default for photos / realistic frames",
+    "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass.",
+    "min_comfyui": "0.3.31",
+    "confidence": "official",
+    "ports": {
+      "upscale_model": {
+        "node": "1",
+        "input": "model_name",
+        "note": "any file in models/upscale_models; output size = input x the model's own fixed scale. Photo alternatives in profile.files: 4x_foolhardy_Remacri.pth (more detail, less smoothing; NC), 4xNomos8kDAT.pth / 4xNomos2_hq_dat2.pth / 4xRealWebPhoto_v4_dat2.safetensors (DAT, higher fidelity, slower), 003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth (SwinIR, natural textures), BSRGAN.pth (text, sharp edges), realesr-general-x4v3.pth (compact, fastest), RealESRGAN_x2plus.pth (2x)"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the still to enlarge; output = input size x 4 (the model's fixed scale). Feed RGB on 0.35.0: the RGBA crash in ImageUpscaleWithModel was fixed in v0.38.0."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "RealESRGAN_x4plus.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "4x, no other parameters: ImageUpscaleWithModel tiles internally at 512 px / 32 overlap and halves the tile on OOM down to 128 px; speed, not VRAM, is the limit. 'It can't create new detail like diffusion can, but it's much faster.'",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM table; ImageUpscaleWithModel tiles internally at 512 px / 32 overlap and halves the tile on OOM down to 128 px, so any CUDA GPU runs it; speed, not VRAM, is the limit)",
+      "time_s": null,
+      "class": "official",
+      "src": "S-NODES-UPSCALE"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "The offline validator accepts only .safetensors/.gguf/.pt model names, so the recipe names a .safetensors build; the .pth models in profile.files are drop-in swaps on the box (ComfyUI loads .pth through spandrel) via the upscale_model port."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "1",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "2",
+          0
+        ],
+        "filename_prefix": "upscaled/ComfyUI"
+      }
+    }
+  }
+}

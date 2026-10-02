@@ -1,0 +1,264 @@
+{
+  "recipe": {
+    "id": "edit-e1-full",
+    "task": "edit",
+    "variant": "HiDream-E1-Full bf16 (34.2 GB) instruction edit: input forced to 768x768, InstructPixToPixConditioning, DualCFGGuider text 5 / image 2, euler/normal 28 steps",
+    "from_template": "hidream_e1_full (flat, 18 nodes; Reroute resolved; no ModelSampling node - the HiDream config's shift 3.0 applies)",
+    "min_comfyui": "0.3.29",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "official format: 'Editing Instruction: {instruction}. Target Image Description: {description}' - the template uses a plain imperative sentence"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "'low quality, blurry, distorted' (template); card: 'low resolution, blur'"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "12",
+        "input": "steps"
+      },
+      "cfg_text": {
+        "node": "7",
+        "input": "cfg_conds",
+        "note": "text guidance (cond1 vs cond2); official guidance_scale 5.0"
+      },
+      "cfg_image": {
+        "node": "7",
+        "input": "cfg_cond2_negative",
+        "note": "image guidance (cond2 vs negative); template 2, official image_guidance_scale 4.0"
+      },
+      "input_width": {
+        "node": "16",
+        "input": "width",
+        "note": "keep 768: 'Using other dimensions may not yield particularly good results'"
+      },
+      "input_height": {
+        "node": "16",
+        "input": "height"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to edit; it is bilinear-scaled with center crop to 768x768 - the only size E1-Full works well at"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "hidream_e1_full_bf16.safetensors",
+      "clip_l_hidream.safetensors",
+      "clip_g_hidream.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "llama_3.1_8b_instruct_fp8_scaled.safetensors",
+      "ae.safetensors"
+    ],
+    "defaults_note": "768x768 forced (ImageScale bilinear/center), 28 steps euler/normal, DualCFGGuider regular cfg_conds 5 / cfg_cond2_negative 2 (official pipeline 5.0 / 4.0), negative 'low quality, blurry, distorted'. The output latent comes from InstructPixToPixConditioning (zeros shaped like the encoded image). Superseded by E1.1 for quality; kept because 768x768 fixed-size edits are what it was built for.",
+    "vram_evidence": {
+      "gpu": "Colab L4 22.5 GB",
+      "at": "768x768",
+      "usage": "~500 s first run (docs)",
+      "time_s": 500,
+      "src": "S-DOCS-E1"
+    },
+    "family": "hidream",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hidream_e1_full_bf16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "3": {
+      "class_type": "QuadrupleCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_g_hidream.safetensors",
+        "clip_name2": "clip_l_hidream.safetensors",
+        "clip_name3": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "clip_name4": "llama_3.1_8b_instruct_fp8_scaled.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Let the girl put on the VR glasses full of a sense of technology, just like the scenes in Ready Player One, with CG rendering and ultra-realism."
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "low quality, blurry, distorted"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "bilinear",
+        "width": 768,
+        "height": 768,
+        "crop": "center"
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "InstructPixToPixConditioning",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ],
+        "pixels": [
+          "16",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "DualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "cond1": [
+          "6",
+          0
+        ],
+        "cond2": [
+          "6",
+          1
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "cfg_conds": 5.0,
+        "cfg_cond2_negative": 2.0,
+        "style": "regular"
+      }
+    },
+    "11": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "12": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "scheduler": "normal",
+        "steps": 28,
+        "denoise": 1.0
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "7",
+          0
+        ],
+        "sampler": [
+          "11",
+          0
+        ],
+        "sigmas": [
+          "12",
+          0
+        ],
+        "latent_image": [
+          "6",
+          2
+        ]
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "14",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "ComfyUI"
+      }
+    }
+  }
+}

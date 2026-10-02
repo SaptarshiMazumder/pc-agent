@@ -1,0 +1,220 @@
+{
+  "recipe": {
+    "family": "kandinsky-5",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "t2v-lite-5s",
+    "task": "t2v",
+    "variant": "Video Lite 2B SFT 5 s: 50 steps, cfg 5, shift 5, euler_ancestral/beta - the quality route",
+    "from_template": "video_kandinsky5_t2v",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "English or Russian"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "templates ship ''; the reference pipeline default is 'Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards'; only read at cfg > 1"
+      },
+      "width": {
+        "node": "7",
+        "input": "width",
+        "note": "multiples of 16; area ~768x512; 10 s models need multiples of 128"
+      },
+      "height": {
+        "node": "7",
+        "input": "height"
+      },
+      "length": {
+        "node": "7",
+        "input": "length",
+        "note": "4n+1: 121 (5 s) or 241 (10 s models only)"
+      },
+      "seed": {
+        "node": "8",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "8",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "8",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "'Scheduler Scale'"
+      },
+      "fps": {
+        "node": "10",
+        "input": "fps"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "video": {
+        "node": "11",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "kandinsky5lite_t2v_sft_5s.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "clip_l.safetensors",
+      "hunyuan_video_vae_bf16.safetensors"
+    ],
+    "defaults_note": "768x512 x 121 @24 fps (5 s), silent. Kandinsky5ImageToVideo with start_image unconnected = text-to-video (template). 'SFT model - delivers the highest generation quality' (publisher).",
+    "vram_evidence": {
+      "gpu": "publisher: 'entire pipeline now running at 24 GB with offloading' (own ComfyUI nodes); 12 GB with NF4 Qwen in the reference code. Native-Comfy figure NOT FOUND",
+      "at": "768x512x121",
+      "usage": null,
+      "time_s": null,
+      "src": "S-GH"
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "kandinsky5lite_t2v_sft_5s.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "3": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "clip_name2": "clip_l.safetensors",
+        "type": "kandinsky5",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Rim light, side light, soft light, medium close-up, dusk, sunset, central composition, warm tones with low saturation, telephoto lens. A woman with fluffy brown curly hair stands elegantly in front of a magnificent stained glass window, wearing a flowing white dress; colorful light filters through the window onto her face as she talks to someone off-camera, a hint of sadness in her eyes. The background is dim with strong light-and-shadow contrast."
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "hunyuan_video_vae_bf16.safetensors"
+      }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 50,
+        "cfg": 5.0,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "beta",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "latent_image": [
+          "7",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "10": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "fps": 24.0
+      }
+    },
+    "11": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "10",
+          0
+        ],
+        "filename_prefix": "video/kandinsky5_t2v",
+        "format": "mp4",
+        "format.codec": "h264"
+      }
+    },
+    "7": {
+      "class_type": "Kandinsky5ImageToVideo",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ],
+        "width": 768,
+        "height": 512,
+        "length": 121,
+        "batch_size": 1
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "8",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ]
+      }
+    }
+  }
+}

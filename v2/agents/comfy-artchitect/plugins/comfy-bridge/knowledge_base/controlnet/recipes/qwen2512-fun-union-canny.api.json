@@ -1,0 +1,308 @@
+{
+  "recipe": {
+    "task": "control",
+    "control": "canny",
+    "host": "qwen-image",
+    "variant": "Qwen-Image-2512 fp8 + alibaba-pai Fun ControlNet-Union 2602 (Canny / HED / Depth / Pose / MLSD / Scribble / Grayscale) through the native ControlNetLoader; native Canny; latent sized from the control image; turbo switch off",
+    "from_template": "image_qwen_Image_2512_controlnet (subgraph 'ControlNet (Qwen-Image 2512)' flattened; enable_turbo_mode=false branch; Reroute resolved)",
+    "min_comfyui": "0.8.0",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34"
+      ],
+      "splice": "ControlNetApplyAdvanced (33) between positive/negative and KSampler, vae wired (Fun nets are latent-space hints). GetImageSize (34) feeds the latent width/height so the control map and latent match. Other map types: replace node 31 (template: 'You might need comfyui_controlnet_aux')."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "strength": {
+        "node": "33",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "33",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "33",
+        "input": "end_percent"
+      },
+      "control_megapixels": {
+        "node": "30",
+        "input": "megapixels"
+      },
+      "canny_low": {
+        "node": "31",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "31",
+        "input": "high_threshold"
+      },
+      "shift": {
+        "node": "4",
+        "input": "shift"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "raw photo; scaled to 1.6 MP (area) then native Canny 0.33/0.35; its size becomes the output size"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2512_fp8_e4m3fn.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors",
+      "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "50 steps, cfg 4, euler/simple, shift 3.1, strength 1 (Fun nets are soft-scaled by sqrt(strength) in ComfyUI: stay at 1.0). Turbo variant: Qwen-Image-Lightning-4steps-V1.0 between 1 and 4, 4 steps, cfg 1. Chinese negative is the template's. Apache-2.0. The template resizes with ResizeImageMaskNode('scale total pixels', 1.6, area); this recipe uses ImageScaleToTotalPixels(area, 1.6) - the same operation - because the offline validator cannot type ResizeImageMaskNode's match-type output.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "qwen 2512 fp8 20.4 GB + encoder 9.4 GB + controlnet 3.5 GB",
+      "src": "S-HF-QWEN2512-FUN"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "ResizeImageMaskNode replaced by ImageScaleToTotalPixels (see defaults_note)"
+    ],
+    "id": "qwen2512-fun-union-canny",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A woman with curly hair, wearing orange sunglasses, a white knit sweater with orange accents, and high-waisted orange trousers, stands confidently against a vibrant, clear blue sky. The photo has a warm, sunlit filter that amplifies the rich terracotta and burnt orange tones of her outfit, while the cool, deep blue background is intensified, creating a bold, saturated contrast."
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲"
+      }
+    },
+    "4": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "area",
+        "megapixels": 1.6,
+        "resolution_steps": 1
+      }
+    },
+    "31": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "30",
+          0
+        ],
+        "low_threshold": 0.33,
+        "high_threshold": 0.35
+      }
+    },
+    "34": {
+      "class_type": "GetImageSize",
+      "inputs": {
+        "image": [
+          "30",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": [
+          "34",
+          0
+        ],
+        "height": [
+          "34",
+          1
+        ],
+        "batch_size": 1
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "image": [
+          "31",
+          0
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0,
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 985578626029454,
+        "steps": 50,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "controlnet/qwen2512_fun_union"
+      }
+    }
+  }
+}

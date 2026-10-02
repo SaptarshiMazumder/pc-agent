@@ -1,0 +1,264 @@
+{
+  "recipe": {
+    "task": "control",
+    "control": "canny",
+    "host": "sd35",
+    "variant": "SD3.5 Large fp8_scaled checkpoint + sd3.5_large_controlnet_canny (8.65 GB); native Canny; ControlNetApplyAdvanced with the checkpoint VAE wired",
+    "from_template": "sd3.5_large_canny_controlnet_example",
+    "min_comfyui": "0.3.5",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31",
+        "32",
+        "33"
+      ],
+      "splice": "ControlNetApplyAdvanced (33) sits between the host's positive/negative and the KSampler; vae MUST be wired for SD3.5 (latent-space hint). The control image is scaled/cropped to the latent size (node 30 = 1024x1024 = node 9)"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "nodes": [
+          "9",
+          "30"
+        ],
+        "input": "width",
+        "note": "keep node 30 (control scale) equal to node 9 (latent)"
+      },
+      "height": {
+        "nodes": [
+          "9",
+          "30"
+        ],
+        "input": "height"
+      },
+      "strength": {
+        "node": "33",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "33",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "33",
+        "input": "end_percent"
+      },
+      "canny_low": {
+        "node": "31",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "31",
+        "input": "high_threshold"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "raw photo; native Canny (31) after a bilinear center-crop scale to the latent size (30)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_fp8_scaled.safetensors",
+      "sd3.5_large_controlnet_canny.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 32 steps, cfg 4.5, euler/simple, strength 0.66 (publisher: start at 0.7-0.8), Canny 0.3/0.6. Negative = ConditioningZeroOut. ComfyUI applies the SD3.5 file-specific canny rescale itself (load_controlnet_sd35). License: Stability Community License (free under US$1M revenue).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "checkpoint 14.9 GB fp8 + controlnet 8.65 GB; runs every step",
+      "src": "S-EXAMPLES-CN"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "sd35-canny",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_fp8_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "crystal pink dragon on a blue mystery sky, hyperdetailed"
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "bilinear",
+        "width": 1024,
+        "height": 1024,
+        "crop": "center"
+      }
+    },
+    "31": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "30",
+          0
+        ],
+        "low_threshold": 0.3,
+        "high_threshold": 0.6
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "sd3.5_large_controlnet_canny.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "image": [
+          "31",
+          0
+        ],
+        "strength": 0.66,
+        "start_percent": 0.0,
+        "end_percent": 1.0,
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 840657187058661,
+        "steps": 32,
+        "cfg": 4.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "controlnet/sd3.5_canny"
+      }
+    }
+  }
+}

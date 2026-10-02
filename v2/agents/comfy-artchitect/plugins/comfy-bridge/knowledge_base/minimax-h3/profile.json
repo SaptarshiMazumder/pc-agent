@@ -1,0 +1,2316 @@
+{
+  "schema": 2,
+  "id": "minimax-h3",
+  "name": "MiniMax H3",
+  "publisher": "MiniMax (MiniMaxAI/MiniMax-H3); ComfyUI repack by Comfy-Org; turbo LoRAs by lightx2v; Fun ControlNet-Union by Alibaba PAI; FastH3 distill by FastVideo",
+  "license": {
+    "name": "MiniMax H3 Community License Agreement",
+    "commercial": "conditional",
+    "notes": "Open weights under the MiniMax H3 Community License. Applicable Territory = worldwide EXCLUDING the European Union, the United Kingdom, the Republic of Korea and the United States of America ('Excluded Territories'; an application form exists at platform.minimax.io/h3-license; MiniMax Q&A: 'not yet', not 'not ever'); outputs may not be used outside the territory. Section IV.1: separate, prior written authorization from MiniMax (api@minimax.io) is required if the commercial products and services generate more than 20 million US dollars in yearly revenue. Section IV.2 / III: the user interface of a commercial product or service must prominently display 'MiniMax H3' / 'Powered by MiniMax H3', the NOTICE file is kept and modified files carry notices. ComfyUI's own note: 'Commercial use of locally generated outputs requires a MiniMax commercial license, available through Comfy, the only official reseller. Generations on Comfy Cloud already include commercial rights.' The lightx2v turbo LoRAs are Apache-2.0; the Fun ControlNet-Union patch and FastH3 inherit the H3 license.",
+    "src": [
+      "S-H3-LICENSE",
+      "S-H3-LICENSE-QA",
+      "S-DOCS-H3",
+      "S-HF-LIGHTX2V",
+      "S-HF-PAI-CTRL",
+      "S-HF-FASTH3"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "video",
+    "audio"
+  ],
+  "tasks": [
+    "t2v",
+    "i2v",
+    "flf2v",
+    "r2v",
+    "multiframe",
+    "v2v-continue",
+    "control"
+  ],
+  "cannot": [
+    {
+      "what": "LICENSE: the open weights are not licensed for use in the USA, EU, UK or Korea; commercial use of local outputs needs MiniMax's commercial license (Comfy is the sole reseller); >$20M yearly revenue needs MiniMax's written authorization; commercial UIs must display 'Powered by MiniMax H3'",
+      "src": [
+        "S-H3-LICENSE",
+        "S-DOCS-H3"
+      ]
+    },
+    {
+      "what": "negative prompt or CFG: the released checkpoints are CFG-distilled, the graphs use BasicGuider, 'a negative prompt has no effect' — bans are written as positives",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-DOCS-H3-PROMPT"
+      ]
+    },
+    {
+      "what": "2K output locally: H3-Regenerate-2K is API-only ('not yet open-sourced'); 2K 'needs a separate upscale pass in ComfyUI'. Native canvas is 768 px short edge, capped at the 768x1344 pixel area; 'Frames well above the native canvas do not hold detail'",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "what": "Context-IR prompt rewriting: H3-Context-IR is 'not included in this open-source release' — prompts must be written in its intermediate-representation format by hand or by an LLM following the official guides",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-H3-GUIDE-BASE"
+      ]
+    },
+    {
+      "what": "more than ~15 s in one pass: duration 4-15 s, trained frame range ~124-362 ('longer is untested')",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-NODES"
+      ]
+    },
+    {
+      "what": "FastH3 reference-to-video: the DMD2 distill supports t2va/fl2va only ('Ref2VA ... was not distilled')",
+      "src": "S-DOCS-H3-FASTVIDEO"
+    },
+    {
+      "what": "sparse attention without CUDA: 'sol-attn' needs the comfy-kitchen sol_attn kernel, otherwise a silent dense fallback",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "what": "video-to-video restyling through guides: MiniMaxH3AddGuide conditions, it does not seed the latent and denoise does not scale it",
+      "src": "S-DOCS-H3-MULTIFRAME"
+    },
+    {
+      "what": "community-reported weak spots: faces degrade in wide/medium shots (HF #30); Ref2VA red/blush cheek patches (HF #55, unresolved); voiceover lines get lip-synced onto the visible character (HF #44, unresolved)",
+      "src": [
+        "S-HFD-30",
+        "S-HFD-55",
+        "S-HFD-44"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_minimax_h3.py, nodes_sparse_attention.py, nodes_resolution.py, nodes_lt.py, comfy/supported_models.py)",
+    "nodes_verified_against_registry": "v0.35.0 — all 17 recipes passed the offline structural check (verify_recipes.py) on 2026-10-02",
+    "note": "Native H3 needs ComfyUI >= 0.30.0 (PR #15224); Add Guide >= 0.34.0 (PR #15439); Fun ControlNet patch >= 0.35.0 (PR #15975) — all on the pinned image. FastVideo FastH3 templates need >= 0.36.0: every node class they use exists in v0.35.0 and the recipes validate, but they are NOT offered until the image moves."
+  },
+  "files": [
+    {
+      "name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20970379616,
+      "precision": "int8_convrot, pruned adaln",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": 32,
+        "evidence": "official VRAM table NOT FOUND ('The download is tens of gigabytes'). COMMUNITY: RTX 5090 32 GB — 864x480x243 (10.1 s), 10 steps: 28,581 MiB peak, 185 s (single-source benchmark); RTX 5070 Ti 16 GB — ~14.2 GB VRAM at 640x480 with heavy system-RAM use; RTX 3060 12 GB — 864x480 5 s with the turbo LoRA in ~4.5 min",
+        "class": "community",
+        "src": [
+          "S-AIMUNINN",
+          "S-HFD-6",
+          "S-HFD-30"
+        ]
+      },
+      "quality": "TEMPLATE DEFAULT for T2V / I2V / I2V-continuation (t2va, i2va, fl2va, l2va). Comfy-Org: 'prefer int8_convrot if you are able to use pytorch with cu130'; needs comfy-kitchen; Turing-era GPUs hit GEMM failures",
+      "pairs_with_text_encoder": "qwen3vl_32b_minimax_h3_*",
+      "pairs_with_vae": "minimax_h3_video_vae_* + minimax_h3_audio_vae_fp32.safetensors",
+      "pairs_with_lora": "minimax_h3_fl2v_turbo_*",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20970379616,
+      "precision": "int8_convrot, pruned adaln",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": 32,
+        "evidence": "same size class as the fl2va build (community numbers above); reference tokens 'ride along every sampling step', so expect more than t2v at the same canvas. Own measurement NOT FOUND",
+        "class": "community",
+        "src": [
+          "S-AIMUNINN",
+          "S-DOCS-H3-MULTIFRAME"
+        ]
+      },
+      "quality": "TEMPLATE DEFAULT for R2V, Multiframe Reference, Fun ControlNet Union; up to 9 reference images, 3 reference videos, 3 reference audio clips; with empty ref_* slots it runs text-to-video (ControlNet template)",
+      "pairs_with_text_encoder": "qwen3vl_32b_minimax_h3_*",
+      "pairs_with_vae": "minimax_h3_video_vae_* + minimax_h3_audio_vae_fp32.safetensors",
+      "pairs_with_lora": "minimax_h3_ref2v_turbo_*",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-R2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2va_pruned_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 40225724176,
+      "precision": "bf16, pruned adaln",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "docs: 'needs more VRAM'; COMMUNITY: a 4090 24 GB ran bf16 only with 128 GB system RAM and '15+ min load times'",
+        "class": "community",
+        "src": [
+          "S-DOCS-H3-NATIVE",
+          "S-HFD-6"
+        ]
+      },
+      "quality": "use with Comfy Kitchen INT8 attention when the int8-convrot checkpoints crash (docs). Disk: 40.2 + 15.7 (TE) + 3.4 (VAEs) = 59.3 GB — does not fit the 60 GB box next to ComfyUI",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_pruned_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 40225724176,
+      "precision": "bf16, pruned adaln",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "as fl2va_pruned_bf16",
+        "class": "community",
+        "src": "S-HFD-6"
+      },
+      "quality": "as fl2va_pruned_bf16; does not fit the 60 GB disk next to the encoder and VAEs",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20958205608,
+      "precision": "fp8_scaled, pruned adaln",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same size class as int8)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Comfy-Org: 'fp8_scaled should only be used if you cannot use int8_convrot'; a 'Forbidden' download was reported once (HF #39)",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 20958205608,
+      "precision": "fp8_scaled, pruned adaln",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fallback when int8_convrot cannot run",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2va_pruned_w6a8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 15983746636,
+      "precision": "W6A8, pruned adaln",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_w6a8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "smallest build; no docs or template mention (listed in the README folder tree only) — the only way to hold BOTH checkpoints on the 60 GB disk (2 x 16.0 + 19.1 = 51.1 GB), untested",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_pruned_w6a8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 15983746636,
+      "precision": "W6A8, pruned adaln",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_w6a8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "smallest build; undocumented",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2va_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34038892334,
+      "precision": "int8_convrot, FULL (adaln kept)",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "needed only for LoRAs 'distilled on the full build' (they carry adaln tensors the pruned build lacks); the turbo LoRAs are not such LoRAs",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-DOCS-H3-NATIVE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 34038894550,
+      "precision": "int8_convrot, FULL (adaln kept)",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-build companion for full-build LoRAs",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2va_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 66280487368,
+      "precision": "bf16, FULL",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": ">48 GB class by file size (inference); community: '30GB+ ... still requiring system RAM assistance'",
+        "class": "single-source",
+        "src": "S-HFD-6"
+      },
+      "quality": "reference quality / fine-tuning base; exceeds the 60 GB disk on its own",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2va_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 66280487368,
+      "precision": "bf16, FULL",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "exceeds the 60 GB disk on its own",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 22128378696,
+      "precision": "int8_convrot, pruned adaln, DMD2-distilled",
+      "variant": "fasth3",
+      "url": "https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy/resolve/main/diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same size class as the base int8 builds)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "FastH3 TEMPLATE DEFAULT: exactly 8 steps, MiniMaxH3SigmaShift 10/3, t2va + fl2va only; template needs ComfyUI >= 0.36.0 (above the pinned image)",
+      "pairs_with_text_encoder": "qwen3vl_32b_minimax_h3_*",
+      "pairs_with_vae": "minimax_h3_video_vae_* + minimax_h3_audio_vae_fp32.safetensors",
+      "src": [
+        "S-HF-FASTH3",
+        "S-TPL-FASTH3-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "fastvideo_fasth3_8step_v2_pruned_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 44079246824,
+      "precision": "bf16, pruned adaln, DMD2-distilled",
+      "variant": "fasth3",
+      "url": "https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy/resolve/main/diffusion_models/fastvideo_fasth3_8step_v2_pruned_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "bf16 FastH3; does not fit the 60 GB disk next to the encoder",
+      "src": "S-HF-FASTH3",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 15687142551,
+      "precision": "NVFP4 AWQ",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "loaded by every template; 'This nvfp4 text encoder does not require Blackwell GPU to use'; allow for the ~15 GB load",
+        "class": "official",
+        "src": [
+          "S-HF-COMFYORG",
+          "S-TPL-T2V"
+        ]
+      },
+      "quality": "TEMPLATE DEFAULT; Qwen3-VL-32B hidden states from layer 50; CLIPLoader type 'minimax'; also consumes the reference/keyframe images (no clip_vision model exists for H3)",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 27141342152,
+      "precision": "int8_convrot",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "larger encoder; with a 21 GB checkpoint + VAEs it is 51.5 GB of disk",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 51506295256,
+      "precision": "bf16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-precision encoder; cannot share the 60 GB disk with any checkpoint",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_video_vae_int8_convrot.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 2811065184,
+      "precision": "int8_convrot",
+      "variant": "shared-video",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "TEMPLATE DEFAULT video VAE (f16t4d24: 16x spatial, 4x temporal, 24 ch; 32x effective with the 1x2x2 patch); community: 'slight quality improvement' over earlier files. Feeds VAEDecode, MiniMaxH3ImageToVideo.vae, MiniMaxH3ReferenceToVideo.vae, MiniMaxH3AddGuide.vae, MiniMaxH3FunControlNetApply.vae",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-HFD-30",
+        "S-HF-MINIMAXAI"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_video_vae_fp16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 5207808496,
+      "precision": "fp16",
+      "variant": "shared-video",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp16 video VAE",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_audio_vae_fp32.safetensors",
+      "role": "audio_vae",
+      "folder": "vae",
+      "bytes": 605254808,
+      "precision": "fp32",
+      "variant": "shared-audio",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "the ONLY audio VAE (32 kHz stereo, 40 Hz latent rate); loaded by a second VAELoader into VAEDecodeAudio, MiniMaxH3ReferenceToVideo.audio_vae and MiniMaxH3AddGuide.audio_vae",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-HF-MINIMAXAI"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1956193000,
+      "precision": "bf16",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "alt_url": "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors (the T2V/I2V template links this one)",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "T2V / I2V template 'Enable Lightning LoRA' at 8 steps; lightx2v, Apache-2.0; carries no adaln tensors, loads on pruned or full fl2va; for the FL2VA checkpoint only",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-I2V-CONT",
+        "S-HF-LIGHTX2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1956192992,
+      "precision": "bf16",
+      "variant": "fl2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-I2V-CONT"
+      },
+      "quality": "the 4-step alternative the T2V/I2V template's Model Links note lists; trained at 768p; for the FL2VA checkpoint only",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-I2V-CONT"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1956193000,
+      "precision": "bf16",
+      "variant": "ref2va",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-R2V"
+      },
+      "quality": "R2V / Multiframe / ControlNet template 'Enable Lightning LoRA' at 4 steps; template: 'fast video generation, but scarce video quality'; docs: at 4 steps a reference 'can end up barely applied'; for the Ref2VA checkpoint only",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-R2V",
+        "S-DOCS-H3-MULTIFRAME"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 2296635360,
+      "precision": "int8_convrot, pruned",
+      "variant": "fun-controlnet",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-CTRL"
+      },
+      "quality": "TEMPLATE DEFAULT (ModelPatchLoader -> MiniMaxH3FunControlNetApply): Canny / Depth / HED / MLSD / Pose + video inpainting in one patch; original alibaba-pai file is 6.807 GB",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-HF-PAI-CTRL"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fun_controlnet_union_pruned_bf16.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 4222169456,
+      "precision": "bf16, pruned",
+      "variant": "fun-controlnet",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_pruned_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "bf16 patch",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 4531220608,
+      "precision": "int8_convrot, pruned",
+      "variant": "fun-controlnet-2.0",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'2.0' patch: no docs found",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 8382288792,
+      "precision": "bf16, pruned",
+      "variant": "fun-controlnet-2.0",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'2.0' patch: no docs found",
+      "src": "S-HF-COMFYORG",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "sdpose_wholebody_fp16.safetensors",
+      "role": "pose_extractor",
+      "folder": "checkpoints",
+      "bytes": 1916645792,
+      "precision": "fp16",
+      "variant": "fun-controlnet (pose preprocessor)",
+      "url": "https://huggingface.co/Comfy-Org/SDPose/resolve/main/checkpoints/sdpose_wholebody_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-CTRL"
+      },
+      "quality": "SDPose whole-body keypoints (CheckpointLoaderSimple -> SDPoseKeypointExtractor -> SDPoseDrawKeypoints) in the ControlNet template's pose subgraph",
+      "src": [
+        "S-TPL-CTRL",
+        "S-HF-SDPOSE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "rt_detr_v4-x-hgnet_fp16.safetensors",
+      "role": "pose_extractor",
+      "folder": "diffusion_models",
+      "bytes": 123968978,
+      "precision": "fp16",
+      "variant": "fun-controlnet (pose preprocessor)",
+      "url": "https://huggingface.co/Comfy-Org/SDPose/resolve/main/diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-CTRL"
+      },
+      "quality": "RT-DETR person detector (UNETLoader -> RTDETR_detect) feeding SDPose; note it lives in diffusion_models/",
+      "src": [
+        "S-TPL-CTRL",
+        "S-HF-SDPOSE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "newer lightx2v turbo LoRAs, not in the Comfy-Org repo: minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16, _v1.2_768p_, minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16, minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16 (1.956 GB each; '_comfyui_' = Comfy key format)",
+      "needs_pack": null,
+      "folder": "loras",
+      "url": "https://huggingface.co/lightx2v/Minimax-h3-Turbo",
+      "class": "official (lightx2v), not covered by Comfy docs",
+      "src": "S-HF-LIGHTX2V"
+    },
+    {
+      "what": "10 community style embeddings in the Comfy-Org repo (embeddings/): minimaxh3_art_is_explosion, minimaxh3_blooming_flowers, minimaxh3_bullet_time, minimaxh3_dark_magic, minimaxh3_fire_breath, minimaxh3_four_seasons, minimaxh3_kiss_camera, minimaxh3_spiral_ascent, minimaxh3_storm_magic, minimaxh3_truman_show (.safetensors, ~1 MB each); use `embedding:minimaxh3_art_is_explosion` in the prompt",
+      "needs_pack": null,
+      "folder": "embeddings",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/tree/main/embeddings",
+      "class": "community ('contributed by community member silveroxides via Hugging Face PR #50 ... not produced by Comfy-Org or MiniMax')",
+      "src": "S-DOCS-H3"
+    },
+    {
+      "what": "community turbo settings: LoRA strength 0.6 with er_sde or euler/beta at 6-10 steps (Kijai thread); strength 2.8 / 4 steps / 1.0 MP 'produces clear faces', or 1.8 / 8, 1.0 / 12 (HF #30, one user)",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": [
+        "S-KIJAI-D5",
+        "S-HFD-30"
+      ]
+    },
+    {
+      "what": "Sage Attention ('Patch Sage Attention KJ' or --use-sage-attention) 'roughly double the generation speed'; INT8 Sage causes morphing / garbled text",
+      "needs_pack": "ComfyUI-KJNodes (for the node route)",
+      "class": "official (docs)",
+      "src": "S-DOCS-H3-NATIVE"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2v",
+      "vram_gb_min": 32,
+      "recipe": "t2v-fl2va",
+      "why": "the quality route: FL2VA pruned int8_convrot, 20 steps; 32 GB (RTX 5090) holds 10 s at 864x480 (28.6 GB peak, community); 96 GB (RTX PRO 6000) is comfortable at 1344x768. Disk: 21.0 + 15.7 + 3.4 = 40.1 GB of the 60 GB",
+      "src": [
+        "S-TPL-T2V",
+        "S-AIMUNINN"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 32,
+      "speed": "fast",
+      "recipe": "t2v-fl2va-turbo8",
+      "tradeoff": "8 steps instead of 20 with the fl2v turbo LoRA; audio is 'the weakest part' at 8 steps; detail loss on fine texture",
+      "src": [
+        "S-TPL-T2V",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 32,
+      "speed": "fastest",
+      "recipe": "t2v-fl2va-turbo4",
+      "tradeoff": "4 steps with the 768p 4-step LoRA; template: 'scarce video quality'; drafts only",
+      "src": [
+        "S-TPL-I2V-CONT",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 32,
+      "recipe": "i2v-fl2va",
+      "why": "first frame as geometry anchor (stretched to the canvas: the recipe takes the canvas from the image); 20 steps",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 32,
+      "speed": "fast",
+      "recipe": "i2v-fl2va-turbo8",
+      "tradeoff": "8 steps; 'at 4 steps a reference can end up barely applied' — 8 is the template's turbo setting for fl2va",
+      "src": [
+        "S-TPL-I2V",
+        "S-DOCS-H3-MULTIFRAME"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 32,
+      "speed": "fastest",
+      "recipe": "i2v-fl2va-turbo4",
+      "tradeoff": "4 steps; the image's pose/face angle can drift",
+      "src": [
+        "S-TPL-I2V-CONT",
+        "S-DOCS-H3-MULTIFRAME"
+      ]
+    },
+    {
+      "task": "flf2v",
+      "vram_gb_min": 32,
+      "recipe": "flf2v-fl2va",
+      "why": "first + last frame on the same FL2VA checkpoint and node (last_frame = aspect-preserving cover-crop anchored at the final frame); prompt opens with the FL2VA alignment line",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES",
+        "S-H3-GUIDE-BASE"
+      ]
+    },
+    {
+      "task": "l2v",
+      "recipe": null,
+      "status": "pending: last-frame-only (L2VA) is the FL2VA node with only last_frame connected; no separate recipe because recipe inputs are not optional — use flf2v-fl2va with the first_frame link removed and the L2VA instruction line",
+      "src": [
+        "S-NODES",
+        "S-H3-GUIDE-BASE"
+      ]
+    },
+    {
+      "task": "r2v",
+      "vram_gb_min": 32,
+      "recipe": "r2v-ref2va",
+      "why": "identity / style / motion / camera / voice lock from up to 9 images, 3 videos (+soundtracks), 3 audio clips; 20 steps (25 if a reference drifts); six-section Context-IR prompt. Needs the ref2va checkpoint: on the 60 GB disk only ONE of fl2va / ref2va fits next to the encoder (2 x 21.0 + 19.1 = 61.0 GB)",
+      "src": [
+        "S-TPL-R2V",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "task": "r2v",
+      "vram_gb_min": 32,
+      "speed": "fast",
+      "recipe": "r2v-ref2va-turbo4",
+      "tradeoff": "4 steps: references 'ride along every sampling step' and weaken; template calls it 'scarce video quality'",
+      "src": [
+        "S-TPL-R2V",
+        "S-DOCS-H3-MULTIFRAME"
+      ]
+    },
+    {
+      "task": "multiframe",
+      "vram_gb_min": 32,
+      "recipe": "multiframe-ref2va",
+      "why": "one identity reference + keyframes pinned anywhere on the timeline (chained MiniMaxH3AddGuide at frame_idx = round(s * 24)); the canonical six-section prompt example",
+      "src": "S-TPL-MULTIFRAME"
+    },
+    {
+      "task": "multiframe",
+      "vram_gb_min": 32,
+      "speed": "fast",
+      "recipe": "multiframe-ref2va-turbo4",
+      "tradeoff": "4 steps; guides weaken like references",
+      "src": [
+        "S-TPL-MULTIFRAME",
+        "S-DOCS-H3-MULTIFRAME"
+      ]
+    },
+    {
+      "task": "v2v-continue",
+      "vram_gb_min": 32,
+      "recipe": "v2v-continue-ref2va",
+      "why": "continues an existing 24 fps clip: its first 22 frames + soundtrack anchored at frame 0 by one Add Guide (the multiframe template's own continuation note); Comfy-Org's 'i2v_continuation' template is a plain I2V, not this",
+      "confidence": "official note, no official graph; not run",
+      "src": [
+        "S-TPL-MULTIFRAME",
+        "S-DOCS-H3-MULTIFRAME",
+        "S-TPL-I2V-CONT"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 32,
+      "recipe": "fun-controlnet-ref2va",
+      "why": "a control clip ALREADY preprocessed by an earlier stage (canny / depth / pose / HED / MLSD frames) drives the Fun ControlNet-Union patch; 20 steps, strength 1.0. ComfyUI 0.35.0 = the pinned image: allowed",
+      "src": [
+        "S-TPL-CTRL",
+        "S-DOCS-H3-CTRL"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 32,
+      "recipe": "fun-controlnet-pose-ref2va",
+      "why": "raw dance / motion footage in: the template's SDPose multi-person skeleton extractor is flattened into the graph (+1.9 GB SDPose + 0.12 GB RT-DETR on disk)",
+      "src": "S-TPL-CTRL"
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 32,
+      "speed": "fast",
+      "recipe": "fun-controlnet-pose-ref2va-turbo4",
+      "tradeoff": "4 steps with the ref2v turbo LoRA; the pose holds (control), texture suffers",
+      "src": "S-TPL-CTRL"
+    },
+    {
+      "task": "inpaint",
+      "recipe": null,
+      "status": "pending: the ControlNet template documents the path (MiniMaxH3FunControlNetApply.mask = 1 regenerates, optional source_video; SamplerCustomAdvanced denoise_mask) but wires none of it; no official graph to build from",
+      "src": [
+        "S-DOCS-H3-CTRL",
+        "S-NODES"
+      ]
+    },
+    {
+      "task": "t2v",
+      "speed": "fast",
+      "recipe": "t2v-fasth3",
+      "status": "needs ComfyUI >= 0.36.0, above the pinned image (template minComfyUIVersion); the recipe validates against v0.35.0 node classes and is kept for when the image moves",
+      "tradeoff": "DMD2 8-step distill with sparse attention; fixed 8 steps and shift 10/3",
+      "src": [
+        "S-TPL-FASTH3-T2V",
+        "S-DOCS-H3-FASTVIDEO"
+      ]
+    },
+    {
+      "task": "i2v",
+      "speed": "fast",
+      "recipe": "i2v-fasth3",
+      "status": "needs ComfyUI >= 0.36.0, above the pinned image (template minComfyUIVersion); kept, not offered",
+      "tradeoff": "as t2v-fasth3",
+      "src": [
+        "S-TPL-FASTH3-I2V",
+        "S-DOCS-H3-FASTVIDEO"
+      ]
+    },
+    {
+      "task": "any",
+      "vram_gb_min": 96,
+      "recipe": null,
+      "status": "the 96 GB RTX PRO 6000 runs the same pruned int8_convrot recipes (Blackwell, cu130 OK) at 1344x768 and up to the 362-frame ceiling; the pruned_bf16 (40.2 GB) and full builds do not fit the 60 GB disk next to the 15.7 GB encoder, so more VRAM does not buy a bigger build here",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-HFD-6"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "BasicScheduler",
+      "input": "steps",
+      "meaning": "flow-matching denoise steps in one SamplerCustomAdvanced run",
+      "defaults": {
+        "base (fl2va / ref2va, no LoRA)": 20,
+        "fl2v turbo 8-step LoRA": 8,
+        "fl2v turbo 4-step LoRA": 4,
+        "ref2v turbo 4-step LoRA": 4,
+        "fasth3": 8,
+        "reference drifts": 25
+      },
+      "range": [
+        4,
+        50
+      ],
+      "interactions": "'Shots with simple content hold up at 12 to 16 steps'; 'most of the gain by step 16'; high-frequency detail (chainmail, filigree) 'keep improving up to about 50 steps', below that 'unstable triangular grid artifacts that swim under motion'; 'Audio settles later ... at 8 steps they [speech, timbre] are the weakest part ... 12 steps and above keep the track usable'; references 'ride along every sampling step', so 4-step turbo weakens them. FastH3: exactly 8",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-R2V",
+        "S-DOCS-H3-NATIVE",
+        "S-DOCS-H3-FASTVIDEO"
+      ]
+    },
+    {
+      "name": "sampler_name",
+      "node": "KSamplerSelect",
+      "input": "sampler_name",
+      "meaning": "the sampler fed to SamplerCustomAdvanced",
+      "defaults": {
+        "all templates": "res_multistep"
+      },
+      "range": null,
+      "interactions": "second-order multistep; er_sde is the documented alternative; multistep history 'does not carry over' between two samplers — keep the schedule in one run",
+      "src": [
+        "S-TPL-T2V",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "name": "scheduler",
+      "node": "BasicScheduler",
+      "input": "scheduler",
+      "meaning": "sigma schedule",
+      "defaults": {
+        "all templates": "simple",
+        "reference-heavy prompts": "beta or normal"
+      },
+      "range": null,
+      "interactions": "R2V template note: 'beta or normal scheduler tends to outperform simple for reference-heavy prompts like this one'",
+      "src": [
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "MiniMaxH3SigmaShift (display 'ModelSamplingMiniMaxH3')",
+      "input": "shift_video, shift_audio",
+      "meaning": "video shift drives the sampler's sigma schedule (ModelSamplingAV); both values are also handed to the DiT",
+      "defaults": {
+        "base checkpoints (no node needed)": "12.0 video / 3.0 audio from supported_models.MiniMaxH3",
+        "fasth3": "10.0 / 3.0 (MiniMaxH3SigmaShift in the template)"
+      },
+      "range": null,
+      "interactions": "'stay near the values that checkpoint is built for: on the distilled 8-step builds, sampling at shift_video 3 instead of 10 shows grid artifacts'",
+      "src": [
+        "S-SUPPORTED-MODELS",
+        "S-NODES",
+        "S-TPL-FASTH3-T2V",
+        "S-DOCS-H3-FASTVIDEO"
+      ]
+    },
+    {
+      "name": "cfg / negative",
+      "node": "BasicGuider",
+      "input": "(none)",
+      "meaning": "there is no CFG and no negative branch: the checkpoints are CFG-distilled",
+      "defaults": {
+        "all": "BasicGuider; guidance_scale 1.0"
+      },
+      "range": null,
+      "interactions": "'a negative prompt has no effect'; 'Keep guidance_scale at 1.0' (ControlNet); write bans as positives",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-DOCS-H3-PROMPT",
+        "S-DOCS-H3-CTRL"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo|EmptyMiniMaxH3LatentAV",
+      "input": "width, height",
+      "meaning": "canvas in pixels, multiples of 32 (16x VAE x 2x2 latent patch)",
+      "defaults": {
+        "node default / official 768p (0.98 MP)": "1344x768",
+        "template preview (ResolutionSelector 0.4 MP, 16:9)": "864x480",
+        "template preview (0.4 MP, 1:1)": "640x640",
+        "i2v recipes": "from the start image at `megapixels` (ImageScaleToTotalPixels, steps of 32)"
+      },
+      "range": null,
+      "interactions": "native canvas: 768 px short edge, capped at the 768x1344 pixel AREA; 'Skip the 1.0 Megapixel step: it yields 1376x768, above the model's 768x1344 pixel area cap'; aspect ratios 21:9, 16:9, 4:3, 1:1, 3:4, 9:16; 'Frames well above the native canvas do not hold detail'; 'a soft frame is a resolution problem first' — render faces at 1344x768, do not upscale; first_frame is stretched to the canvas, so the canvas must have the image's aspect",
+      "src": [
+        "S-NODES",
+        "S-DOCS-H3-NATIVE",
+        "S-HF-MINIMAXAI",
+        "S-TPL-T2V",
+        "S-HFD-30"
+      ]
+    },
+    {
+      "name": "length",
+      "node": "MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo|EmptyMiniMaxH3LatentAV",
+      "input": "length",
+      "meaning": "frames at 24 fps on the 17k+5 grid (node step 17, min 5, max 3600); latent T = ((frames-5)//17)*5+2; audio latent frames = round(seconds * 40)",
+      "defaults": {
+        "R2V / Multiframe / ControlNet / continuation templates (5 s)": 124,
+        "T2V / I2V subgraph default (2 s)": 56,
+        "all recipes": 124
+      },
+      "range": [
+        124,
+        362
+      ],
+      "interactions": "grid: 5, 22, 39, ..., 107 (~4.5 s), 124 (5.17 s), 141, ..., 362 (15.1 s); 'trained range is ~124-362, longer is untested'; the templates derive it from seconds as max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17; guide clips and control clips are cropped/held to the same grid; one 5090 user reports 30-45 s clips (beyond the trained range)",
+      "src": [
+        "S-NODES",
+        "S-TPL-T2V",
+        "S-TPL-R2V",
+        "S-HFD-6"
+      ]
+    },
+    {
+      "name": "fps",
+      "node": "CreateVideo",
+      "input": "fps",
+      "meaning": "the model's native rate; the container must match or the audio track desyncs",
+      "defaults": {
+        "all": 24
+      },
+      "range": null,
+      "interactions": "fixed by the model (24 fps video, 40 Hz audio latent, 32 kHz stereo)",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "RandomNoise",
+      "input": "noise_seed",
+      "meaning": "the noise seed of the single SamplerCustomAdvanced run",
+      "defaults": {
+        "T2V / I2V templates": "1, fixed",
+        "R2V template": "randomize",
+        "recipes": 0
+      },
+      "range": null,
+      "interactions": "",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "name": "strength_model",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "turbo LoRA weight (template label turbo_model_strength)",
+      "defaults": {
+        "templates": 1.0
+      },
+      "range": [
+        0.0,
+        3.0
+      ],
+      "interactions": "community: 0.6 with er_sde or euler/beta at 6-10 steps (Kijai thread); 2.8 / 4 steps / 1.0 MP 'produces clear faces', 1.8 / 8, 1.0 / 12 (HF #30, single user). The LoRA must match the checkpoint it was distilled on (fl2v <-> fl2va, ref2v <-> ref2va); turbo LoRAs 'carry no adaln tensors, so they load on either build' (pruned or full)",
+      "src": [
+        "S-TPL-T2V",
+        "S-KIJAI-D5",
+        "S-HFD-30",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "name": "ref_image_size",
+      "node": "MiniMaxH3ReferenceToVideo",
+      "input": "ref_image_size",
+      "meaning": "how reference images are scaled before encoding",
+      "defaults": {
+        "templates": "match"
+      },
+      "range": [
+        "match",
+        "max"
+      ],
+      "interactions": "'match' scales references down to the generation's resolution (faster); 'max' uses the reference pipeline's 2048 px short edge for 'stronger identity fidelity' and 'can be several times slower' since reference tokens ride along every sampling step",
+      "src": [
+        "S-NODES",
+        "S-TPL-MULTIFRAME"
+      ]
+    },
+    {
+      "name": "frame_idx",
+      "node": "MiniMaxH3AddGuide",
+      "input": "frame_idx",
+      "meaning": "where on the output timeline a guide (still, clip, audio) is anchored, in frames at 24 fps; negative counts from the end",
+      "defaults": {
+        "multiframe template": "36 (1.5 s), 72 (3 s), 120 (5 s) via round(a * 24)",
+        "continuation": 0
+      },
+      "range": null,
+      "interactions": "image batches >= 5 frames are cropped DOWN to 17k+5 (5, 22, 39 ...), < 5 frames use the first image; audio is cropped to the remaining duration; 'The index plus the guide length must stay inside the generated length' (the node raises otherwise); guides condition, they do not seed the latent",
+      "src": [
+        "S-NODES",
+        "S-TPL-MULTIFRAME",
+        "S-DOCS-H3-MULTIFRAME"
+      ]
+    },
+    {
+      "name": "strength / start_percent / end_percent",
+      "node": "MiniMaxH3FunControlNetApply",
+      "input": "strength, start_percent, end_percent",
+      "meaning": "how hard the control skip is added (same role as control_context_scale on the original model) and over which part of sampling",
+      "defaults": {
+        "template": "1.0, 0.0, 1.0"
+      },
+      "range": [
+        0.0,
+        10.0
+      ],
+      "interactions": "'1.0 is strongest and is what this graph uses. Values below 1.0 loosen the pose. 0 turns the branch off'; 'Raise strength above 1 only if the control drifts'; a control clip longer than length is taken from the start, a shorter one holds its last frame; the control skip is added only to video tokens",
+      "src": [
+        "S-TPL-CTRL",
+        "S-DOCS-H3-CTRL",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "sparse attention",
+      "node": "BlockSparseAttention",
+      "input": "selection (method), selection.keep_percent | selection.tau, start_percent, end_percent, min_tokens, extra_tokens, sink_conditioning",
+      "meaning": "block-sparse attention over the video tokens for part of the schedule",
+      "defaults": {
+        "base templates": "not used (full attention)",
+        "fasth3 templates": "vsa, keep_percent 10, start 0.2, end 1.0, min_tokens 12288, extra_tokens 256, sink_conditioning exact_kv_and_rows"
+      },
+      "range": null,
+      "interactions": "base weights: 'sol-attn', tau 1.3 default ('1.0 keeps roughly 16% of key blocks exact, 1.5 about 7%, 2.0 about 2.7%'), recommended start ~0.4 / end ~0.9, keep sink_conditioning exact_kv_and_rows, 'Short clips gain little' (min_tokens 12288); needs CUDA + comfy-kitchen sol_attn kernel, else silent dense fallback",
+      "src": [
+        "S-NODES-SPARSE",
+        "S-TPL-FASTH3-T2V",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "name": "attention backend",
+      "node": "ModelAttentionBackend",
+      "input": "attention",
+      "meaning": "attention kernel for the model",
+      "defaults": {
+        "base templates": "default PyTorch attention",
+        "fasth3 templates": "comfy kitchen attention"
+      },
+      "range": null,
+      "interactions": "Sage Attention 'roughly double the generation speed'; Comfy Kitchen (--use-ck-attention, 0.32.0+) fixes INT8 artifacts 'but crashes with int8-convrot checkpoints' (issue #15529) — use it with the bf16 checkpoints; Sage dtype warnings are expected (affected layers fall back)",
+      "src": [
+        "S-DOCS-H3-NATIVE",
+        "S-TPL-FASTH3-T2V"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "BasicScheduler",
+      "input": "denoise",
+      "meaning": "always 1.0: guides and references condition, they do not seed the latent, so denoise does not scale them; partial regeneration is the mask route (SamplerCustomAdvanced denoise_mask: 0 preserves, 1 regenerates; video masks snap to the 2x2 latent patch grid, audio masks to whole latent frames)",
+      "defaults": {
+        "all": 1.0
+      },
+      "range": [
+        1.0,
+        1.0
+      ],
+      "interactions": "",
+      "src": [
+        "S-TPL-T2V",
+        "S-DOCS-H3-MULTIFRAME",
+        "S-NODES"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-minimax",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(minimax_h3_|fastvideo_fasth3_)"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "minimax"
+      },
+      "message": "H3 text encoding is CLIPLoader with type 'minimax' on the Qwen3-VL-32B encoder; every template sets it",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "id": "encoder-is-qwen3vl-h3",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "minimax"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen3vl_32b_minimax_h3_(nvfp4_awq|int8_convrot|bf16)\\.safetensors$"
+      },
+      "message": "the H3 text encoder is the Comfy-Org Qwen3-VL-32B conversion (nvfp4_awq / int8_convrot / bf16); the nvfp4 file is the template default and 'does not require Blackwell GPU'",
+      "src": "S-HF-COMFYORG"
+    },
+    {
+      "id": "video-vae-is-h3",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(minimax_h3_|fastvideo_fasth3_)"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^minimax_h3_video_vae_(int8_convrot|fp16)\\.safetensors$"
+      },
+      "message": "H3 decodes video with its own f16t4d24 VAE (minimax_h3_video_vae_int8_convrot or _fp16); no other VAE has the 24-channel latent",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-HF-MINIMAXAI"
+      ]
+    },
+    {
+      "id": "audio-vae-present",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "VAEDecodeAudio|MiniMaxH3AddGuide|MiniMaxH3ReferenceToVideo",
+        "input": "audio_vae|vae",
+        "exists": true
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "message": "the audio half of the joint AV latent needs a second VAELoader with minimax_h3_audio_vae_fp32.safetensors (into VAEDecodeAudio, ReferenceToVideo.audio_vae, AddGuide.audio_vae); the video VAE cannot decode it",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "id": "audio-decoded",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo|EmptyMiniMaxH3LatentAV",
+        "input": "length",
+        "exists": true
+      },
+      "require": {
+        "node": "VAEDecodeAudio",
+        "input": "samples",
+        "linked": true
+      },
+      "message": "H3 generates stereo audio in the same pass; without VAEDecodeAudio -> CreateVideo.audio the clip is silent and the point of the model is lost ('each decode node automatically pulls its own half out of the packed latent')",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "id": "no-cfg-no-negative",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CFGGuider|KSampler|KSamplerAdvanced|SamplerCustom",
+        "input": "cfg",
+        "exists": true
+      },
+      "require": {
+        "node": "CFGGuider|KSampler|KSamplerAdvanced|SamplerCustom",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "the H3 checkpoints are CFG-distilled: no negative branch, cfg must be 1.0 ('a negative prompt has no effect'); the templates use BasicGuider + SamplerCustomAdvanced — use that",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-DOCS-H3-PROMPT",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "no-clip-text-encode",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "minimax"
+      },
+      "require": {
+        "node": "CLIPTextEncode",
+        "input": "text",
+        "equals": "__never__"
+      },
+      "message": "H3 prompts go into MiniMaxH3ImageToVideo.prompt / MiniMaxH3ReferenceToVideo.prompt (the node tokenizes text + images together); a CLIPTextEncode 'negative' is a habit from other families and has no effect here",
+      "src": [
+        "S-NODES",
+        "S-DOCS-H3-PROMPT"
+      ]
+    },
+    {
+      "id": "frames-17k+5",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyMiniMaxH3LatentAV|MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "modulo": [
+          17,
+          5
+        ]
+      },
+      "message": "H3 frame counts sit on the 17k+5 grid at 24 fps (5, 22, 39, ..., 124 = 5 s, ..., 362 = 15 s); the node steps by 17 — 120 is not a legal length, 124 is",
+      "src": "S-NODES"
+    },
+    {
+      "id": "frames-trained-range",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyMiniMaxH3LatentAV|MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "min": 107,
+        "max": 362
+      },
+      "message": "'trained range is ~124-362, longer is untested' (4-15 s); the T2V template's 2 s default (56 frames) runs but is below the trained range — 124 (5 s) is what every other template uses",
+      "src": [
+        "S-NODES",
+        "S-HF-MINIMAXAI"
+      ]
+    },
+    {
+      "id": "dims-multiple-32",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyMiniMaxH3LatentAV|MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 32
+      },
+      "message": "H3 width/height are multiples of 32 (16x VAE times the 1x2x2 latent patch); the nodes step by 32 and the templates' ResolutionSelector uses multiple = 32",
+      "src": [
+        "S-NODES",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "canvas-long-edge-cap",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyMiniMaxH3LatentAV|MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo",
+        "input": "width|height"
+      },
+      "numeric": {
+        "max": 1344
+      },
+      "message": "the native canvas is a 768 px short edge capped at the 768x1344 pixel AREA (1,032,192 px): 1344x768 is the official 768p, 1376x768 (the 1.0 MP step) is already above the cap; 'Frames well above the native canvas do not hold detail' — for 2K generate native and upscale separately",
+      "src": [
+        "S-DOCS-H3-NATIVE",
+        "S-HF-MINIMAXAI"
+      ]
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyMiniMaxH3LatentAV|MiniMaxH3ImageToVideo|MiniMaxH3ReferenceToVideo",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "1344x768",
+          "768x1344",
+          "864x480",
+          "480x864",
+          "640x640"
+        ]
+      },
+      "message": "not one of the sizes the templates and docs use (1344x768 / 768x1344 official 768p; 864x480 / 480x864 / 640x640 = the 0.4 MP preview); any 32-multiple with a 768 short edge inside the 768x1344 area is legal (21:9, 16:9, 4:3, 1:1, 3:4, 9:16), but faces and text need the full 768p",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-R2V",
+        "S-DOCS-H3-NATIVE",
+        "S-HFD-30"
+      ]
+    },
+    {
+      "id": "fps-24",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(minimax_h3_|fastvideo_fasth3_)"
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "equals": 24
+      },
+      "message": "H3 generates 24 fps video with a 32 kHz stereo track timed to it; any other container fps changes playback speed and desyncs the audio",
+      "src": [
+        "S-HF-MINIMAXAI",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "sampler-res-multistep",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(minimax_h3_|fastvideo_fasth3_)"
+      },
+      "require": {
+        "node": "KSamplerSelect",
+        "input": "sampler_name",
+        "in": [
+          "res_multistep",
+          "er_sde"
+        ]
+      },
+      "message": "every H3 template samples with res_multistep (er_sde is the documented alternative; community turbo tuning also uses euler/beta); other samplers are untested here",
+      "src": [
+        "S-TPL-T2V",
+        "S-DOCS-H3-NATIVE",
+        "S-KIJAI-D5"
+      ]
+    },
+    {
+      "id": "scheduler-for-references",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "MiniMaxH3ReferenceToVideo",
+        "input": "ref_images.ref_image_1",
+        "exists": true
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "scheduler",
+        "in": [
+          "beta",
+          "normal",
+          "simple"
+        ]
+      },
+      "message": "with several references the R2V template note prefers 'beta' or 'normal' over 'simple' ('tends to outperform simple for reference-heavy prompts'); simple is what the template ships",
+      "src": "S-TPL-R2V"
+    },
+    {
+      "id": "lora-fl2v-on-fl2va",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^minimax_h3_fl2v_turbo"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^minimax_h3_fl2va_"
+      },
+      "message": "the fl2v turbo LoRAs were distilled on the FL2VA checkpoint and the templates load them only there; 'Match an H3 LoRA to the checkpoint build it was distilled on'",
+      "src": [
+        "S-DOCS-H3-NATIVE",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "lora-ref2v-on-ref2va",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^minimax_h3_ref2v_turbo"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^minimax_h3_ref2va_"
+      },
+      "message": "the ref2v turbo LoRA belongs on the Ref2VA checkpoint (R2V / Multiframe / ControlNet templates); 'Match an H3 LoRA to the checkpoint build it was distilled on'",
+      "src": [
+        "S-DOCS-H3-NATIVE",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "id": "lora-prefers-pruned-build",
+      "severity": "warn",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "minimax|h3"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_pruned_"
+      },
+      "message": "'take the pruned build when a repository publishes both'; a LoRA distilled on the FULL build carries adaln weights 'with no matching tensor in the pruned build: ComfyUI reports a shape mismatch for them and does not merge them' — the turbo LoRAs carry no adaln tensors and load on either build",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "id": "steps-under-turbo-8",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "turbo_8step"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "min": 6,
+        "max": 12,
+        "all": true
+      },
+      "message": "the 8-step turbo LoRA runs at 8 steps in the templates (community: 6-12 with lower strength); 20 steps under it wastes time, 4 under-samples audio",
+      "src": [
+        "S-TPL-I2V-CONT",
+        "S-KIJAI-D5",
+        "S-HFD-30"
+      ]
+    },
+    {
+      "id": "steps-under-turbo-4",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "turbo_4step"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "min": 4,
+        "max": 12,
+        "all": true
+      },
+      "message": "the 4-step turbo LoRAs run at 4 steps in the templates (community: 4-12 with strength 2.8 -> 1.0); 'at 4 steps a reference can end up barely applied' — render the final without the LoRA at 20",
+      "src": [
+        "S-TPL-R2V",
+        "S-DOCS-H3-MULTIFRAME",
+        "S-HFD-30"
+      ]
+    },
+    {
+      "id": "fasth3-steps-8",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^fastvideo_fasth3_8step"
+      },
+      "require": {
+        "node": "BasicScheduler",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "FastH3 8-Step V2 is DMD2-distilled for exactly 8 steps",
+      "src": [
+        "S-DOCS-H3-FASTVIDEO",
+        "S-TPL-FASTH3-T2V"
+      ]
+    },
+    {
+      "id": "fasth3-shift-10-3",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^fastvideo_fasth3_"
+      },
+      "require": {
+        "node": "MiniMaxH3SigmaShift",
+        "input": "shift_video",
+        "equals": 10.0
+      },
+      "message": "FastH3 needs MiniMaxH3SigmaShift with shift_video 10 / shift_audio 3 (the base model default is 12/3): 'sampling at shift_video 3 instead of 10 shows grid artifacts'",
+      "src": [
+        "S-DOCS-H3-FASTVIDEO",
+        "S-TPL-FASTH3-T2V"
+      ]
+    },
+    {
+      "id": "fasth3-no-ref2va",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^fastvideo_fasth3_"
+      },
+      "require": {
+        "node": "MiniMaxH3ReferenceToVideo",
+        "input": "prompt",
+        "equals": "__never__"
+      },
+      "message": "FastH3 supports t2va / fl2va only ('Ref2VA ... was not distilled'): use MiniMaxH3ImageToVideo, not MiniMaxH3ReferenceToVideo",
+      "src": "S-DOCS-H3-FASTVIDEO"
+    },
+    {
+      "id": "fasth3-no-turbo-lora",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^fastvideo_fasth3_"
+      },
+      "require": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "equals": "__never__"
+      },
+      "message": "FastH3 is already a distill; its templates load no LoRA and no source covers stacking a turbo LoRA on it",
+      "src": "S-TPL-FASTH3-T2V"
+    },
+    {
+      "id": "controlnet-patch-is-union",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "MiniMaxH3FunControlNetApply",
+        "input": "model_patch",
+        "exists": true
+      },
+      "require": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "^minimax_h3_fun_controlnet_union_.*\\.safetensors$"
+      },
+      "message": "MiniMaxH3FunControlNetApply takes the Fun ControlNet-Union patch from ModelPatchLoader (models/model_patches/), not a ControlNetLoader model",
+      "src": [
+        "S-TPL-CTRL",
+        "S-DOCS-H3-CTRL"
+      ]
+    },
+    {
+      "id": "controlnet-video-vae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "MiniMaxH3FunControlNetApply",
+        "input": "vae",
+        "exists": true
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^minimax_h3_video_vae_"
+      },
+      "message": "the Apply node's vae is the VIDEO VAE ('used to encode the control frames'), not the audio VAE",
+      "src": "S-TPL-CTRL"
+    },
+    {
+      "id": "controlnet-strength",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "MiniMaxH3FunControlNetApply",
+        "input": "strength"
+      },
+      "numeric": {
+        "min": 0.0,
+        "max": 1.0
+      },
+      "message": "'1.0 is strongest and is what this graph uses'; 'Raise strength above 1 only if the control drifts'",
+      "src": [
+        "S-TPL-CTRL",
+        "S-DOCS-H3-CTRL"
+      ]
+    },
+    {
+      "id": "ref-slot-limits",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "autogrow_slot_limits",
+      "args": {
+        "node": "MiniMaxH3ReferenceToVideo",
+        "limits": {
+          "ref_images": 9,
+          "ref_videos": 3,
+          "ref_video_audios": 3,
+          "ref_audios": 3
+        },
+        "total": 12
+      },
+      "message": "Ref2VA takes at most 9 reference images, 3 reference videos (2-15 s each, <= 15 s total, >= 5 frames at 24 fps), 3 soundtracks (same-numbered video) and 3 standalone audio clips (2-15 s, <= 15 s total), 12 files in all; slot keys are ref_images.ref_image_N etc., N from 0, contiguous",
+      "src": [
+        "S-NODES",
+        "S-HF-MINIMAXAI"
+      ]
+    },
+    {
+      "id": "ref-tags-bind-to-connected",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_tags_within_connected_refs",
+      "args": {
+        "node": "MiniMaxH3ReferenceToVideo",
+        "input": "prompt",
+        "tags": {
+          "<Picture (\\d+)>": "ref_images",
+          "<Video (\\d+)>": "ref_videos",
+          "<Audio (\\d+)>": "ref_video_audios+ref_audios"
+        }
+      },
+      "message": "'<Picture N> tags only bind to images actually connected on ref_images' — ordinals are 1-based per type in CONNECTION order: images first, then videos (each soundtrack's <Audio j> right before its <Video k>), then standalone audio; a tag with no connected input is dangling (the R2V template prompt names <Audio 1> with no audio connected)",
+      "src": [
+        "S-NODES",
+        "S-TPL-MULTIFRAME",
+        "S-TPL-R2V"
+      ]
+    },
+    {
+      "id": "guide-fits-length",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "guide_fits_length",
+      "args": {
+        "guide": "MiniMaxH3AddGuide",
+        "index": "frame_idx",
+        "source": "MiniMaxH3ReferenceToVideo|MiniMaxH3ImageToVideo|EmptyMiniMaxH3LatentAV",
+        "length": "length",
+        "grid": [
+          17,
+          5
+        ]
+      },
+      "message": "'The index plus the guide length must stay inside the generated length' — a still is 1 frame, an image batch is cropped down to 5/22/39/... frames, negative frame_idx counts from the end; the node raises otherwise. Guides chain positive -> positive and the last one feeds BasicGuider",
+      "src": [
+        "S-NODES",
+        "S-TPL-MULTIFRAME"
+      ]
+    },
+    {
+      "id": "prompt-context-ir-sections",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "prompt_has_sections",
+      "args": {
+        "node": "MiniMaxH3ImageToVideo",
+        "input": "prompt",
+        "markers": "prompting.required_sections.base",
+        "ref_node": "MiniMaxH3ReferenceToVideo",
+        "ref_markers": "prompting.required_sections.reference"
+      },
+      "message": "H3 was trained on the H3-Context-IR representation: base prompts carry integrated_multimodal_description / overall_soundscape / non_diegetic_music, reference prompts the six sections subject_definitions / summary / retention_analysis / detailed_description / overall_soundscape / non_diegetic_music (see guide.md). The official T2V/I2V templates ship free-form storyboards, so this is a warning; the FastH3 and Multiframe templates use the strict format",
+      "src": [
+        "S-H3-GUIDE-BASE",
+        "S-H3-GUIDE-REF",
+        "S-TPL-MULTIFRAME",
+        "S-TPL-FASTH3-T2V"
+      ]
+    },
+    {
+      "id": "ck-attention-with-int8",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ModelAttentionBackend",
+        "input": "attention",
+        "equals": "comfy kitchen attention"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_bf16\\.safetensors$"
+      },
+      "message": "docs: Comfy Kitchen attention 'crashes with int8-convrot checkpoints' (issue #15529) — pair it with the pruned_bf16 build; the FastH3 template nevertheless ships it with its int8_convrot file, so treat a crash there as this",
+      "src": [
+        "S-DOCS-H3-NATIVE",
+        "S-TPL-FASTH3-T2V"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (FastVideo FastH3: 0.36.0 > 0.35.0; native H3 0.30.0, Add Guide 0.34.0, Fun ControlNet 0.35.0 are fine)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": null,
+    "negative_note": "there is NO negative input and no CFG: 'a negative prompt has no effect'. 'Write bans as positives': 'a line such as no subtitles and no on-screen text registers text as content. Say what should be in the shot instead, for example the sign above the door is blank'",
+    "negative_src": [
+      "S-DOCS-H3-PROMPT",
+      "S-HF-MINIMAXAI"
+    ],
+    "format": "H3-Context-IR intermediate representation (the hosted rewriter is not open; write it by hand or with an LLM following the official guides). English throughout, except dialogue/lyrics inside <d> tags and on-screen text, which stay in their original language. guide.md carries the full format with the official examples.",
+    "required_sections": {
+      "base": [
+        "integrated_multimodal_description:",
+        "overall_soundscape:",
+        "non_diegetic_music:"
+      ],
+      "base_instruction_line": {
+        "t2va": null,
+        "i2va": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.",
+        "fl2va": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video.",
+        "l2va": "How the reference pictures align with the target video — <Picture 1> (from [Shot N]) aligns with the S.SS-second mark of the target video."
+      },
+      "reference": [
+        "subject_definitions:",
+        "summary:",
+        "retention_analysis:",
+        "detailed_description:",
+        "overall_soundscape:",
+        "non_diegetic_music:"
+      ],
+      "shot_marker": "[Shot N]",
+      "cut_timestamp": "At MM:SS.mmm, the camera cuts to ...",
+      "dialogue": "<d>[Language] exact words</d>",
+      "speaker_id": "(S1), (S2), compound (S1,S2)",
+      "summary_task_types": [
+        "keyframe completion",
+        "reference generation",
+        "video editing",
+        "video continuation",
+        "audio reuse",
+        "audio reference"
+      ],
+      "retention_markers_visual": [
+        "fully_preserved",
+        "partially_preserved",
+        "attribute_transfer",
+        "weak_reference"
+      ],
+      "retention_markers_audio": [
+        "fully_copy",
+        "partially_copy",
+        "reference",
+        "weak_reference"
+      ],
+      "src": [
+        "S-H3-GUIDE-BASE",
+        "S-H3-GUIDE-REF"
+      ]
+    },
+    "positive": [
+      {
+        "line": "Base modes (T2VA/I2VA/FL2VA/L2VA): optional instruction line, blank line, then integrated_multimodal_description / overall_soundscape / non_diegetic_music in that order",
+        "class": "official",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Start [Shot 1] with style + initial composition (Cinematic, live-action, 2D-animated, 3D CG, claymation, watercolor, vintage film); no timestamp on Shot 1; later shots '[Shot 2] At 00:03.500, the camera cuts to ...' with strictly increasing cut times inside the duration",
+        "class": "official",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Camera motion = type + amplitude + speed as prose: 'The camera pushes in with small amplitude at slow speed toward ...' (Zoom In/Out, Push In/Pull Out, Pan, Truck, Tilt, Pedestal, Arc Shot, Tracking Shot, Static Shot, Shake Slightly/Strongly, POV, Roll)",
+        "class": "official",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Speakers get stable IDs (S1), (S2); identity, ID, action and delivery outside the tags, only '<d>[Language] exact words</d>' inside; voiceover = 'says in an off-screen voiceover' + the lips stay closed; <scenetrans> across cuts, <cutoff> for truncated speech; on-screen text in double quotes, verbatim",
+        "class": "official",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Reference mode (Ref2VA): six sections; 'Assign each reference a job' (identity, style, motion, camera, voice); label every input <Picture i> / <Video k> / <Audio j> in connection order; detailed_description 'normally 350-500 English words'",
+        "class": "official",
+        "src": [
+          "S-H3-GUIDE-REF",
+          "S-DOCS-H3-PROMPT"
+        ]
+      },
+      {
+        "line": "I2VA keyframe arc: first-frame anchor -> action onset -> continuous development -> result; FL2VA: first-frame state -> observable intermediate changes -> narrowing differences -> last-frame state (single shot preferred); L2VA: plausible preceding state -> explicit transition -> convergence -> last-frame landing",
+        "class": "official",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Multiple speakers with audio references can get swapped: tie a line to a visible event rather than a timecode, or supply the line as an audio reference with fully_copy/partially_copy",
+        "class": "official",
+        "src": "S-DOCS-H3-PROMPT"
+      },
+      {
+        "line": "Style embeddings: 'embedding:minimaxh3_art_is_explosion' etc. (10 community files)",
+        "class": "official (docs) / community (files)",
+        "src": "S-DOCS-H3"
+      }
+    ],
+    "structure": "base: [instruction line] + integrated_multimodal_description ([Shot 1] ... [Shot 2] At 00:03.500 ...) + overall_soundscape (1-4 sentences, ambient/physical/non-verbal only) + non_diegetic_music (1-3 sentences, instrumentation/tempo/rhythm/dynamics, no mood words; N/A when none). reference: subject_definitions + summary ([task types]) + retention_analysis + detailed_description + overall_soundscape + non_diegetic_music",
+    "hurts": [
+      {
+        "line": "negative phrasing ('no subtitles') — registers the thing as content",
+        "src": "S-DOCS-H3-PROMPT"
+      },
+      {
+        "line": "abstract mood words in non_diegetic_music; dialogue or music inside overall_soundscape",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "<Picture N> tags for images that are not connected (they bind only to connected slots, in order)",
+        "src": "S-TPL-MULTIFRAME"
+      },
+      {
+        "line": "cross-dissolve / fade / wipe transitions unless the user asks; cut times outside or out of order within the duration",
+        "src": "S-H3-GUIDE-BASE"
+      },
+      {
+        "line": "Ref2VA 'output is very sensitive to prompt wording'",
+        "src": "S-TPL-R2V"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "LoRA shape-mismatch warnings, LoRA partly ignored",
+      "cause": "a LoRA distilled on the FULL build loaded on a pruned checkpoint (adaln tensors have no match), or a fl2v LoRA on ref2va / ref2v on fl2va",
+      "fix": "match LoRA to checkpoint; prefer pruned builds; the turbo LoRAs load on either build",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "symptom": "crash ('alignment error') with Comfy Kitchen attention; morphing near the end of a clip or garbled on-screen text with INT8 Sage",
+      "cause": "comfy-kitchen attention + int8_convrot checkpoint (issue #15529); INT8 Sage artifacts",
+      "fix": "keep default attention with int8_convrot files, or load pruned_bf16 and switch ModelAttentionBackend to 'comfy kitchen attention' (--use-ck-attention, 0.32.0+)",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "symptom": "'Input tensors must be in dtype of torch.float16 or torch.bfloat16, using pytorch attention instead'",
+      "cause": "Sage Attention dtype warning; expected",
+      "fix": "ignore; affected layers fall back",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "symptom": "metallic / underwater audio with the turbo LoRA",
+      "cause": "a core bug fixed around 2026-08-06/07",
+      "fix": "run a ComfyUI newer than that (the 0.35.0 image is)",
+      "src": "S-KIJAI-D5"
+    },
+    {
+      "symptom": "soft or degraded faces in wide / medium shots",
+      "cause": "'a soft frame is a resolution problem first'; 0.4 MP preview canvas; latent re-encode upscalers 'destroy initial details'",
+      "fix": "generate at 1344x768 (0.98 MP), never the 1.0 MP step; community: turbo LoRA 2.8 / 4 steps at 1.0 MP (single user)",
+      "src": [
+        "S-HFD-30",
+        "S-DOCS-H3-NATIVE"
+      ]
+    },
+    {
+      "symptom": "red / blush cheek patches on Ref2VA output",
+      "cause": "unresolved (HF #55); appears without LoRAs; more steps did not help",
+      "fix": "a 'MiniMax-H3-Realism-People' LoRA at 1.0 suppressed it at some resolutions (single report)",
+      "src": "S-HFD-55"
+    },
+    {
+      "symptom": "a voiceover line is lip-synced onto the visible character",
+      "cause": "the guide's 'says in an off-screen voiceover' + closed-lips phrasing is not reliable (HF #44)",
+      "fix": "name the narrator ('Female narrator voice, saying: ...'), state '<Subject 1>'s lips' stay closed, or supply the line as an audio reference",
+      "src": [
+        "S-HFD-44",
+        "S-DOCS-H3-PROMPT"
+      ]
+    },
+    {
+      "symptom": "reference barely applied; pose or face angle drifts",
+      "cause": "4-step turbo LoRA — references ride along every step and 4 is too few",
+      "fix": "Lightning off (20 steps); 25 if it still drifts; ref_image_size 'max' for identity",
+      "src": "S-DOCS-H3-MULTIFRAME"
+    },
+    {
+      "symptom": "canvas rejected or detail missing at '1.0 MP'",
+      "cause": "1376x768 is above the 768x1344 area cap",
+      "fix": "0.98 MP or type 1344x768",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "symptom": "quality drop when sampling is split over two samplers",
+      "cause": "res_multistep history 'does not carry over'",
+      "fix": "one SamplerCustomAdvanced for the whole schedule, or enough steps on the second",
+      "src": "S-DOCS-H3-NATIVE"
+    },
+    {
+      "symptom": "FastH3 grid artifacts or mush",
+      "cause": "steps != 8 or shift_video != 10; Ref2VA attempted",
+      "fix": "8 steps, MiniMaxH3SigmaShift 10/3, t2va/fl2va only",
+      "src": "S-DOCS-H3-FASTVIDEO"
+    },
+    {
+      "symptom": "'CUDA error: invalid argument' loading the video VAE on AMD ROCm",
+      "cause": "smart memory on ROCm",
+      "fix": "launch with --disable-smart-memory",
+      "src": "S-HFD-17"
+    },
+    {
+      "symptom": "int8_convrot load / GEMM failures",
+      "cause": "needs pytorch with cu130 + comfy-kitchen (community: ComfyUI >= 0.27.0, comfy-kitchen >= 0.2.16); Turing-era GPUs fail",
+      "fix": "the box's RTX 5090 / RTX PRO 6000 (Blackwell) are fine; otherwise fp8_scaled or pruned_bf16",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-NOTE-INT8",
+        "S-GH-16431"
+      ]
+    },
+    {
+      "symptom": "H3 generation (or ComfyUI) breaks after an update",
+      "cause": "the 'ComfyUI-MiniMaxH3-Cache' custom node 'globally monkey-patches the MiniMax H3 model code'",
+      "fix": "do not install it (single-source claim; verify before relying)",
+      "src": "S-SEARCH-CACHE"
+    },
+    {
+      "symptom": "guide image seems ignored as a 'video-to-video' source",
+      "cause": "MiniMaxH3AddGuide conditions, it does not seed the latent; denoise does not scale it",
+      "fix": "restyle through ref_videos; regenerate parts through the mask route (denoise_mask / ControlNet mask + source_video)",
+      "src": "S-DOCS-H3-MULTIFRAME"
+    },
+    {
+      "symptom": "ValueError on a reference video or guide clip",
+      "cause": "fewer than 5 frames, or the guide does not fit inside length; reference audio outside 2-15 s",
+      "fix": "clips >= 5 frames at 24 fps (cropped to 17k+5); frame_idx + guide frames <= length",
+      "src": "S-NODES"
+    },
+    {
+      "symptom": "'Forbidden' downloading fp8_scaled",
+      "cause": "transient / permissions (HF #39)",
+      "fix": "use the int8_convrot files (recommended anyway)",
+      "src": "S-HF-COMFYORG"
+    },
+    {
+      "symptom": "out of disk on the 60 GB box",
+      "cause": "fl2va + ref2va + encoder + VAEs = 61.0 GB; bf16 pruned + encoder = 59.3 GB",
+      "fix": "one pruned int8 checkpoint at a time (40.1 GB with the encoder and VAEs); ref2va covers t2v (empty refs), r2v, multiframe, control, continuation; fl2va covers t2v / i2v / flf2v",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-TPL-CTRL"
+      ]
+    },
+    {
+      "symptom": "long waits before the first step",
+      "cause": "~15 GB text-encoder load; community: ~3 min for 10 s at 864x480/10 steps on a 5090, 12-13 min HD on a 4090 (bf16)",
+      "fix": "expected; keep the encoder resident between runs",
+      "src": [
+        "S-AIMUNINN",
+        "S-HFD-6"
+      ]
+    }
+  ],
+  "sources": {
+    "S-HF-MINIMAXAI": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-H3-LICENSE": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-H3-LICENSE-QA": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/QA-about-License.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-H3-GUIDE-BASE": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-H3-GUIDE-REF": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFYORG": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3 (README + API tree: file sizes, createdAt 2026-07-30, lastModified 2026-09-29)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FASTH3": {
+      "url": "https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LIGHTX2V": {
+      "url": "https://huggingface.co/lightx2v/Minimax-h3-Turbo",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-PAI-CTRL": {
+      "url": "https://huggingface.co/alibaba-pai/MiniMax-H3-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SDPOSE": {
+      "url": "https://huggingface.co/Comfy-Org/SDPose",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3-NATIVE": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3-native.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3-MULTIFRAME": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3-multiframe.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3-CTRL": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3-fun-controlnet.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3-PROMPT": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3-prompt-guide.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-H3-FASTVIDEO": {
+      "url": "https://docs.comfy.org/tutorials/video/minimax/minimax-h3-fastvideo.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_t2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_i2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-I2V-CONT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_i2v_continuation.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-R2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_r2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-MULTIFRAME": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_multiframe_reference.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-CTRL": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_minimax_h3_fun_controlnet_union.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FASTH3-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_fastvideo_fasth3_t2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FASTH3-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_fastvideo_fasth3_i2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.1/comfy_extras/nodes_minimax_h3.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES-SPARSE": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.1/comfy_extras/nodes_sparse_attention.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SUPPORTED-MODELS": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/v0.38.1/comfy/supported_models.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-WIKI-NEWS": {
+      "url": "https://comfyui-wiki.com/en/news/2026-08-03-minimax-h3-open-weights-comfyui",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-RUNPOD": {
+      "url": "https://www.runpod.io/blog/minimax-h3-the-open-weight-omni-modal-video-model-and-what-it-takes-to-run-it",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-6": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/discussions/6",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-17": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/discussions/17",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-30": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/discussions/30",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HFD-44": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/discussions/44",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HFD-55": {
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/discussions/55",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-KIJAI-D5": {
+      "url": "https://huggingface.co/Kijai/MiniMax-H3_comfy/discussions/5",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-AIMUNINN": {
+      "url": "https://ai-muninn.com/en/blog/minimax-h3-nvfp4-rtx5090 (RTX 5090 benchmark; its NVFP4 transformer is not a Comfy-Org file)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-NOTE-INT8": {
+      "url": "https://note.com/hirorohi03/n/n047a8c5f7f8b",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-GH-16431": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/issues/16431",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SEARCH-CACHE": {
+      "url": "web search summary attributed to docs/wiki (ComfyUI-MiniMaxH3-Cache warning) — verify before relying",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

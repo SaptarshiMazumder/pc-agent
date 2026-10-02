@@ -1,0 +1,377 @@
+{
+  "recipe": {
+    "task": "control",
+    "control": "depth",
+    "host": "sd35",
+    "variant": "SD3.5 Large + sd3.5_large_controlnet_depth; depth map from the native Lotus chain; the latent is the VAE-encoded depth map (denoise 1) so output size = control size, as the template wires it",
+    "from_template": "sd3.5_large_depth ('Lotus Depth(Subgraph)' flattened)",
+    "min_comfyui": "0.3.42",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "32",
+        "33",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51"
+      ],
+      "splice": "ControlNetApplyAdvanced (33) between positive/negative and KSampler, vae wired. Template note: to choose the output size yourself, feed an EmptySD3LatentImage into KSampler.latent_image instead of node 9 - then the control map must be scaled to that size."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "strength": {
+        "node": "33",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "33",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "33",
+        "input": "end_percent"
+      },
+      "control_megapixels": {
+        "node": "30",
+        "input": "megapixels"
+      },
+      "depth_intensity": {
+        "node": "48",
+        "input": "sigma"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "a raw photo; the recipe computes the depth map with the native Lotus chain (nodes 40-51, 1-step SD1.5-sized depth model, inverted as the templates do). To feed a READY depth map instead, drop 40-51 and wire the map where node 51 was. Pose/lineart/softedge maps need comfyui_controlnet_aux (profile.preprocessors)."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_large_fp8_scaled.safetensors",
+      "sd3.5_large_controlnet_depth.safetensors",
+      "lotus-depth-d-v1-1.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "20 steps, cfg 8, euler/normal, strength 0.7 (publisher 0.7-0.8), control image 1 MP. ComfyUI inverts depth internally for the SD3.5 depth net (1.0 - a); the Lotus chain already outputs the inverted map the template expects. License: Stability Community License.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "checkpoint 14.9 GB + controlnet 8.65 GB + Lotus 1.7 GB",
+      "src": "S-EXAMPLES-CN"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "sd35-depth",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_large_fp8_scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "A cute, plush - like light green baby dragon with large, shiny eyes. It has light yellow horns and wing membranes. Its belly and parts of its wings have a soft, fuzzy texture. The dragon stands against a plain light green background, giving a warm and whimsical feel."
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "40": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "lotus-depth-d-v1-1.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "41": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      }
+    },
+    "42": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "30",
+          0
+        ],
+        "vae": [
+          "41",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "LotusConditioning",
+      "inputs": {}
+    },
+    "44": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "40",
+          0
+        ],
+        "conditioning": [
+          "43",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "DisableNoise",
+      "inputs": {}
+    },
+    "46": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "47": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "40",
+          0
+        ],
+        "scheduler": "normal",
+        "steps": 1,
+        "denoise": 1.0
+      }
+    },
+    "48": {
+      "class_type": "SetFirstSigma",
+      "inputs": {
+        "sigmas": [
+          "47",
+          0
+        ],
+        "sigma": 10000.0
+      }
+    },
+    "49": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "45",
+          0
+        ],
+        "guider": [
+          "44",
+          0
+        ],
+        "sampler": [
+          "46",
+          0
+        ],
+        "sigmas": [
+          "48",
+          0
+        ],
+        "latent_image": [
+          "42",
+          0
+        ]
+      }
+    },
+    "50": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "49",
+          0
+        ],
+        "vae": [
+          "41",
+          0
+        ]
+      }
+    },
+    "51": {
+      "class_type": "ImageInvert",
+      "inputs": {
+        "image": [
+          "50",
+          0
+        ]
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "sd3.5_large_controlnet_depth.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "ControlNetApplyAdvanced",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "image": [
+          "51",
+          0
+        ],
+        "strength": 0.7,
+        "start_percent": 0.0,
+        "end_percent": 1.0,
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "9": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "51",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 1020711502084247,
+        "steps": 20,
+        "cfg": 8.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "controlnet/sd3.5_depth"
+      }
+    }
+  }
+}

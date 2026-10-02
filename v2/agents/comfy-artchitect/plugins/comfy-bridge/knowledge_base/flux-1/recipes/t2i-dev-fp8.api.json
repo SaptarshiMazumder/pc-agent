@@ -1,0 +1,145 @@
+{
+  "recipe": {
+    "id": "t2i-dev-fp8",
+    "family": "flux-1",
+    "task": "t2i",
+    "variant": "FLUX.1 [dev] fp8 all-in-one checkpoint (UNET + both text encoders + VAE in one 17 GB file) via CheckpointLoaderSimple; KSampler 20 steps, cfg 1 — the low-VRAM single-file route",
+    "from_template": "flux_schnell topology (CheckpointLoaderSimple -> CLIPTextEncode x2 -> KSampler cfg 1) with flux1-dev-fp8.safetensors and 20 steps, as documented in docs.comfy.org flux-1-text-to-image and ComfyUI_examples; the flux_dev_checkpoint_example JSON at commit 0bfbbbf carries the UNETLoader graph instead (discrepancy recorded in the dossier)",
+    "min_comfyui": "0.0.4",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "ignored at cfg 1.0; kept empty as the template does"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-dev-fp8.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 20 steps, euler/simple, cfg 1.0. Comfy-Org: 'for ComfyUI users with less VRAM (under 24gb)'; ComfyUI_examples: 'Make sure you set CFG to 1.0', 'fp8 degrades the quality a bit'. File goes in models/checkpoints.",
+    "vram_evidence": {
+      "gpu": "under 24 GB",
+      "note": "Comfy-Org README: the fp8 checkpoint is the route for cards under 24 GB; no number",
+      "class": "official",
+      "src": "S-README-COMFYORG"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "flux1-dev-fp8.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "Beautiful photography of a gorgeous-haired female artist, natural and authentic, her hair styled in a messy casual bun, smiling joyfully and looking directly at the camera, cinematic lighting, soft natural daylight, shallow depth of field, warm gentle tones, film grain, high detail, 8K, realistic portrait"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": ""
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux.1_Dev"
+      }
+    }
+  }
+}

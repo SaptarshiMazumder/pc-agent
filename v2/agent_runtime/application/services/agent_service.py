@@ -726,10 +726,12 @@ class AgentService:
             await on_event(AgentEvent(kind, payload))
 
         # The manager sits beside a PERSON's work. A scheduled run has nobody to approve a plan or
-        # answer an escalation, so it keeps its own report_outcome discipline below instead.
+        # answer an escalation, so it keeps its own report_outcome discipline below instead. An
+        # agent whose author declared `managed = false` runs without one.
         checkpoints = (
             self._manager_for_run(ManagerRunScope(agent, session, tools, run_model, emit))
             if self._manager_for_run is not None and supervised and mode == RunMode.INTERACTIVE
+            and agent.managed
             else None
         )
 

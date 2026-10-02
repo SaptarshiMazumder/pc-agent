@@ -1,0 +1,287 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "ip-adapter-faceid",
+    "host": "sdxl",
+    "variant": "IP-Adapter FaceID Plus V2 (SDXL): insightface (buffalo_l) face embedding + CLIP-H image embedding; the unified FaceID loader also loads the matching LoRA at lora_strength",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: cubiq/ComfyUI_IPAdapter_plus examples/ipadapter_faceid.json (preset FACEID PLUS V2, lora_strength 0.6, provider CPU, weight 1, weight_faceidv2 2, linear, concat) on the sdxl_simple_example host",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31"
+      ],
+      "splice": "same MODEL-line splice as ipadapter-sdxl; IPAdapterUnifiedLoaderFaceID also injects the FaceID LoRA into the returned model"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "preset": {
+        "node": "30",
+        "input": "preset",
+        "options": [
+          "FACEID",
+          "FACEID PLUS - SD1.5 only",
+          "FACEID PLUS V2",
+          "FACEID PORTRAIT (style transfer)",
+          "FACEID PORTRAIT UNNORM - SDXL only (strong)"
+        ]
+      },
+      "lora_strength": {
+        "node": "30",
+        "input": "lora_strength"
+      },
+      "provider": {
+        "node": "30",
+        "input": "provider",
+        "options": [
+          "CPU",
+          "CUDA",
+          "ROCM",
+          "DirectML",
+          "OpenVINO",
+          "CoreML"
+        ]
+      },
+      "weight": {
+        "node": "31",
+        "input": "weight"
+      },
+      "weight_faceidv2": {
+        "node": "31",
+        "input": "weight_faceidv2"
+      },
+      "weight_type": {
+        "node": "31",
+        "input": "weight_type"
+      },
+      "combine_embeds": {
+        "node": "31",
+        "input": "combine_embeds"
+      },
+      "start_at": {
+        "node": "31",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "31",
+        "input": "end_at"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "face_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "a clear face photo; insightface must detect a face or the node errors"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors",
+      "ip-adapter-faceid-plusv2_sdxl.bin",
+      "ip-adapter-faceid-plusv2_sdxl_lora.safetensors",
+      "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_IPAdapter_plus",
+        "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+        "license": "GPL-3.0",
+        "status": "maintenance only since 2025-04-14",
+        "pip": [
+          "insightface",
+          "onnxruntime (or onnxruntime-gpu, never both)"
+        ],
+        "nodes_used": [
+          "IPAdapterUnifiedLoaderFaceID",
+          "IPAdapterFaceID"
+        ]
+      }
+    ],
+    "defaults_note": "weight 1.0, weight_faceidv2 2.0 (pack example), LoRA 0.6, 30 steps cfg 6.5 dpmpp_2m/karras. insightface downloads buffalo_l into models/insightface itself. IP-Adapter-FaceID has NO license field on HF (NOT FOUND); its README states insightface is non-commercial.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "SDXL base + 1.49 GB FaceID + 0.37 GB LoRA + 2.5 GB ViT-H",
+      "src": "S-HF-IPA-FACEID"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: IPAdapterUnifiedLoaderFaceID, IPAdapterFaceID",
+      "IPAdapterFaceID may also expose embeds_scaling (Advanced family) - not set here, node default applies"
+    ],
+    "id": "ipadapter-faceid-sdxl",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "portrait photo of a woman in a sunlit garden, natural light, 85mm lens"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face_image"
+      }
+    },
+    "30": {
+      "class_type": "IPAdapterUnifiedLoaderFaceID",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "preset": "FACEID PLUS V2",
+        "lora_strength": 0.6,
+        "provider": "CPU"
+      }
+    },
+    "31": {
+      "class_type": "IPAdapterFaceID",
+      "inputs": {
+        "model": [
+          "30",
+          0
+        ],
+        "ipadapter": [
+          "30",
+          1
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "weight": 1.0,
+        "weight_faceidv2": 2.0,
+        "weight_type": "linear",
+        "combine_embeds": "concat",
+        "start_at": 0.0,
+        "end_at": 1.0
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "31",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 6.5,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/ipadapter_faceid_sdxl"
+      }
+    }
+  }
+}

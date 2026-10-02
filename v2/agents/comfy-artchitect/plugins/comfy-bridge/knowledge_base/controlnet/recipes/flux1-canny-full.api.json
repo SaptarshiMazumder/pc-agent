@@ -1,0 +1,238 @@
+{
+  "recipe": {
+    "task": "control",
+    "control": "canny",
+    "host": "flux-1",
+    "variant": "FLUX.1 Canny [dev] full 23.8 GB transformer (replaces flux1-dev); native Canny preprocessing; InstructPixToPixConditioning, not ControlNetLoader",
+    "from_template": "flux_canny_model_example",
+    "min_comfyui": "0.0.4",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "2",
+        "3",
+        "6",
+        "7",
+        "8",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "1",
+        "15",
+        "30",
+        "31"
+      ],
+      "replaces": {
+        "1": "the host's UNETLoader (flux1-dev) is REPLACED by flux1-canny-dev; the Canny model is a full finetuned transformer, not a models/controlnet file"
+      },
+      "splice": "InstructPixToPixConditioning (31) takes the host's positive (after FluxGuidance) and negative, outputs positive/negative/latent -> KSampler; the latent comes from the control image, so there is no EmptyLatentImage: output size = control image size"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "8",
+        "input": "guidance"
+      },
+      "canny_low": {
+        "node": "30",
+        "input": "low_threshold"
+      },
+      "canny_high": {
+        "node": "30",
+        "input": "high_threshold"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "control_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "a raw photo or line drawing; native Canny (node 30) turns it into the edge map. Its size becomes the output size (resize it first to the target size, multiples of 16)."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-canny-dev.safetensors",
+      "clip_l.safetensors",
+      "t5xxl_fp16.safetensors",
+      "ae.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "20 steps, cfg 1 (FLUX distilled guidance via FluxGuidance 30 - the template's value for the Canny model), euler/normal, Canny 0.15/0.3. Negative is ConditioningZeroOut. License: FLUX.1 [dev] Non-Commercial.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "the Canny-dev transformer is 23.8 GB bf16 + T5 fp16 9.8 GB; no official per-GPU table",
+      "src": "S-HF-BFL-CANNY"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "flux1-canny-full",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-canny-dev.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp16.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A vibrant red ladybug rests on a blooming deep purple rose with lush, velvety petals. The background is a soft pink, filled with subtly blurred roses of the same pink shade, creating a dreamy and romantic atmosphere."
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ],
+        "guidance": 30.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@control_image"
+      }
+    },
+    "30": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "low_threshold": 0.15,
+        "high_threshold": 0.3
+      }
+    },
+    "31": {
+      "class_type": "InstructPixToPixConditioning",
+      "inputs": {
+        "positive": [
+          "8",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "pixels": [
+          "30",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 1125476660951871,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": [
+          "31",
+          0
+        ],
+        "negative": [
+          "31",
+          1
+        ],
+        "latent_image": [
+          "31",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "controlnet/flux1_canny"
+      }
+    }
+  }
+}

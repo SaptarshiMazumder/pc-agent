@@ -1,0 +1,186 @@
+{
+  "recipe": {
+    "id": "t2i-base-int8",
+    "task": "t2i",
+    "variant": "Z-Image base int8 ConvRot (6.2 GB), 25 steps, cfg 4 - base model on a small card",
+    "from_template": "image_z_image_int8 (same subgraph id 9b9009e4 as image_z_image; only the diffusion file differs)",
+    "min_comfyui": "0.23.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "real negative prompting works on the base model (card: 'Strongly recommended for better control'); template ships it empty"
+      },
+      "width": {
+        "node": "6",
+        "input": "width"
+      },
+      "height": {
+        "node": "6",
+        "input": "height"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps",
+        "note": "template 25; official 28-50; template note 'Steps: 30~50'"
+      },
+      "cfg": {
+        "node": "7",
+        "input": "cfg",
+        "note": "template 4; official 3-5"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "z_image_int8_convrot.safetensors",
+      "qwen_3_4b.safetensors",
+      "ae.safetensors"
+    ],
+    "defaults_note": "Identical settings to t2i-base. Int8 template dated 2026-07-10; loading on v0.35.0 NOT verified.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "src": "S-HF-TREE"
+    },
+    "family": "z-image",
+    "packs": [],
+    "inputs": {},
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "z_image_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.0
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_4b.safetensors",
+        "type": "lumina2",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Surreal double exposure portrait, semi-transparent glass human silhouette filled with fresh flowers and green foliage, faceless, glossy royal blue nylon baseball cap & shiny royal blue puffer jacket, bird of paradise, white jasmine, light purple forget-me-nots, lush leaves through glass gaps, subtle glass light refraction, plain off-white minimalist background, soft studio lighting, high fashion"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 4.0,
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImageAdvanced",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "Z_image_base_int8",
+        "format": "png",
+        "format.bit_depth": "8-bit",
+        "format.input_color_space": "sRGB"
+      }
+    }
+  }
+}

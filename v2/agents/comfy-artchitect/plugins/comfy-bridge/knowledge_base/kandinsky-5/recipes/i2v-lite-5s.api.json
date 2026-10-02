@@ -1,0 +1,297 @@
+{
+  "recipe": {
+    "family": "kandinsky-5",
+    "min_comfyui": "0.4.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "i2v-lite-5s",
+    "task": "i2v",
+    "variant": "Video Lite 2B I2V 5 s: start image scaled to 768x512, clean first-frame latents put back (ReplaceVideoLatentFrames) and normalized (NormalizeVideoLatentStart 4/5) before decode; 50 steps cfg 5 shift 5",
+    "from_template": "video_kandinsky5_i2v",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "English or Russian"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "templates ship ''; the reference pipeline default is 'Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards'; only read at cfg > 1"
+      },
+      "width": {
+        "node": "7",
+        "input": "width",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "width"
+          }
+        ],
+        "note": "the start image is force-scaled to width x height (lanczos, center crop) - match its aspect; area ~768x512"
+      },
+      "height": {
+        "node": "7",
+        "input": "height",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "height"
+          }
+        ]
+      },
+      "length": {
+        "node": "7",
+        "input": "length",
+        "note": "4n+1: 121 (5 s) or 241 (10 s models only)"
+      },
+      "seed": {
+        "node": "8",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "8",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "8",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift",
+        "note": "'Scheduler Scale'"
+      },
+      "fps": {
+        "node": "10",
+        "input": "fps"
+      },
+      "start_frame_count": {
+        "node": "13",
+        "input": "start_frame_count",
+        "note": "4 (template)"
+      },
+      "reference_frame_count": {
+        "node": "13",
+        "input": "reference_frame_count",
+        "note": "5 (template)"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "force-scaled to width x height (lanczos, center crop) - 'aspect ratio of result is close to start image ratio and area is close to 768*512' (template note)"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "11",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "kandinsky5lite_i2v_5s.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "clip_l.safetensors",
+      "hunyuan_video_vae_bf16.safetensors"
+    ],
+    "defaults_note": "768x512 x 121 @24 fps. Template shift 5; the publisher's README/config say 10 for I2V ('Scheduler Scale: ... 10.0 for 10s and image 2 video') - try 10 if motion/colour is off. The I2V checkpoint can also run text-to-video (publisher) by leaving start_image unwired.",
+    "vram_evidence": {
+      "gpu": "as t2v-lite-5s",
+      "at": "768x512x121",
+      "usage": null,
+      "time_s": null,
+      "src": "S-GH"
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "kandinsky5lite_i2v_5s.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "3": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "clip_name2": "clip_l.safetensors",
+        "type": "kandinsky5",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "Cinematic dynamic scene in deep blue dream haze: the camera glides slowly forward, focusing on tightly closed crystal flower buds that sway gently with misty currents. As the lens pans right, more blooms blur into pulsing bokeh; sequined leaves tremble, scattering glimmers. The camera then pulls back softly, the blue deepening from cyan to indigo, all motion flowing in a quiet, breath-like rhythm."
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "hunyuan_video_vae_bf16.safetensors"
+      }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 50,
+        "cfg": 5.0,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "beta",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "latent_image": [
+          "7",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "10": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "fps": 24.0
+      }
+    },
+    "11": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "10",
+          0
+        ],
+        "filename_prefix": "video/kandinsky5_i2v",
+        "format": "mp4",
+        "format.codec": "h264"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "width": 768,
+        "height": 512,
+        "crop": "center"
+      }
+    },
+    "7": {
+      "class_type": "Kandinsky5ImageToVideo",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ],
+        "width": 768,
+        "height": 512,
+        "length": 121,
+        "batch_size": 1,
+        "start_image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "ReplaceVideoLatentFrames",
+      "inputs": {
+        "destination": [
+          "8",
+          0
+        ],
+        "source": [
+          "7",
+          3
+        ],
+        "index": 0
+      }
+    },
+    "13": {
+      "class_type": "NormalizeVideoLatentStart",
+      "inputs": {
+        "latent": [
+          "12",
+          0
+        ],
+        "start_frame_count": 4,
+        "reference_frame_count": 5
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "13",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ]
+      }
+    }
+  }
+}

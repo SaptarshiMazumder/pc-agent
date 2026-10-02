@@ -1,0 +1,244 @@
+{
+  "recipe": {
+    "id": "upscale-turbo-2k",
+    "task": "upscale",
+    "variant": "RealESRGAN x4 then x0.5 (net 2x -> ~2K) + Z-Image-Turbo img2img refine at denoise 0.33, 5 steps cfg 1",
+    "from_template": "utility_z_image_turbo_2k_upscaler.app (subgraph 'Image Upscale(Z-image-Turbo)' flattened; ImageCompare dropped - Nodes 2.0 frontend only)",
+    "min_comfyui": "0.9.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text",
+        "note": "template 'masterpiece, 8k'; use a detailed caption of the image for coherence at higher denoise"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text"
+      },
+      "denoise": {
+        "node": "7",
+        "input": "denoise",
+        "note": "0.15-0.25 subtle, 0.25-0.35 creative; above 0.35 may introduce artifacts (template note)"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "input_megapixels": {
+        "node": "16",
+        "input": "megapixels",
+        "note": "the input is first normalised to 1 MP, then x4 by ESRGAN, then x0.5 -> ~2K"
+      },
+      "scale_by": {
+        "node": "19",
+        "input": "scale_by"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "any image; normalised to 1 MP before the x4 model"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "z_image_turbo_bf16.safetensors",
+      "qwen_3_4b.safetensors",
+      "ae.safetensors",
+      "RealESRGAN_x4plus.safetensors"
+    ],
+    "defaults_note": "lanczos to 1 MP -> RealESRGAN_x4plus -> lanczos x0.5 -> VAEEncode -> KSampler 5 steps, cfg 1, dpmpp_2m_sde/beta, denoise 0.33 -> ~2K output. The only Z-Image img2img template; also the pattern for any Turbo img2img (VAEEncode replaces the empty latent, denoise < 1).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "src": "S-TPL-UPSCALE"
+    },
+    "family": "z-image",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry (verify_recipes.py) on 2026-10-02: classes, input keys incl. dynamic combos, links/types, enums, ranges, output node. Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "17": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.safetensors"
+      }
+    },
+    "18": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "upscale_model": [
+          "17",
+          0
+        ],
+        "image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "19": {
+      "class_type": "ImageScaleBy",
+      "inputs": {
+        "image": [
+          "18",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "scale_by": 0.5
+      }
+    },
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "z_image_turbo_bf16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.0
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_4b.safetensors",
+        "type": "lumina2",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "masterpiece, 8k"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "11": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "19",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 0,
+        "steps": 5,
+        "cfg": 1.0,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "beta",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "11",
+          0
+        ],
+        "denoise": 0.33
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "z-image-upscaled"
+      }
+    }
+  }
+}

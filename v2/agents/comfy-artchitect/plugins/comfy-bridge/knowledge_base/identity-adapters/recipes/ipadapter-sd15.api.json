@@ -1,0 +1,246 @@
+{
+  "recipe": {
+    "task": "image-prompt",
+    "method": "ip-adapter",
+    "host": "sd15",
+    "variant": "IP-Adapter Plus (SD1.5, ViT-H) through the unified loader on an SD1.5 checkpoint (DreamShaper 8, the host of the archived SD1.5 ControlNet template); 512x512",
+    "from_template": "NONE (no Comfy-Org template). COMMUNITY-CONFIRMED: cubiq/ComfyUI_IPAdapter_plus examples/ipadapter_simple.json (the pack's own graph: unified loader PLUS preset, weight 0.8, 30 steps cfg 6.5 dpmpp_2m karras) with the checkpoint swapped to the Comfy-Org archived template's DreamShaper_8_pruned; 512x512 as in ComfyUI_examples SD1.5 graphs",
+    "min_comfyui": "0.3.5",
+    "confidence": "community-confirmed",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "31"
+      ],
+      "splice": "as ipadapter-sdxl"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "preset": {
+        "node": "30",
+        "input": "preset"
+      },
+      "weight": {
+        "node": "31",
+        "input": "weight"
+      },
+      "weight_type": {
+        "node": "31",
+        "input": "weight_type"
+      },
+      "start_at": {
+        "node": "31",
+        "input": "start_at"
+      },
+      "end_at": {
+        "node": "31",
+        "input": "end_at"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "reference_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "DreamShaper_8_pruned.safetensors",
+      "ip-adapter-plus_sd15.safetensors",
+      "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+    ],
+    "packs": [
+      {
+        "name": "ComfyUI_IPAdapter_plus",
+        "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+        "license": "GPL-3.0",
+        "status": "maintenance only since 2025-04-14",
+        "pip": [],
+        "nodes_used": [
+          "IPAdapterUnifiedLoader",
+          "IPAdapter"
+        ]
+      }
+    ],
+    "defaults_note": "as ipadapter-sdxl; SD1.5 presets add LIGHT and FULL FACE. The 'VIT-G' preset needs ip-adapter_sd15_vit-G + the bigG encoder instead.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "SD1.5 checkpoint + 98 MB adapter + 2.5 GB ViT-H",
+      "src": "S-HF-IPA"
+    },
+    "verify": [
+      "PACK RECIPE: the offline validator reports the pack's classes as 'not in v0.35.0' and skips type-checking of links that leave them; that is expected until the pack is installed (Phase 2). Widget INPUT NAMES on pack nodes are copied from the pack example graphs / source as the dossier records them; confirm against /object_info after install.",
+      "unknown classes: IPAdapterUnifiedLoader, IPAdapter"
+    ],
+    "id": "ipadapter-sd15",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "DreamShaper_8_pruned.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "Masterpiece, best quality, portrait of a young woman with black hair, soft light, detailed"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, error, cropped, (worst quality:1.2), (low quality:1.2), watermark, blurry"
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 512,
+        "height": 512,
+        "batch_size": 1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@reference_image"
+      }
+    },
+    "30": {
+      "class_type": "IPAdapterUnifiedLoader",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "preset": "PLUS (high strength)"
+      }
+    },
+    "31": {
+      "class_type": "IPAdapter",
+      "inputs": {
+        "model": [
+          "30",
+          0
+        ],
+        "ipadapter": [
+          "30",
+          1
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "weight": 0.8,
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "weight_type": "standard"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "31",
+          0
+        ],
+        "seed": 0,
+        "steps": 30,
+        "cfg": 6.5,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/ipadapter_sd15"
+      }
+    }
+  }
+}

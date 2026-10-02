@@ -1,0 +1,2254 @@
+{
+  "schema": 2,
+  "id": "ltx-2",
+  "name": "LTX-2 family (LTX-2.5 / LTX-2.3; LTX-2 19B legacy)",
+  "publisher": "Lightricks Ltd. (ltx.io; github.com/Lightricks/LTX-2). ID-LoRAs by AviadDahan (mirrored by Comfy-Org); style-transition LoRA by valiantcat (community)",
+  "license": {
+    "name": "LTX-2.x Community License Agreement (LTX-2.5, dated 2026-08-11); LTX-2 Community License Agreement (LTX-2.3 / LTX-2, dated 2026-01-05)",
+    "commercial": true,
+    "revenue_cap_usd": 10000000,
+    "notes": "Free 'Commercial and production use at no cost' for entities UNDER $10,000,000 annual revenue. Commercial Entities 'with annual revenues of at least $10,000,000' need a paid Commercial Use Agreement (ltxv-licensing@lightricks.com) except for a Non-Commercial Purpose (individual / testing / evaluation / non-commercial R&D). 'Revenue is measured across the whole entity, including subsidiaries and affiliates under common control.' Transfer of fine-tunes to a Commercial Entity requires that entity to license separately; derivatives are distributed under the same agreement with notices; 'Licensor claims no rights in the Output you generate.' Aggregator claims of 'Apache 2.0' for LTX-2.3 are contradicted by the HF card and GitHub LICENSE. Comfy-Org/gemma-4 (prompt enhancer) is Apache-2.0.",
+    "src": [
+      "S-LICENSE-2X",
+      "S-LICENSE-2",
+      "S-HF25",
+      "S-GH"
+    ]
+  },
+  "cost": "free",
+  "gated_downloads": {
+    "note": "Lightricks/LTX-2.5 is gated ('accept the model license, and wait for your access request to be approved before downloading the models. Model downloads will fail without access'); so are the 2.5 IC-LoRA repos, LTX-2.3-22b-IC-LoRA-Ingredients and LTX-2.5-Pre-Trained. Lightricks/LTX-2.3, LTX-2.3-fp8, LTX-2.3-nvfp4, Comfy-Org/ltx-2.3 and Comfy-Org/ltx-2 are not gated. 401/403 = accept the terms on HF and use a Read token with 'read gated repos' enabled.",
+    "src": [
+      "S-HF25",
+      "S-DOCS-25",
+      "S-GH"
+    ]
+  },
+  "kind": [
+    "video",
+    "audio"
+  ],
+  "tasks": [
+    "t2v",
+    "i2v",
+    "flf2v",
+    "ia2v",
+    "id-lora",
+    "control",
+    "reference",
+    "style-transition",
+    "multishot"
+  ],
+  "cannot": [
+    {
+      "what": "audio-only (text-to-audio) generation in core ComfyUI: needs the Lightricks/ComfyUI-LTXVideo custom nodes (LTXVAudioOnlyModel ...); no core template",
+      "src": "S-LTXVIDEO-README"
+    },
+    {
+      "what": "mix file families: LTX-2.3 single-file checkpoints (CheckpointLoaderSimple + Gemma 3) and the LTX-2.5 split pack (UNETLoader + VAELoader + CLIPLoader ltxv + Gemma 4 'with-proj') are not interchangeable; 'a LoRA only works with the model it was trained on'; Google's stock Gemma 4 is not a substitute for the LTX text encoder (version check at load)",
+      "src": [
+        "S-GH",
+        "S-HF25"
+      ]
+    },
+    {
+      "what": "extend / continue an existing clip: no official Comfy-Org template (the DFR keyframe nodes LTXVAddGeneratedKeyframes etc. exist in core without a template)",
+      "src": [
+        "S-NODES",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "what": "the 2.3 card: 'When generating audio without speech, the audio may be of lower quality'",
+      "src": "S-HF23"
+    },
+    {
+      "what": "'Prompt following is heavily influenced by prompting style'; 'may fail to generate videos that match the prompt perfectly'; not a source of factual information (model cards)",
+      "src": [
+        "S-HF25",
+        "S-HF23"
+      ]
+    },
+    {
+      "what": "2.5 community complaints, each a single user: I2V character consistency (HF #30), small distant faces broken (HF #71), music videos worse than 2.3 (HF #57) - hypotheses, not facts",
+      "src": [
+        "S-HF25-D30",
+        "S-HF25-D71",
+        "S-HF25-D57"
+      ]
+    },
+    {
+      "what": "official per-GPU VRAM figures: NOT FOUND for any LTX-2.x file; only community reports (24 GB runs 2.5 int8 at 1280x720/5 s) and the ComfyUI-LTXVideo README's '32GB+ VRAM' prerequisite",
+      "src": [
+        "S-HF25-D15",
+        "S-LTXVIDEO-README"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_lt.py, nodes_lt_audio.py, nodes_lt_upsampler.py, nodes_lt_keyframes.py, nodes_textgen.py, nodes_resolution.py, comfy/supported_models.py) per the dossier; input names taken from the v0.35.0 registry (node_schemas_v0.35.0.json)",
+    "nodes_verified_against_registry": "v0.35.0 - all 12 recipes passed verify_recipes.py on 2026-10-01",
+    "template_min_versions": {
+      "video_ltx2_5_*": "0.32.0",
+      "video_ltx2_3_t2v/i2v/ia2v/flf2v, style transition": "0.16.4",
+      "video_ltx2_3_id_lora": "0.19.0",
+      "video_ltx2_3_ic_lora, ingredients": "0.22.0"
+    },
+    "note": "Every converted template needs ComfyUI <= 0.32.0, below the pinned 0.35.0: nothing is version-pending. The 2.5 int8 'comfy-int8-convrot' files need the INT8 ConvRot path (ComfyUI >= 0.27.0; community: comfy-kitchen >= 0.2.16 and a cu130 PyTorch build); Comfy-Org: 'prefer int8_convrot if you are able to use pytorch with cu130'."
+  },
+  "files": [
+    {
+      "name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 21.504,
+      "precision": "int8 convrot (ComfyUI only)",
+      "variant": "2.5-distilled",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "RTX 3090 24 GB runs the template at 1280x720 / 5 s; 10 s froze in VAE decode until VAEDecodeTiled tile_size 768->512; RTX 5070 Ti 16 GB ran with temporal_size 64 / temporal_overlap 16",
+        "class": "community",
+        "src": "S-HF25-D15"
+      },
+      "quality": "'Distilled DiT ... Fixed 8-step schedule, CFG=1'; template default for all three 2.5 templates; 'Better distilled model' than 2.3's",
+      "used_by": [
+        "t2v-2.5",
+        "i2v-2.5",
+        "flf2v-2.5"
+      ],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-video-vae-bf16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": null,
+      "size_gb": 1.472,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "diffusion decoder 'processes roughly 500x more tokens for a 1080p, 121-frame video' than conv decoders (Lightricks staff) - the 10 s decode freeze on 24 GB",
+        "class": "community",
+        "src": "S-HF25-D15"
+      },
+      "quality": "'DiffVAE - higher quality, heavier'; diffusion decoder (NADiffusionDecoder): sharper faces, legible text; template default",
+      "used_by": [
+        "t2v-2.5",
+        "i2v-2.5",
+        "flf2v-2.5"
+      ],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-video-vae-conv-bf16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": null,
+      "size_gb": 1.452,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "'Conv VAE - faster, lighter', 'needs no extra dependencies'; drop-in for the video VAE when decode is the bottleneck",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-audio-vae-bf16.safetensors",
+      "role": "audio_vae",
+      "folder": "vae",
+      "bytes": null,
+      "size_gb": 0.365,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "audio VAE + vocoder; loaded with plain VAELoader, fed to LTXVEmptyLatentAudio / LTXVAudioVAEDecode",
+      "used_by": [
+        "t2v-2.5",
+        "i2v-2.5",
+        "flf2v-2.5"
+      ],
+      "src": "S-HF25"
+    },
+    {
+      "name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": null,
+      "size_gb": 15.373,
+      "precision": "int8 convrot",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "Gemma 4 12B with the LTX text projection bundled; CLIPLoader type 'ltxv'; the bf16 twin is 26.264 GB",
+      "used_by": [
+        "t2v-2.5",
+        "i2v-2.5",
+        "flf2v-2.5"
+      ],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+      "role": "latent_upscaler",
+      "folder": "latent_upscale_models",
+      "bytes": null,
+      "size_gb": 0.996,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "x2 spatial latent upsampler for stage 2 (LatentUpscaleModelLoader -> LTXVLatentUpsampler); used by T2V and I2V, not by FLF2V",
+      "used_by": [
+        "t2v-2.5",
+        "i2v-2.5"
+      ],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 21.504,
+      "precision": "int8 convrot",
+      "variant": "2.5-dev",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'Full DiT' for CFG/STG guided sampling or with ltx-2.5-22b-distilled-lora-450-bf16; no Comfy template uses it",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 18.722,
+      "precision": "NVFP4",
+      "variant": "2.5-distilled",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Blackwell-class GPUs for native kernels (card)",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 42.018,
+      "precision": "bf16",
+      "variant": "2.5-distilled",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "runpod tiers (single source): '32-48GB ... bf16 distilled becomes viable'",
+        "class": "single-source",
+        "src": "S-RUNPOD"
+      },
+      "quality": "full-precision distilled; exceeds a 60 GB disk together with the 15 GB encoder",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-22b-distilled-lora-450-bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": null,
+      "size_gb": 8.9,
+      "precision": "bf16",
+      "variant": "2.5-dev",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/loras/ltx-2.5-22b-distilled-lora-450-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "'Distilled LoRA (dev-transformer workflows)'; no Comfy template",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "ltx-2.5-duration-head-bf16.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": null,
+      "size_gb": 0.004,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/model_patches/ltx-2.5-duration-head-bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "Auto Duration: ModelPatchLoader -> LTXVDurationPredictor (min 1 s, max 20 s, snaps to 8k+1 frames); not in the templates",
+      "used_by": [],
+      "src": [
+        "S-HF25",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors",
+      "role": "latent_upscaler",
+      "folder": "latent_upscale_models",
+      "bytes": null,
+      "size_gb": 0.262,
+      "precision": "bf16",
+      "variant": "2.5",
+      "gated": true,
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF25"
+      },
+      "quality": "temporal x2; 'required by DFRPipeline when running temporal refine rounds'; no Comfy template",
+      "used_by": [],
+      "src": "S-HF25"
+    },
+    {
+      "name": "gemma4_e2b_it_int8_convrot.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5199997904,
+      "size_gb": 5.2,
+      "precision": "int8 convrot",
+      "variant": "2.5-prompt-enhancer",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/gemma-4/resolve/main/text_encoders/gemma4_e2b_it_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "'adds ~1-2 min of generation time' (template note)",
+        "class": "official",
+        "src": "S-TPL-25-T2V"
+      },
+      "quality": "optional prompt enhancer LLM (CLIPLoader ltxv -> TextGenerateLTX2Prompt); 'only needed when prompt_enhance is enabled'; Apache-2.0 repo; not in the recipes",
+      "used_by": [],
+      "src": [
+        "S-CO-GEMMA4",
+        "S-TPL-25-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-dev-fp8.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 29145431166,
+      "size_gb": 29.145,
+      "size_note": "template note prints 27.14 GB",
+      "precision": "fp8",
+      "variant": "2.3-dev",
+      "gated": false,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-dev-fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "ComfyUI-LTXVideo README prerequisite: 'CUDA-compatible GPU with 32GB+ VRAM'; community (ltxworkflow.com, single source): OOM 'even on the FP8-quantized checkpoints' when text encoder/VAE stay full precision",
+        "class": "community",
+        "src": [
+          "S-LTXVIDEO-README",
+          "S-LTXWORKFLOW"
+        ]
+      },
+      "quality": "single file: transformer + video VAE + audio VAE/vocoder + text projection; template default for 2.3 T2V, I2V, IA2V, ID-LoRA (run with the distilled 1.1 LoRA at 0.5, CFG 1, 8+3 sigmas); the same file feeds CheckpointLoaderSimple, LTXVAudioVAELoader and LTXAVTextEncoderLoader",
+      "used_by": [
+        "t2v-2.3",
+        "i2v-2.3",
+        "ia2v-2.3",
+        "id-lora-2.3"
+      ],
+      "src": [
+        "S-HF23-FP8",
+        "S-TPL-23-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-distilled-fp8.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 29531884062,
+      "size_gb": 29.532,
+      "size_note": "template note prints 27.5 GB",
+      "precision": "fp8",
+      "variant": "2.3-distilled",
+      "gated": false,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-distilled-fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "as dev-fp8",
+        "class": "community",
+        "src": "S-LTXVIDEO-README"
+      },
+      "quality": "'8 steps, CFG=1'; template default for 2.3 FLF2V, IC-LoRA Union Control, Ingredients, Style Transition",
+      "used_by": [
+        "flf2v-2.3",
+        "style-transition-2.3",
+        "control-depth-2.3",
+        "control-canny-2.3",
+        "ingredients-2.3"
+      ],
+      "src": [
+        "S-HF23-FP8",
+        "S-TPL-23-FLF2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 2741024390,
+      "size_gb": 2.741,
+      "size_note": "template note 2.55 GB",
+      "precision": "bf16",
+      "variant": "2.3-dev",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-T2V"
+      },
+      "quality": "distilled-1.1 LoRA applied at strength 0.5 on the dev-fp8 checkpoint in every 2.3 T2V/I2V/IA2V/ID template (CFG 1, fixed sigmas)",
+      "used_by": [
+        "t2v-2.3",
+        "i2v-2.3",
+        "ia2v-2.3",
+        "id-lora-2.3"
+      ],
+      "src": [
+        "S-CO-23",
+        "S-TPL-23-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9447702218,
+      "size_gb": 9.448,
+      "size_note": "template note 8.8 GB",
+      "precision": "fp4 mixed",
+      "variant": "2.3 (and LTX-2 19B)",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-T2V"
+      },
+      "quality": "Gemma 3 12B; LTXAVTextEncoderLoader(text_encoder, ckpt_name) takes the text projection from the checkpoint; alternatives gemma_3_12B_it_fp8_scaled 13.205 GB, gemma_3_12B_it_fpmixed 13.709 GB, gemma_3_12B_it 24.379 GB",
+      "used_by": [
+        "t2v-2.3",
+        "i2v-2.3",
+        "ia2v-2.3",
+        "id-lora-2.3",
+        "flf2v-2.3",
+        "style-transition-2.3",
+        "control-depth-2.3",
+        "control-canny-2.3",
+        "ingredients-2.3"
+      ],
+      "src": "S-CO-2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+      "role": "latent_upscaler",
+      "folder": "latent_upscale_models",
+      "bytes": 995743560,
+      "size_gb": 0.996,
+      "size_note": "template note 949.6 MB",
+      "precision": "bf16",
+      "variant": "2.3",
+      "gated": false,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-T2V"
+      },
+      "quality": "x2 spatial latent upsampler for the 2.3 two-stage graphs; x1.5 variant ltx-2.3-spatial-upscaler-x1.5-1.0 (1.090 GB) and temporal x2 ltx-2.3-temporal-upscaler-x2-1.0 (0.262 GB) exist",
+      "used_by": [
+        "t2v-2.3",
+        "i2v-2.3",
+        "ia2v-2.3",
+        "id-lora-2.3"
+      ],
+      "src": "S-HF23",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-id-lora-talkvid-3k.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1157884304,
+      "size_gb": 1.158,
+      "size_note": "template note 1.08 GB",
+      "precision": "bf16",
+      "variant": "2.3-id",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx-2.3-id-lora-talkvid-3k.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-ID"
+      },
+      "quality": "ID-LoRA (face + voice from one image + ~5 s audio); sibling ltx-2.3-id-lora-celebvhq-3k.safetensors (1.158 GB) in the same folder; the 2.3 ID-LoRAs changed the subject's ethnicity on 2.5 (HF #30)",
+      "used_by": [
+        "id-lora-2.3"
+      ],
+      "src": [
+        "S-CO-23",
+        "S-HF25-D30"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 654465352,
+      "size_gb": 0.654,
+      "size_note": "template note 624.1 MB",
+      "precision": "bf16",
+      "variant": "2.3-ic",
+      "gated": null,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control/resolve/main/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-IC"
+      },
+      "quality": "In-Context LoRA for Canny / Depth / Pose control; 'expects a reference downscale factor of 0.5' (read from the safetensors metadata by GetICLoRAParameters)",
+      "used_by": [
+        "control-depth-2.3",
+        "control-canny-2.3"
+      ],
+      "src": [
+        "S-HF23-UNION",
+        "S-TPL-23-IC"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 1308778338,
+      "size_gb": 1.309,
+      "size_note": "template note 1.22 GB",
+      "precision": "bf16",
+      "variant": "2.3-ic",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-INGR"
+      },
+      "quality": "reference-sheet conditioning (characters / props / location); reference downscale factor 1; Comfy-Org mirror of the gated Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients",
+      "used_by": [
+        "ingredients-2.3"
+      ],
+      "src": [
+        "S-CO-23",
+        "S-HF23-INGR"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx2.3-transition.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": null,
+      "size_gb": 0.372,
+      "size_note": "template note 372.2 MB",
+      "precision": "bf16",
+      "variant": "2.3-community-lora",
+      "gated": false,
+      "url": "https://huggingface.co/valiantcat/LTX-2.3-Transition-LORA/resolve/main/ltx2.3-transition.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-STYLE"
+      },
+      "quality": "community style/scene-transition LoRA, trigger word 'zhuanchang'; shipped by an official Comfy-Org template",
+      "used_by": [
+        "style-transition-2.3"
+      ],
+      "src": "S-TPL-23-STYLE"
+    },
+    {
+      "name": "moge_2_vitl_normal_fp16.safetensors",
+      "role": "geometry_estimation",
+      "folder": "geometry_estimation",
+      "bytes": 661859924,
+      "size_gb": null,
+      "size_note": "template note 631.2 MB; HF API size NOT FOUND",
+      "precision": "fp16",
+      "variant": "preprocessor",
+      "gated": false,
+      "url": "https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-23-IC"
+      },
+      "quality": "MoGe-2 depth estimator (core nodes LoadMoGeModel / MoGeInference / MoGeRender) producing the depth frames for the IC-LoRA template",
+      "used_by": [
+        "control-depth-2.3"
+      ],
+      "src": [
+        "S-CO-MOGE",
+        "S-TPL-23-IC"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-dev.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 46149344974,
+      "size_gb": 46.149,
+      "precision": "bf16",
+      "variant": "2.3-dev",
+      "gated": false,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-dev.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'The full model, flexible and trainable in bf16'; used by the pack-dependent editing templates; too large for a 60 GB disk with its encoder",
+      "used_by": [],
+      "src": "S-HF23",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ltx-2.3-22b-distilled-1.1.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 46149345334,
+      "size_gb": 46.149,
+      "precision": "bf16",
+      "variant": "2.3-distilled",
+      "gated": false,
+      "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-1.1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'distilled v1.1 ... A different aesthetic experience and improved audio compared to v1.0'; recommended by the ComfyUI-LTXVideo README; no fp8 build found",
+      "used_by": [],
+      "src": [
+        "S-HF23",
+        "S-LTXVIDEO-README"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "disk_note": {
+    "ltx-2.5 recipe set": "21.5 + 15.4 + 1.5 + 0.4 + 1.0 = ~39.7 GB",
+    "ltx-2.3 dev route (t2v/i2v/ia2v/id-lora)": "29.1 + 9.4 + 2.7 + 1.0 (+1.2 ID LoRA) = ~42-43 GB",
+    "ltx-2.3 distilled route (flf2v/control/ingredients/style)": "29.5 + 9.4 + loras = ~40 GB",
+    "both 2.3 checkpoints + encoder": "~68 GB - does not fit a 60 GB disk; pick one 2.3 route per box",
+    "src": [
+      "S-HF25",
+      "S-HF23-FP8",
+      "S-CO-2"
+    ]
+  },
+  "selection": [
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "recipe": "t2v-2.5",
+      "why": "the current model (2026-08-11; 2.3 is 'Previous Generation'); distilled int8, 8+3 fixed sigmas, joint audio, Gemma 4 encoder, native multishot by prompt; community: RTX 3090 24 GB runs 1280x720 / 5 s",
+      "confidence": "official graph; community VRAM",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-HF25-D15"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 16,
+      "recipe": "t2v-2.5",
+      "why": "one report: RTX 5070 Ti 16 GB ran the 2.5 int8 template with VAEDecodeTiled temporal_size 64 / temporal_overlap 16 (already the recipe's decode settings) - expect lower resolutions / offloading",
+      "confidence": "single-source",
+      "src": "S-HF25-D15"
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 32,
+      "recipe": "t2v-2.3",
+      "why": "the previous generation (Gemma 3, dev fp8 + distilled LoRA 0.5); ComfyUI-LTXVideo README asks for 32 GB+; pick it only when 2.3-only LoRAs/IC-LoRAs are needed or 2.5's weights cannot be fetched (gated)",
+      "src": [
+        "S-TPL-23-T2V",
+        "S-LTXVIDEO-README"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "recipe": "i2v-2.5",
+      "why": "as t2v-2.5; first frame in place (0.7 / 1.0)",
+      "src": [
+        "S-TPL-25-I2V",
+        "S-HF25-D15"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 32,
+      "recipe": "i2v-2.3",
+      "why": "previous generation; same files as t2v-2.3",
+      "src": "S-TPL-23-I2V"
+    },
+    {
+      "task": "flf2v",
+      "vram_gb_min": 24,
+      "recipe": "flf2v-2.5",
+      "why": "first + last frame keyframes, single stage at full size, no upscaler file needed",
+      "src": "S-TPL-25-FLF2V"
+    },
+    {
+      "task": "flf2v",
+      "vram_gb_min": 32,
+      "recipe": "flf2v-2.3",
+      "why": "needs the DISTILLED 2.3 checkpoint (27.5 GB), a different file from the dev-fp8 the 2.3 T2V/I2V use",
+      "src": "S-TPL-23-FLF2V"
+    },
+    {
+      "task": "ia2v",
+      "vram_gb_min": 32,
+      "recipe": "ia2v-2.3",
+      "why": "lip-sync an image to SUPPLIED speech (audio latent encoded and frozen); the only official IA2V template - none for 2.5",
+      "src": "S-TPL-23-IA2V"
+    },
+    {
+      "task": "id-lora",
+      "vram_gb_min": 32,
+      "recipe": "id-lora-2.3",
+      "why": "face + cloned voice from one image and ~5 s of reference audio, speech generated from [SPEECH]; not offered on 2.5 (2.3 ID-LoRAs altered identity there, HF #30)",
+      "src": [
+        "S-TPL-23-ID",
+        "S-HF25-D30"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 32,
+      "recipe": "control-depth-2.3",
+      "why": "depth-driven motion from a control video via the IC-LoRA Union Control (MoGe depth, native nodes); first frame from an image",
+      "src": "S-TPL-23-IC"
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 32,
+      "recipe": "control-canny-2.3",
+      "why": "edge-driven variant of the same template (core Canny node; the template note sanctions swapping the preprocessor)",
+      "src": [
+        "S-TPL-23-IC",
+        "S-TPL-2-CANNY"
+      ]
+    },
+    {
+      "task": "control",
+      "recipe": null,
+      "status": "pending (pose): needs a pose preprocessor pack - comfyui_controlnet_aux DWPreprocessor as in video_ltx2_pose_to_video; the Union Control LoRA itself supports Pose",
+      "src": [
+        "S-TPL-2-POSE",
+        "S-HF23-UNION"
+      ]
+    },
+    {
+      "task": "reference",
+      "vram_gb_min": 32,
+      "recipe": "ingredients-2.3",
+      "why": "keep characters / props / location consistent with a reference sheet (IC-LoRA Ingredients); 2.5 Ingredients LoRA exists (gated, 1.309 GB) but has no template",
+      "src": [
+        "S-TPL-23-INGR",
+        "S-HF25-INGR"
+      ]
+    },
+    {
+      "task": "style-transition",
+      "vram_gb_min": 32,
+      "recipe": "style-transition-2.3",
+      "why": "FLF2V + community transition LoRA, trigger 'zhuanchang'; official Comfy-Org template",
+      "src": "S-TPL-23-STYLE"
+    },
+    {
+      "task": "multishot",
+      "vram_gb_min": 24,
+      "recipe": "t2v-2.5",
+      "why": "LTX-2.5 'Native multishot: one generation yields multiple connected shots holding character, environment, lighting, voice, and style across cuts' - driven entirely by the prompt (name every cut in prose), same graph as t2v-2.5; official prompt syntax NOT FETCHED (ltx.io guide blocked)",
+      "confidence": "official feature; community prompting rules",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-RUNWARE"
+      ]
+    },
+    {
+      "task": "extend",
+      "recipe": null,
+      "status": "pending: NOT FOUND - no official LTX extend/continuation template (DFR keyframe nodes exist without a template)",
+      "src": [
+        "S-TPL-INDEX",
+        "S-NODES"
+      ]
+    },
+    {
+      "task": "edit",
+      "recipe": null,
+      "status": "pending: the six LTX-2.3 editing templates (remove subtitles / watermark / object, outpainting, restore archival footage, googly eyes) need packs ComfyUI-LTXVideo (LTXAddVideoICLoRAGuide, LTXICLoRALoaderModelOnly, LTXVSetAudioRefTokens, LTXVTiledVAEDecode, LTXFloatToInt), comfyui-kjnodes (ImageResizeKJv2, GetImageSizeAndCount, VAELoaderKJ), comfyui-videohelpersuite, ComfyMath; most also load the 46 GB bf16 ltx-2.3-22b-dev",
+      "packs": [
+        "ComfyUI-LTXVideo",
+        "comfyui-kjnodes",
+        "comfyui-videohelpersuite",
+        "ComfyMath"
+      ],
+      "src": [
+        "S-TPL-23-EDIT",
+        "S-UNKNOWN-NODES"
+      ]
+    },
+    {
+      "task": "a2v",
+      "recipe": null,
+      "status": "pending: video_ltx_2_audio_to_video (LTX-2 19B) needs comfyui-kjnodes plus custom LTX nodes (LTXVAddGuideMulti, LTX2_NAG, LTXVChunkFeedForward, LTXVImgToVideoInplaceKJ ...); the native route for audio-driven video is ia2v-2.3",
+      "packs": [
+        "comfyui-kjnodes",
+        "ComfyUI-LTXVideo"
+      ],
+      "src": [
+        "S-TPL-2-A2V",
+        "S-UNKNOWN-NODES"
+      ]
+    },
+    {
+      "task": "t2a",
+      "recipe": null,
+      "status": "pending: audio-only generation needs Lightricks/ComfyUI-LTXVideo (LTXVAudioOnlyModel, LTXVAudioOnlyEmptyVideoLatent); no core template",
+      "packs": [
+        "ComfyUI-LTXVideo"
+      ],
+      "src": "S-LTXVIDEO-README"
+    },
+    {
+      "task": "legacy",
+      "recipe": null,
+      "status": "not converted: the LTX-2 19B templates (video_ltx2_t2v / i2v / *_distilled / i2v_lora / depth_to_video / canny_to_video) are superseded by the 2.3 graphs of the same shape (Lightricks labels 2.3 'Previous Generation' and 2 'Legacy'); the 27 GB fp8 19B offers no VRAM advantage over 2.3",
+      "src": [
+        "S-GH",
+        "S-HF2",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "task": "dev-full-cfg",
+      "recipe": null,
+      "status": "pending: no Comfy template runs the dev model without the distilled LoRA (LTXVScheduler 20 steps / CFG>1 / STG route); GitHub README: 'Reduce inference steps from 40 to 20-30'",
+      "src": [
+        "S-TPL-INDEX",
+        "S-GH",
+        "S-NODES"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "length (frames)",
+      "node": "EmptyLTXVLatentVideo|LTXVImgToVideo|LTXVEmptyLatentAudio",
+      "input": "length / frames_number",
+      "meaning": "pixel frames; latent frames = (length-1)//8+1; must be 8n+1 (1, 9, 17, ... 121 ...); the audio latent length is derived from frames_number and frame_rate",
+      "defaults": {
+        "2.5 templates": "duration 5 s x 24 fps + 1 = 121",
+        "2.3 T2V/I2V/FLF2V": "5 x 25 + 1 = 126 -> floored by the node to 121",
+        "2.3 IA2V": "9 x 24 + 1 = 217",
+        "2.3 ID-LoRA": "10 x 25 + 1 = 251 -> 249",
+        "style transition": "6 x 25 + 1 = 151 -> 145",
+        "IC-LoRA": "frame count of the control video (GetImageSize.batch_size), cropped to 8n+1 by LTXVAddGuide"
+      },
+      "range": [
+        9,
+        481
+      ],
+      "interactions": "LTXVDurationPredictor (Auto Duration) snaps to 8k+1 between 1 and 20 s; partner API: 2-20 s; 10 s on 24 GB needs tile_size 512 for the diffusion decoder",
+      "src": [
+        "S-HF25",
+        "S-NODES",
+        "S-TPL-25-T2V",
+        "S-HF25-D15"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptyLTXVLatentVideo|LTXVImgToVideo|ImageScale|ResizeAndPadImage",
+      "input": "width, height",
+      "meaning": "pixels; latent = /32; divisible by 32 (cards; node step 32). Two-stage graphs sample stage 1 at width/2 x height/2 then LTXVLatentUpsampler x2",
+      "defaults": {
+        "2.5 templates": "1280x720 (ResolutionSelector 0.9 MP 16:9 -> 1280x736) -> floored to 1280x704 (stage 1 640x352)",
+        "2.3 IC-LoRA": "1280x704",
+        "style transition": "720x1280 -> 704x1280",
+        "ingredients trained bucket": "768x448",
+        "2.5 size table (32-multiple, 16:9)": "0.2 MP 608x352, 0.5 MP 960x544, 0.9 MP 1280x736, 1.0 MP 1376x768, 1.5 MP 1664x928, 2.0 MP 1920x1088",
+        "DFR CLI": "1024x1536; UHD 4K is 3840x2176 (not 2160)"
+      },
+      "range": null,
+      "interactions": "720 is not 32-aligned: EmptyLTXVLatentVideo floors it to 704 (the recipes write 704)",
+      "src": [
+        "S-HF25",
+        "S-NODES",
+        "S-TPL-25-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "frame_rate",
+      "node": "LTXVConditioning|LTXVEmptyLatentAudio|CreateVideo",
+      "input": "frame_rate / fps",
+      "meaning": "written into the conditioning and used to size the audio latent; CreateVideo.fps must match",
+      "defaults": {
+        "2.5": 24,
+        "2.3 T2V/I2V/FLF2V/IC-LoRA/ID": 25,
+        "2.3 IA2V": 24,
+        "node default": 25.0
+      },
+      "range": [
+        1,
+        50
+      ],
+      "interactions": "2.5: 'up to 50 FPS' (docs); partner API 24/25/48/50",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V",
+        "S-DOCS-25",
+        "S-BLOG-25"
+      ]
+    },
+    {
+      "name": "sigmas (distilled schedule)",
+      "node": "ManualSigmas|KSampler",
+      "input": "sigmas / steps",
+      "meaning": "the distilled models run a FIXED schedule: stage 1 '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0' (8 steps); stage 2 after the x2 upscale '0.85, 0.7250, 0.4219, 0.0' (3 steps); IC-LoRA/Ingredients templates use KSampler 8 steps linear_quadratic instead",
+      "defaults": {
+        "stage1": "8 sigmas",
+        "stage2": "3 sigmas",
+        "ic-lora": "KSampler steps 8, scheduler linear_quadratic"
+      },
+      "range": null,
+      "interactions": "diffusers DISTILLED_SIGMA_VALUES identical; its STAGE_2 list is [0.909375, 0.725, 0.421875] (Comfy starts stage 2 at 0.85) - both recorded; do not add CFG > 1 to distilled",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-IC",
+        "S-DIFFUSERS",
+        "S-HF25"
+      ]
+    },
+    {
+      "name": "steps (dev / full model)",
+      "node": "LTXVScheduler",
+      "input": "steps, max_shift, base_shift, stretch, terminal",
+      "meaning": "normal flow-matching schedule for the non-distilled model; not used by any template",
+      "defaults": {
+        "node": "20 steps, max_shift 2.05, base_shift 0.95, stretch true, terminal 0.1",
+        "supported_models.LTXV shift": 2.37
+      },
+      "range": null,
+      "interactions": "GitHub README: 'Use gradient estimation - Reduce inference steps from 40 to 20-30'; dev + distilled LoRA (2.3 at 0.5; 2.5 lora-450) -> distilled sigmas instead",
+      "src": [
+        "S-NODES",
+        "S-GH",
+        "S-TPL-23-T2V"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "LTXVDualCFGGuider|CFGGuider|KSampler",
+      "input": "video_cfg, audio_cfg / cfg",
+      "meaning": "classifier-free guidance; LTXVDualCFGGuider has separate video and audio scales (equal scales fall back to plain CFG)",
+      "defaults": {
+        "all templates": 1.0,
+        "node defaults": "video_cfg 3.0, audio_cfg 7.0, CFGGuider 8.0"
+      },
+      "range": [
+        1.0,
+        7.0
+      ],
+      "interactions": "at 1.0 the negative prompt is inert (unconditional pass skipped); raise only with the dev model/schedule",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "STG / modality guidance",
+      "node": "LTXVSpatioTemporalGuidance|LTXVModalityGuidance",
+      "input": "scale, blocks / modality_scale",
+      "meaning": "optional extra guidance passes (not in any template): STG scale 1.0 on block '29'; modality_scale 3.0 severs a2v/v2a cross-attention for the extra pass; 'Stacks with the dual-CFG guider and STG'",
+      "defaults": {
+        "stg": "1.0, blocks 29",
+        "modality": 3.0
+      },
+      "range": null,
+      "interactions": "each is one more forward pass; Ingredients card validated with STG stg_v block 29 scale 1.0 on the full model",
+      "src": [
+        "S-NODES",
+        "S-TPL-23-INGR"
+      ]
+    },
+    {
+      "name": "sampler",
+      "node": "KSamplerSelect|SamplerEulerAncestral|KSampler",
+      "input": "sampler_name / eta, s_noise",
+      "meaning": "",
+      "defaults": {
+        "2.5 two-stage": "euler_ancestral",
+        "2.5 FLF2V / 2.3 FLF2V / style": "SamplerEulerAncestral eta 0, s_noise 1",
+        "2.3 two-stage": "euler",
+        "IC-LoRA": "euler_ancestral + linear_quadratic"
+      },
+      "range": null,
+      "interactions": "pipelines' TI2VidTwoStagesHQ uses res_2s (not in Comfy templates)",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V",
+        "S-TPL-23-IC",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "strength",
+      "node": "LTXVImgToVideoInplace|LTXVAddGuide",
+      "input": "strength",
+      "meaning": "how hard a conditioning frame is held: sets the noise mask (1 - strength) on the conditioned latent frames",
+      "defaults": {
+        "I2V stage 1": 0.7,
+        "I2V stage 2": 1.0,
+        "FLF2V guides": 0.7,
+        "IC-LoRA control guide": 1.0,
+        "IC-LoRA first frame": 1.0,
+        "ingredients": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "LTXVAddGuide allows up to 10",
+      "src": [
+        "S-NODES",
+        "S-TPL-25-I2V",
+        "S-TPL-25-FLF2V",
+        "S-TPL-23-IC"
+      ]
+    },
+    {
+      "name": "img_compression",
+      "node": "LTXVPreprocess",
+      "input": "img_compression",
+      "meaning": "H.264 CRF re-encode of the conditioning image 'matching the compression the model was trained against'; 0 disables",
+      "defaults": {
+        "2.5 (all)": 18,
+        "2.3 T2V/I2V/IA2V/ID": 18,
+        "2.3 FLF2V / style transition": 25,
+        "node default": 35,
+        "diffusers": "DEFAULT_IMAGE_CRF 33 'through LTX-2.3'; LTX2_5_IMAGE_CRF 18 'from LTX-2.5'"
+      },
+      "range": [
+        0,
+        100
+      ],
+      "interactions": "",
+      "src": [
+        "S-NODES",
+        "S-TPL-25-I2V",
+        "S-TPL-23-FLF2V",
+        "S-DIFFUSERS"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "RandomNoise|KSampler",
+      "input": "noise_seed / seed",
+      "meaning": "stage-1 noise; the templates fix stage-2 noise at 42",
+      "defaults": {
+        "stage1": "randomize",
+        "stage2": 42
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-25-T2V"
+    },
+    {
+      "name": "tiled decode",
+      "node": "VAEDecodeTiled",
+      "input": "tile_size, overlap, temporal_size, temporal_overlap",
+      "meaning": "tiled video VAE decode",
+      "defaults": {
+        "2.5": "512 / 64 / 64 / 16",
+        "2.3 T2V/I2V/IA2V/ID": "768 / 64 / 4096 / 4",
+        "2.3 FLF2V/IC-LoRA": "768 / 64 / 4096 / 64"
+      },
+      "range": null,
+      "interactions": "HF #15: tile 768->512 fixed a 10 s freeze on a 3090; temporal 64/16 on a 16 GB card; or swap to ltx-2.5-video-vae-conv-bf16; smaller tiles cost time",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V",
+        "S-HF25-D15"
+      ]
+    },
+    {
+      "name": "distilled LoRA strength (2.3 dev)",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "the distilled-1.1 LoRA on the dev-fp8 checkpoint",
+      "defaults": {
+        "2.3 T2V/I2V/IA2V/ID": 0.5
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "paired with CFG 1 and the fixed sigmas",
+      "src": "S-TPL-23-T2V"
+    },
+    {
+      "name": "IC-LoRA strength",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "'controls how strongly the IC-LoRA guide is followed'",
+      "defaults": {
+        "union control": 1.0,
+        "ingredients template": 1.0,
+        "ingredients card": 1.4
+      },
+      "range": null,
+      "interactions": "GetICLoRAParameters must be wired for ref0.5 LoRAs",
+      "src": [
+        "S-TPL-23-IC",
+        "S-TPL-23-INGR"
+      ]
+    },
+    {
+      "name": "identity_guidance_scale",
+      "node": "LTXVReferenceAudio",
+      "input": "identity_guidance_scale",
+      "meaning": "ID-LoRA voice-identity guidance (extra no-reference pass)",
+      "defaults": {
+        "template": 3.0
+      },
+      "range": [
+        0.0,
+        100.0
+      ],
+      "interactions": "'Set to 0 to disable (no extra pass)'; reference audio ~5 s recommended (training duration)",
+      "src": [
+        "S-TPL-23-ID",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "prompt enhancer",
+      "node": "TextGenerateLTX2Prompt",
+      "input": "max_length, sampling_mode.*, thinking",
+      "meaning": "optional LLM rewrite of a short prompt (not in the recipes): 2.5 uses gemma4_e2b_it_int8_convrot (CLIPLoader ltxv), 2.3 the Gemma-3 encoder + abliterated LoRA",
+      "defaults": {
+        "2.5": "max_length 600, temp 0.7, top_k 64, top_p 0.95, min_p 0.05, repetition 1.15",
+        "2.3": "max_length 2048, repetition 1.05"
+      },
+      "range": null,
+      "interactions": "off by default in the 2.5 templates, ON in 2.3 T2V/IA2V; 'adds about 1-2 minutes'; HF #36: unrelated generations / empty text when enabled; its own system prompt says a detailed prompt should not be heavily edited",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V",
+        "S-HF25-D36",
+        "S-NODES"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "frames-8n+1",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLTXVLatentVideo|LTXVImgToVideo|RepeatImageBatch",
+        "input": "length|amount"
+      },
+      "numeric": {
+        "modulo": [
+          8,
+          1
+        ]
+      },
+      "message": "LTX frame counts are 8n+1 (num_frames % 8 == 1): 121 = 5 s @24 fps; 126 is silently floored to 121 by EmptyLTXVLatentVideo and guide videos are cropped to 8n+1 by LTXVAddGuide",
+      "src": [
+        "S-HF25",
+        "S-HF23",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "dims-multiple-32",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLTXVLatentVideo|LTXVImgToVideo|ImageScale|ResizeAndPadImage|SolidMask",
+        "input": "width|height|target_width|target_height"
+      },
+      "numeric": {
+        "multiple_of": 32
+      },
+      "message": "LTX sizes are multiples of 32 (latent /32): 1280x704, not 1280x720 (720 floors to 704); 'the input should be padded with -1 and then cropped' otherwise",
+      "src": [
+        "S-HF25",
+        "S-HF23",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "av-latent-lengths-match",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "same_value",
+      "args": {
+        "a": {
+          "node": "EmptyLTXVLatentVideo",
+          "input": "length"
+        },
+        "b": {
+          "node": "LTXVEmptyLatentAudio",
+          "input": "frames_number"
+        }
+      },
+      "message": "the audio latent is sized from frames_number and frame_rate: it must equal the video length or the AV latent lengths disagree (the 2.5 templates derive both from one duration x fps + 1 expression)",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "frame-rate-consistent",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "same_value",
+      "args": {
+        "a": {
+          "node": "LTXVConditioning",
+          "input": "frame_rate"
+        },
+        "b": {
+          "node": "LTXVEmptyLatentAudio",
+          "input": "frame_rate"
+        },
+        "c": {
+          "node": "CreateVideo",
+          "input": "fps"
+        }
+      },
+      "message": "LTXVConditioning.frame_rate, LTXVEmptyLatentAudio.frame_rate and CreateVideo.fps are one value in every template (24 for 2.5, 25 for 2.3); a mismatch desyncs audio and playback speed",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V"
+      ]
+    },
+    {
+      "id": "av-latent-wrapped",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "ltx_av_latent_wrapped",
+      "args": {
+        "concat": "LTXVConcatAVLatent",
+        "separate": "LTXVSeparateAVLatent",
+        "samplers": "SamplerCustomAdvanced|KSampler"
+      },
+      "message": "LTX-2.x is an audio-video model: the video latent must pass through LTXVConcatAVLatent(video, audio) before the sampler and LTXVSeparateAVLatent after it; a bare video latent into the sampler gives no audio and the wrong latent shape",
+      "src": [
+        "S-NODES",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "conditioning-node-present",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader|CheckpointLoaderSimple",
+        "input": "unet_name|ckpt_name",
+        "matches": "^ltx-2"
+      },
+      "require": {
+        "node": "LTXVConditioning",
+        "input": "frame_rate",
+        "min": 1.0
+      },
+      "message": "LTX prompts go through LTXVConditioning (adds frame_rate to both conditionings) between CLIPTextEncode and the guider; every template has it",
+      "src": [
+        "S-NODES",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "cfg-1-when-distilled",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader|CheckpointLoaderSimple|LoraLoaderModelOnly",
+        "input": "unet_name|ckpt_name|lora_name",
+        "matches": "distilled"
+      },
+      "require": {
+        "node": "LTXVDualCFGGuider|CFGGuider|KSampler",
+        "input": "video_cfg|audio_cfg|cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "distilled LTX (2.5 distilled transformer, 2.3 distilled checkpoint, dev + distilled LoRA) = 'Fixed 8-step schedule, CFG=1'; every template runs cfg 1 (dual 1/1)",
+      "src": [
+        "S-HF25",
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V"
+      ]
+    },
+    {
+      "id": "distilled-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader|CheckpointLoaderSimple|LoraLoaderModelOnly",
+        "input": "unet_name|ckpt_name|lora_name",
+        "matches": "distilled"
+      },
+      "require": {
+        "node": "ManualSigmas|KSampler",
+        "input": "sigmas|steps",
+        "in": [
+          "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0",
+          "1., 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0",
+          "0.85, 0.7250, 0.4219, 0.0",
+          8
+        ],
+        "all": true
+      },
+      "message": "distilled schedules are fixed: 8 sigmas (stage 1), 3 sigmas (stage 2 after x2 upscale) or KSampler 8 steps linear_quadratic; other step counts are off-distribution",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-IC",
+        "S-DIFFUSERS"
+      ]
+    },
+    {
+      "id": "2.5-text-encoder",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^gemma4-12b-with-proj-ltx-2\\.5-"
+      },
+      "message": "LTX-2.5 encodes text with its own Gemma 4 12B 'with-proj' file (int8 15.4 GB or bf16 26.3 GB); 'Google's stock Gemma 4 release is not a substitute: loading checks the encoder's version against the one the checkpoint was trained with'; Gemma 3 is the 2.3 encoder",
+      "src": [
+        "S-GH",
+        "S-HF25",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "2.5-clip-type-ltxv",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^gemma4"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "ltxv"
+      },
+      "message": "the LTX Gemma encoders load with CLIPLoader type 'ltxv'",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-REG-035"
+      ]
+    },
+    {
+      "id": "2.5-video-vae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "in": [
+          "ltx-2.5-video-vae-bf16.safetensors",
+          "ltx-2.5-video-vae-conv-bf16.safetensors"
+        ]
+      },
+      "message": "the 2.5 split pack decodes with ltx-2.5-video-vae-bf16 (diffusion decoder, template) or ltx-2.5-video-vae-conv-bf16 (lighter conv decoder) - the 2.3 VAE lives inside the 2.3 checkpoint and is not a file here",
+      "src": [
+        "S-HF25",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "2.5-audio-vae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "ltx-2.5-audio-vae-bf16.safetensors"
+      },
+      "message": "LTXVEmptyLatentAudio / LTXVAudioVAEDecode need the 2.5 audio VAE + vocoder loaded with a second VAELoader",
+      "src": [
+        "S-HF25",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "2.3-text-encoder",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^ltx-2\\.3-"
+      },
+      "require": {
+        "node": "LTXAVTextEncoderLoader",
+        "input": "text_encoder",
+        "matches": "^gemma_3_12B_it"
+      },
+      "message": "LTX-2.3 encodes text with Gemma 3 12B through LTXAVTextEncoderLoader(text_encoder, ckpt_name) - the text projection is read from the checkpoint ('Recipes: ltxav: gemma 3 12B or matching gemma 4 model')",
+      "src": [
+        "S-TPL-23-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "2.3-same-checkpoint-everywhere",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "same_value",
+      "args": {
+        "a": {
+          "node": "CheckpointLoaderSimple",
+          "input": "ckpt_name"
+        },
+        "b": {
+          "node": "LTXVAudioVAELoader",
+          "input": "ckpt_name"
+        },
+        "c": {
+          "node": "LTXAVTextEncoderLoader",
+          "input": "ckpt_name"
+        }
+      },
+      "message": "every 2.3 template gives the SAME single-file checkpoint to CheckpointLoaderSimple, LTXVAudioVAELoader (audio_vae./vocoder. keys) and LTXAVTextEncoderLoader (text projection); mixing dev and distilled files across the three loaders is untested",
+      "src": [
+        "S-TPL-23-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "2.5-is-a-split-pack",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple|LTXVAudioVAELoader|LTXAVTextEncoderLoader",
+        "input": "ckpt_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "equals": "__never__"
+      },
+      "message": "LTX-2.5 ships 'a split, Comfy-aligned pack': transformer in diffusion_models/ (UNETLoader), video + audio VAE in vae/ (VAELoader), Gemma 4 in text_encoders/ (CLIPLoader ltxv) - there is no single-file 2.5 checkpoint",
+      "src": [
+        "S-HF25",
+        "S-TPL-25-T2V"
+      ]
+    },
+    {
+      "id": "2.3-is-a-single-file",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.3-22b-(dev|distilled)(-fp8|-1\\.1|-nvfp4)?\\.safetensors$"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "the LTX-2.3 single-file checkpoints (transformer + VAEs + text projection) load with CheckpointLoaderSimple from checkpoints/, not UNETLoader (only Kijai's *_transformer_only_bf16 split is a UNETLoader file, used by pack-dependent templates)",
+      "src": [
+        "S-TPL-23-T2V",
+        "S-TPL-23-EDIT"
+      ]
+    },
+    {
+      "id": "lora-2.5-on-2.5",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "message": "a 2.5 LoRA belongs on a 2.5 transformer: 'a LoRA only works with the model it was trained on'",
+      "src": "S-GH"
+    },
+    {
+      "id": "lora-2.3-on-2.5-caveat",
+      "severity": "warn",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^ltx-2\\.3-|^ltx_2\\.3_|^ltx2\\.3-"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^ltx-2\\.3-"
+      },
+      "message": "a 2.3 LoRA on a 2.5 model: 'the large majority of LoRAs and IC-LoRAs trained on LTX-2.3 run on LTX-2.5 without changes. A small number of exceptions exist - validate your adapters'; the 2.3 ID-LoRAs changed the subject's identity on 2.5 (HF #30)",
+      "src": [
+        "S-HF25",
+        "S-HF25-D30"
+      ]
+    },
+    {
+      "id": "lora-19b-not-on-22b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^ltx-2-19b|^ltx2-squish"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "^ltx-2-19b"
+      },
+      "message": "LTX-2 19B LoRAs (IC-LoRA canny/depth/pose, camera-control, squish, distilled-lora-384) were trained on the 19B legacy model, not on the 22B 2.3/2.5 transformers",
+      "src": [
+        "S-GH",
+        "S-HF2"
+      ]
+    },
+    {
+      "id": "iclora-parameters-wired",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "iclora_parameters_wired",
+      "args": {
+        "lora_regex": "ic-lora",
+        "reader": "GetICLoRAParameters",
+        "sink": "LTXVAddGuide",
+        "input": "iclora_parameters"
+      },
+      "message": "an IC-LoRA guide needs GetICLoRAParameters(iclora_model) -> LTXVAddGuide.iclora_parameters: it reads the reference_downscale_factor from the LoRA metadata ('This model expects a reference downscale factor of 0.5'; Ingredients: 1); 'a generic LoRA loader that ignores the reference path will not apply the conditioning'",
+      "src": [
+        "S-TPL-23-IC",
+        "S-TPL-23-INGR",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "crop-guides-before-decode",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "ltx_crop_guides_wired",
+      "args": {
+        "guide": "LTXVAddGuide",
+        "crop": "LTXVCropGuides",
+        "decode": "VAEDecodeTiled|VAEDecode"
+      },
+      "message": "guided graphs (FLF2V keyframes, IC-LoRA control frames, reference sheets) append guide latents: LTXVCropGuides(positive, negative, latent) must sit between the sampler's video latent and the decode, or the guide frames appear in the output; the 2.3 two-stage graphs also feed CropGuides' conditioning to the stage-2 guider",
+      "src": [
+        "S-TPL-25-FLF2V",
+        "S-TPL-23-IC",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "guided-decodes-denoised-output",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "sampler_output_slot",
+      "args": {
+        "when_node": "LTXVAddGuide",
+        "sampler": "SamplerCustomAdvanced",
+        "slot": 1
+      },
+      "message": "the single-stage guided templates (FLF2V, style transition) take SamplerCustomAdvanced.denoised_output (slot 1), not output (slot 0), into LTXVSeparateAVLatent",
+      "src": [
+        "S-TPL-25-FLF2V",
+        "S-TPL-23-FLF2V"
+      ]
+    },
+    {
+      "id": "upsampler-pairs-with-generation",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "LatentUpscaleModelLoader",
+        "input": "model_name",
+        "matches": "^ltx-2\\.5-latent-spatial-upscaler"
+      },
+      "message": "the 2.5 templates pair the 2.5 x2 spatial upsampler with the 2.5 transformer (2.3: ltx-2.3-spatial-upscaler-x2-1.1); cross-generation use is NOT FOUND",
+      "src": [
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V"
+      ]
+    },
+    {
+      "id": "img-compression-2.5",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^ltx-2\\.5-"
+      },
+      "require": {
+        "node": "LTXVPreprocess",
+        "input": "img_compression",
+        "equals": 18,
+        "all": true
+      },
+      "message": "LTX-2.5 conditioning images are recompressed at CRF 18 (all 2.5 templates; diffusers LTX2_5_IMAGE_CRF = 18); the node default 35 is the pre-2.5 value",
+      "src": [
+        "S-TPL-25-I2V",
+        "S-DIFFUSERS"
+      ]
+    },
+    {
+      "id": "ingredients-reference-length",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "ic-lora-ingredients"
+      },
+      "require": {
+        "node": "RepeatImageBatch",
+        "input": "amount",
+        "min": 121
+      },
+      "message": "the Ingredients reference sheet is looped into a static video of at least 121 frames ('shorter references break the reference-encoding bucket')",
+      "src": "S-TPL-23-INGR"
+    },
+    {
+      "id": "tiled-decode-long-clips-2.5",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "ltx-2.5-video-vae-bf16.safetensors"
+      },
+      "require": {
+        "node": "VAEDecodeTiled",
+        "input": "tile_size",
+        "max": 512,
+        "all": true
+      },
+      "message": "the 2.5 diffusion video decoder is heavy ('roughly 500x more tokens for a 1080p, 121-frame video'): a 10 s clip froze on a 24 GB card until tile_size 768 -> 512; keep 512 or use the conv VAE",
+      "src": "S-HF25-D15"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "all converted LTX templates need <= 0.32.0 (pinned image 0.35.0); nothing pending for version",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "pc game, console game, video game, cartoon, childish, ugly",
+    "negative_src": [
+      "S-TPL-25-T2V",
+      "S-TPL-23-T2V"
+    ],
+    "negative_guided": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO IT”), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
+    "negative_guided_src": [
+      "S-TPL-25-FLF2V",
+      "S-TPL-23-IC"
+    ],
+    "negative_note": "the short negative is in the T2V/I2V/IA2V/ID templates (2.3 and 2.5); the long one (diffusers DEFAULT_NEGATIVE_PROMPT lineage, still carrying example-specific items like 'PNTR') in FLF2V / IC-LoRA / Ingredients / style transition. All templates run cfg 1, where negatives have NO effect; the Ingredients card suggests 'worst quality, inconsistent motion, blurry, jittery, distorted' for guided sampling.",
+    "positive": [
+      {
+        "line": "Official structure (GitHub README 'Prompting for LTX-2'): 'detailed, chronological descriptions of actions and scenes. Include specific movements, appearances, camera angles, and environmental details - all in a single flowing paragraph. Start directly with the action, and keep descriptions literal and precise. Think like a cinematographer describing a shot list. Keep within 200 words.'",
+        "class": "official",
+        "src": "S-GH"
+      },
+      {
+        "line": "Order: main action in one sentence -> specific movements and gestures -> character/object appearance -> background and environment -> camera angles and movements -> lighting and colors -> changes or sudden events",
+        "class": "official",
+        "src": "S-GH"
+      },
+      {
+        "line": "docs.comfy.org 2.5: 'Describe the whole scene: Include the shot type, scene, action, characters, and camera movement in one flowing paragraph'; 'Audio: Describe sounds and dialogue needed for the scene'. 2.3 tips: Core Actions / Visual Details / Audio",
+        "class": "official",
+        "src": [
+          "S-DOCS-25",
+          "S-TPL-23-T2V"
+        ]
+      },
+      {
+        "line": "I2V: 'Describe what happens next ... do not re-describe what is already visible'; anchor with 'Use the provided start image as the first frame'. FLF2V: 'Describe the transition ... Keep frames aligned: Use images with the same aspect ratio'",
+        "class": "official",
+        "src": [
+          "S-DOCS-25",
+          "S-TPL-25-FLF2V"
+        ]
+      },
+      {
+        "line": "Training-caption style (ComfyUI's LTX-2.5 enhancer system prompt): begin immediately with the action (no 'The scene opens...'); objective observable description; per shot exactly one shot type (extreme wide / wide / medium / medium close-up / close-up / extreme close-up), the camera motion ('if none, explicitly say the camera remains static') and the viewpoint (front-facing / back-facing / side view / over-the-shoulder / top-down / low-angle / high-angle); a complete soundscape with dialogue quoted exactly in the original language, tone of voice, music, environmental sounds; chronological flow ('Initially...', 'A moment later...', 'Simultaneously...'); one paragraph of roughly 150-220 words; no labels like 'Audio:'. I2V adds 'Single continuous take - no hard cuts'",
+        "class": "official",
+        "src": "S-NODES"
+      },
+      {
+        "line": "Dialogue is quoted inside the prose: 'She stops ... and says: \"The old gods are silent. I am not.\"' (2.5 I2V template); 'speaks with a deep male voice and a satisfied tone, saying, ...' (GitHub)",
+        "class": "official",
+        "src": [
+          "S-TPL-25-I2V",
+          "S-GH"
+        ]
+      },
+      {
+        "line": "ID-LoRA: three tagged sections - '[VISUAL]: shot type, appearance, setting, lighting, actions (say the person is speaking to avoid voice-overs)' / '[SPEECH]: the exact transcript, not a summary' / '[SOUNDS]: tone, volume, mic proximity, ambience and music'",
+        "class": "official",
+        "src": "S-TPL-23-ID"
+      },
+      {
+        "line": "IA2V template: a prose sentence then labelled lines 'scene:' / 'character:' / 'action:' / 'camera:'",
+        "class": "official",
+        "src": "S-TPL-23-IA2V"
+      },
+      {
+        "line": "Ingredients: two labelled parts - '### Reference Sheet Description' (inventory the panels: characters, props, location) then '### Target Description' (the action); card form 'Reference sheet: ... / Generated video: ...'",
+        "class": "official",
+        "src": "S-TPL-23-INGR"
+      },
+      {
+        "line": "Style transition LoRA: shot description, subject and environment, the transformation over time, visual details, then the trigger 'zhuanchang' near the end",
+        "class": "official",
+        "src": "S-TPL-23-STYLE"
+      },
+      {
+        "line": "Multishot (2.5, partner docs for the hosted Pro model): 'cut between two and four distinct shots' in 'one flowing paragraph'; name every transition in prose ('A hard cut transitions to', 'a match cut connects', 'the image dissolves into') - 'Without these markers, the model interprets camera movement within a single shot rather than an edit'; after each cut re-establish scale, angle, who is in frame and lighting; state audio continuity ('the engine note continuing across the cut'); 'two to four shots fit an 8 or 10 second clip'. Official syntax NOT FETCHED (ltx.io guide blocked)",
+        "class": "community",
+        "src": "S-RUNWARE"
+      },
+      {
+        "line": "Camera / motion vocabulary in official material: push-in, pull back, dolly out, static camera, side-tracking shot, slow forward dolly shot, medium close-up, shallow depth of field, 'the camera remains static'; Gemma-3 enhancer rule: 'DO NOT invent camera motion unless requested', no timestamps or scene cuts unless requested",
+        "class": "official",
+        "src": [
+          "S-TPL-23-IA2V",
+          "S-TPL-23-IC",
+          "S-NODES"
+        ]
+      }
+    ],
+    "structure": "action first, one flowing paragraph of 150-220 words: shot type + camera motion + viewpoint, subject appearance, movements in chronological order, environment, lighting, then the full soundscape with exact quoted dialogue",
+    "hurts": [
+      {
+        "line": "H3-style timestamped shot lists and 'Audio:' labels (the 2.5 enhancer forbids labels; cuts must be named in prose)",
+        "src": [
+          "S-NODES",
+          "S-RUNWARE"
+        ]
+      },
+      {
+        "line": "relying on the negative prompt: it is inert at cfg 1 (every template)",
+        "src": "S-TPL-25-T2V"
+      },
+      {
+        "line": "very short prompts without the prompt enhancer: 'Prompt following is heavily influenced by prompting style' (cards)",
+        "src": "S-HF25"
+      },
+      {
+        "line": "describing a cut without a transition marker: read as camera movement inside one shot",
+        "src": "S-RUNWARE"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "401/403 when downloading 2.5 weights",
+      "cause": "Lightricks/LTX-2.5 (and the 2.5 IC-LoRA, 2.3 Ingredients, Pre-Trained repos) are gated",
+      "fix": "accept the model terms on HF and log in with a Read token ('read gated repos' scope); Comfy-Org mirrors (ltx-2.3, ltx-2, gemma-4) are open",
+      "src": [
+        "S-GH",
+        "S-DOCS-25"
+      ]
+    },
+    {
+      "symptom": "10 s LTX-2.5 clip freezes / hangs in VAE decode on 24 GB",
+      "cause": "the diffusion video decoder's token count",
+      "fix": "VAEDecodeTiled tile_size 512 (fixed it on a 3090); temporal_size 64 / temporal_overlap 16 (5070 Ti 16 GB); or load ltx-2.5-video-vae-conv-bf16",
+      "src": "S-HF25-D15"
+    },
+    {
+      "symptom": "prompt enhancer gives unrelated videos or empty text (2.5)",
+      "cause": "HF #36: LLM returns empty text; in I2V the loaded image context bleeds into T2V",
+      "fix": "keep prompt_enhance off and write the long prompt yourself (the recipes do); if used, preview the text, enable thinking, use gemma4_e2b_it_int8_convrot",
+      "src": "S-HF25-D36"
+    },
+    {
+      "symptom": "'AssertionError: Input and weight inner dimensions must match' (2.5 template)",
+      "cause": "HF #64, unresolved; reporter questioned the 1368x768 -> 1536 resize path",
+      "fix": "keep sizes 32-aligned (the recipes scale to width x height); single-source",
+      "src": "S-HF25-D64"
+    },
+    {
+      "symptom": "wrong face / changed ethnicity with an ID-LoRA on 2.5",
+      "cause": "2.3 ID-LoRAs applied to 2.5 (HF #30)",
+      "fix": "run ID-LoRA on 2.3 (id-lora-2.3); 'wait for the face id lora of ltx2.5'",
+      "src": "S-HF25-D30"
+    },
+    {
+      "symptom": "model fails to load / shape errors after mixing files",
+      "cause": "2.3 single-file checkpoints vs 2.5 split pack; LoRA from the other generation; stock Gemma 4",
+      "fix": "2.3: checkpoints/ + CheckpointLoaderSimple + LTXVAudioVAELoader + LTXAVTextEncoderLoader(Gemma 3); 2.5: diffusion_models/ + vae/ + text_encoders/ with UNETLoader, VAELoader, CLIPLoader ltxv",
+      "src": [
+        "S-GH",
+        "S-TPL-25-T2V",
+        "S-TPL-23-T2V"
+      ]
+    },
+    {
+      "symptom": "int8 convrot file slow or failing",
+      "cause": "INT8 ConvRot needs ComfyUI >= 0.27.0 (community: comfy-kitchen >= 0.2.16, cu130 PyTorch); issues #14824 (slower than fp8 on A100 with cu130) and #16431 (fails on Turing for M=97..127) exist",
+      "fix": "Comfy-Org: 'prefer int8_convrot if you are able to use pytorch with cu130. fp8_scaled should only be used if you cannot use int8_convrot'; on a 2.3 box use the fp8 checkpoints",
+      "src": [
+        "S-NOTE-INT8",
+        "S-GH-ISSUES-INT8",
+        "S-GH"
+      ]
+    },
+    {
+      "symptom": "negative prompt does nothing",
+      "cause": "cfg 1 everywhere",
+      "fix": "expected; raise video_cfg/audio_cfg only with the dev model and a real schedule",
+      "src": "S-TPL-25-T2V"
+    },
+    {
+      "symptom": "length rejected or off-by-a-few frames; odd sizes",
+      "cause": "frames not 8n+1 / sizes not multiples of 32; LTXVAddGuide frame_idx on 9+ frame guides must be divisible by 8",
+      "fix": "121 frames, 1280x704; guides at frame_idx 0 / -1",
+      "src": [
+        "S-HF23",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "extra frames or garbage at the end of a guided clip",
+      "cause": "LTXVCropGuides missing",
+      "fix": "wire LTXVCropGuides before the decode (recipes do)",
+      "src": [
+        "S-TPL-25-FLF2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "black / grey / garbled frames, OOM on 2.3 fp8",
+      "cause": "community guides: mixed precisions (fp8 checkpoint with fp16-forced VAE/text encoder) or the wrong VAE; full-precision encoder/VAE push peak memory",
+      "fix": "offloading, 768x512, fewer frames (65 instead of 161) - single-source",
+      "src": "S-LTXWORKFLOW"
+    },
+    {
+      "symptom": "IC-LoRA control ignored",
+      "cause": "GetICLoRAParameters not wired, or control frames not frame-aligned with the latent",
+      "fix": "iclora_parameters -> LTXVAddGuide; frame count from the control video (GetImageSize.batch_size); strength 1",
+      "src": "S-TPL-23-IC"
+    },
+    {
+      "symptom": "Ingredients identity drifts / element missing",
+      "cause": "small or cluttered panels; element absent from the sheet; reference < 121 frames",
+      "fix": "bigger clean panels on black with no text; a face close-up + turnaround per character; >= 121 looped frames; card recommends strength 1.4",
+      "src": "S-TPL-23-INGR"
+    },
+    {
+      "symptom": "weak voice identity with ID-LoRA",
+      "cause": "reference audio far from ~5 s",
+      "fix": "~5 s clip (training duration); identity_guidance_scale 3",
+      "src": "S-TPL-23-ID"
+    },
+    {
+      "symptom": "audio without speech sounds poor",
+      "cause": "2.3 card limitation",
+      "fix": "describe music/SFX explicitly; or supply the audio (ia2v-2.3)",
+      "src": "S-HF23"
+    },
+    {
+      "symptom": "output is 1280x704, not 720",
+      "cause": "the 32-px latent grid floors 720 (and ResolutionSelector's 736) to 704",
+      "fix": "expected; use 32-multiples",
+      "src": [
+        "S-NODES",
+        "S-TPL-25-T2V"
+      ]
+    }
+  ],
+  "sources": {
+    "S-HF25": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5 (model card; HF API /api/models/Lightricks/LTX-2.5?blobs=true: sizes, createdAt 2026-07-23, gated auto)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF23": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.3 (card + API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF23-FP8": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-fp8",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF2": {
+      "url": "https://huggingface.co/Lightricks/LTX-2 (legacy 19B files)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF23-UNION": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF23-INGR": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients (gated)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF25-INGR": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients (gated)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CO-23": {
+      "url": "https://huggingface.co/Comfy-Org/ltx-2.3 (LoRAs: distilled 1.1, ingredients, ID-LoRAs)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CO-2": {
+      "url": "https://huggingface.co/Comfy-Org/ltx-2 (Gemma 3 text encoders, abliterated LoRA, squish LoRA)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CO-GEMMA4": {
+      "url": "https://huggingface.co/Comfy-Org/gemma-4 (Apache-2.0; gemma4_e2b_it_int8_convrot)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CO-MOGE": {
+      "url": "https://huggingface.co/Comfy-Org/MoGe",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH": {
+      "url": "https://github.com/Lightricks/LTX-2 README (quick start, DFR, model list, 'Prompting for LTX-2', legacy 2.3 section), MODELS-LTX-2.3.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LICENSE-2X": {
+      "url": "https://raw.githubusercontent.com/Lightricks/LTX-2/main/LICENSE-2_x (LTX-2.x Community License Agreement, dated August 11, 2026)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LICENSE-2": {
+      "url": "https://raw.githubusercontent.com/Lightricks/LTX-2/main/LICENSE-2 (LTX-2 Community License Agreement, dated January 5, 2026, 'including LTX-2.3 until August 11, 2026')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LTXVIDEO-README": {
+      "url": "https://github.com/Lightricks/ComfyUI-LTXVideo README ('32GB+ VRAM' prerequisite, T2A nodes, example workflows)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-25": {
+      "url": "https://docs.comfy.org/tutorials/video/ltx/ltx-2-5.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-23": {
+      "url": "https://docs.comfy.org/tutorials/video/ltx/ltx-2-3.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BLOG-25": {
+      "url": "https://blog.comfy.org/p/ltx-25-day-0-support-in-comfyui (ComfyUI 0.32.0+, partner-node durations/fps)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json (minComfyUIVersion, dates)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-25-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_5_t2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-25-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_5_i2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-25-FLF2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_5_flf2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_t2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_i2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-IA2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_ia2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-ID": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_id_lora.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-FLF2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_flf2v.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-IC": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_3_ic_lora.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-INGR": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/template_ltx2_3_ic_lora_ingredients.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-STYLE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/template_ltx2_3_style_transition.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-23-EDIT": {
+      "url": "Comfy-Org/workflow_templates: template_ltx2_3_lora_remove_subtitles_from_video, template_ltx2_3_remove_watermark_from_video, template_ltx2_3_obscura_remova_lora_remove_object_from_video, template_ltx2_3_lora_video_outpainting, template_ltx2_3_lora_restore_archival_footage, template_ltx2_3_lora_googly_eyes (all 2026-05-21; requiresCustomNodes)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2-CANNY": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_canny_to_video.json (Canny 0.4 / 0.8)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2-POSE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx2_pose_to_video.json (requires comfyui_controlnet_aux)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-2-A2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_ltx_2_audio_to_video.json (requires comfyui-kjnodes + custom LTX nodes)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-UNKNOWN-NODES": {
+      "url": "KB/templates_unknown_node_types.json (template node types absent from ComfyUI v0.35.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_lt.py, nodes_lt_audio.py, nodes_lt_upsampler.py, nodes_lt_keyframes.py, nodes_textgen.py (LTX24_*_SYSTEM_PROMPT), nodes_resolution.py, comfy/supported_models.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REG-035": {
+      "url": "KB/node_schemas_v0.35.0.json (ComfyUI v0.35.0 node registry: exact input names/options)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DIFFUSERS": {
+      "url": "https://raw.githubusercontent.com/huggingface/diffusers/main/src/diffusers/pipelines/ltx2/utils.py (DISTILLED sigma lists, CRF 33/18, DEFAULT_NEGATIVE_PROMPT)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF25-D15": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/15 (3090 24 GB: 1280x720 5 s runs; 10 s VAE-decode freeze fixed by tile 512; 5070 Ti 16 GB temporal 64/16; Lightricks staff on the diffusion decoder)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HF25-D30": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/30 (2.3 ID-LoRA on 2.5 altered identity; I2V consistency complaint)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HF25-D36": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/36 (prompt enhancer unrelated output)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HF25-D57": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/57 (music videos: 2.3 preferred)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HF25-D64": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/64 (inner dimensions assertion)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-HF25-D71": {
+      "url": "https://huggingface.co/Lightricks/LTX-2.5/discussions/71 (small faces)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-RUNWARE": {
+      "url": "https://runware.ai/docs/models/lightricks-ltx-2-5-pro/guides/multi-shot (multi-shot prompting rules for the hosted Pro model)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-RUNPOD": {
+      "url": "https://www.runpod.io/blog/ltx-2-5-the-open-weights-world-model-built-for-speed-and-how-to-run-it-on-runpod (VRAM tiers)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-NOTE-INT8": {
+      "url": "https://note.com/hirorohi03/n/n047a8c5f7f8b (INT8 ConvRot requirements)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-GH-ISSUES-INT8": {
+      "url": "Comfy-Org/ComfyUI issues #14824, #16431 (titles only verified)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-LTXWORKFLOW": {
+      "url": "https://ltxworkflow.com/blog/fix-black-gray-garbled-video-ltx-2-3-comfyui, https://ltxworkflow.com/blog/fix-cuda-out-of-memory-ltx-2-3-comfyui",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-WIKI-25": {
+      "url": "https://comfyui-wiki.com/en/news/2026-08-11-ltx-2-5-open-weights-release",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

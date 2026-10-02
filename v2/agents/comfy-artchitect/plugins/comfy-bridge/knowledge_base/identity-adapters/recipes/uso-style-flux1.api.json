@@ -1,0 +1,240 @@
+{
+  "recipe": {
+    "task": "style-reference",
+    "method": "uso",
+    "host": "flux-1",
+    "variant": "USO style-only reference: one style image through SigLIP + USOStyleReference on the model line; plain text positive (the template's 'USO Style Reference' subgraph, which has no FluxGuidance and uses EmptyLatentImage)",
+    "from_template": "flux1_dev_uso_reference_image_gen (subgraph 'USO Style Reference', bypassed in the shipped template; second style image elided)",
+    "min_comfyui": "0.3.57",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "20",
+        "16",
+        "34",
+        "35",
+        "36",
+        "37"
+      ],
+      "splice": "model line only: Checkpoint -> LoRA (20) -> USOStyleReference (37) -> KSampler; the template chains two style images (a second CLIPVisionEncode + USOStyleReference after 37)"
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "style_image": {
+        "node": "16",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the look to copy"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-dev-fp8.safetensors",
+      "uso-flux1-dit-lora-v1.safetensors",
+      "uso-flux1-projector-v1.safetensors",
+      "sigclip_vision_patch14_384.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 20 steps, cfg 1, euler/simple, no FluxGuidance node (template). Not a face-identity method on its own: combine with the subject branch (uso-subject-style-flux1) to keep a character.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "as uso-subject-style-flux1",
+      "src": "S-TPL-USO"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "uso-style-flux1",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "flux1-dev-fp8.safetensors"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "uso-flux1-dit-lora-v1.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "A man dressed fashionably stands on the forest."
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@style_image"
+      }
+    },
+    "34": {
+      "class_type": "CLIPVisionLoader",
+      "inputs": {
+        "clip_name": "sigclip_vision_patch14_384.safetensors"
+      }
+    },
+    "35": {
+      "class_type": "ModelPatchLoader",
+      "inputs": {
+        "name": "uso-flux1-projector-v1.safetensors"
+      }
+    },
+    "36": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": [
+          "34",
+          0
+        ],
+        "image": [
+          "16",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "37": {
+      "class_type": "USOStyleReference",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "model_patch": [
+          "35",
+          0
+        ],
+        "clip_vision_output": [
+          "36",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "37",
+          0
+        ],
+        "seed": 594838223597516,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/uso_style"
+      }
+    }
+  }
+}

@@ -1,0 +1,1022 @@
+{
+  "schema": 2,
+  "id": "flashvsr",
+  "name": "FlashVSR",
+  "publisher": "OpenImagingLab (Junhao Zhuang, Shi Guo, Xin Cai, Xiaohui Li, Yihao Liu, Chun Yuan, Tianfan Xue); ComfyUI wrappers by LacklusterOpsec (fork of naxci1/ComfyUI-FlashVSR_Stable), lihaoyun6, 1038lab",
+  "license": {
+    "name": "Apache-2.0",
+    "commercial": true,
+    "notes": "weights: Apache-2.0 (HF cardData on JunhaoZhuang/FlashVSR and /FlashVSR-v1.1; GitHub README). Packs carry their own licences: Lackluster MIT, lihaoyun6 GPL-3.0, 1038lab GPL-3.0.",
+    "src": [
+      "S-GH-FLASHVSR",
+      "S-HF-FLASHVSR-V11",
+      "S-LACKLUSTER-GH",
+      "S-LIHAOYUN6-GH"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "enhance"
+  ],
+  "tasks": [
+    "upscale-video"
+  ],
+  "stage": {
+    "takes": [
+      "@video"
+    ],
+    "gives": [
+      "VIDEO"
+    ],
+    "note": "an enhancement STAGE for video only: 4x streaming super-resolution of another stage's clip; no prompt; no core nodes - every recipe needs a pack"
+  },
+  "cannot": [
+    {
+      "what": "run on core ComfyUI: no FlashVSR module in comfy_extras (master listing 2026-10-01); the only Comfy-Org template is a paid WaveSpeed API node (excluded). All local use is a community pack",
+      "src": [
+        "S-GH-COMFY-EXTRAS",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "what": "scales other than 4x without 'reduced stability': 'primarily designed and optimized for 4x video super-resolution. We strongly recommend using the 4x SR setting'",
+      "src": "S-GH-FLASHVSR"
+    },
+    {
+      "what": "take a text prompt: all wrappers use a fixed positive embedding (posi_prompt.pth / Prompt.safetensors)",
+      "src": [
+        "S-LIHAOYUN6-GH",
+        "S-HF-1038LAB"
+      ]
+    },
+    {
+      "what": "stills or very short clips: the 1038lab pack requires >= 21 frames 'for initialization'; short inputs fail or duplicate frames",
+      "src": "S-1038LAB-GH"
+    },
+    {
+      "what": "guaranteed acceleration on RTX 40/50: the official Block-Sparse Attention is verified only on A100/A800 (H200 limited, 'RTX 40/50 series or H800 ... currently unknown'); the wrappers substitute Sparse_SageAttention (sm_75-sm_120)",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "what": "quality without sparse attention: 'Some third-party implementations (early ComfyUI versions) omit sparse attention, causing quality degradation', 'especially at higher resolutions'",
+      "src": "S-GH-FLASHVSR"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "pack sources: lihaoyun6 nodes.py, LacklusterOpsec nodes.py + CHANGELOG, 1038lab AILab_FlashVSR.py (fetched 2026-10-01); no FlashVSR class exists in the v0.35.0 registry",
+    "nodes_verified_against_registry": "only the native spine (LoadVideo, GetVideoComponents, CreateVideo, SaveVideo) - verified 2026-10-01; the pack classes are flagged unknown by the offline validator, by design",
+    "note": "Phase 2 must install exactly one of the Lackluster / lihaoyun6 packs (identical class ids) and re-read /object_info before the recipe is submitted."
+  },
+  "files": [
+    {
+      "name": "diffusion_pytorch_model_streaming_dmd.safetensors",
+      "role": "diffusion",
+      "folder": "FlashVSR",
+      "bytes": 5676070392,
+      "precision": "fp32 (file); bf16/fp16/fp8 at load",
+      "variant": "v1.1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/resolve/main/diffusion_pytorch_model_streaming_dmd.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the main DiT: streaming DMD-distilled Wan2.1-T2V-1.3B; fp32-sized file (5.68 GB for 1.3B), run by the wrappers in bf16/fp16 (Lackluster also fp8_e4m3fn at load)",
+      "src": "S-HF-FLASHVSR-V11"
+    },
+    {
+      "name": "LQ_proj_in.ckpt",
+      "role": "projection",
+      "folder": "FlashVSR",
+      "bytes": 575694948,
+      "precision": null,
+      "variant": "v1.1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/resolve/main/LQ_proj_in.ckpt",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "low-quality input projection (v1: 575,695,268 B)",
+      "src": "S-HF-FLASHVSR-V11"
+    },
+    {
+      "name": "TCDecoder.ckpt",
+      "role": "decoder",
+      "folder": "FlashVSR",
+      "bytes": 189018333,
+      "precision": null,
+      "variant": "v1.1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/resolve/main/TCDecoder.ckpt",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "tiny conditional decoder, used by the 'tiny' / 'tiny-long' modes",
+      "src": "S-HF-FLASHVSR-V11"
+    },
+    {
+      "name": "Wan2.1_VAE.pth",
+      "role": "vae",
+      "folder": "FlashVSR",
+      "bytes": 507609880,
+      "precision": null,
+      "variant": "v1.1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/resolve/main/Wan2.1_VAE.pth",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Wan 2.1 VAE, used by 'full' mode (and by Lackluster vae_model 'Wan2.1')",
+      "src": "S-HF-FLASHVSR-V11"
+    },
+    {
+      "name": "config.json",
+      "role": "metadata",
+      "folder": "FlashVSR",
+      "bytes": 30,
+      "precision": null,
+      "variant": "v1.1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/resolve/main/config.json",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "metadata (model_index.json 73 B alongside)",
+      "src": "S-HF-FLASHVSR-V11"
+    },
+    {
+      "name": "diffusion_pytorch_model_streaming_dmd.safetensors (v1)",
+      "role": "diffusion",
+      "folder": "FlashVSR",
+      "bytes": 5676070392,
+      "precision": null,
+      "variant": "v1",
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR/resolve/main/diffusion_pytorch_model_streaming_dmd.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "FlashVSR v1 (October 2025) DiT, same size; superseded by v1.1 ('enhanced stability + fidelity', 'avoids texture aliasing'); the node's model option 'FlashVSR' selects it",
+      "src": "S-HF-FLASHVSR-V1",
+      "name_note": "same file name as v1.1 in a separate repo folder; '(v1)' marks the row, the file itself is diffusion_pytorch_model_streaming_dmd.safetensors"
+    },
+    {
+      "name": "Wan2.2_VAE.pth",
+      "role": "vae",
+      "folder": "FlashVSR",
+      "bytes": 2818839170,
+      "precision": null,
+      "variant": "lackluster-alt-vae",
+      "url": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/Wan2.2_VAE.pth",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lackluster vae_model 'Wan2.2' (auto-downloaded)",
+      "src": "S-HF-LIGHTX2V-AE"
+    },
+    {
+      "name": "lightvaew2_1.pth",
+      "role": "vae",
+      "folder": "FlashVSR",
+      "bytes": 32208043,
+      "precision": null,
+      "variant": "lackluster-alt-vae",
+      "url": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lightvaew2_1.pth",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lackluster vae_model 'LightVAE_W2.1' ('50% less VRAM' per tooltip); the 12 GB row",
+      "src": "S-HF-LIGHTX2V-AE"
+    },
+    {
+      "name": "taew2_2.safetensors",
+      "role": "vae",
+      "folder": "FlashVSR",
+      "bytes": 22848048,
+      "precision": null,
+      "variant": "lackluster-alt-vae",
+      "url": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/taew2_2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lackluster vae_model 'TAE_W2.2'",
+      "src": "S-HF-LIGHTX2V-AE"
+    },
+    {
+      "name": "lighttaehy1_5.pth",
+      "role": "vae",
+      "folder": "FlashVSR",
+      "bytes": 45528051,
+      "precision": null,
+      "variant": "lackluster-alt-vae",
+      "url": "https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaehy1_5.pth",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (the official repo gives no VRAM table; see the pack VRAM rows in selection/params)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Lackluster vae_model 'LightTAE_HY1.5'; the 8 GB row",
+      "src": "S-HF-LIGHTX2V-AE"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "1038lab/ComfyUI-FlashVSR (GPL-3.0; Manager: comfy node install ComfyUI-FlashVSR): nodes AILab_FlashVSR ('FlashVSR', presets Fast (2x Speed) / Balanced (2x Quality) [default] / Long Video (Low VRAM) / High Quality (Best) = Full model; scale 2-4 step 2) and AILab_FlashVSR_Advanced (model_version Tiny/Tiny Long/Full, enable_tiling, tile_size 384 (128-1024, 'Recommended: 384-512 for HD'), tile_overlap 24 ('Recommended: 48-64 ... Must be < Tile Size / 2'), speed_optimization 2.0 = sparse ratio, quality_boost 2.0 = kv ratio ('Full can handle 3.0'), stability_level 11 = local_range, color_fix, vae_tiling, sageattention, precision bf16|fp16, seed). Independent class ids - can coexist with one of the other packs. Minimum 21 frames.",
+      "needs_pack": "https://github.com/1038lab/ComfyUI-FlashVSR",
+      "folder": "FlashVSR",
+      "files": [
+        "1038lab/FlashVSR repack, auto-downloaded: FlashVSR1_1.safetensors 5,676,070,392 B ('FlashVSR 1.1 Main Model'); Wan2_1-T2V-1_3B_FlashVSR_fp32.safetensors 5,676,070,392 B (v1.0); Wan2.1_VAE.safetensors 253,815,318 B; Wan2_1_FlashVSR_LQ_proj_model_bf16.safetensors 575,692,608 B; LQ_proj_in.safetensors 575,692,496 B; TCDecoder.safetensors 181,359,724 B; Prompt.safetensors 4,194,392 B"
+      ],
+      "evidence": "pack README + AILab_FlashVSR.py; optional sageattention>=1.0.0 (+triton>=2.1.0) for ~20-30% speedup; on conflicts 'pip uninstall sageattention triton'",
+      "class": "community",
+      "src": [
+        "S-1038LAB-GH",
+        "S-HF-1038LAB"
+      ]
+    },
+    {
+      "what": "wrappers seen in search only, NOT FETCHED: smthemex/ComfyUI_FlashVSR; Pizzawookiee/ComfyUI-FlashVSR-Stock ('built on stock ComfyUI Wan 2.1; Dynamic VRAM, int8_convrot, comfy-kitchen attention')",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": "S-SEARCH"
+    }
+  ],
+  "selection": [
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 24,
+      "recipe": "upscale-video-4x",
+      "why": "Lackluster fork (maintained: 1.5.1 on 2026-08-26, MIT, registry-listed), 24 GB+ row: full mode (Wan VAE decode), bf16, no tiling/chunking - best quality the pack documents",
+      "confidence": "community-confirmed",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 16,
+      "recipe": "upscale-video-4x-16gb",
+      "why": "the pack's 16 GB row: tiny mode, tiled VAE+DiT, unload_dit, 50-frame chunks; ports carry the 12 GB (fp16, LightVAE_W2.1) and 8 GB (tiny-long, LightTAE_HY1.5, chunks 16-32) rows",
+      "tradeoff": "TCDecoder decode instead of the Wan VAE; slower from tiling",
+      "confidence": "community-confirmed",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 16,
+      "variant": "original wrapper",
+      "recipe": "upscale-video-4x-ultrafast",
+      "why": "the lihaoyun6 original (GPL-3.0): same node ids and knobs, fewer options (no fp8, no chunking, no alt VAE catalogue); pick it only if the Lackluster fork is unavailable",
+      "tradeoff": "GPL-3.0; no frame_chunk_size - long clips need tiny-long mode",
+      "confidence": "community-confirmed",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "task": "upscale-video",
+      "recipe": null,
+      "status": "pending: 1038lab/ComfyUI-FlashVSR documented under community_alternatives only (presets over the same tiny/tiny-long/full modes; the Advanced node's `device` options are NOT FOUND)",
+      "src": "S-1038LAB-GH"
+    }
+  ],
+  "params": [
+    {
+      "name": "scale",
+      "node": "FlashVSRNodeAdv|FlashVSRNode",
+      "input": "scale",
+      "meaning": "super-resolution factor",
+      "defaults": {
+        "node": 2,
+        "recipes": 4
+      },
+      "range": [
+        2,
+        4
+      ],
+      "interactions": "official: 4x is the trained setting, other scales 'may show reduced stability'; lihaoyun6 README: '4 is always better, unless you are low on VRAM then use 2'",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "name": "mode",
+      "node": "FlashVSRInitPipe",
+      "input": "mode",
+      "meaning": "tiny = TCDecoder decode (fast, less VRAM); tiny-long = streaming for long inputs ('significantly reduce VRAM'); full = Wan VAE decode (higher quality)",
+      "defaults": {
+        "node": "tiny",
+        "24 GB row": "full",
+        "16/12 GB rows": "tiny",
+        "8 GB row": "tiny-long"
+      },
+      "range": [
+        "tiny",
+        "tiny-long",
+        "full"
+      ],
+      "interactions": "alt_vae (lihaoyun6) applies only in full mode; 1038lab presets map onto the same three",
+      "src": [
+        "S-LIHAOYUN6-GH",
+        "S-LACKLUSTER-GH",
+        "S-1038LAB-GH"
+      ]
+    },
+    {
+      "name": "vae_model / alt_vae",
+      "node": "FlashVSRInitPipe",
+      "input": "vae_model (Lackluster) | alt_vae (lihaoyun6)",
+      "meaning": "the decode VAE in full mode",
+      "defaults": {
+        "lackluster": "Wan2.1",
+        "lihaoyun6": "none"
+      },
+      "range": [
+        "Wan2.1",
+        "Wan2.2",
+        "LightVAE_W2.1",
+        "TAE_W2.2",
+        "LightTAE_HY1.5"
+      ],
+      "interactions": "LightVAE_W2.1 '50% less VRAM' (12 GB row); LightTAE_HY1.5 (8 GB row); auto-downloaded from lightx2v/Autoencoders",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-HF-LIGHTX2V-AE"
+      ]
+    },
+    {
+      "name": "precision",
+      "node": "FlashVSRInitPipe",
+      "input": "precision",
+      "meaning": "compute dtype of the fp32-stored DiT",
+      "defaults": {
+        "lihaoyun6": "bf16",
+        "lackluster": "auto",
+        "rows": "bf16 at 16-24 GB, fp16 at 8-12 GB"
+      },
+      "range": [
+        "fp16",
+        "bf16",
+        "fp8_e4m3fn",
+        "auto"
+      ],
+      "interactions": "fp8_e4m3fn (Lackluster only) 'cuts VRAM in half (requires PyTorch 2.1+ and Ada/Hopper GPU)'",
+      "src": [
+        "S-LIHAOYUN6-GH",
+        "S-LACKLUSTER-GH"
+      ]
+    },
+    {
+      "name": "attention_mode",
+      "node": "FlashVSRInitPipe",
+      "input": "attention_mode",
+      "meaning": "the sparse-attention backend",
+      "defaults": {
+        "both packs": "sparse_sage_attention"
+      },
+      "range": [
+        "sparse_sage_attention (sm_75-sm_120)",
+        "block_sparse_attention (sm_80-sm_100)",
+        "flash_attention_2 (Lackluster)",
+        "sdpa (Lackluster)",
+        "sage_attention_2 (Lackluster)"
+      ],
+      "interactions": "the model's Locality-Constrained Sparse Attention is what the official warning is about: dense backends (sdpa / flash_attention_2) drop it -> quality loss at high resolution; Block-Sparse is the official backend, verified A100/A800 only; Sparse_Sage covers RTX 20-50; Turing needs triton<3.3.0",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH",
+        "S-LACKLUSTER-GH"
+      ]
+    },
+    {
+      "name": "tiled_vae / tiled_dit / tile_size / tile_overlap",
+      "node": "FlashVSRNodeAdv",
+      "input": "tiled_vae, tiled_dit, tile_size, tile_overlap",
+      "meaning": "VAE and DiT tiling of the input video",
+      "defaults": {
+        "node": "True / True / 256 / 24",
+        "24 GB row": "off",
+        "16 GB row": "optional/on",
+        "<=12 GB": "on"
+      },
+      "range": {
+        "tile_size": "32-1024 step 32",
+        "tile_overlap": "8-512 step 8"
+      },
+      "interactions": "'Significantly reduces VRAM usage at the cost of speed'; 1038lab: overlap 'Must be < Tile Size / 2', tile 384-512 for HD",
+      "src": [
+        "S-LIHAOYUN6-GH",
+        "S-1038LAB-GH"
+      ]
+    },
+    {
+      "name": "frame_chunk_size",
+      "node": "FlashVSRNodeAdv",
+      "input": "frame_chunk_size",
+      "meaning": "Lackluster only: process the clip in chunks of N frames 'to prevent VRAM OOM'",
+      "defaults": {
+        "node": 0,
+        "16 GB row": "50-100",
+        "12 GB row": 50,
+        "8 GB row": "16-32"
+      },
+      "range": [
+        0,
+        null
+      ],
+      "interactions": "0 = all frames; lihaoyun6 has no chunking (use tiny-long mode)",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "name": "unload_dit",
+      "node": "FlashVSRNodeAdv",
+      "input": "unload_dit",
+      "meaning": "'Unload DiT before decoding to reduce VRAM peak at the cost of speed'",
+      "defaults": {
+        "adv node": false,
+        "lackluster simple node": "True ('Recommended for 16GB VRAM')"
+      },
+      "range": [
+        true,
+        false
+      ],
+      "interactions": "",
+      "src": [
+        "S-LIHAOYUN6-GH",
+        "S-LACKLUSTER-GH"
+      ]
+    },
+    {
+      "name": "sparse_ratio / kv_ratio / local_range",
+      "node": "FlashVSRNodeAdv",
+      "input": "sparse_ratio, kv_ratio, local_range",
+      "meaning": "the locality-constrained sparse-attention knobs",
+      "defaults": {
+        "all": "2.0 / 3.0 / 11"
+      },
+      "range": {
+        "sparse_ratio": "1.5-2.0",
+        "kv_ratio": "1.0-3.0",
+        "local_range": "9 or 11"
+      },
+      "interactions": "sparse_ratio 1.5 faster / 2.0 more stable; kv_ratio 1.0 less VRAM / 3.0 high quality; local_range 9 sharper / 11 more stable (temporally)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "name": "color_fix",
+      "node": "FlashVSRNodeAdv",
+      "input": "color_fix",
+      "meaning": "'Use wavelet transform to correct output video color'",
+      "defaults": {
+        "all packs": true
+      },
+      "range": [
+        true,
+        false
+      ],
+      "interactions": "keep on in every pack (pitfall: colour shift)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "name": "seed",
+      "node": "FlashVSRNodeAdv",
+      "input": "seed",
+      "meaning": "",
+      "defaults": {
+        "node": 0
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "name": "input length",
+      "node": "(frames fed to the FlashVSR node)",
+      "input": "frame count",
+      "meaning": "minimum 21 frames 'for initialization' (1038lab); streaming warm-up",
+      "defaults": {},
+      "range": [
+        21,
+        null
+      ],
+      "interactions": "long clips: Lackluster frame_chunk_size, 1038lab 'Tiny Long', lihaoyun6 'tiny-long'; a community report hit OOM on a 32 GB 5090 beyond ~100 frames during decode",
+      "src": [
+        "S-1038LAB-GH",
+        "S-KJ-1439"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "min-21-frames",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "video_min_frames",
+      "args": {
+        "node": "FlashVSRNodeAdv|FlashVSRNode|AILab_FlashVSR|AILab_FlashVSR_Advanced",
+        "input": "frames",
+        "min_frames": 21
+      },
+      "message": "FlashVSR is a streaming model that needs >= 21 input frames to initialise (1038lab: 'Requires at least 21 frames for initialization'; shorter inputs fail or duplicate frames); the other packs state no minimum (NOT FOUND) - never feed it a still",
+      "src": "S-1038LAB-GH"
+    },
+    {
+      "id": "scale-range",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv|FlashVSRNode",
+        "input": "scale"
+      },
+      "numeric": {
+        "min": 2,
+        "max": 4
+      },
+      "message": "scale is 2-4 in every wrapper",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "scale-4x-trained",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv|FlashVSRNode",
+        "input": "scale"
+      },
+      "numeric": {
+        "in": [
+          4
+        ]
+      },
+      "message": "official: 'primarily designed and optimized for 4x ... We strongly recommend using the 4x SR setting'; other scales 'may show reduced stability'. 2x is a VRAM concession only - if the target is 2x, upscale 4x and resize down",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "id": "mode-enum",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRInitPipe|FlashVSRNode",
+        "input": "mode"
+      },
+      "numeric": {
+        "in": [
+          "tiny",
+          "tiny-long",
+          "full"
+        ]
+      },
+      "message": "mode is tiny (TCDecoder), tiny-long (streaming, low VRAM) or full (Wan VAE decode)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "alt-vae-needs-full",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRInitPipe",
+        "input": "alt_vae",
+        "matches": "^(?!none$).+"
+      },
+      "require": {
+        "node": "FlashVSRInitPipe",
+        "input": "mode",
+        "equals": "full",
+        "all": true
+      },
+      "message": "alt_vae 'Replaces the built-in VAE, only available in full mode' - in tiny modes the TCDecoder decodes and the setting is ignored",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "block-sparse-hardware",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRInitPipe|FlashVSRNode",
+        "input": "attention_mode",
+        "equals": "block_sparse_attention"
+      },
+      "require": {
+        "node": "FlashVSRInitPipe",
+        "input": "attention_mode",
+        "equals": "__never__"
+      },
+      "message": "Block-Sparse Attention (the official backend) 'works correctly on NVIDIA A100 and A800 (Ampere) with ideal acceleration', 'runs correctly on H200 (Hopper) but the acceleration is limited', 'RTX 40/50 series or H800 are currently unknown'; its compile 'is memory-intensive'; the wrapper limits it to sm_80-sm_100. On consumer cards use sparse_sage_attention (sm_75-sm_120)",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "id": "dense-attention-degrades",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRInitPipe|FlashVSRNode",
+        "input": "attention_mode",
+        "matches": "^(sdpa|flash_attention_2)$"
+      },
+      "require": {
+        "node": "FlashVSRInitPipe",
+        "input": "attention_mode",
+        "equals": "__never__"
+      },
+      "message": "a dense backend omits the Locality-Constrained Sparse Attention: official warning of 'noticeable quality degradation, especially at higher resolutions'. Keep sparse_sage_attention (or block_sparse_attention on A100/A800)",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LACKLUSTER-GH"
+      ]
+    },
+    {
+      "id": "fp8-needs-ada",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRInitPipe",
+        "input": "precision",
+        "equals": "fp8_e4m3fn"
+      },
+      "require": {
+        "node": "FlashVSRInitPipe",
+        "input": "precision",
+        "equals": "__never__"
+      },
+      "message": "fp8_e4m3fn 'cuts VRAM in half (requires PyTorch 2.1+ and Ada/Hopper GPU)' - not for Ampere or older",
+      "src": "S-LACKLUSTER-GH",
+      "gpu_unless": "RTX ?40|RTX ?50|RTX PRO 6000|RTX 6000 ?Ada|RTX 5880 ?Ada|Ada|L40|\bL4\b|H100|H200|H20\b|B100|B200|GB200|Blackwell|4090|4080|5090|5080"
+    },
+    {
+      "id": "tile-size-grid",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv",
+        "input": "tile_size"
+      },
+      "numeric": {
+        "min": 32,
+        "max": 1024,
+        "multiple_of": 32
+      },
+      "message": "tile_size is 32-1024 in steps of 32 (node definition)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "tile-overlap-grid",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv",
+        "input": "tile_overlap"
+      },
+      "numeric": {
+        "min": 8,
+        "max": 512,
+        "multiple_of": 8
+      },
+      "message": "tile_overlap is 8-512 in steps of 8 (node definition)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "tile-overlap-below-half",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "input_less_than_half_of_other",
+      "args": {
+        "node": "FlashVSRNodeAdv|AILab_FlashVSR_Advanced",
+        "input": "tile_overlap",
+        "other": "tile_size"
+      },
+      "message": "tile overlap 'Must be < Tile Size / 2' (1038lab); recommended 48-64 on 384-512 tiles for HD",
+      "src": "S-1038LAB-GH"
+    },
+    {
+      "id": "tiling-when-low-vram",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRNodeAdv",
+        "input": "tiled_dit",
+        "equals": false
+      },
+      "require": {
+        "node": "FlashVSRInitPipe",
+        "input": "mode",
+        "equals": "full",
+        "all": true
+      },
+      "message": "tiling off is the 24 GB+ row (full mode, no chunking); on 16 GB and below the pack's table has tiled VAE + tiled DiT on, unload_dit on and frame chunks (50-100 at 16 GB, 50 at 12 GB, 16-32 at 8 GB) - the progressive fallback is tiled VAE -> tiled DiT -> chunking",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "id": "sparse-ratio-range",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv",
+        "input": "sparse_ratio"
+      },
+      "numeric": {
+        "min": 1.5,
+        "max": 2.0
+      },
+      "message": "sparse_ratio 1.5 (faster) to 2.0 (more stable)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "kv-ratio-range",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv",
+        "input": "kv_ratio"
+      },
+      "numeric": {
+        "min": 1.0,
+        "max": 3.0
+      },
+      "message": "kv_ratio 1.0 (less VRAM) to 3.0 (high quality)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "local-range-enum",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "FlashVSRNodeAdv",
+        "input": "local_range"
+      },
+      "numeric": {
+        "in": [
+          9,
+          11
+        ]
+      },
+      "message": "local_range is 9 (sharper details) or 11 (more stable results)",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "color-fix-on",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRNodeAdv|FlashVSRNode",
+        "input": "scale",
+        "exists": true
+      },
+      "require": {
+        "node": "FlashVSRNodeAdv|FlashVSRNode",
+        "input": "color_fix",
+        "equals": true,
+        "all": true
+      },
+      "message": "keep color_fix True (wavelet colour transfer) in every pack, or the output drifts in colour from the source",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "id": "v11-weights",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FlashVSRInitPipe|FlashVSRNode",
+        "input": "model",
+        "equals": "FlashVSR"
+      },
+      "require": {
+        "node": "FlashVSRInitPipe|FlashVSRNode",
+        "input": "model",
+        "equals": "FlashVSR-v1.1",
+        "all": true
+      },
+      "message": "v1.1 (November 2025) is the current release: 'enhanced stability + fidelity', 'avoids texture aliasing and visual artifacts'; v1 also carries the aspect-ratio-switch artifact fixed 2025-10-21",
+      "src": [
+        "S-HF-FLASHVSR-V11",
+        "S-GH-FLASHVSR"
+      ]
+    },
+    {
+      "id": "fps-preserved",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CreateVideo",
+        "input": "images",
+        "linked": true
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "linked": true
+      },
+      "message": "FlashVSR upscales frames one-for-one: CreateVideo.fps must be wired from GetVideoComponents (as audio is), or the clip changes speed",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "id": "one-pack-only",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "packs_mutually_exclusive",
+      "args": {
+        "packs": [
+          "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-FlashVSR",
+          "https://github.com/lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast"
+        ],
+        "shared_classes": [
+          "FlashVSRNode",
+          "FlashVSRNodeAdv",
+          "FlashVSRInitPipe"
+        ]
+      },
+      "message": "the Lackluster fork and the lihaoyun6 original register the same class ids: installing both collides at registration - install exactly one",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "min_comfyui": null,
+      "per_recipe": true,
+      "message": "NOT FOUND: neither pack states a ComfyUI minimum; the native spine nodes exist in v0.35.0",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-LIHAOYUN6-GH"
+      ]
+    }
+  ],
+  "prompting": {
+    "negative_default": null,
+    "note": "not applicable: no user prompt. Every wrapper uses a fixed positive prompt embedding shipped with the pack (posi_prompt.pth in lihaoyun6/Lackluster; Prompt.safetensors in the 1038lab repack).",
+    "positive": [],
+    "structure": null,
+    "hurts": [],
+    "src": [
+      "S-LIHAOYUN6-GH",
+      "S-HF-1038LAB"
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "soft / degraded output at high resolution",
+      "cause": "a wrapper or backend without sparse attention (official warning)",
+      "fix": "attention_mode sparse_sage_attention (or block_sparse_attention on A100/A800), never sdpa / flash_attention_2 for quality parity",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LACKLUSTER-GH"
+      ]
+    },
+    {
+      "symptom": "Triton / attention build fails on Turing or older",
+      "cause": "Triton >= 3.3",
+      "fix": "pip install -U \"triton<3.3.0\" (Windows: \"triton-windows<3.3.0\")",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "symptom": "OOM",
+      "cause": "full mode at 4x, long clip, no tiling",
+      "fix": "tiled_vae -> tiled_dit -> frame_chunk_size (Lackluster) / tiny-long mode; unload_dit; LightVAE / LightTAE; fp8 on Ada/Hopper; a 32 GB 5090 reportedly OOMs beyond ~100 frames in decode without chunking",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-1038LAB-GH",
+        "S-KJ-1439"
+      ]
+    },
+    {
+      "symptom": "fails or duplicates frames on a short input",
+      "cause": "fewer than 21 frames",
+      "fix": "feed >= 21 frames; 1038lab fixed a frame-duplication bug on 2025-11-15",
+      "src": "S-1038LAB-GH"
+    },
+    {
+      "symptom": "'FlashVSR streaming pipeline produced no output frames'",
+      "cause": "Lackluster streaming-loop bug before 1.5.1",
+      "fix": "update the fork (1.5.1 fixed the loop and the KV-cache init)",
+      "src": "S-LACKLUSTER-GH"
+    },
+    {
+      "symptom": "nodes missing or duplicated after install",
+      "cause": "both Lackluster and lihaoyun6 installed (same class ids)",
+      "fix": "keep one",
+      "src": [
+        "S-LACKLUSTER-GH",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "symptom": "colour shift vs source",
+      "cause": "color_fix off",
+      "fix": "color_fix True",
+      "src": "S-LIHAOYUN6-GH"
+    },
+    {
+      "symptom": "artifacts when aspect ratio changes between clips",
+      "cause": "v1 local_attention_mask bug (fixed 2025-10-21)",
+      "fix": "use v1.1 weights",
+      "src": "S-GH-FLASHVSR"
+    },
+    {
+      "symptom": "2x output wanted",
+      "cause": "scale 2 is a VRAM concession, not the trained setting",
+      "fix": "scale 4 then resize down (ImageScaleBy 0.5) when VRAM allows",
+      "src": [
+        "S-GH-FLASHVSR",
+        "S-LIHAOYUN6-GH"
+      ]
+    },
+    {
+      "symptom": "1038lab: 'FileNotFoundError: Missing Wan2.1_VAE.safetensors'",
+      "cause": "partial auto-download",
+      "fix": "delete the models/FlashVSR folder and restart ComfyUI to re-download; SageAttention conflicts: pip uninstall sageattention triton",
+      "src": "S-1038LAB-GH"
+    }
+  ],
+  "sources": {
+    "S-GH-FLASHVSR": {
+      "url": "https://github.com/OpenImagingLab/FlashVSR",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FLASHVSR-V11": {
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1 (card + API tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FLASHVSR-V1": {
+      "url": "https://huggingface.co/JunhaoZhuang/FlashVSR (card + API tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-1038LAB": {
+      "url": "https://huggingface.co/1038lab/FlashVSR (README + tree)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HF-LIGHTX2V-AE": {
+      "url": "https://huggingface.co/lightx2v/Autoencoders (tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LIHAOYUN6-GH": {
+      "url": "https://github.com/lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast (README + nodes.py)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-LACKLUSTER-GH": {
+      "url": "https://github.com/LacklusterOpsec/ComfyUI-Lackluster-FlashVSR (README + nodes.py + CHANGELOG; registry https://registry.comfy.org/publishers/naxci1/nodes/ComfyUI-FlashVSR_Stable)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-1038LAB-GH": {
+      "url": "https://github.com/1038lab/ComfyUI-FlashVSR (README + AILab_FlashVSR.py)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-COMFY-EXTRAS": {
+      "url": "GitHub API listing of comfyanonymous/ComfyUI master comfy_extras/ (no FlashVSR module)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-KJ-1439": {
+      "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1439",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH": {
+      "url": "web search results for smthemex/ComfyUI_FlashVSR and Pizzawookiee/ComfyUI-FlashVSR-Stock (existence only)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

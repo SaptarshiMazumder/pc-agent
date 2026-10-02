@@ -1,0 +1,499 @@
+{
+  "recipe": {
+    "family": "ltx-2",
+    "min_comfyui": "0.32.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template ships 1280x720 (ResolutionSelector 0.9 MP 16:9 -> 1280x736); the 32-px latent grid floors both to 1280x704 (stage 1 640x352), which is what is written here.",
+      "Template's ResizeImageMaskNode ('scale dimensions' W x H, crop center) written as ImageScale with the same method/size/crop: the MATCHTYPE socket type fails the offline type check; identical semantics."
+    ],
+    "id": "flf2v-2.5",
+    "task": "flf2v",
+    "variant": "LTX-2.5 22B distilled int8, single stage at full size, first + last frame as LTXVAddGuide keyframes (0 / -1, strength 0.7), no upscaler",
+    "from_template": "video_ltx2_5_flf2v (prompt_enhance off)",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "the template's long negative; inert at cfg 1"
+      },
+      "width": {
+        "node": "8",
+        "input": "width",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "width"
+          },
+          {
+            "node": "19",
+            "input": "width"
+          }
+        ],
+        "note": "single stage at full size; multiples of 32"
+      },
+      "height": {
+        "node": "8",
+        "input": "height",
+        "same_value": [
+          {
+            "node": "16",
+            "input": "height"
+          },
+          {
+            "node": "19",
+            "input": "height"
+          }
+        ]
+      },
+      "length": {
+        "node": "8",
+        "input": "length",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frames_number"
+          }
+        ],
+        "note": "8n+1"
+      },
+      "fps": {
+        "node": "7",
+        "input": "frame_rate",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frame_rate"
+          },
+          {
+            "node": "43",
+            "input": "fps"
+          }
+        ]
+      },
+      "seed": {
+        "node": "11",
+        "input": "noise_seed"
+      },
+      "video_cfg": {
+        "node": "14",
+        "input": "video_cfg"
+      },
+      "audio_cfg": {
+        "node": "14",
+        "input": "audio_cfg"
+      },
+      "first_frame_strength": {
+        "node": "46",
+        "input": "strength",
+        "note": "0.7 (template); up to 10 on LTXVAddGuide"
+      },
+      "last_frame_strength": {
+        "node": "47",
+        "input": "strength"
+      },
+      "img_compression": {
+        "nodes": [
+          "17",
+          "45"
+        ],
+        "input": "img_compression"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "first frame; same aspect as end_image"
+      },
+      "end_image": {
+        "node": "18",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "last frame"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "44",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "ltx-2.5-video-vae-bf16.safetensors",
+      "ltx-2.5-audio-vae-bf16.safetensors",
+      "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
+    ],
+    "defaults_note": "1280x704 x 121 @24 fps with audio, 8 sigmas, SamplerEulerAncestral eta 0. The sampler's denoised_output (not output) feeds the decode and LTXVCropGuides strips the appended guide frames - both as in the template.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "at": "1280x704x121",
+      "usage": null,
+      "time_s": null,
+      "src": null
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-video-vae-bf16.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ltx-2.5-audio-vae-bf16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+        "type": "ltxv",
+        "device": "default"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "Use the provided start image as the first frame and the provided end image as the final frame anchor. The robotic hand rotates slowly at the wrist from the back view toward the palm, fingers uncurling one by one as a faint blue energy gathers in the palm. A low electrical hum rises steadily."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO IT”), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+      }
+    },
+    "7": {
+      "class_type": "LTXVConditioning",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "frame_rate": 24.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "nearest-exact",
+        "width": 1280,
+        "height": 704,
+        "crop": "center"
+      }
+    },
+    "17": {
+      "class_type": "LTXVPreprocess",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ],
+        "img_compression": 18
+      }
+    },
+    "18": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@end_image"
+      }
+    },
+    "19": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "18",
+          0
+        ],
+        "upscale_method": "nearest-exact",
+        "width": 1280,
+        "height": 704,
+        "crop": "center"
+      }
+    },
+    "45": {
+      "class_type": "LTXVPreprocess",
+      "inputs": {
+        "image": [
+          "19",
+          0
+        ],
+        "img_compression": 18
+      }
+    },
+    "8": {
+      "class_type": "EmptyLTXVLatentVideo",
+      "inputs": {
+        "width": 1280,
+        "height": 704,
+        "length": 121,
+        "batch_size": 1
+      }
+    },
+    "9": {
+      "class_type": "LTXVEmptyLatentAudio",
+      "inputs": {
+        "frames_number": 121,
+        "frame_rate": 24,
+        "batch_size": 1,
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "46": {
+      "class_type": "LTXVAddGuide",
+      "inputs": {
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "latent": [
+          "8",
+          0
+        ],
+        "image": [
+          "17",
+          0
+        ],
+        "frame_idx": 0,
+        "strength": 0.7
+      }
+    },
+    "47": {
+      "class_type": "LTXVAddGuide",
+      "inputs": {
+        "positive": [
+          "46",
+          0
+        ],
+        "negative": [
+          "46",
+          1
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "latent": [
+          "46",
+          2
+        ],
+        "image": [
+          "45",
+          0
+        ],
+        "frame_idx": -1,
+        "strength": 0.7
+      }
+    },
+    "10": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "47",
+          2
+        ],
+        "audio_latent": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "12": {
+      "class_type": "SamplerEulerAncestral",
+      "inputs": {
+        "eta": 0.0,
+        "s_noise": 1.0
+      }
+    },
+    "13": {
+      "class_type": "ManualSigmas",
+      "inputs": {
+        "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+      }
+    },
+    "14": {
+      "class_type": "LTXVDualCFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "47",
+          0
+        ],
+        "negative": [
+          "47",
+          1
+        ],
+        "video_cfg": 1.0,
+        "audio_cfg": 1.0
+      }
+    },
+    "30": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "11",
+          0
+        ],
+        "guider": [
+          "14",
+          0
+        ],
+        "sampler": [
+          "12",
+          0
+        ],
+        "sigmas": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "10",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "30",
+          1
+        ]
+      }
+    },
+    "48": {
+      "class_type": "LTXVCropGuides",
+      "inputs": {
+        "positive": [
+          "47",
+          0
+        ],
+        "negative": [
+          "47",
+          1
+        ],
+        "latent": [
+          "31",
+          0
+        ]
+      }
+    },
+    "41": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "48",
+          2
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 64,
+        "temporal_size": 64,
+        "temporal_overlap": 16
+      }
+    },
+    "42": {
+      "class_type": "LTXVAudioVAEDecode",
+      "inputs": {
+        "samples": [
+          "31",
+          1
+        ],
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "41",
+          0
+        ],
+        "fps": 24.0,
+        "audio": [
+          "42",
+          0
+        ],
+        "bit_depth": 8
+      }
+    },
+    "44": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "43",
+          0
+        ],
+        "filename_prefix": "video/ltx25_flf2v",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

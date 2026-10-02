@@ -1,0 +1,267 @@
+{
+  "recipe": {
+    "id": "kontext-edit-multi-ref",
+    "family": "flux-1",
+    "task": "edit",
+    "variant": "FLUX.1 Kontext [dev], two input images each encoded and appended as its own reference (chained ReferenceLatent), output size chosen with EmptySD3LatentImage",
+    "from_template": "flux_kontext_dev_basic, built as its note [178] describes: 'encode individual images, then concatenate multiple latent conditions using the ReferenceLatent node ... use the EmptySD3LatentImage node ... to customize the size of the latent_image'. Graph assembled from the note + ReferenceLatent docs ('connecting several Set Reference Latent nodes in sequence appends additional references') + community guides (smartart.live, apatero, nextdiffusion use 2-4 references). Community-confirmed.",
+    "min_comfyui": "0.3.42",
+    "confidence": "community-confirmed",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      }
+    },
+    "inputs": {
+      "image_1": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "first reference (the subject/base)"
+      },
+      "image_2": {
+        "node": "19",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "second reference; add more by chaining another FluxKontextImageScale -> VAEEncode -> ReferenceLatent"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "ae.safetensors",
+      "clip_l.safetensors",
+      "flux1-dev-kontext_fp8_scaled.safetensors",
+      "t5xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024 output, 20 steps, cfg 1.0, guidance 2.5. Default reference_latents_method for FLUX.1 is 'offset' (each reference at a spatial offset); FluxKontextMultiReferenceLatentMethod (v0.3.51+) can switch to 'index'. Each reference adds tokens -> VRAM. No official maximum for Kontext dev in ComfyUI (BFL API: up to 10).",
+    "vram_evidence": {
+      "gpu": "~20 GB (fp8), >30 GB (bf16)",
+      "note": "community: 'fp8 checkpoint wants roughly 20 GB of VRAM, and full precision wants more than 30 GB' with ComfyUI offloading making smaller cards work; no official number",
+      "class": "community",
+      "src": "S-VRAM-GUIDES"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux1-dev-kontext_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "clip_l.safetensors",
+        "clip_name2": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "flux",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "Using this elegant style, create a portrait of a swan wearing a pearl tiara and lace collar, maintaining the same refined quality and soft color tones."
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image_1"
+      }
+    },
+    "16": {
+      "class_type": "FluxKontextImageScale",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ]
+      }
+    },
+    "17": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "19": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image_2"
+      }
+    },
+    "30": {
+      "class_type": "FluxKontextImageScale",
+      "inputs": {
+        "image": [
+          "19",
+          0
+        ]
+      }
+    },
+    "31": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "30",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "latent": [
+          "17",
+          0
+        ]
+      }
+    },
+    "32": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "8",
+          0
+        ],
+        "latent": [
+          "31",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "32",
+          0
+        ],
+        "guidance": 2.5
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "flux.1_kontext_dev"
+      }
+    }
+  }
+}

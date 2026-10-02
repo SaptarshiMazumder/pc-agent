@@ -359,6 +359,11 @@ class AgentSpec:
     # tools never discovered (see domain/agent_availability.py). Meaningless on a desktop
     # install, which is every install that is not serving strangers.
     requires_local: bool = False
+    # managed — whether the project manager sits beside a person's work with this agent
+    # (application/services/manager_checkpoint_service.py). On unless the AUTHOR turns it off
+    # with `managed = false`: an agent whose own flow already holds the user's approval and its
+    # own stopping rules can run without one.
+    managed: bool = True
     # OWNERSHIP, resolved once at scan time (domain/ownership.py): the `.agentd-meta.json`
     # record when the dir has one, else the presumed owner of the layer it was found in. On the
     # spec so that visibility and `mine` are dict lookups per call, not disk reads. Empty owner

@@ -1,0 +1,265 @@
+{
+  "recipe": {
+    "id": "upscale-image-7b",
+    "family": "seedvr2",
+    "task": "upscale-image",
+    "variant": "7B Int8 (8.33 GB): the official 7B image template file; docs: 'higher quality'; scale 4, 1 step, cfg 1, denoise 1, color correction none",
+    "from_template": "utility_seedvr2_7b_int8_upscale_image (subgraph 'Upscale Image (SeedVR2 7B Int8)' flattened; the ImageCompare preview dropped). Template resize node is ResizeImageMaskNode ('scale by multiplier', lanczos). Written here as ImageScaleBy (lanczos, scale_by): the same lanczos resample of the IMAGE (RGBA passes through), because the offline validator cannot type ResizeImageMaskNode's COMFY_MATCHTYPE_V3 socket. Swap back on the box if the v3 node is preferred.",
+    "min_comfyui": "0.28.0",
+    "confidence": "official",
+    "ports": {
+      "scale": {
+        "node": "4",
+        "input": "scale_by",
+        "note": "upscale factor; the DiT restores at the resolution it is handed (template default 4 for stills, 2 for video). VRAM and time scale with output megapixels x frames"
+      },
+      "seed": {
+        "node": "8",
+        "input": "seed",
+        "note": "one-step models still consume noise: the seed changes micro-detail"
+      },
+      "denoise": {
+        "node": "8",
+        "input": "denoise",
+        "note": "1.0 = full restore (template); lower values are exposed by the template but undocumented"
+      },
+      "sampler_name": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "euler (template); no official guidance beyond the default"
+      },
+      "scheduler": {
+        "node": "8",
+        "input": "scheduler",
+        "note": "simple (template)"
+      },
+      "color_correction_method": {
+        "node": "10",
+        "input": "color_correction_method",
+        "note": "none (template) | lab (node default, 'most faithful', most memory) | wavelet | adain"
+      },
+      "unet_name": {
+        "node": "1",
+        "input": "unet_name",
+        "note": "swap precision/size here: see profile.files (same graph for every seedvr2_* file)"
+      },
+      "vae_name": {
+        "node": "2",
+        "input": "vae_name",
+        "note": "seedvr2_ema_vae_fp16.safetensors or ema_vae_fp16.safetensors (identical model)"
+      },
+      "tile_size": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "tile_size",
+        "note": "VAE spatial tile (template 512)"
+      },
+      "tile_overlap": {
+        "nodes": [
+          "6",
+          "9"
+        ],
+        "input": "overlap",
+        "note": "VAE spatial overlap (template 128)"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the still to restore/upscale (any size: H/W are padded to multiples of 16 by SeedVR2Preprocess and cropped back by SeedVR2PostProcessing). Alpha is carried by JoinImageWithAlpha and re-applied after."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "seedvr2_7b_int8_convrot.safetensors",
+      "seedvr2_ema_vae_fp16.safetensors"
+    ],
+    "packs": [],
+    "precision_alternatives": {
+      "same graph, swap unet_name": [
+        "seedvr2_7b_fp16.safetensors",
+        "seedvr2_7b_fp8_e4m3fn.safetensors",
+        "seedvr2_7b_mxfp8.safetensors",
+        "seedvr2_7b_nvfp4.safetensors",
+        "seedvr2_7b_sharp_int8_convrot.safetensors (sharper detail)"
+      ]
+    },
+    "defaults_note": "scale 4 (template default for stills); KSampler steps 1 / cfg 1 / euler / simple / denoise 1 (one-step model, steps and cfg are not ports); VAE tiling 512/128 with temporal_size 4096 (a still is one frame); color_correction_method none (node default is lab). No text prompt: SeedVR2Conditioning supplies the fixed positive/negative embeddings stored in the converted checkpoint. docs.comfy.org tip for very large stills: downscale to ~0.35 megapixels (ImageScaleToTotalPixels) before upscaling.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND: the official chunk-size law was fitted on the 3B fp16 only; docs say INT8 is 'reduced VRAM usage compared to FP16' and 7B is 'higher quality'. Community tiers (numz README): 12-16 GB for fp8-class files, 24 GB+ for fp16",
+      "time_s": null,
+      "class": "not-found",
+      "src": [
+        "S-DOCS-SEEDVR2",
+        "S-NUMZ-GH"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template resize node is ResizeImageMaskNode ('scale by multiplier', lanczos). Written here as ImageScaleBy (lanczos, scale_by): the same lanczos resample of the IMAGE (RGBA passes through), because the offline validator cannot type ResizeImageMaskNode's COMFY_MATCHTYPE_V3 socket. Swap back on the box if the v3 node is preferred."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "seedvr2_7b_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "seedvr2_ema_vae_fp16.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "3": {
+      "class_type": "JoinImageWithAlpha",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "alpha": [
+          "15",
+          1
+        ]
+      }
+    },
+    "4": {
+      "class_type": "ImageScaleBy",
+      "inputs": {
+        "image": [
+          "3",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "scale_by": 4.0
+      }
+    },
+    "5": {
+      "class_type": "SeedVR2Preprocess",
+      "inputs": {
+        "resized_images": [
+          "4",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "VAEEncodeTiled",
+      "inputs": {
+        "pixels": [
+          "5",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 128,
+        "temporal_size": 4096,
+        "temporal_overlap": 8
+      }
+    },
+    "7": {
+      "class_type": "SeedVR2Conditioning",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "vae_conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 959948902156062,
+        "steps": 1,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "8",
+          0
+        ],
+        "vae": [
+          "2",
+          0
+        ],
+        "tile_size": 512,
+        "overlap": 128,
+        "temporal_size": 4096,
+        "temporal_overlap": 8
+      }
+    },
+    "10": {
+      "class_type": "SeedVR2PostProcessing",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "original_resized_images": [
+          "4",
+          0
+        ],
+        "color_correction_method": "none"
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "10",
+          0
+        ],
+        "filename_prefix": "seedvr2_after/image"
+      }
+    }
+  }
+}

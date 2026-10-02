@@ -1,0 +1,282 @@
+{
+  "recipe": {
+    "id": "edit-dev-turbo",
+    "family": "flux-2",
+    "task": "edit",
+    "variant": "FLUX.2 [dev] single-reference edit with the Turbo LoRA, 8 steps",
+    "from_template": "image_flux2 (Enable 8 steps lora = true)",
+    "min_comfyui": "0.19.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "guidance": {
+        "node": "7",
+        "input": "guidance"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "4",
+        "input": "steps"
+      },
+      "megapixels": {
+        "node": "16",
+        "input": "megapixels",
+        "note": "the reference is scaled to this many megapixels and the output takes that size (GetImageSize feeds both EmptyFlux2LatentImage and Flux2Scheduler)"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      }
+    },
+    "inputs": {
+      "reference_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to edit; scaled to 1 MP (lanczos), VAE-encoded into ReferenceLatent, and its size becomes the output size"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "Flux_2-Turbo-LoRA_comfyui.safetensors",
+      "flux2_dev_fp8mixed.safetensors",
+      "full_encoder_small_decoder.safetensors",
+      "mistral_3_small_flux2_bf16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "As edit-dev with Flux_2-Turbo-LoRA_comfyui at strength 1 and 8 steps.",
+    "vram_evidence": {
+      "gpu": "24 GB with offload (fp8); 15 GB per ComfyUI",
+      "note": "ComfyUI (X, 2025-11-25): 'FLUX.2 Dev FP8 from NVIDIA ... reducing the VRAM requirements by 50% down to 15GB'; blog: FP8 'reduces requirements by 40%'; community: fits a 24 GB card with offload, '24GB+ strongly recommended for high-resolution work', 64-96 GB system RAM reported. The 35.6 GB bf16 Mistral encoder is the other half of the budget: CLIPLoader.device = cpu or the fp8/fp4 encoder.",
+      "class": "official + community",
+      "src": [
+        "S-COMFY-X",
+        "S-COMFY-BLOG-FLUX2",
+        "S-SDTUTORIALS"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "min_comfyui_note": "0.19.0 (template minComfyUIVersion is lower, but full_encoder_small_decoder.safetensors needs the small-decoder support added in ComfyUI v0.19.0, 2026-04-13)"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux2_dev_fp8mixed.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "mistral_3_small_flux2_bf16.safetensors",
+        "type": "flux2",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "full_encoder_small_decoder.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@reference_image"
+      }
+    },
+    "16": {
+      "class_type": "ImageScaleToTotalPixels",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "megapixels": 1.0,
+        "resolution_steps": 1
+      }
+    },
+    "17": {
+      "class_type": "GetImageSize",
+      "inputs": {
+        "image": [
+          "16",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "16",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "The woman is wearing a small pale yellow knitted beanie, with a white fabric patch on the front right, embroidered with big gray text “FLUX.2 COMFY.” Keep the face"
+      }
+    },
+    "7": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ],
+        "guidance": 4.0
+      }
+    },
+    "19": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "7",
+          0
+        ],
+        "latent": [
+          "18",
+          0
+        ]
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "Flux_2-Turbo-LoRA_comfyui.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "8": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "conditioning": [
+          "19",
+          0
+        ]
+      }
+    },
+    "9": {
+      "class_type": "EmptyFlux2LatentImage",
+      "inputs": {
+        "width": [
+          "17",
+          0
+        ],
+        "height": [
+          "17",
+          1
+        ],
+        "batch_size": 1
+      }
+    },
+    "4": {
+      "class_type": "Flux2Scheduler",
+      "inputs": {
+        "steps": 8,
+        "width": [
+          "17",
+          0
+        ],
+        "height": [
+          "17",
+          1
+        ]
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "8",
+          0
+        ],
+        "sampler": [
+          "14",
+          0
+        ],
+        "sigmas": [
+          "4",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux2"
+      }
+    }
+  }
+}

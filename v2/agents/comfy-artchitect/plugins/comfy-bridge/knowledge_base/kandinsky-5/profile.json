@@ -1,0 +1,1661 @@
+{
+  "schema": 2,
+  "id": "kandinsky-5",
+  "name": "Kandinsky 5.0 Video (Lite / Pro)",
+  "publisher": "Kandinsky Lab (github.com/kandinskylab/kandinsky-5; HF kandinskylab; '(c) 2025 Kandinsky Lab'; Habr posts under the Sberbank account). ComfyUI native support contributed by Kijai (PR merged); companion files from Comfy-Org (Qwen2.5-VL), comfyanonymous (clip_l) and Kijai (HunyuanVideo VAE)",
+  "license": {
+    "name": "MIT",
+    "commercial": true,
+    "notes": "GitHub LICENSE: 'The MIT License (MIT) Copyright (c) 2025 Kandinsky Lab'; every kandinskylab HF repo checked reports license: mit (Lite, Pro, LoRAs, WM). Commercial use unrestricted under MIT. Several web articles say 'Apache 2.0' - the repositories say MIT; use MIT. Third-party components in the Comfy graph carry their own licences: the HunyuanVideo 1.0 VAE (tencent-hunyuan-community), Qwen2.5-VL, CLIP-L.",
+    "src": [
+      "S-LICENSE",
+      "S-HF-LITE",
+      "S-SEARCH"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "video"
+  ],
+  "tasks": [
+    "t2v",
+    "i2v"
+  ],
+  "cannot": [
+    {
+      "what": "generate audio (no audio model)",
+      "src": "S-GH"
+    },
+    {
+      "what": "more than 5 s with a 5 s checkpoint ('capable of generating videos up to 5 seconds long'); 10 s needs the _10s checkpoints (241 frames, width/height divisible by 128) - and there is no 10 s I2V Lite",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "what": "Pro (19B) in practice on a 24-32 GB card: 43.4 GB bf16 single files, no official quantised Comfy file, no Comfy-Org template; community: 'exceeds 32GB VRAM and requires CPU offload, making it impractically slow' (single source). ComfyUI detects it (model_dim 4096) - a Pro recipe is pending",
+      "src": [
+        "S-HF-PRO",
+        "S-NODES",
+        "S-SEARCH"
+      ]
+    },
+    {
+      "what": "camera-control LoRAs in native ComfyUI: published as lora.safetensors per move (Arc / Dolly / Microwave / Truck) but ComfyUI compatibility is NOT FOUND (no template, no docs)",
+      "src": "S-HF-LORA"
+    },
+    {
+      "what": "Kandinsky WM 1.0 (2026-08-04 Physical-AI I2V checkpoints) in ComfyUI: loadability NOT FOUND / untested",
+      "src": [
+        "S-HF-WM",
+        "S-NEWS"
+      ]
+    },
+    {
+      "what": "official prompting handbook: NOT FOUND (no prompting section in the README or the Comfy docs page)",
+      "src": [
+        "S-GH",
+        "S-DOCS"
+      ]
+    },
+    {
+      "what": "native-ComfyUI VRAM figures: NOT FOUND; the publisher's own ComfyUI nodes ran 'at 24 GB with offloading', the reference pipeline 'on the GPUS with 12 GB' with NF4 Qwen",
+      "src": "S-GH"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_kandinsky5.py, nodes_latent.py, comfy/supported_models.py, comfy/model_detection.py) per the dossier; input names taken from the v0.35.0 registry (node_schemas_v0.35.0.json)",
+    "nodes_verified_against_registry": "v0.35.0 - all 7 recipes passed verify_recipes.py on 2026-10-01",
+    "template_min_versions": {
+      "video_kandinsky5_t2v": "0.4.0",
+      "video_kandinsky5_i2v": "0.4.0",
+      "image_kandinsky5_t2i": "NOT FOUND (not converted; image family)"
+    },
+    "note": "Both video templates need ComfyUI 0.4.0 (dated 2025-12-09), below the pinned 0.35.0: nothing is version-pending. Exact ComfyUI release tag of native support: NOT FOUND. The publisher's older custom-node pipeline (kandinskylab comfyui/ folder: weights under text_encoders/text_encoder, vae/hunyuan_vae) uses different files and folders from the native templates - do not mix."
+  },
+  "files": [
+    {
+      "name": "kandinsky5lite_t2v_sft_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "size_note": "template note 4.26 GB",
+      "precision": "bf16",
+      "variant": "lite-t2v-sft-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-sft-5s/resolve/main/model/kandinsky5lite_t2v_sft_5s.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "publisher: 'entire pipeline now running at 24 GB with offloading' (their ComfyUI nodes, 2025-10-07); 'generation should work on the GPUS with 12 GB' (reference pipeline, NF4 Qwen, 2025-10-19); native-Comfy figure NOT FOUND",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "template default (T2V). 'SFT model - delivers the highest generation quality'; 100 NFE (50 steps x CFG), 139 s on H100",
+      "official_settings": {
+        "cfg": 5.0,
+        "shift": 5.0,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-lite-5s"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-TPL-T2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_sft_10s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-sft-10s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-sft-10s/resolve/main/model/kandinsky5lite_t2v_sft_10s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (same DiT, twice the frames)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "10 s (241 frames), 'trained with NABLA algorithm' (sparse attention); 'Width and Height should be divisible by 128 for 10s model'; 224 s on H100",
+      "official_settings": {
+        "cfg": 5.0,
+        "shift": 10.0,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-lite-10s"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_nocfg_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-nocfg-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-5s/resolve/main/model/kandinsky5lite_t2v_nocfg_5s.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as sft (same 2B DiT)",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "CFG-distilled ('2x faster'): cfg 1.0, 50 steps = 50 NFE, 77 s on H100",
+      "official_settings": {
+        "cfg": 1.0,
+        "shift": 5.0,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-lite-5s-nocfg"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_nocfg_10s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-nocfg-10s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-10s/resolve/main/model/kandinsky5lite_t2v_nocfg_10s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "CFG-distilled 10 s: cfg 1.0, 50 steps, 124 s on H100; dims divisible by 128, 241 frames",
+      "official_settings": {
+        "cfg": 1.0,
+        "shift": 10.0,
+        "steps": 50
+      },
+      "used_by": [
+        "t2v-lite-10s-nocfg"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_distilled16steps_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-distilled-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-distilled16steps-5s/resolve/main/model/kandinsky5lite_t2v_distilled16steps_5s.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as sft (same 2B DiT)",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "diffusion-distilled ('6x faster', 16 NFE): 16 steps, cfg 1.0, 35 s on H100, 'minimal quality loss'",
+      "official_settings": {
+        "cfg": 1.0,
+        "shift": 5.0,
+        "steps": 16
+      },
+      "used_by": [
+        "t2v-lite-5s-distilled"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_distilled16steps_10s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-distilled-10s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-distilled16steps-10s/resolve/main/model/kandinsky5lite_t2v_distilled16steps_10s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "distilled 10 s: 16 steps, cfg 1.0, 61 s on H100; dims divisible by 128, 241 frames",
+      "official_settings": {
+        "cfg": 1.0,
+        "shift": 10.0,
+        "steps": 16
+      },
+      "used_by": [
+        "t2v-lite-10s-distilled"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_t2v_pretrain_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "precision": "bf16",
+      "variant": "lite-t2v-pretrain-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-pretrain-5s/resolve/main/model/kandinsky5lite_t2v_pretrain_5s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'designed for fine-tuning'; not a generation pick (the _10s twin is in Kandinsky-5.0-T2V-Lite-pretrain-10s)",
+      "official_settings": {
+        "cfg": 5.0,
+        "shift": 5.0,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-LITE",
+        "S-GH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5lite_i2v_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4573130528,
+      "size_gb": 4.573,
+      "size_note": "template note 4.26 GB",
+      "precision": "bf16",
+      "variant": "lite-i2v-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-I2V-Lite-5s/resolve/main/model/kandinsky5lite_i2v_5s.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "as Lite T2V",
+        "class": "official",
+        "src": "S-GH"
+      },
+      "quality": "template default (I2V); 100 NFE, 673 s on H100 (publisher table); 'Image2video checkpoint can work in text2video mode too'",
+      "official_settings": {
+        "cfg": 5.0,
+        "shift": "5 (template) / 10 (publisher README + config)",
+        "steps": 50
+      },
+      "used_by": [
+        "i2v-lite-5s"
+      ],
+      "src": [
+        "S-HF-LITE",
+        "S-GH",
+        "S-GH-COMFY",
+        "S-TPL-I2V"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5pro_t2v_sft_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 43385935392,
+      "size_gb": 43.386,
+      "precision": "bf16",
+      "variant": "pro-t2v-sft-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s/resolve/main/model/kandinsky5pro_t2v_sft_5s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "official: NOT FOUND for ComfyUI (H100 80 GB used for the latency table); community (single source): exceeds 32 GB without CPU offload",
+        "class": "single-source",
+        "src": [
+          "S-GH",
+          "S-SEARCH"
+        ]
+      },
+      "quality": "19B; 'Top-1 open-source Text-to-Video model at LMArena' (2025-12-12); HD config 1241 s / SD 560 s on H100; ComfyUI detects it (model_dim 4096) but there is no Comfy template and no quantised file",
+      "official_settings": {
+        "cfg": 5.0,
+        "steps": 50
+      },
+      "used_by": [],
+      "src": [
+        "S-HF-PRO",
+        "S-GH",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5pro_t2v_sft_10s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 43385935392,
+      "size_gb": 43.386,
+      "precision": "bf16",
+      "variant": "pro-t2v-sft-10s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-10s/resolve/main/model/kandinsky5pro_t2v_sft_10s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "10 s Pro; no template",
+      "used_by": [],
+      "src": "S-HF-PRO",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "kandinsky5pro_i2v_sft_5s.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 43385935392,
+      "size_gb": 43.386,
+      "precision": "bf16",
+      "variant": "pro-i2v-sft-5s",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-I2V-Pro-sft-5s/resolve/main/model/kandinsky5pro_i2v_sft_5s.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "I2V Pro; no template",
+      "used_by": [],
+      "src": "S-HF-PRO",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9384670680,
+      "size_gb": 9.385,
+      "size_note": "template note 8.74 GB",
+      "precision": "fp8_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "loaded by both templates",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "Qwen2.5-VL 7B (the same file HunyuanVideo 1.5 uses); DualCLIPLoader.clip_name1 with type 'kandinsky5' (video) / 'kandinsky5_image' (Image Lite)",
+      "used_by": [
+        "t2v-lite-5s",
+        "t2v-lite-5s-nocfg",
+        "t2v-lite-5s-distilled",
+        "t2v-lite-10s",
+        "t2v-lite-10s-nocfg",
+        "t2v-lite-10s-distilled",
+        "i2v-lite-5s"
+      ],
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-COMFY-HV15"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_2.5_vl_7b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 16584415576,
+      "size_gb": 16.584,
+      "precision": "bf16/fp16 (full)",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "full-precision alternative; exists in the repack, not referenced by the Kandinsky templates",
+      "used_by": [],
+      "src": "S-HF-COMFY-HV15",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "clip_l.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 246144152,
+      "size_gb": 0.2347,
+      "size_note": "template note 234.7 MB",
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "CLIP-L; DualCLIPLoader.clip_name2",
+      "used_by": [
+        "t2v-lite-5s",
+        "t2v-lite-5s-nocfg",
+        "t2v-lite-5s-distilled",
+        "t2v-lite-10s",
+        "t2v-lite-10s-nocfg",
+        "t2v-lite-10s-distilled",
+        "i2v-lite-5s"
+      ],
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-FLUX-TE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "hunyuan_video_vae_bf16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 492986478,
+      "size_gb": 0.493,
+      "size_note": "template note 470.1 MB",
+      "precision": "bf16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Kijai/HunyuanVideo_comfy/resolve/main/hunyuan_video_vae_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      "quality": "the HunyuanVideo 1.0 3D VAE (16 channels, 8x spatial, 4x temporal; ComfyUI latent_format HunyuanVideo) - REQUIRED by every Kandinsky 5 video model; NOT the HunyuanVideo 1.5 VAE (hunyuanvideo15_vae_fp16, 32-ch, 16x)",
+      "used_by": [
+        "t2v-lite-5s",
+        "t2v-lite-5s-nocfg",
+        "t2v-lite-5s-distilled",
+        "t2v-lite-10s",
+        "t2v-lite-10s-nocfg",
+        "t2v-lite-10s-distilled",
+        "i2v-lite-5s"
+      ],
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-KIJAI",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "lora.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 398298344,
+      "size_gb": 0.398,
+      "size_note": "Kandinsky-5.0-T2V-Lite-LoRa-Dolly-in; the other camera repos were not size-checked",
+      "precision": "NOT FOUND",
+      "variant": "camera-control (Lite)",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-LoRa-Dolly-in/resolve/main/lora.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-HF-LORA"
+      },
+      "quality": "one generic 'lora.safetensors' per move in repos Kandinsky-5.0-{T2V,I2V}-Lite-LoRa-{Arc-left, Arc-right, Dolly-in, Dolly-out, Microwave-left, Microwave-right, Truck-left, Truck-right} (Pro: Arc/Microwave only); ComfyUI LoraLoaderModelOnly compatibility NOT FOUND - rename on download; no recipe",
+      "used_by": [],
+      "src": "S-HF-LORA",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "disk_note": {
+    "any Lite recipe": "4.6 + 9.4 + 0.2 + 0.5 = ~14.7 GB (each extra Lite checkpoint +4.6 GB)",
+    "Pro": "43.4 + 9.4 + 0.2 + 0.5 = ~53.5 GB - fits a 60 GB disk alone, but no template / VRAM evidence",
+    "src": [
+      "S-HF-LITE",
+      "S-HF-PRO",
+      "S-HF-COMFY-HV15",
+      "S-HF-FLUX-TE",
+      "S-HF-KIJAI"
+    ]
+  },
+  "related": [
+    {
+      "what": "Kandinsky 5.0 Image Lite (6B T2I/I2I): template image_kandinsky5_t2i (2026-02-03) with DualCLIPLoader type 'kandinsky5_image', kandinsky5lite_t2i.safetensors (11.22 GB) and the Flux ae.safetensors VAE, shift 3, cfg 3.5, euler/simple - an image family, not converted here",
+      "src": [
+        "S-TPL-T2I",
+        "S-NODES"
+      ]
+    },
+    {
+      "what": "Kandinsky WM 1.0 (2026-08-04): three 2B I2V 'Physical AI' checkpoints (AV / RO / PH; 5 s, 121 frames at 768x512; MIT) with a GitHub-code DiT file model/av_rl.safetensors 4.016 GB - ComfyUI loadability NOT FOUND",
+      "src": [
+        "S-HF-WM",
+        "S-NEWS"
+      ]
+    },
+    {
+      "what": "K-VAE 2.0 (2026-04-16) and Kandinsky 6 Image Pro (2026-04-28) are not used by any Kandinsky 5 ComfyUI graph; no 'Kandinsky 5.1 / 6 Video' open release found",
+      "src": "S-NEWS"
+    },
+    {
+      "what": "alternative custom nodes wildminder/ComfyUI-Kandinsky (listing only); the publisher's own comfyui/ custom-node pipeline uses different file layouts",
+      "src": [
+        "S-WILDMINDER",
+        "S-GH-COMFY"
+      ]
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "recipe": "t2v-lite-5s",
+      "why": "the official template path and the quality Lite: SFT 2B, 768x512x121 @24 fps, 50 steps, cfg 5, shift 5; English or Russian prompts; 14.7 GB on disk",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2v-lite-5s-distilled",
+      "why": "distilled16steps: 16 steps at cfg 1, '6x faster' (H100 35 s vs 139 s) with 'minimal quality loss'",
+      "tradeoff": "publisher's own 'minimal quality loss'; negative prompt unused",
+      "src": [
+        "S-GH",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "speed": "medium",
+      "recipe": "t2v-lite-5s-nocfg",
+      "why": "CFG-distilled: 50 steps at cfg 1, '2x faster' (77 s vs 139 s on H100)",
+      "src": [
+        "S-GH",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "duration_s": 10,
+      "recipe": "t2v-lite-10s",
+      "why": "the 10 s SFT Lite (NABLA): 241 frames, shift 10, dims divisible by 128 (768x512); no dedicated template - file swap on the T2V template with the publisher's settings",
+      "confidence": "official settings; graph derived from the T2V template",
+      "src": [
+        "S-GH",
+        "S-GH-COMFY",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "duration_s": 10,
+      "speed": "medium",
+      "recipe": "t2v-lite-10s-nocfg",
+      "why": "10 s CFG-distilled at cfg 1 (H100 124 s)",
+      "confidence": "official settings; graph derived from the T2V template",
+      "src": [
+        "S-GH",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "task": "t2v",
+      "vram_gb_min": 24,
+      "duration_s": 10,
+      "speed": "fast",
+      "recipe": "t2v-lite-10s-distilled",
+      "why": "10 s distilled16steps at cfg 1, 16 steps (H100 61 s)",
+      "confidence": "official settings; graph derived from the T2V template",
+      "src": [
+        "S-GH",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "task": "i2v",
+      "vram_gb_min": 24,
+      "recipe": "i2v-lite-5s",
+      "why": "the official template path: start image force-scaled to 768x512, clean first-frame latents put back (ReplaceVideoLatentFrames) and normalised (NormalizeVideoLatentStart 4/5); template shift 5 - the publisher says 10 for I2V (port exposed)",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "task": "i2v",
+      "recipe": null,
+      "duration_s": 10,
+      "status": "not available: there is no 10 s I2V Lite checkpoint (Video Lite I2V is 5 s only)",
+      "src": "S-GH"
+    },
+    {
+      "task": "t2v",
+      "recipe": null,
+      "quality": "pro",
+      "status": "pending: Pro (19B, 43.4 GB bf16) has no Comfy-Org template, no quantised Comfy file and no VRAM evidence below an H100 (community: exceeds 32 GB without offload); ComfyUI detects it (model_dim 4096) - write a recipe when a template or a fitting file appears",
+      "src": [
+        "S-HF-PRO",
+        "S-NODES",
+        "S-SEARCH"
+      ]
+    },
+    {
+      "task": "camera",
+      "recipe": null,
+      "status": "pending: camera-control LoRAs (Arc / Dolly / Microwave / Truck) exist for Lite and Pro but their ComfyUI (LoraLoaderModelOnly) compatibility is NOT FOUND",
+      "src": "S-HF-LORA"
+    },
+    {
+      "task": "t2v",
+      "recipe": null,
+      "variant": "pretrain",
+      "status": "not offered: the pretrain checkpoints are 'designed for fine-tuning'",
+      "src": "S-GH"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler",
+      "input": "steps",
+      "meaning": "sampling steps; NFE = steps x 2 at cfg > 1 (sft: 100 NFE), = steps at cfg 1",
+      "defaults": {
+        "sft / pretrain / nocfg": 50,
+        "distilled16steps": 16
+      },
+      "range": [
+        16,
+        50
+      ],
+      "official_reference_code": {
+        "num_steps": "50 (sft, nocfg) / 16 (distil) in the configs"
+      },
+      "interactions": "'Steps: 50, 16 for distilled version' (publisher comfyui README)",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; at 1.0 ComfyUI skips the negative pass",
+      "defaults": {
+        "sft / pretrain": 5.0,
+        "nocfg / distilled16steps": 1.0
+      },
+      "range": [
+        1.0,
+        5.0
+      ],
+      "official_reference_code": {
+        "guidance_weight": "5.0 (sft/pro) / 1.0 (nocfg, distil)"
+      },
+      "interactions": "'CFG Scale: 1.0 for distilled16steps and nocfg, 5.0 for sft and pretrain models'; cfg 5 on a distilled file over-guides",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS"
+      ]
+    },
+    {
+      "name": "shift ('Scheduler Scale')",
+      "node": "ModelSamplingSD3",
+      "input": "shift",
+      "meaning": "flow-matching sigma shift",
+      "defaults": {
+        "template T2V 5 s": 5.0,
+        "template I2V 5 s": 5.0,
+        "publisher: 5 s T2V": 5.0,
+        "publisher: 10 s and I2V": 10.0,
+        "ComfyUI model default (supported_models.Kandinsky5)": 10.0,
+        "node default": 3.0
+      },
+      "range": [
+        5.0,
+        10.0
+      ],
+      "official_reference_code": {
+        "scheduler_scale": "10 in k5_lite_t2v_10s_sft_sd.yaml and k5_lite_i2v_5s_sft_sd.yaml; 5 in k5_lite_t2v_5s_distil_sd.yaml; pipeline default 10.0"
+      },
+      "interactions": "DISAGREEMENT recorded: the Comfy I2V template uses 5, the publisher's README/config say 10 for I2V ('Scheduler Scale: 5.0 for 5s, 10.0 for 10s and image 2 video'); both dated late 2025. The i2v recipe ships the template's 5 and exposes the port - try 10 if motion/colour is off. The 10 s recipes use 10. The ModelSamplingSD3 node default 3.0 is wrong for Kandinsky",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH-COMFY",
+        "S-CONFIGS",
+        "S-PIPELINE",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "video templates": "euler_ancestral / beta",
+        "image template": "euler / simple"
+      },
+      "range": null,
+      "official_reference_code": {
+        "sampler": "NOT FOUND in the fetched sources"
+      },
+      "interactions": "",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-T2I"
+      ]
+    },
+    {
+      "name": "length",
+      "node": "Kandinsky5ImageToVideo",
+      "input": "length",
+      "meaning": "pixel frames; latent = (length-1)//4+1; node step 4 -> 4n+1",
+      "defaults": {
+        "5 s models": 121,
+        "10 s models": 241
+      },
+      "range": [
+        5,
+        241
+      ],
+      "interactions": "'768x512x121 for 5s or 768x512x241 for 10s'; the 5 s checkpoints are 'capable of generating videos up to 5 seconds long'",
+      "src": [
+        "S-NODES",
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "fps",
+      "node": "CreateVideo",
+      "input": "fps",
+      "meaning": "the model's native rate",
+      "defaults": {
+        "all": 24
+      },
+      "range": null,
+      "interactions": "",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "Kandinsky5ImageToVideo|ImageScale",
+      "input": "width, height",
+      "meaning": "pixels; latent = /8 (HunyuanVideo 1.0 VAE); node step 16; the I2V template force-scales the start image to the same width x height (ImageScale lanczos, center crop)",
+      "defaults": {
+        "templates": "768x512",
+        "10 s models": "divisible by 128 (768x512 qualifies)",
+        "I2V": "'aspect ratio of result is close to start image ratio and area is close to 768*512'",
+        "Pro HD": "1280x768-class (config resolution 1024; search summary)"
+      },
+      "range": null,
+      "interactions": "10 s = NABLA sparse attention -> the 128 multiple",
+      "src": [
+        "S-TPL-T2V",
+        "S-TPL-I2V",
+        "S-GH-COMFY",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "I2V start-frame fix",
+      "node": "ReplaceVideoLatentFrames|NormalizeVideoLatentStart",
+      "input": "index / start_frame_count, reference_frame_count",
+      "meaning": "Kandinsky5ImageToVideo's 4th output cond_latent ('Clean encoded start images, used to replace the noisy start of the model output latents') replaces the sampled latent's frames at index 0, then NormalizeVideoLatentStart 'Normalizes the initial frames of a video latent to match the mean and standard deviation of subsequent reference frames'",
+      "defaults": {
+        "index": 0,
+        "start_frame_count": 4,
+        "reference_frame_count": 5
+      },
+      "range": null,
+      "interactions": "dropping these brings back a visible seam at the start; remove NormalizeVideoLatentStart only if the start looks over-corrected (no official guidance)",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "negative prompt",
+      "node": "CLIPTextEncode",
+      "input": "text",
+      "meaning": "",
+      "defaults": {
+        "templates": "",
+        "reference pipeline negative_caption": "Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards"
+      },
+      "range": null,
+      "interactions": "only read at cfg > 1 (sft / pretrain)",
+      "src": [
+        "S-TPL-T2V",
+        "S-PIPELINE"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSampler",
+      "input": "seed",
+      "meaning": "",
+      "defaults": {
+        "templates": "randomize"
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "name": "attention",
+      "node": "(ComfyUI standard attention)",
+      "input": "-",
+      "meaning": "the reference code offers Flash Attention 2/3, Sage, SDPA (--attention_engine) and NABLA for 10 s; ComfyUI uses its standard attention",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-GH"
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-kandinsky5",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5(lite|pro)_(t2v|i2v)_"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "kandinsky5"
+      },
+      "message": "Kandinsky 5 video encodes text with DualCLIPLoader type 'kandinsky5' (Qwen2.5-VL 7B + CLIP-L); 'kandinsky5_image' is for Image Lite and 'hunyuan_video_15' for HunyuanVideo 1.5 - same Qwen file, different tokenizer",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-REG-035"
+      ]
+    },
+    {
+      "id": "encoder-1-is-qwen25vl",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "kandinsky5"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name1",
+        "matches": "^qwen_2\\.5_vl_7b(_fp8_scaled)?\\.safetensors$"
+      },
+      "message": "clip_name1 is Qwen2.5-VL 7B (qwen_2.5_vl_7b_fp8_scaled from the Comfy-Org HunyuanVideo 1.5 repack, template; or the full file)",
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-COMFY-HV15"
+      ]
+    },
+    {
+      "id": "encoder-2-is-clip-l",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "DualCLIPLoader",
+        "input": "type",
+        "equals": "kandinsky5"
+      },
+      "require": {
+        "node": "DualCLIPLoader",
+        "input": "clip_name2",
+        "equals": "clip_l.safetensors"
+      },
+      "message": "clip_name2 is clip_l.safetensors (comfyanonymous/flux_text_encoders)",
+      "src": [
+        "S-TPL-T2V",
+        "S-HF-FLUX-TE"
+      ]
+    },
+    {
+      "id": "vae-is-hunyuanvideo-1.0",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5(lite|pro)_(t2v|i2v)_"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "hunyuan_video_vae_bf16.safetensors"
+      },
+      "message": "every Kandinsky 5 video model decodes with the HunyuanVideo 1.0 VAE hunyuan_video_vae_bf16 (16-ch, 8x; ComfyUI latent_format HunyuanVideo) - NOT the HunyuanVideo 1.5 VAE hunyuanvideo15_vae_fp16 (32-ch, 16x), which does not match the latent",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES",
+        "S-HF-KIJAI"
+      ]
+    },
+    {
+      "id": "frames-4n+1",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "length"
+      },
+      "numeric": {
+        "modulo": [
+          4,
+          1
+        ]
+      },
+      "message": "Kandinsky 5 frame counts are 4n+1 (latent = (length-1)//4+1; node step 4): 121 = 5 s @24 fps, 241 = 10 s",
+      "src": [
+        "S-NODES",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "frames-max-5s-model",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_5s\\.safetensors$"
+      },
+      "require": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "length",
+        "max": 121
+      },
+      "message": "the 5 s checkpoints are 'capable of generating videos up to 5 seconds long' (121 frames @24 fps); 10 s needs the _10s checkpoints",
+      "src": [
+        "S-GH",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "frames-10s-model",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_10s\\.safetensors$"
+      },
+      "require": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "length",
+        "equals": 241
+      },
+      "message": "the 10 s models are documented at 241 frames ('768x512x241 for 10s'); other lengths are untested here",
+      "src": "S-TPL-T2V"
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "Kandinsky5ImageToVideo|ImageScale",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "Kandinsky5ImageToVideo takes width/height in multiples of 16 (and the I2V template scales the start image to the same size)",
+      "src": "S-NODES"
+    },
+    {
+      "id": "dims-multiple-128-for-10s",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_10s\\.safetensors$"
+      },
+      "require": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "width|height",
+        "multiple_of": 128,
+        "all": true
+      },
+      "message": "'Width and Height should be divisible by 128 for 10s model' (NABLA sparse attention): 768x512 qualifies, 848x480 does not",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "768x512",
+          "512x768"
+        ]
+      },
+      "message": "Lite was run at 768x512 by both templates ('area is close to 768*512'); other sizes are NOT FOUND for native ComfyUI (Pro HD is a 1280x768 class)",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "id": "cfg-1-on-distilled",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_(nocfg|distilled16steps)_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "'CFG Scale: 1.0 for distilled16steps and nocfg' - cfg 5 on a distilled checkpoint over-guides",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS"
+      ]
+    },
+    {
+      "id": "cfg-5-on-sft",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_(sft|pretrain)_|^kandinsky5lite_i2v_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 5.0,
+        "all": true
+      },
+      "message": "'5.0 for sft and pretrain models' (configs guidance_weight 5.0; both templates 5); other values are NOT FOUND",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "steps-16-on-distilled16",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_distilled16steps_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 16,
+        "all": true
+      },
+      "message": "'Steps: 50, 16 for distilled version' - the distilled16steps model is a 16-NFE model",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS"
+      ]
+    },
+    {
+      "id": "steps-50-otherwise",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_(sft|pretrain|nocfg)_|^kandinsky5lite_i2v_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 50,
+        "all": true
+      },
+      "message": "the publisher's configs run 50 steps for sft / pretrain / nocfg and I2V (templates: 50)",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS",
+        "S-TPL-T2V"
+      ]
+    },
+    {
+      "id": "shift-set",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "min": 5.0,
+        "max": 10.0,
+        "all": true
+      },
+      "message": "every Kandinsky 5 graph sets ModelSamplingSD3 shift 5 or 10 ('Scheduler Scale: 5.0 for 5s, 10.0 for 10s and image 2 video'; ComfyUI model default 10); the node default 3.0 is wrong for Kandinsky",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH-COMFY",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "shift-10-for-10s",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_10s\\.safetensors$"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "equals": 10.0
+      },
+      "message": "the 10 s models use scheduler scale 10 (publisher README; k5_lite_t2v_10s_sft_sd.yaml scheduler_scale: 10)",
+      "src": [
+        "S-GH-COMFY",
+        "S-CONFIGS"
+      ]
+    },
+    {
+      "id": "shift-i2v-disagreement",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5(lite|pro)_i2v_"
+      },
+      "require": {
+        "node": "ModelSamplingSD3",
+        "input": "shift",
+        "in": [
+          5.0,
+          10.0
+        ]
+      },
+      "message": "I2V shift: the Comfy-Org template uses 5, the publisher's README and k5_lite_i2v_5s_sft_sd.yaml say 10 (also ComfyUI's model default) - both recorded; the recipe ships 5, try 10 if motion/colour is off",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH-COMFY",
+        "S-CONFIGS",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "i2v-first-frame-replaced",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "require": {
+        "node": "ReplaceVideoLatentFrames",
+        "input": "source",
+        "linked": true
+      },
+      "message": "the I2V template puts the clean cond_latent (Kandinsky5ImageToVideo output 3) back at index 0 of the sampled latent with ReplaceVideoLatentFrames; without it the first frames show a seam",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "i2v-start-normalized",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ReplaceVideoLatentFrames",
+        "input": "source",
+        "linked": true
+      },
+      "require": {
+        "node": "NormalizeVideoLatentStart",
+        "input": "start_frame_count",
+        "equals": 4
+      },
+      "message": "NormalizeVideoLatentStart (4 start frames vs 5 reference frames) follows the frame replacement in the template 'to reduce differences between the starting frames and the rest of the video'",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "i2v-image-scaled-to-latent",
+      "severity": "warn",
+      "kind": "structural",
+      "structural": "same_value",
+      "args": {
+        "a": {
+          "node": "Kandinsky5ImageToVideo",
+          "input": "width"
+        },
+        "b": {
+          "node": "ImageScale",
+          "input": "width"
+        },
+        "c": {
+          "node": "Kandinsky5ImageToVideo",
+          "input": "height"
+        },
+        "d": {
+          "node": "ImageScale",
+          "input": "height"
+        }
+      },
+      "message": "the I2V template drives ImageScale and Kandinsky5ImageToVideo from the same Width/Height primitives (768x512, lanczos, center crop) - the start image must be exactly the latent size (the node bilinear-resizes otherwise, and the template's crop keeps the aspect honest)",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "i2v-weights-for-i2v",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "Kandinsky5ImageToVideo",
+        "input": "start_image",
+        "linked": true
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "_i2v_"
+      },
+      "message": "a start image belongs with an _i2v_ checkpoint (the I2V template); the reverse works - 'Image2video checkpoint can work in text2video mode too' - but a T2V file with a start image is NOT FOUND",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "id": "fps-24",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5"
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "equals": 24
+      },
+      "message": "Kandinsky 5 video is 24 fps (templates; Pro HD description); another container fps changes playback speed",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH"
+      ]
+    },
+    {
+      "id": "pro-has-no-template",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^kandinsky5pro_"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "Pro (19B, 43.4 GB bf16) has no Comfy-Org template, no quantised Comfy file and no sub-H100 VRAM evidence (community: exceeds 32 GB without offload); ComfyUI detects it (model_dim 4096) but this profile cannot vouch for the graph",
+      "src": [
+        "S-HF-PRO",
+        "S-NODES",
+        "S-SEARCH"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "both templates need ComfyUI >= 0.4.0, below the pinned 0.35.0; nothing pending for version",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-T2V",
+      "S-TPL-I2V"
+    ],
+    "negative_reference_pipeline": "Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards",
+    "negative_reference_src": "S-PIPELINE",
+    "negative_note": "both Comfy templates ship an EMPTY negative; the reference pipeline's default negative_caption is quoted above - it only matters at cfg > 1 (sft / pretrain), never on the nocfg / distilled checkpoints",
+    "positive": [
+      {
+        "line": "Languages: 'generates videos from English and Russian prompts' - 'best understanding of Russian concepts in the open-source ecosystem'",
+        "class": "official",
+        "src": [
+          "S-TPL-T2V",
+          "S-GH"
+        ]
+      },
+      {
+        "line": "Official prompting handbook: NOT FOUND (no prompting section in the README or the Comfy docs page); the pattern below is read from the official template prompts",
+        "class": "official",
+        "src": [
+          "S-GH",
+          "S-DOCS"
+        ]
+      },
+      {
+        "line": "Template pattern: comma-separated lighting / shot / composition / lens tags up front ('Rim light, side light, soft light, medium close-up, dusk, sunset, central composition, warm tones with low saturation, telephoto lens.'), then a prose description of subject, action, camera moves and atmosphere",
+        "class": "official",
+        "src": "S-TPL-T2V"
+      },
+      {
+        "line": "I2V template (verbatim opening): 'Cinematic dynamic scene in deep blue dream haze: The camera glides slowly forward, focusing on tightly closed crystal flower buds ... As the lens pans right ... The camera then pulls back softly ...' - camera verbs and motion rhythm, the image supplies the subject",
+        "class": "official",
+        "src": "S-TPL-I2V"
+      },
+      {
+        "line": "Short prompts work in the reference code ('A dog in red hat', 'The bear plays balalaika.') but the templates use long cinematic paragraphs",
+        "class": "official",
+        "src": "S-GH"
+      },
+      {
+        "line": "Camera vocabulary with published control LoRAs (the moves the lineup names): Arc left/right, Dolly in/out, Microwave left/right, Truck left/right; 'controllable camera motion' via those LoRAs - prompt-only camera following is not documented",
+        "class": "official",
+        "src": [
+          "S-GH",
+          "S-HF-LORA"
+        ]
+      },
+      {
+        "line": "Structured-length guidance (word counts, shot syntax): NOT FOUND",
+        "class": "official",
+        "src": "S-GH"
+      }
+    ],
+    "structure": "tags first (light, shot size, time of day, composition, colour, lens), then one prose paragraph: subject, action, camera motion, atmosphere; English or Russian",
+    "hurts": [
+      {
+        "line": "relying on a negative prompt on the nocfg / distilled checkpoints (cfg 1 skips it)",
+        "src": "S-GH-COMFY"
+      },
+      {
+        "line": "a start image whose aspect is far from 768x512: the template center-crops it to 768x512 ('area is close to 768*512')",
+        "src": "S-TPL-I2V"
+      },
+      {
+        "line": "'Static' and 'walking backwards' are in the publisher's own negative - avoid implying them",
+        "src": "S-PIPELINE"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "prompt barely followed / garbage",
+      "cause": "wrong DualCLIPLoader type (hunyuan_video_15 or kandinsky5_image instead of kandinsky5)",
+      "fix": "type 'kandinsky5' with qwen_2.5_vl_7b_fp8_scaled + clip_l",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "channel / shape error at decode or conditioning",
+      "cause": "the HunyuanVideo 1.5 VAE (32-ch /16) loaded instead of the HunyuanVideo 1.0 VAE (16-ch /8)",
+      "fix": "hunyuan_video_vae_bf16.safetensors (Kijai/HunyuanVideo_comfy)",
+      "src": [
+        "S-TPL-T2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "10 s model fails or degrades",
+      "cause": "width/height not divisible by 128, or length not 241",
+      "fix": "768x512 x 241 (or other 128-multiples); 5 s checkpoints stop at 121",
+      "src": [
+        "S-TPL-T2V",
+        "S-GH-COMFY"
+      ]
+    },
+    {
+      "symptom": "I2V motion or colour off",
+      "cause": "shift 5 (template) where the publisher says 10 for I2V",
+      "fix": "ModelSamplingSD3 shift 10 (recipe port); disagreement recorded",
+      "src": [
+        "S-TPL-I2V",
+        "S-GH-COMFY",
+        "S-CONFIGS"
+      ]
+    },
+    {
+      "symptom": "over-guided, burnt distilled output",
+      "cause": "cfg 5 on a nocfg / distilled16steps checkpoint",
+      "fix": "cfg 1 (and 16 steps for distilled16steps)",
+      "src": "S-GH-COMFY"
+    },
+    {
+      "symptom": "visible seam / jump after the first frames in I2V",
+      "cause": "ReplaceVideoLatentFrames + NormalizeVideoLatentStart removed",
+      "fix": "keep both (recipe); drop only NormalizeVideoLatentStart if the start looks over-corrected (no official guidance)",
+      "src": [
+        "S-TPL-I2V",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "I2V output cropped",
+      "cause": "the template force-scales the image to 768x512 with ImageScale (lanczos, center)",
+      "fix": "match the start image to a 3:2 frame; output aspect follows the image, area ~768x512",
+      "src": "S-TPL-I2V"
+    },
+    {
+      "symptom": "Pro will not fit / crawls",
+      "cause": "43.4 GB bf16 single file, no quantised Comfy file",
+      "fix": "use Lite (Pro recipe pending); community: Pro exceeds 32 GB without CPU offload",
+      "src": [
+        "S-HF-PRO",
+        "S-SEARCH"
+      ]
+    },
+    {
+      "symptom": "files go in the wrong folders / custom nodes missing",
+      "cause": "the publisher's older custom-node pipeline (comfyui/ folder, text_encoders/text_encoder, vae/hunyuan_vae) mixed with the native templates",
+      "fix": "native layout: diffusion_models/, text_encoders/, vae/ as in the Comfy-Org templates; do not mix",
+      "src": "S-GH-COMFY"
+    },
+    {
+      "symptom": "camera LoRA does not load",
+      "cause": "ComfyUI compatibility of the kandinskylab lora.safetensors files is NOT FOUND",
+      "fix": "no recipe; prompt the move in prose",
+      "src": "S-HF-LORA"
+    },
+    {
+      "symptom": "licence confusion",
+      "cause": "aggregators say Apache-2.0",
+      "fix": "the repositories say MIT - use MIT",
+      "src": [
+        "S-LICENSE",
+        "S-SEARCH"
+      ]
+    }
+  ],
+  "sources": {
+    "S-GH": {
+      "url": "https://github.com/kandinskylab/kandinsky-5 README (updates timeline 2025-09-29 .. 2025-12-12, model zoo, 'up to 5 seconds long', '12 GB' / '24 GB with offloading', NABLA, English and Russian prompts, latency table, pipeline description, quick-start prompts)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-COMFY": {
+      "url": "https://github.com/kandinskylab/kandinsky-5/blob/main/comfyui/README.md (parameter table: 'Steps: 50, 16 for distilled version'; 'CFG Scale: 1.0 for distilled16steps and nocfg, 5.0 for sft and pretrain models'; 'Scheduler Scale: 5.0 for 5s, 10.0 for 10s and image 2 video'; size rules; 'Image2video checkpoint can work in text2video mode too'; the publisher's custom-node layout)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-LICENSE": {
+      "url": "https://github.com/kandinskylab/kandinsky-5/blob/main/LICENSE ('The MIT License (MIT) Copyright (c) 2025 Kandinsky Lab')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-CONFIGS": {
+      "url": "https://github.com/kandinskylab/kandinsky-5/tree/main/configs: k5_lite_t2v_5s_sft_sd.yaml, k5_lite_t2v_10s_sft_sd.yaml (scheduler_scale 10), k5_lite_i2v_5s_sft_sd.yaml (scheduler_scale 10), k5_lite_t2v_5s_distil_sd.yaml (scheduler_scale 5, num_steps 16), k5_lite_t2v_5s_nocfg_sd.yaml, k5_pro_t2v_5s_sft_hd.yaml (guidance_weight 5.0 / 1.0; num_steps 50 / 16; resolution 1024 Pro HD, 512 Lite SD)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-PIPELINE": {
+      "url": "https://github.com/kandinskylab/kandinsky-5/blob/main/kandinsky/t2v_pipeline.py (default negative_caption; scheduler_scale default 10.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LITE": {
+      "url": "https://huggingface.co/kandinskylab (HF API: Kandinsky-5.0-T2V-Lite-{sft,nocfg,distilled16steps,pretrain}-{5s,10s}, Kandinsky-5.0-I2V-Lite-5s - files model/*.safetensors 4.573 GB, license mit, createdAt)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-PRO": {
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s, -10s, Kandinsky-5.0-I2V-Pro-sft-5s (HF API: 43.386 GB bf16 single files, license mit)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LORA": {
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Lite-LoRa-Dolly-in (lora.safetensors 0.398 GB) and the sibling {T2V,I2V}-{Lite,Pro}-LoRa-{Arc,Dolly,Microwave,Truck}-* repos (listing)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-WM": {
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-WM-1.0-I2V-5s-AV (README + files: model/av_rl.safetensors 4.016 GB; MIT; 2026-08-04)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-KIJAI": {
+      "url": "https://huggingface.co/Kijai/HunyuanVideo_comfy (hunyuan_video_vae_bf16.safetensors 0.493 GB)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFY-HV15": {
+      "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged (split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors 9.385 GB; qwen_2.5_vl_7b.safetensors 16.584 GB)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FLUX-TE": {
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders (clip_l.safetensors)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS": {
+      "url": "https://docs.comfy.org/tutorials/video/kandinsky/kandinsky-5.md (variants table, model files, template names; no prompting section)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json (video_kandinsky5_t2v / i2v dated 2025-12-09, minComfyUIVersion 0.4.0; image_kandinsky5_t2i 2026-02-03)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_kandinsky5_t2v.json (graph; 'Note: Video Size'; example prompt; 'English and Russian prompts')",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-I2V": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/video_kandinsky5_i2v.json (graph with ImageScale, ReplaceVideoLatentFrames, NormalizeVideoLatentStart; example prompt)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-T2I": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_kandinsky5_t2i.json (Image Lite reference: type kandinsky5_image, ae.safetensors, shift 3, cfg 3.5)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_kandinsky5.py (Kandinsky5ImageToVideo, NormalizeVideoLatentStart, CLIPTextEncodeKandinsky5), comfy_extras/nodes_latent.py (ReplaceVideoLatentFrames), comfy/supported_models.py (Kandinsky5 shift 10.0, latent_format HunyuanVideo; Kandinsky5Image shift 3.0), comfy/model_detection.py (model_dim 1792 lite video / 4096 pro video / 2560 lite image)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REG-035": {
+      "url": "KB/node_schemas_v0.35.0.json (ComfyUI v0.35.0 node registry: exact input names/options; DualCLIPLoader type list incl. kandinsky5, kandinsky5_image)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NEWS": {
+      "url": "https://kandinskylab.ai/news/ (WM 1.0 2026-08-04, K-VAE 2.0 2026-04-16, Kandinsky 6 Image Pro 2026-04-28; 2025 lineup dates)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-ISSUE-10754": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/issues/10754 ('Will the Comfy officially support the Kandinsky 5 model?' - Kijai's PR merged; via search summary)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-WILDMINDER": {
+      "url": "https://github.com/wildminder/ComfyUI-Kandinsky (alternative custom nodes; listing only)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SEARCH": {
+      "url": "web search summaries (studio.aifilms.ai, bonega.ai, musubi-tuner docs): 'Apache 2.0' claims (rejected in favour of the repositories' MIT); Pro 'exceeds 32GB VRAM and requires CPU offload, making it impractically slow'",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

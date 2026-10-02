@@ -1,0 +1,1299 @@
+{
+  "schema": 2,
+  "id": "z-image",
+  "name": "Z-Image / Z-Image-Turbo",
+  "publisher": "Alibaba Tongyi Lab (Tongyi-MAI); Fun ControlNet-Union patches by Alibaba PAI; Comfy-Org repacks",
+  "license": {
+    "name": "Apache-2.0",
+    "commercial": true,
+    "notes": "Tongyi-MAI/Z-Image-Turbo and Tongyi-MAI/Z-Image are apache-2.0 (HF cardData); the Comfy-Org repacks and the alibaba-pai ControlNet-Union patches are Apache-2.0 too. Free for commercial use.",
+    "src": [
+      "S-HF-ZIT",
+      "S-HF-ZI",
+      "S-PAI-CN1",
+      "S-PAI-CN2"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image",
+    "control",
+    "enhance"
+  ],
+  "tasks": [
+    "t2i",
+    "control",
+    "upscale"
+  ],
+  "cannot": [
+    {
+      "what": "image editing: Z-Image-Edit is 'To be released' in the official Model Zoo and the HF repo does not exist (2026-10-01); GitHub issue #40 asking for it is open. NOT RELEASED - do not promise an edit stage on this family",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ABSENT",
+        "S-GH-ISSUE40"
+      ]
+    },
+    {
+      "what": "Z-Image-Omni-Base (generation + editing, CFG) is also 'To be released'; ComfyUI ships an experimental TextEncodeZImageOmni node and a ZImagePixelSpace config, but there are no weights and no template",
+      "src": [
+        "S-ZI-README",
+        "S-NODES",
+        "S-HF-ABSENT"
+      ]
+    },
+    {
+      "what": "Turbo: no CFG and no negative prompt (Model Zoo: CFG no, Negative Prompting no; diffusers guidance_scale 0.0); low seed diversity; not fine-tunable (N/A)",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ZI"
+      ]
+    },
+    {
+      "what": "no official ControlNet from Tongyi: structural control is Alibaba PAI's third-party Fun ControlNet-Union model patches (Turbo only; no base-model ControlNet)",
+      "src": [
+        "S-PAI-CN1",
+        "S-PAI-CN2"
+      ]
+    },
+    {
+      "what": "IP-Adapter / CLIP-vision / inpaint template: NOT FOUND (inpainting exists only through the v2.x union's inpaint_image+mask on ZImageFunControlnet, no official template)",
+      "src": [
+        "S-NODES",
+        "S-PAI-CN2"
+      ]
+    },
+    {
+      "what": "GGUF quantisations: NOT FOUND in this pass (no Comfy-Org GGUF)",
+      "src": "S-HF-TREE"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_zimage.py, nodes_model_patch.py, comfy/supported_models.py)",
+    "nodes_verified_against_registry": "v0.35.0 - every recipe passed the offline structural check (verify_recipes.py) on 2026-10-02",
+    "note": "ZImageFunControlnet (adds inpaint_image/mask/start_percent/end_percent over QwenImageDiffsynthControlnet) and TextEncodeZImageOmni ARE in the v0.35.0 registry; the recipes use QwenImageDiffsynthControlnet as the official template does. Int8 ConvRot / NVFP4 files: templates dated 2026-07; loading on v0.35.0 NOT verified."
+  },
+  "files": [
+    {
+      "name": "z_image_turbo_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 12309866400,
+      "size_gb": 12.31,
+      "precision": "bf16",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+      "vram": {
+        "fits_gb": 16,
+        "evidence": "'fits comfortably within 16G VRAM consumer devices' (publisher, whole pipeline); exact ComfyUI floor per file NOT FOUND",
+        "class": "official",
+        "src": "S-HF-ZIT"
+      },
+      "quality": "reference Turbo; 8 steps, no CFG; used by t2i-turbo, control-*, upscale-turbo-2k",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-TURBO"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "pairs_with_encoder": "qwen_3_4b*.safetensors (CLIPLoader type lumina2)",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "z_image_turbo_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 6201001296,
+      "size_gb": 6.201,
+      "precision": "int8_convrot",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "small-card Turbo (template image_z_image_turbo_int8, 2026-07-04); loading on v0.35.0 NOT verified",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-TURBO-INT8"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "z_image_turbo_nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4509509600,
+      "size_gb": 4.51,
+      "precision": "nvfp4",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "no template uses it; NOT FOUND how it loads on v0.35.0",
+      "src": "S-HF-TREE",
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "z_image_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 12309866400,
+      "size_gb": 12.31,
+      "precision": "bf16",
+      "variant": "base",
+      "url": "https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "non-distilled base: CFG 3-5, 28-50 steps, real negatives, high diversity, LoRA/ControlNet base (template image_z_image)",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-BASE"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "z_image_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 6201001296,
+      "size_gb": 6.201,
+      "precision": "int8_convrot",
+      "variant": "base",
+      "url": "https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "small-card base (template image_z_image_int8, 2026-07-10); loading on v0.35.0 NOT verified",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-BASE-INT8"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_4b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 8044982048,
+      "size_gb": 8.045,
+      "precision": "bf16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen3-4B text encoder; CLIPLoader type 'lumina2' in every Z-Image template; detected by ComfyUI at prefix qwen3_4b.transformer.",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-TURBO",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_4b_fp8_mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5631994051,
+      "size_gb": 5.632,
+      "precision": "fp8_mixed",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "used by image_z_image_turbo_int8",
+      "src": [
+        "S-HF-TREE",
+        "S-TPL-TURBO-INT8"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_4b_fp4_mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 3479416193,
+      "size_gb": 3.479,
+      "precision": "fp4_mixed",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp4_mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "no template uses it",
+      "src": "S-HF-TREE",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 335304388,
+      "size_gb": 0.335,
+      "precision": "fp32",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the FLUX.1 autoencoder (16-channel, /8); Z-Image's latent format is Flux - 'the Flux 1 VAE if you don't have it already'",
+      "src": [
+        "S-HF-TREE",
+        "S-DOCS-ZIT",
+        "S-EXAMPLES",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "z_image_turbo_distill_patch_lora_bf16.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 158826336,
+      "size_gb": 0.159,
+      "precision": "bf16",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/loras/z_image_turbo_distill_patch_lora_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "no official description; community: DiffSynth distill patch that keeps 8-step Turbo inference working when stacking LoRAs trained on the non-distilled base. Not used by any official template.",
+      "src": [
+        "S-HF-TREE",
+        "S-CIVITAI-PATCH"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Z-Image-Turbo-Fun-Controlnet-Union.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": 3101572408,
+      "size_gb": 3.1,
+      "precision": "bf16",
+      "variant": "turbo-control",
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "alibaba-pai Fun ControlNet-Union v1 (Apache-2.0): Canny, HED, Depth, Pose, MLSD; 6 blocks, trained at 1328; recommended control_context_scale 0.65-0.80. Folder models/model_patches (ModelPatchLoader), template note says 2.89 GB",
+      "src": [
+        "S-PAI-CN1",
+        "S-TPL-FUNCN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": null,
+      "bytes_note": "6.71 GB decimal (HF tree API byte count, 2026-10-01, as the dossier reports it to 3 decimals); exact byte integer NOT FOUND in the dossier",
+      "size_gb": 6.71,
+      "precision": "bf16",
+      "variant": "turbo-control",
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.0/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "v2.1 union, 8-step distilled build (keeps Turbo's speed): Canny, Depth, Pose, MLSD, Hed, Scribble, Gray; inpaint mode via ZImageFunControlnet inpaint_image+mask; control_context_scale 0.65-1.00. No Comfy-Org template; loads through the same ModelPatchLoader path (folder by analogy with v1)",
+      "src": "S-PAI-CN2"
+    },
+    {
+      "name": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-lite-2602-8steps.safetensors",
+      "role": "model_patch",
+      "folder": "model_patches",
+      "bytes": null,
+      "bytes_note": "2.02 GB decimal (HF tree API byte count, 2026-10-01, as the dossier reports it to 3 decimals); exact byte integer NOT FOUND in the dossier",
+      "size_gb": 2.02,
+      "precision": "bf16",
+      "variant": "turbo-control",
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.0/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-lite-2602-8steps.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "lite v2.1 8-step union (3 + 2 blocks); same conditions as the full 2602 build",
+      "src": "S-PAI-CN2"
+    },
+    {
+      "name": "RealESRGAN_x4plus.safetensors",
+      "role": "upscale_model",
+      "folder": "upscale_models",
+      "bytes": 66857836,
+      "size_gb": null,
+      "precision": "fp32",
+      "variant": "upscale",
+      "url": "https://huggingface.co/Comfy-Org/Real-ESRGAN_repackaged/resolve/main/RealESRGAN_x4plus.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "x4 GAN upscaler used by the 2K upscaler template",
+      "src": [
+        "S-TPL-UPSCALE",
+        "S-HF-ESRGAN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "stable-diffusion.cpp path running Z-Image on 4 GB VRAM (listed under the GitHub README 'Community Works'); not a ComfyUI route",
+      "needs_pack": null,
+      "class": "community",
+      "src": "S-ZI-README"
+    },
+    {
+      "what": "Civitai 'Z-Image Turbo Distill Patch for ComfyUI' - purpose of z_image_turbo_distill_patch_lora_bf16: keep 8-step inference when stacking base-trained LoRAs on Turbo (LoraLoaderModelOnly)",
+      "needs_pack": null,
+      "class": "community",
+      "src": "S-CIVITAI-PATCH"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": 16,
+      "recipe": "t2i-turbo",
+      "why": "the default: 8 steps, cfg 1, 'Very High' visual quality, sub-second class speed, bilingual text rendering; no negative prompt and low diversity",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ZIT",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 16,
+      "quality": "diversity|negative-prompt|lora-base",
+      "recipe": "t2i-base",
+      "why": "the non-distilled base: real negative prompting, high diversity across identities/poses/layouts, cfg 3-5, 25-50 steps (3-6x slower than Turbo); the right base for LoRAs",
+      "src": [
+        "S-HF-ZI",
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "speed": "small-card",
+      "recipe": "t2i-turbo-int8",
+      "tradeoff": "6.2 GB int8 ConvRot + 5.6 GB fp8 encoder; VRAM floor NOT FOUND; loading on the pinned v0.35.0 image NOT verified (template dated 2026-07-04)",
+      "src": [
+        "S-TPL-TURBO-INT8",
+        "S-HF-TREE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "speed": "small-card",
+      "quality": "diversity|negative-prompt",
+      "recipe": "t2i-base-int8",
+      "tradeoff": "as t2i-turbo-int8 for the base model",
+      "src": [
+        "S-TPL-BASE-INT8",
+        "S-HF-TREE"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 16,
+      "recipe": "control-turbo-fun-union-canny",
+      "why": "the official Fun Union ControlNet graph with Canny in-graph: give it the source photo",
+      "src": [
+        "S-TPL-FUNCN",
+        "S-PAI-CN1"
+      ]
+    },
+    {
+      "task": "control",
+      "vram_gb_min": 16,
+      "recipe": "control-turbo-fun-union-map",
+      "why": "same graph fed a ready HED/depth/pose/MLSD map from a preprocessing stage",
+      "src": [
+        "S-TPL-FUNCN",
+        "S-PAI-CN1"
+      ]
+    },
+    {
+      "task": "upscale",
+      "vram_gb_min": 16,
+      "recipe": "upscale-turbo-2k",
+      "why": "the official 2K upscaler: ESRGAN x4 -> x0.5 then a Turbo img2img refine at denoise 0.33; also the img2img pattern for Turbo",
+      "src": "S-TPL-UPSCALE"
+    },
+    {
+      "task": "edit",
+      "recipe": null,
+      "status": "NOT RELEASED: Z-Image-Edit is 'To be released' (Model Zoo); no HF repo on 2026-10-01. Route edits to qwen-image (Edit/2509/2511) or hidream (E1.1) instead",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ABSENT"
+      ]
+    },
+    {
+      "task": "omni",
+      "recipe": null,
+      "status": "NOT RELEASED: Z-Image-Omni-Base 'To be released'; ComfyUI's TextEncodeZImageOmni exists but has no weights or template",
+      "src": [
+        "S-ZI-README",
+        "S-NODES",
+        "S-HF-ABSENT"
+      ]
+    },
+    {
+      "task": "inpaint",
+      "recipe": null,
+      "status": "pending: no official template; the v2.1 *-8steps union supports inpaint via ZImageFunControlnet inpaint_image+mask (alibaba-pai card) - a community-confirmed graph is needed before a recipe is offered",
+      "src": [
+        "S-PAI-CN2",
+        "S-NODES"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler",
+      "input": "steps",
+      "meaning": "sampling steps; Turbo is distilled to 8 NFEs (diffusers num_inference_steps=9 = 8 DiT forwards)",
+      "defaults": {
+        "turbo": 8,
+        "base": 25,
+        "control": 8,
+        "upscale (denoise 0.33)": 5
+      },
+      "range": [
+        5,
+        50
+      ],
+      "official_reference_code": {
+        "turbo": 8,
+        "base": "28-50 (Model Zoo 50; template note 'Steps: 30~50')"
+      },
+      "interactions": "Turbo: community 8-12, 'more steps rarely help'; 30+ wastes time. Union 2.x non-8steps files 'may require more inference steps' - use the *-8steps builds instead",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-HF-ZIT",
+        "S-HF-ZI",
+        "S-GIST",
+        "S-PAI-CN2"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance; 1.0 skips the unconditional pass",
+      "defaults": {
+        "turbo": 1.0,
+        "base": 4.0
+      },
+      "range": [
+        1.0,
+        5.0
+      ],
+      "official_reference_code": {
+        "turbo": "guidance_scale 0.0 ('Guidance should be 0 for the Turbo models')",
+        "base": "3.0-5.0 (example 4)"
+      },
+      "interactions": "cfg > 1 on Turbo burns/oversaturates and doubles the forward passes (community). Base: cfg_normalization in diffusers ('False for general stylism, True for realism') has no verified ComfyUI equivalent (CFGNorm equivalence NOT FOUND)",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-HF-ZIT",
+        "S-HF-ZI",
+        "S-GIST",
+        "S-LOCALAIMASTER"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingAuraFlow",
+      "input": "shift",
+      "meaning": "flow timestep shift; ComfyUI's ZImage model config sets sampling_settings shift 3.0 and every template sets the node to 3",
+      "defaults": {
+        "turbo": 3.0,
+        "base": 3.0,
+        "control": 3.0,
+        "upscale": 3.0
+      },
+      "range": [
+        3.0,
+        3.0
+      ],
+      "official_reference_code": {
+        "comfy model config": 3.0
+      },
+      "interactions": "the node default is 1.73 (AuraFlow) - leaving it is a mis-setting; multiplier fixed 1.0",
+      "src": [
+        "S-NODES",
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "t2i turbo/base/control": "res_multistep / simple",
+        "upscale img2img": "dpmpp_2m_sde / beta"
+      },
+      "range": null,
+      "official_reference_code": {
+        "publisher": "not specified (diffusers scheduler)"
+      },
+      "interactions": "community: euler also fine (single source)",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-UPSCALE",
+        "S-GIST"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "KSampler",
+      "input": "denoise",
+      "meaning": "img2img strength (upscale recipe only)",
+      "defaults": {
+        "t2i": 1.0,
+        "upscale-turbo-2k": 0.33
+      },
+      "range": [
+        0.15,
+        0.35
+      ],
+      "interactions": "0.15-0.25 subtle, 0.25-0.35 creative; > 0.35 'may introduce artifacts'; use a detailed caption to keep coherence",
+      "src": "S-TPL-UPSCALE"
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage",
+      "input": "width, height",
+      "meaning": "multiples of 16 (node step); Flux-type 16-ch latent, /8 spatial",
+      "defaults": {
+        "templates": "1024x1024",
+        "base official": "512x512 to 2048x2048 total area, any aspect",
+        "control": "follows the control image (GetImageSize)"
+      },
+      "range": [
+        512,
+        2048
+      ],
+      "interactions": "community: 1024 native, 768/512 for drafts; control images over ~2500 px should be scaled (template's bypassed ImageScaleToMaxDimension lanczos 1024)",
+      "src": [
+        "S-REGISTRY",
+        "S-HF-ZI",
+        "S-TPL-FUNCN",
+        "S-GIST"
+      ]
+    },
+    {
+      "name": "negative",
+      "node": "CLIPTextEncode|ConditioningZeroOut",
+      "input": "text",
+      "meaning": "Turbo: none (ConditioningZeroOut of the positive); base: a real negative, 'optional, but would be powerful when you want to remove some unwanted content'",
+      "defaults": {
+        "turbo": "ConditioningZeroOut",
+        "base": "\"\" (template)",
+        "upscale": "\"\""
+      },
+      "range": null,
+      "interactions": "on Turbo write exclusions positively ('no text, no watermark, no logos')",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-HF-ZI",
+        "S-GIST"
+      ]
+    },
+    {
+      "name": "strength",
+      "node": "QwenImageDiffsynthControlnet",
+      "input": "strength",
+      "meaning": "ControlNet patch strength (alibaba-pai control_context_scale)",
+      "defaults": {
+        "template": 1.0
+      },
+      "range": [
+        0.65,
+        1.0
+      ],
+      "official_reference_code": {
+        "union v1": "0.65-0.80",
+        "union v2.x": "0.65-1.00 ('1.0 is the strongest control')"
+      },
+      "interactions": "ZImageFunControlnet adds start_percent/end_percent 0-1 and inpaint_image/mask",
+      "src": [
+        "S-TPL-FUNCN",
+        "S-PAI-CN1",
+        "S-PAI-CN2",
+        "S-NODES"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "KSampler",
+      "input": "seed",
+      "meaning": "",
+      "defaults": {
+        "templates": "randomize"
+      },
+      "range": null,
+      "interactions": "fix the seed when iterating prompts; Turbo diversity across seeds is officially 'Low'",
+      "src": [
+        "S-TPL-TURBO",
+        "S-ZI-README",
+        "S-GIST"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-lumina2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "lumina2"
+      },
+      "message": "Z-Image's Qwen3-4B encoder loads through CLIPLoader with type 'lumina2' (ZImage is a Lumina2-derived config) - every official template; any other type is unsupported",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "encoder-is-qwen3-4b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "lumina2"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen_3_4b(_fp8_mixed|_fp4_mixed)?\\.safetensors$"
+      },
+      "message": "the Z-Image text encoder is qwen_3_4b (bf16 / fp8_mixed / fp4_mixed) from Comfy-Org/z_image_turbo; ComfyUI detects it at prefix qwen3_4b.transformer.",
+      "src": [
+        "S-HF-TREE",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "vae-is-flux-ae",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "ae.safetensors"
+      },
+      "message": "Z-Image decodes with the FLUX.1 autoencoder ae.safetensors (latent format Flux, 16-ch); not an SD/Qwen/Wan VAE",
+      "src": [
+        "S-NODES",
+        "S-DOCS-ZIT",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "id": "shift-3",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "equals": 3.0,
+        "all": true
+      },
+      "message": "every Z-Image template sets ModelSamplingAuraFlow shift 3 (= ComfyUI's ZImage sampling_settings); the node default 1.73 is wrong for Z-Image",
+      "src": [
+        "S-NODES",
+        "S-TPL-TURBO",
+        "S-TPL-BASE",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "turbo-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_turbo"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Z-Image-Turbo is CFG-free (official guidance 0; Model Zoo CFG no): cfg must be 1.0 - above 1 it burns/oversaturates and doubles the forward passes",
+      "src": [
+        "S-HF-ZIT",
+        "S-ZI-README",
+        "S-TPL-TURBO",
+        "S-GIST",
+        "S-LOCALAIMASTER"
+      ]
+    },
+    {
+      "id": "turbo-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_turbo"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "max": 12,
+        "all": true
+      },
+      "message": "Turbo is an 8-step model (8 NFEs); community up to 12; 30+ steps on Turbo wastes time without gains",
+      "src": [
+        "S-HF-ZIT",
+        "S-TPL-TURBO",
+        "S-GIST"
+      ]
+    },
+    {
+      "id": "turbo-negative-zeroed",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_turbo"
+      },
+      "require": {
+        "node": "ConditioningZeroOut",
+        "input": "conditioning",
+        "linked": true
+      },
+      "message": "Turbo ignores negative prompts; the official templates feed ConditioningZeroOut of the positive to 'negative'. A text negative does nothing at cfg 1 - put exclusions in the positive instead",
+      "src": [
+        "S-TPL-TURBO",
+        "S-TPL-FUNCN",
+        "S-ZI-README"
+      ]
+    },
+    {
+      "id": "base-cfg-range",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_(bf16|int8_convrot)\\.safetensors$"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "min": 3.0,
+        "max": 5.0,
+        "all": true
+      },
+      "message": "the Z-Image base model's official cfg window is 3-5 (template 4, note 'cfg: 3~5')",
+      "src": [
+        "S-HF-ZI",
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "id": "base-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_(bf16|int8_convrot)\\.safetensors$"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "min": 25,
+        "all": true
+      },
+      "message": "the base model is not distilled: official 28-50 steps (template 25, note 'Steps: 30~50'); 8 steps is a Turbo setting",
+      "src": [
+        "S-HF-ZI",
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "id": "controlnet-8step-builds-only",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "^Z-Image-Turbo-Fun-Controlnet-(Union|Tile)-2\\."
+      },
+      "require": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "8steps"
+      },
+      "message": "the v2.0 / v2.1 (non-8steps) Fun ControlNet unions lost Turbo's acceleration ('loss of acceleration capability and blurry images' - need more steps and cfg); on Turbo use the v1 union or a *-8steps v2.1 build at 8 steps",
+      "src": "S-PAI-CN2"
+    },
+    {
+      "id": "controlnet-on-turbo",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "ModelPatchLoader",
+        "input": "name",
+        "matches": "^Z-Image-Turbo-Fun-Controlnet"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^z_image_turbo"
+      },
+      "message": "the alibaba-pai Fun ControlNet-Union patches are trained for Z-Image-Turbo; there is no ControlNet for the base model",
+      "src": [
+        "S-PAI-CN1",
+        "S-PAI-CN2"
+      ]
+    },
+    {
+      "id": "controlnet-strength",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "QwenImageDiffsynthControlnet|ZImageFunControlnet",
+        "input": "strength"
+      },
+      "numeric": {
+        "min": 0.65,
+        "max": 1.0
+      },
+      "message": "alibaba-pai recommends control_context_scale 0.65-0.80 (v1) / 0.65-1.00 (v2.x); the template uses 1.0",
+      "src": [
+        "S-PAI-CN1",
+        "S-PAI-CN2",
+        "S-TPL-FUNCN"
+      ]
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "EmptySD3LatentImage takes width/height in multiples of 16 (node step); for the control recipes the control image's size must already be a multiple of 16",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "size-window",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "min": 512,
+        "max": 2048
+      },
+      "message": "official working range is 512x512 to 2048x2048 total area (base card); templates use 1024x1024",
+      "src": [
+        "S-HF-ZI",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "id": "upscale-denoise",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UpscaleModelLoader",
+        "input": "model_name",
+        "matches": "RealESRGAN"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "denoise",
+        "max": 0.35,
+        "all": true
+      },
+      "message": "Turbo img2img refine: denoise above 0.35 'may introduce artifacts' (0.15-0.25 subtle, 0.25-0.35 creative); at higher denoise use a detailed caption as the prompt",
+      "src": "S-TPL-UPSCALE"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs at least this ComfyUI (all Z-Image templates are <= 0.23.0, below the pinned 0.35.0; int8 ConvRot loading on 0.35.0 is unverified)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-TURBO",
+      "S-TPL-BASE"
+    ],
+    "negative_note": "Turbo: no negative at all - the template wires ConditioningZeroOut(positive) into 'negative' (the model is CFG-free). Base / upscaler templates ship an empty string; the base model DOES honour a real negative ('Strongly recommended for better control').",
+    "positive": [
+      {
+        "line": "Long, dense natural-language descriptions; official Turbo example (verbatim): 'Young Chinese woman in red Hanfu, intricate embroidery. Impeccable makeup, red floral forehead pattern. Elaborate high bun, golden phoenix headdress, red flowers, beads. Holds round folding fan with lady, trees, bird. Neon lightning-bolt lamp, bright yellow glow, above extended left palm. Soft-lit outdoor night background, silhouetted tiered pagoda (西安大雁塔), blurred colorful distant lights.' Mixed Chinese/English in one prompt is shown officially",
+        "class": "official",
+        "src": "S-ZI-README"
+      },
+      {
+        "line": "Bilingual text rendering is a headline feature: quote the exact string, keep each text chunk in one language, state its placement ('large white title at the top'), and add 'no additional text except the title, no random numbers or watermarks'",
+        "class": "single-source",
+        "src": [
+          "S-ZI-README",
+          "S-GIST"
+        ]
+      },
+      {
+        "line": "Structure (community consensus): shot -> subject -> appearance -> clothing -> environment -> lighting -> mood -> style -> technical notes; 80-250 words; descriptive prose beats comma tags",
+        "class": "community",
+        "src": [
+          "S-GIST",
+          "S-LOCALAIMASTER"
+        ]
+      },
+      {
+        "line": "On Turbo embed exclusions positively ('no text, no watermark, no logos') because the negative box is ignored",
+        "class": "community",
+        "src": "S-GIST"
+      },
+      {
+        "line": "The publisher's Prompt Enhancer (reasoning/world knowledge) is NOT part of any ComfyUI template; write the enriched prompt yourself",
+        "class": "official",
+        "src": [
+          "S-ZI-README",
+          "S-DOCS-ZIT"
+        ]
+      }
+    ],
+    "structure": "shot -> subject -> appearance/clothing -> environment -> lighting -> mood/style -> text (quoted, placed) ; 80-250 words of prose",
+    "hurts": [
+      {
+        "line": "cfg > 1 on Turbo (burns); 30+ steps on Turbo",
+        "src": [
+          "S-GIST",
+          "S-LOCALAIMASTER"
+        ]
+      },
+      {
+        "line": "relying on a negative prompt on Turbo (ignored)",
+        "src": [
+          "S-ZI-README",
+          "S-GIST"
+        ]
+      },
+      {
+        "line": "poetic / novel-like phrasing in long prompts; ambiguous clothing descriptions",
+        "src": "S-GIST"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "negative prompt has no effect",
+      "cause": "Turbo is CFG-free (Model Zoo CFG no, Negative Prompting no; guidance 0)",
+      "fix": "ConditioningZeroOut of the positive as negative, cfg 1, phrase constraints positively; or switch to t2i-base for real negatives",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ZI",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "symptom": "burnt / oversaturated Turbo output, slow generation",
+      "cause": "cfg above 1 on Turbo (doubles forward passes)",
+      "fix": "cfg 1.0",
+      "src": [
+        "S-GIST",
+        "S-LOCALAIMASTER"
+      ]
+    },
+    {
+      "symptom": "garbage conditioning / load error on the text encoder",
+      "cause": "CLIPLoader type other than 'lumina2' for qwen_3_4b",
+      "fix": "CLIPLoader type lumina2 (behaviour with other types: NOT FOUND, unsupported by templates)",
+      "src": [
+        "S-TPL-TURBO",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "weaker composition / detail than the template",
+      "cause": "ModelSamplingAuraFlow left at its node default 1.73",
+      "fix": "shift 3 (ComfyUI ZImage config and every template)",
+      "src": [
+        "S-NODES",
+        "S-TPL-TURBO"
+      ]
+    },
+    {
+      "symptom": "ControlNet run is blurry and needs many steps",
+      "cause": "a v2.0 / v2.1 non-8steps Fun union on Turbo ('loss of acceleration capability and blurry images')",
+      "fix": "v1 union or a *-2.1-*-8steps file at 8 steps; 2601/2602 builds also fix bright-spot artifacts and mask leakage",
+      "src": "S-PAI-CN2"
+    },
+    {
+      "symptom": "control output wrong size / OOM",
+      "cause": "control image over ~2500 px (the latent follows the control image via GetImageSize)",
+      "fix": "re-enable the template's ImageScaleToMaxDimension lanczos 1024 before Canny / feed a ~1024 px map; sizes must be multiples of 16",
+      "src": [
+        "S-TPL-FUNCN",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "symptom": "a base-trained LoRA breaks Turbo's 8-step output",
+      "cause": "LoRA trained on the non-distilled base stacked on the distilled Turbo",
+      "fix": "stack z_image_turbo_distill_patch_lora_bf16.safetensors (Comfy-Org repo) via LoraLoaderModelOnly - purpose documented only by the community",
+      "src": "S-CIVITAI-PATCH"
+    },
+    {
+      "symptom": "int8 ConvRot / NVFP4 file fails to load",
+      "cause": "ComfyUI too old for the quantised format (templates dated 2026-07; v0.38.1 loads them)",
+      "fix": "use the bf16 files on the pinned 0.35.0 image unless the int8 load is verified",
+      "src": [
+        "S-TPL-TURBO-INT8",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "looking for Z-Image-Edit / Omni weights",
+      "cause": "not released (2026-10-01)",
+      "fix": "route edits to qwen-image or hidream; TextEncodeZImageOmni is forward-looking only",
+      "src": [
+        "S-ZI-README",
+        "S-HF-ABSENT"
+      ]
+    },
+    {
+      "symptom": "upscaler adds artifacts / loses coherence",
+      "cause": "denoise > 0.35 with a minimal prompt ('masterpiece, 8k')",
+      "fix": "denoise 0.15-0.35; a detailed image caption as prompt",
+      "src": "S-TPL-UPSCALE"
+    },
+    {
+      "symptom": "template naming confusion",
+      "cause": "image_z_image's subgraph is titled 'Text to Image(Z-Image-Base Int8)' but loads z_image_bf16",
+      "fix": "the int8 template is image_z_image_int8; this profile's t2i-base loads bf16 as the template does",
+      "src": "S-TPL-BASE"
+    }
+  ],
+  "sources": {
+    "S-ZI-README": {
+      "url": "https://raw.githubusercontent.com/Tongyi-MAI/Z-Image/main/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ZIT": {
+      "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ZI": {
+      "url": "https://huggingface.co/Tongyi-MAI/Z-Image",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-TREE": {
+      "url": "https://huggingface.co/api/models/Comfy-Org/z_image_turbo/tree/main?recursive=true and https://huggingface.co/api/models/Comfy-Org/z_image/tree/main?recursive=true",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFY-README": {
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/raw/main/README.md and https://huggingface.co/Comfy-Org/z_image/raw/main/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-ZIT": {
+      "url": "https://docs.comfy.org/tutorials/image/z-image/z-image-turbo",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-ZI": {
+      "url": "https://docs.comfy.org/tutorials/image/z-image/z-image",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-TURBO": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image_turbo.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-TURBO-INT8": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image_turbo_int8.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-BASE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-BASE-INT8": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image_int8.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-FUNCN": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_z_image_turbo_fun_union_controlnet.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-UPSCALE": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/utility_z_image_turbo_2k_upscaler.app.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_zimage.py, nodes_model_patch.py, nodes_model_advanced.py, comfy/supported_models.py, comfy/latent_formats.py, nodes.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json (native node registry of the pinned image, ComfyUI v0.35.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-NODES": {
+      "url": "https://docs.comfy.org/built-in-nodes/ZImageFunControlnet.md and https://docs.comfy.org/built-in-nodes/TextEncodeZImageOmni.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/z_image/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-PAI-CN1": {
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-PAI-CN2": {
+      "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.0",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GIST": {
+      "url": "https://gist.github.com/illuminatianon/c42f8e57f1e3ebf037dd58043da9de32",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-LOCALAIMASTER": {
+      "url": "https://localaimaster.com/blog/z-image-turbo-comfyui",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-CIVITAI-PATCH": {
+      "url": "https://civitai.com/models/2233614/z-image-turbo-distill-patch-for-comfyui and https://lilting.ch/en/articles/z-image-turbo-lora-dedistill-adapter",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GH-ISSUE40": {
+      "url": "https://github.com/Tongyi-MAI/Z-Image/issues/40 ; https://z-image.me/en/blog/z-image-omni-base-coming-soon-en ; https://gigazine.net/gsc_news/en/20260128-z-image-image-generation-ai/",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-HF-ABSENT": {
+      "url": "https://huggingface.co/api/models/Tongyi-MAI/Z-Image-Edit (and -Base, -Omni, -Omni-Base): repos do not exist (API error) on 2026-10-01",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-ESRGAN": {
+      "url": "https://huggingface.co/Comfy-Org/Real-ESRGAN_repackaged",
+      "accessed": "2026-10-01",
+      "class": "official"
+    }
+  }
+}

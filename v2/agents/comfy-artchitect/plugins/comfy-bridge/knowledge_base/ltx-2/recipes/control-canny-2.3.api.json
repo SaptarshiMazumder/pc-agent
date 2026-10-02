@@ -1,0 +1,460 @@
+{
+  "recipe": {
+    "family": "ltx-2",
+    "min_comfyui": "0.22.0",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Template ships 1280x720 (ResolutionSelector 0.9 MP 16:9 -> 1280x736); the 32-px latent grid floors both to 1280x704 (stage 1 640x352), which is what is written here."
+    ],
+    "id": "control-canny-2.3",
+    "task": "control",
+    "variant": "LTX-2.3 IC-LoRA Union Control driven by Canny edges of the control video (native Canny node); otherwise the depth recipe",
+    "from_template": "video_ltx2_3_ic_lora with the MoGe depth branch swapped for the core Canny node - the template's own note says 'Users can swap in other preprocessors and other control types as long as they produce frame-aligned control_images'; Canny thresholds 0.4/0.8 are the ones video_ltx2_canny_to_video (official LTX-2 template) uses",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text",
+        "note": "inert at cfg 1"
+      },
+      "width": {
+        "node": "8",
+        "input": "width",
+        "note": "multiples of 32; template 1280x704"
+      },
+      "height": {
+        "node": "8",
+        "input": "height"
+      },
+      "control_seconds": {
+        "node": "58",
+        "input": "duration",
+        "note": "seconds of control video used; the frame count (and so the clip length) follows the control video via GetImageSize.batch_size - LTXVAddGuide crops it to 8n+1"
+      },
+      "control_start_s": {
+        "node": "58",
+        "input": "start_time"
+      },
+      "fps": {
+        "node": "7",
+        "input": "frame_rate",
+        "same_value": [
+          {
+            "node": "9",
+            "input": "frame_rate"
+          },
+          {
+            "node": "43",
+            "input": "fps"
+          }
+        ],
+        "note": "25 (template); the control frames are replayed at this rate"
+      },
+      "seed": {
+        "node": "30",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "30",
+        "input": "steps",
+        "note": "8 (distilled)"
+      },
+      "cfg": {
+        "node": "30",
+        "input": "cfg",
+        "note": "1.0 (distilled)"
+      },
+      "ic_lora_strength": {
+        "node": "20",
+        "input": "strength_model",
+        "note": "template note: higher = stronger guide following"
+      },
+      "control_strength": {
+        "node": "46",
+        "input": "strength",
+        "note": "1.0 (template)"
+      },
+      "first_frame_strength": {
+        "node": "18",
+        "input": "strength"
+      },
+      "canny_low": {
+        "node": "62",
+        "input": "low_threshold",
+        "note": "0.4 (Comfy-Org LTX-2 canny template)"
+      },
+      "canny_high": {
+        "node": "62",
+        "input": "high_threshold",
+        "note": "0.8"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      },
+      "control_video": {
+        "node": "57",
+        "input": "file",
+        "type": "VIDEO",
+        "note": "edges are extracted per frame"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "44",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "ltx-2.3-22b-distilled-fp8.safetensors",
+      "gemma_3_12B_it_fp4_mixed.safetensors",
+      "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+    ],
+    "defaults_note": "Same settings as control-depth-2.3; edge control emphasizes contours (template note). The Union Control card names Canny, Depth and Pose as its control types.",
+    "vram_evidence": {
+      "gpu": "NOT FOUND",
+      "at": "1280x704 x ~121",
+      "usage": null,
+      "time_s": null,
+      "src": null
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "ltx-2.3-22b-distilled-fp8.safetensors"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "56": {
+      "class_type": "GetICLoRAParameters",
+      "inputs": {
+        "iclora_model": [
+          "20",
+          0
+        ]
+      }
+    },
+    "3": {
+      "class_type": "LTXVAudioVAELoader",
+      "inputs": {
+        "ckpt_name": "ltx-2.3-22b-distilled-fp8.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "LTXAVTextEncoderLoader",
+      "inputs": {
+        "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+        "ckpt_name": "ltx-2.3-22b-distilled-fp8.safetensors",
+        "device": "default"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "A slow forward dolly shot through a sunlit jungle ruin, a lone armored figure before a weathered stone arch, vines swaying in a light breeze, golden light through the canopy, birdsong and rustling leaves."
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          0
+        ],
+        "text": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO IT”), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+      }
+    },
+    "7": {
+      "class_type": "LTXVConditioning",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "frame_rate": 25.0
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "57": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@control_video"
+      }
+    },
+    "58": {
+      "class_type": "Video Slice",
+      "inputs": {
+        "video": [
+          "57",
+          0
+        ],
+        "start_time": 0.0,
+        "duration": 5.0,
+        "strict_duration": false
+      }
+    },
+    "59": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "58",
+          0
+        ]
+      }
+    },
+    "62": {
+      "class_type": "Canny",
+      "inputs": {
+        "image": [
+          "59",
+          0
+        ],
+        "low_threshold": 0.4,
+        "high_threshold": 0.8
+      }
+    },
+    "63": {
+      "class_type": "GetImageSize",
+      "inputs": {
+        "image": [
+          "62",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "EmptyLTXVLatentVideo",
+      "inputs": {
+        "width": 1280,
+        "height": 704,
+        "length": [
+          "63",
+          2
+        ],
+        "batch_size": 1
+      }
+    },
+    "9": {
+      "class_type": "LTXVEmptyLatentAudio",
+      "inputs": {
+        "frames_number": [
+          "63",
+          2
+        ],
+        "frame_rate": 25,
+        "batch_size": 1,
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "LTXVImgToVideoInplace",
+      "inputs": {
+        "vae": [
+          "1",
+          2
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "latent": [
+          "8",
+          0
+        ],
+        "strength": 1.0,
+        "bypass": false
+      }
+    },
+    "46": {
+      "class_type": "LTXVAddGuide",
+      "inputs": {
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "latent": [
+          "18",
+          0
+        ],
+        "image": [
+          "62",
+          0
+        ],
+        "frame_idx": 0,
+        "strength": 1.0,
+        "iclora_parameters": [
+          "56",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "LTXVConcatAVLatent",
+      "inputs": {
+        "video_latent": [
+          "46",
+          2
+        ],
+        "audio_latent": [
+          "9",
+          0
+        ]
+      }
+    },
+    "30": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "seed": 0,
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "linear_quadratic",
+        "positive": [
+          "46",
+          0
+        ],
+        "negative": [
+          "46",
+          1
+        ],
+        "latent_image": [
+          "10",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "31": {
+      "class_type": "LTXVSeparateAVLatent",
+      "inputs": {
+        "av_latent": [
+          "30",
+          0
+        ]
+      }
+    },
+    "48": {
+      "class_type": "LTXVCropGuides",
+      "inputs": {
+        "positive": [
+          "46",
+          0
+        ],
+        "negative": [
+          "46",
+          1
+        ],
+        "latent": [
+          "31",
+          0
+        ]
+      }
+    },
+    "41": {
+      "class_type": "VAEDecodeTiled",
+      "inputs": {
+        "samples": [
+          "48",
+          2
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "tile_size": 768,
+        "overlap": 64,
+        "temporal_size": 4096,
+        "temporal_overlap": 64
+      }
+    },
+    "42": {
+      "class_type": "LTXVAudioVAEDecode",
+      "inputs": {
+        "samples": [
+          "31",
+          1
+        ],
+        "audio_vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "43": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "41",
+          0
+        ],
+        "fps": 25.0,
+        "audio": [
+          "42",
+          0
+        ],
+        "bit_depth": "auto",
+        "color_space": "sRGB"
+      }
+    },
+    "44": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "43",
+          0
+        ],
+        "filename_prefix": "video/ltx23_control_canny",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

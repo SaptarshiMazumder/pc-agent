@@ -1,0 +1,367 @@
+{
+  "recipe": {
+    "task": "inpaint",
+    "control": "inpaint",
+    "host": "qwen-image",
+    "variant": "Qwen-Image fp8 + InstantX Inpainting ControlNet via ControlNetInpaintingAliMamaApply; mask grown/blurred; original pixels pasted back outside the mask (the template's active, no-LoRA group; the Lightning and outpaint groups are bypassed)",
+    "from_template": "image_qwen_image_instantx_inpainting_controlnet (active group; 'Grow and Blur Mask' subgraph flattened; bypassed Lightning / outpaint / second pipeline elided)",
+    "min_comfyui": "0.3.57",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "15",
+        "30",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39"
+      ],
+      "splice": "ControlNetInpaintingAliMamaApply (33) replaces ControlNetApplyAdvanced and needs vae + mask; the latent is the VAE-encoded image with SetLatentNoiseMask (38); ImageCompositeMasked (39) pastes the untouched pixels back. Outpainting = the same graph with ImagePadForOutpaint(left/top/right/bottom, feathering 0) producing image + mask (template's bypassed group)."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "max_dimension": {
+        "node": "30",
+        "input": "largest_size"
+      },
+      "mask_expand": {
+        "node": "34",
+        "input": "expand"
+      },
+      "mask_blur": {
+        "node": "36",
+        "input": "blur_radius"
+      },
+      "strength": {
+        "node": "33",
+        "input": "strength"
+      },
+      "start_percent": {
+        "node": "33",
+        "input": "start_percent"
+      },
+      "end_percent": {
+        "node": "33",
+        "input": "end_percent"
+      },
+      "shift": {
+        "node": "4",
+        "input": "shift"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to edit WITH the inpaint region in its alpha channel (ComfyUI MaskEditor paints it); node 15's MASK output (slot 1) is that mask. Keep the image under ~3000 px (template: 'shouldn't be too large'); node 30 caps the longest side at 1536."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_fp8_e4m3fn.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors",
+      "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "20 steps, cfg 2.5 (Qwen team 50 / 4.0; Lightning 4 / 1.0), euler/simple, shift 3.1, strength 1, mask blur 31. Negative ' '. Apache-2.0.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "qwen fp8 20.4 GB + encoder 9.4 GB + inpainting net 4.2 GB",
+      "src": "S-HF-QWEN-INSTANTX-REPACK"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "qwen-instantx-inpaint",
+    "family": "controlnet"
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "The Queen, on a throne, surrounded by Knights, HD, Realistic, Octane Render, Unreal engine"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": " "
+      }
+    },
+    "4": {
+      "class_type": "ModelSamplingAuraFlow",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 3.1
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScaleToMaxDimension",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "area",
+        "largest_size": 1536
+      }
+    },
+    "34": {
+      "class_type": "GrowMask",
+      "inputs": {
+        "mask": [
+          "15",
+          1
+        ],
+        "expand": 0,
+        "tapered_corners": true
+      }
+    },
+    "35": {
+      "class_type": "MaskToImage",
+      "inputs": {
+        "mask": [
+          "34",
+          0
+        ]
+      }
+    },
+    "36": {
+      "class_type": "ImageBlur",
+      "inputs": {
+        "image": [
+          "35",
+          0
+        ],
+        "blur_radius": 31,
+        "sigma": 1.0
+      }
+    },
+    "37": {
+      "class_type": "ImageToMask",
+      "inputs": {
+        "image": [
+          "36",
+          0
+        ],
+        "channel": "red"
+      }
+    },
+    "32": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+      }
+    },
+    "33": {
+      "class_type": "ControlNetInpaintingAliMamaApply",
+      "inputs": {
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "control_net": [
+          "32",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "image": [
+          "30",
+          0
+        ],
+        "mask": [
+          "37",
+          0
+        ],
+        "strength": 1.0,
+        "start_percent": 0.0,
+        "end_percent": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "30",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "38": {
+      "class_type": "SetLatentNoiseMask",
+      "inputs": {
+        "samples": [
+          "9",
+          0
+        ],
+        "mask": [
+          "37",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 134554158057228,
+        "steps": 20,
+        "cfg": 2.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "latent_image": [
+          "38",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "39": {
+      "class_type": "ImageCompositeMasked",
+      "inputs": {
+        "destination": [
+          "30",
+          0
+        ],
+        "source": [
+          "12",
+          0
+        ],
+        "x": 0,
+        "y": 0,
+        "resize_source": false,
+        "mask": [
+          "37",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "39",
+          0
+        ],
+        "filename_prefix": "controlnet/qwen_instantx_inpaint"
+      }
+    }
+  }
+}

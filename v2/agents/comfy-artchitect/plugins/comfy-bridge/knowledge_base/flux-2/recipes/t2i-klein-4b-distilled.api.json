@@ -1,0 +1,206 @@
+{
+  "recipe": {
+    "id": "t2i-klein-4b-distilled",
+    "family": "flux-2",
+    "task": "t2i",
+    "variant": "FLUX.2 [klein] 4B distilled (Apache-2.0) bf16: 4 steps, CFGGuider cfg 1 with ConditioningZeroOut as negative — the template's bypassed 'Distilled' subgraph",
+    "from_template": "image_flux2_klein_text_to_image ('Text to Image (Flux.2 Klein 4B Distilled)' subgraph, bypassed in the template)",
+    "min_comfyui": "0.3.72",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "text"
+      },
+      "cfg": {
+        "node": "8",
+        "input": "cfg"
+      },
+      "width": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "width",
+        "note": "EmptyFlux2LatentImage and Flux2Scheduler must get the same value"
+      },
+      "height": {
+        "nodes": [
+          "9",
+          "4"
+        ],
+        "input": "height"
+      },
+      "seed": {
+        "node": "13",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "4",
+        "input": "steps"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux-2-klein-4b.safetensors",
+      "flux2-vae.safetensors",
+      "qwen_3_4b.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 4 steps, cfg 1.0, euler. BFL: 'end-to-end inference in as low as under a second'; docs.comfy.org: ~1.2 s on a 5090 at 8.4 GB (fp8 file). cfg > 1 breaks distilled klein.",
+    "vram_evidence": {
+      "gpu": "RTX 3090 / 4070 and above; ~13 GB bf16 pipeline",
+      "note": "BFL: 4B 'fits in ~13GB VRAM and is accessible on NVIDIA RTX 3090/4070 and above'; docs.comfy.org (fp8 files, 5090): distilled ~1.2 s / 8.4 GB, base ~17 s / 9.2 GB",
+      "class": "official",
+      "src": [
+        "S-HF-KLEIN-CARDS",
+        "S-DOCS-KLEIN"
+      ]
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "flux-2-klein-4b.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_4b.safetensors",
+        "type": "flux2",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "flux2-vae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "text": "A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere"
+      }
+    },
+    "6": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "cfg": 1.0
+      }
+    },
+    "9": {
+      "class_type": "EmptyFlux2LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "4": {
+      "class_type": "Flux2Scheduler",
+      "inputs": {
+        "steps": 4,
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    "13": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "14": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "13",
+          0
+        ],
+        "guider": [
+          "8",
+          0
+        ],
+        "sampler": [
+          "14",
+          0
+        ],
+        "sigmas": [
+          "4",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "Flux2-Klein"
+      }
+    }
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "recipe": {
+    "task": "identity",
+    "method": "uso",
+    "host": "flux-1",
+    "variant": "USO subject (character) reference on FLUX.1 dev fp8: the reference image is VAE-encoded at 512 px and attached to the prompt with ReferenceLatent + FluxKontextMultiReferenceLatentMethod('uxo/uno'); USO DiT LoRA on the model; no style image (the template's active group)",
+    "from_template": "flux1_dev_uso_reference_image_gen (subgraph 'USO Character Reference' flattened; both bypassed USOStyleReference subgraphs and their LoadImage nodes elided; the then-unused CLIPVisionLoader/ModelPatchLoader dropped)",
+    "min_comfyui": "0.3.57",
+    "confidence": "official",
+    "anchor": {
+      "host": [
+        "1",
+        "6",
+        "7",
+        "9",
+        "10",
+        "12",
+        "14"
+      ],
+      "adapter": [
+        "20",
+        "15",
+        "30",
+        "31",
+        "32",
+        "33",
+        "8"
+      ],
+      "splice": "LoraLoaderModelOnly (20) on the MODEL line; the subject branch wraps the host's positive: CLIPTextEncode -> ReferenceLatent(latent of the 512px reference) -> FluxKontextMultiReferenceLatentMethod(uxo/uno) -> FluxGuidance -> KSampler.positive. Negative stays ConditioningZeroOut."
+    },
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "reference_size": {
+        "node": "30",
+        "input": "largest_size",
+        "note": "512 keeps more character features (UXO team); 1024 when the reference is a head-only crop"
+      },
+      "guidance": {
+        "node": "8",
+        "input": "guidance"
+      },
+      "lora_strength": {
+        "node": "20",
+        "input": "strength_model"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      }
+    },
+    "inputs": {
+      "subject_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the character/subject to keep; scaled to 512 px longest side (node 30)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "flux1-dev-fp8.safetensors",
+      "uso-flux1-dit-lora-v1.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1024x1024, 20 steps, cfg 1, euler/simple, FluxGuidance 3.5, LoRA 1.0. flux1-dev-fp8.safetensors is the Comfy-Org all-in-one checkpoint (models/checkpoints: MODEL+CLIP+VAE). USO weights Apache-2.0; the FLUX.1-dev base is Non-Commercial.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "note": "flux1-dev-fp8 checkpoint 17.2 GB + 0.48 GB LoRA",
+      "src": "S-TPL-USO"
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "uso-subject-flux1",
+    "family": "identity-adapters"
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "flux1-dev-fp8.safetensors"
+      }
+    },
+    "20": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "uso-flux1-dit-lora-v1.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "A European girl with a heartfelt smile. She is immersed in a vast, endless field of blooming flowers under a perfect summer sky."
+      }
+    },
+    "7": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@subject_image"
+      }
+    },
+    "30": {
+      "class_type": "ImageScaleToMaxDimension",
+      "inputs": {
+        "image": [
+          "15",
+          0
+        ],
+        "upscale_method": "area",
+        "largest_size": 512
+      }
+    },
+    "31": {
+      "class_type": "VAEEncode",
+      "inputs": {
+        "pixels": [
+          "30",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "32": {
+      "class_type": "ReferenceLatent",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ],
+        "latent": [
+          "31",
+          0
+        ]
+      }
+    },
+    "33": {
+      "class_type": "FluxKontextMultiReferenceLatentMethod",
+      "inputs": {
+        "conditioning": [
+          "32",
+          0
+        ],
+        "reference_latents_method": "uxo/uno"
+      }
+    },
+    "8": {
+      "class_type": "FluxGuidance",
+      "inputs": {
+        "conditioning": [
+          "33",
+          0
+        ],
+        "guidance": 3.5
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "20",
+          0
+        ],
+        "seed": 1058487910949722,
+        "steps": 20,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "8",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "identity/uso_subject"
+      }
+    }
+  }
+}

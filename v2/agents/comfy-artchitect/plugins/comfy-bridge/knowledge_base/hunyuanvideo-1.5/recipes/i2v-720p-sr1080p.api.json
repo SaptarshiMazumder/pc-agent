@@ -1,0 +1,524 @@
+{
+  "recipe": {
+    "family": "hunyuanvideo-1.5",
+    "min_comfyui": "0.3.71",
+    "confidence": "official",
+    "packs": [],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ],
+    "id": "i2v-720p-sr1080p",
+    "task": "i2v",
+    "variant": "i2v-720p followed by the 1080p super-resolution stage (SR node also receives vae, start_image and clip_vision_output, as in the template)",
+    "from_template": "video_hunyuan_video_1.5_720p_i2v with the 'Video Upscale 1080P' group enabled",
+    "ports": {
+      "prompt": {
+        "node": "4",
+        "input": "text"
+      },
+      "negative": {
+        "node": "5",
+        "input": "text",
+        "note": "official default is empty; only read at cfg > 1"
+      },
+      "width": {
+        "node": "7",
+        "input": "width",
+        "note": "multiples of 16; 1280x720 for the 720p models (848x480 node default for 480p)"
+      },
+      "height": {
+        "node": "7",
+        "input": "height"
+      },
+      "length": {
+        "node": "7",
+        "input": "length",
+        "note": "4n+1; 121 = 5 s @24 fps - the reference CLI warns for any other value"
+      },
+      "seed": {
+        "node": "8",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps",
+        "note": "20 (template shortcut) vs 50 (Tencent, 'for the best generation quality')"
+      },
+      "cfg": {
+        "node": "11",
+        "input": "cfg"
+      },
+      "shift": {
+        "node": "2",
+        "input": "shift"
+      },
+      "fps": {
+        "node": "46",
+        "input": "fps"
+      },
+      "sr_width": {
+        "node": "32",
+        "input": "width",
+        "note": "1920x1080 (template); multiples of 8"
+      },
+      "sr_height": {
+        "node": "32",
+        "input": "height"
+      },
+      "sr_noise_augmentation": {
+        "node": "33",
+        "input": "noise_augmentation",
+        "note": "0.7 (template); no Tencent guidance found"
+      },
+      "sr_steps": {
+        "node": "37",
+        "input": "steps",
+        "linked_with": {
+          "node": "38",
+          "input": "step",
+          "ratio": 0.5
+        },
+        "note": "8 steps split 4/4: first half with SR conditioning + fresh noise (seed 889), second half with DisableNoise and the plain text conditioning ('Split at matching sigma to the noise scale')"
+      },
+      "sr_seed": {
+        "node": "39",
+        "input": "noise_seed"
+      }
+    },
+    "inputs": {
+      "start_image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "30",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "hunyuanvideo1.5_720p_i2v_fp16.safetensors",
+      "hunyuanvideo1.5_1080p_sr_distilled_fp16.safetensors",
+      "hunyuanvideo15_latent_upsampler_1080p.safetensors",
+      "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "byt5_small_glyphxl_fp16.safetensors",
+      "hunyuanvideo15_vae_fp16.safetensors",
+      "sigclip_vision_patch14_384.safetensors"
+    ],
+    "defaults_note": "1920x1080 x 121 @24 fps. fp16 SR file (see t2v-720p-sr1080p).",
+    "vram_evidence": {
+      "gpu": "NOT FOUND for the SR stage",
+      "at": "1920x1080x121",
+      "usage": null,
+      "time_s": null,
+      "src": null
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hunyuanvideo1.5_720p_i2v_fp16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 7.0
+      }
+    },
+    "3": {
+      "class_type": "DualCLIPLoader",
+      "inputs": {
+        "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "clip_name2": "byt5_small_glyphxl_fp16.safetensors",
+        "type": "hunyuan_video_15",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": "A feathered young dinosaur with ruffled brown-and-white plumage moves alertly through a sun-dappled coniferous forest, lifting one clawed foot mid-step and tilting its head to scan for prey; sunbeams filter through the canopy onto mossy undergrowth. The camera follows at a low angle with a slow dolly, emphasizing the lush ancient wilderness."
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "hunyuanvideo15_vae_fp16.safetensors"
+      }
+    },
+    "8": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "9": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "10": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1.0
+      }
+    },
+    "30": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "46",
+          0
+        ],
+        "filename_prefix": "video/hyv15_i2v_1080p",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@start_image"
+      }
+    },
+    "16": {
+      "class_type": "CLIPVisionLoader",
+      "inputs": {
+        "clip_name": "sigclip_vision_patch14_384.safetensors"
+      }
+    },
+    "17": {
+      "class_type": "CLIPVisionEncode",
+      "inputs": {
+        "clip_vision": [
+          "16",
+          0
+        ],
+        "image": [
+          "15",
+          0
+        ],
+        "crop": "center"
+      }
+    },
+    "7": {
+      "class_type": "HunyuanVideo15ImageToVideo",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ],
+        "width": 1280,
+        "height": 720,
+        "length": 121,
+        "batch_size": 1,
+        "start_image": [
+          "15",
+          0
+        ],
+        "clip_vision_output": [
+          "17",
+          0
+        ]
+      }
+    },
+    "11": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "positive": [
+          "7",
+          0
+        ],
+        "negative": [
+          "7",
+          1
+        ],
+        "cfg": 6.0
+      }
+    },
+    "12": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "11",
+          0
+        ],
+        "sampler": [
+          "9",
+          0
+        ],
+        "sigmas": [
+          "10",
+          0
+        ],
+        "latent_image": [
+          "7",
+          2
+        ]
+      }
+    },
+    "31": {
+      "class_type": "LatentUpscaleModelLoader",
+      "inputs": {
+        "model_name": "hunyuanvideo15_latent_upsampler_1080p.safetensors"
+      }
+    },
+    "32": {
+      "class_type": "HunyuanVideo15LatentUpscaleWithModel",
+      "inputs": {
+        "model": [
+          "31",
+          0
+        ],
+        "samples": [
+          "12",
+          0
+        ],
+        "upscale_method": "bilinear",
+        "width": 1920,
+        "height": 1080,
+        "crop": "disabled"
+      }
+    },
+    "33": {
+      "class_type": "HunyuanVideo15SuperResolution",
+      "inputs": {
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent": [
+          "32",
+          0
+        ],
+        "noise_augmentation": 0.7,
+        "vae": [
+          "6",
+          0
+        ],
+        "start_image": [
+          "15",
+          0
+        ],
+        "clip_vision_output": [
+          "17",
+          0
+        ]
+      }
+    },
+    "34": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "hunyuanvideo1.5_1080p_sr_distilled_fp16.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "35": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "34",
+          0
+        ],
+        "shift": 2.0
+      }
+    },
+    "36": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "35",
+          0
+        ],
+        "positive": [
+          "33",
+          0
+        ],
+        "negative": [
+          "33",
+          1
+        ],
+        "cfg": 1.0
+      }
+    },
+    "37": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "34",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 8,
+        "denoise": 1.0
+      }
+    },
+    "38": {
+      "class_type": "SplitSigmas",
+      "inputs": {
+        "sigmas": [
+          "37",
+          0
+        ],
+        "step": 4
+      }
+    },
+    "39": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 889
+      }
+    },
+    "40": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "41": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "39",
+          0
+        ],
+        "guider": [
+          "36",
+          0
+        ],
+        "sampler": [
+          "40",
+          0
+        ],
+        "sigmas": [
+          "38",
+          0
+        ],
+        "latent_image": [
+          "33",
+          2
+        ]
+      }
+    },
+    "42": {
+      "class_type": "DisableNoise",
+      "inputs": {}
+    },
+    "43": {
+      "class_type": "CFGGuider",
+      "inputs": {
+        "model": [
+          "34",
+          0
+        ],
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "cfg": 1.0
+      }
+    },
+    "44": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "42",
+          0
+        ],
+        "guider": [
+          "43",
+          0
+        ],
+        "sampler": [
+          "40",
+          0
+        ],
+        "sigmas": [
+          "38",
+          1
+        ],
+        "latent_image": [
+          "41",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "44",
+          0
+        ],
+        "vae": [
+          "6",
+          0
+        ]
+      }
+    },
+    "46": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "45",
+          0
+        ],
+        "fps": 24.0
+      }
+    }
+  }
+}

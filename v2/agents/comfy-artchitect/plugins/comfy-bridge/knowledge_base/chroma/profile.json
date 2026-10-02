@@ -1,0 +1,1052 @@
+{
+  "schema": 2,
+  "id": "chroma",
+  "name": "Chroma (Chroma1-HD / Base / Flash / Radiance)",
+  "publisher": "Lodestone Rock (lodestones); Comfy-Org repacks",
+  "license": {
+    "name": "Apache-2.0",
+    "commercial": true,
+    "notes": "Every lodestones repo (HD, Base, Flash, Radiance, legacy) and the Comfy-Org repacks are Apache-2.0 ('fully Apache 2.0 licensed, ensuring that anyone can use, modify, and build upon it'). Unaligned/uncensored by design: 'Users are responsible for their own use of this model'.",
+    "src": [
+      "S-HF-HD",
+      "S-HF-COMFY-TREE"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i"
+  ],
+  "cannot": [
+    {
+      "what": "editing / inpainting / outpainting / ControlNet / IP-Adapter: no official lodestones releases and no Comfy-Org template (NOT FOUND)",
+      "src": [
+        "S-HF-HD",
+        "S-HF-LEGACY"
+      ]
+    },
+    {
+      "what": "img2img: no template; the generic VAEEncode + denoise<1 pattern is untested here",
+      "src": "S-HF-HD"
+    },
+    {
+      "what": "Radiance is unfinished: 'WIP - the x32 model is still training atm, expect some squiggles on the details part of the image'; upstream checkpoints change hourly",
+      "src": "S-HF-RAD"
+    },
+    {
+      "what": "Flash has no documentation (README is only the license header); its settings are community",
+      "src": [
+        "S-HF-FLASH",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "what": "speed LoRAs (Lightning/Hyper): NOT FOUND - Flash is a full checkpoint, not a LoRA",
+      "src": "S-HF-FLASH"
+    },
+    {
+      "what": "extent of text rendering beyond the template's 'CHROMA1-HD' title demo: NOT FOUND",
+      "src": "S-TPL-HD"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.1 source (comfy_extras/nodes_chroma_radiance.py, nodes_cond.py, nodes_custom_sampler.py, comfy/supported_models.py)",
+    "nodes_verified_against_registry": "v0.35.0 - t2i-hd, t2i-hd-bf16, t2i-flash pass the offline structural check (verify_recipes.py) on 2026-10-02; t2i-radiance passes everything except the validator's FILE check on VAELoader 'pixel_space' (legal per the registry's options_extra; prototype limitation)",
+    "note": "Chroma is native in ComfyUI (CLIPType chroma, ChromaRadiance config); the old ComfyUI_FluxMod custom node and the lodestones/Chroma v-checkpoints are deprecated."
+  },
+  "files": [
+    {
+      "name": "Chroma1-HD-fp8mixed.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 9193379316,
+      "size_gb": 9.193,
+      "precision": "fp8_mixed",
+      "variant": "hd",
+      "url": "https://huggingface.co/Comfy-Org/Chroma1-HD_repackaged/resolve/main/split_files/diffusion_models/Chroma1-HD-fp8mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fp8 mixed by silveroxides, repacked by Comfy-Org; the template's file",
+      "src": [
+        "S-HF-COMFY-TREE",
+        "S-TPL-HD"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Chroma1-HD.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17800038288,
+      "size_gb": 17.8,
+      "precision": "bf16",
+      "variant": "hd",
+      "url": "https://huggingface.co/Comfy-Org/Chroma1-HD_repackaged/resolve/main/split_files/diffusion_models/Chroma1-HD.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "reference Chroma1-HD ('Chroma final model'; retrained from v.48, not the old v.50); original at lodestones/Chroma1-HD",
+      "src": [
+        "S-HF-COMFY-TREE",
+        "S-HF-HD"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Chroma1-Base.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17800038288,
+      "size_gb": 17.8,
+      "precision": "bf16",
+      "variant": "base",
+      "url": "https://huggingface.co/lodestones/Chroma1-Base/resolve/main/Chroma1-Base.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "= Chroma-v.48 checkpoint; same graph as HD; no Comfy-Org repack and no template",
+      "src": "S-HF-BASE",
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Chroma1-HD-Flash.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 17800038288,
+      "size_gb": 17.8,
+      "precision": "bf16",
+      "variant": "flash",
+      "url": "https://huggingface.co/lodestones/Chroma1-Flash/resolve/main/Chroma1-HD-Flash.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'the fast CFG baked version' - few-step, cfg ~1; README empty; settings are community; a delta-weight file (17.80 GB) also exists",
+      "src": [
+        "S-HF-FLASH",
+        "S-HF-LEGACY"
+      ],
+      "pairs_with_vae": "ae.safetensors",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "chroma-radiance-x0.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 19012346326,
+      "size_gb": 19.012,
+      "precision": "bf16",
+      "variant": "radiance",
+      "url": "https://huggingface.co/Comfy-Org/Chroma1-Radiance_Repackaged/resolve/main/split_files/diffusion_models/chroma-radiance-x0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "pixel-space model (3-channel 'latent' = RGB); WIP ('expect some squiggles'); the template's pinned snapshot - upstream lodestones/Chroma1-Radiance latest_x0*.safetensors update hourly",
+      "src": [
+        "S-HF-RAD-TREE",
+        "S-HF-RAD",
+        "S-TPL-RAD"
+      ],
+      "pairs_with_vae": "pixel_space (no VAE file)",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5157348688,
+      "size_gb": 5.16,
+      "precision": "fp8_e4m3fn_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the template default; CLIPLoader type 'chroma' (T5-XXL only - Chroma has no CLIP-L); template note '4.8 GB'",
+      "src": [
+        "S-HF-T5",
+        "S-TPL-HD"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 9787841024,
+      "size_gb": 9.79,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'fp16 is recommended, if you don't have that much memory fp8_scaled are recommended' (ComfyUI_examples)",
+      "src": [
+        "S-HF-T5",
+        "S-EXAMPLES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "t5xxl_fp8_e4m3fn.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 4893934904,
+      "size_gb": 4.89,
+      "precision": "fp8_e4m3fn",
+      "variant": "shared",
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "plain fp8; legacy README: 'either of them will work'",
+      "src": [
+        "S-HF-T5",
+        "S-HF-LEGACY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "ae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 335304388,
+      "size_gb": 0.34,
+      "precision": "fp32",
+      "variant": "hd|base|flash",
+      "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the FLUX autoencoder (Chroma latent_format = Flux, 16-ch); template links the Lumina repack copy, card links lodestones/Chroma/ae.safetensors - same file; NOT used by Radiance",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD",
+        "S-NODES"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF Chroma1-HD (silveroxides, Apache-2.0): Q2_K 3.41 .. Q4_K_M 5.57 .. Q8_0 9.74 GB, BF16 17.80 GB; the legacy README lists it as an official alternative",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "unet",
+      "node": "UnetLoaderGGUF",
+      "class": "community",
+      "src": [
+        "S-GGUF",
+        "S-HF-LEGACY"
+      ]
+    },
+    {
+      "what": "fp8-scaled alternatives: silveroxides/Chroma1-HD-fp8-scaled (fp8_scaled_defaultloader_hybrid_large_rev2 9.19 GB, int8mixedrow_learned 9.20, mxfp8mixed 9.46) and Clybius/Chroma-fp8-scaled (HD and HD-Flash float8_e4m3fn_scaled_learned_topk8_svd 8.90 GB); lodestones' own workflow loads Chroma1-HD-fp8_scaled_rev2 which now sits under do_not_use/ - prefer the Comfy-Org fp8mixed",
+      "needs_pack": null,
+      "class": "community",
+      "src": [
+        "S-GGUF",
+        "S-HF-HD-WORKFLOW",
+        "S-HF-LEGACY"
+      ]
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "recipe": "t2i-hd",
+      "why": "the official template: fp8mixed HD, full CFG with an effective negative prompt, 26 steps beta; the pick when the user wants Flux-class photographic/artistic/anime output with real negatives and an unfiltered model",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "quality": "full-precision",
+      "recipe": "t2i-hd-bf16",
+      "why": "same graph, bf16 17.8 GB file (+ t5xxl_fp16 recommended when memory allows)",
+      "src": [
+        "S-HF-COMFY-TREE",
+        "S-EXAMPLES"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "speed": "fast",
+      "recipe": "t2i-flash",
+      "tradeoff": "8 steps at cfg 1 (3x fewer steps, no negative); settings are community-confirmed, not documented by the publisher",
+      "confidence": "community-confirmed",
+      "src": [
+        "S-HF-FLASH",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": null,
+      "quality": "experimental",
+      "recipe": "t2i-radiance",
+      "tradeoff": "pixel-space model, 'reduced artifacts and distortion' per the template blurb but officially WIP with 'squiggles' in details; 19 GB; no VAE",
+      "src": [
+        "S-TPL-RAD",
+        "S-HF-RAD"
+      ]
+    },
+    {
+      "task": "edit",
+      "recipe": null,
+      "status": "NOT FOUND: no Chroma edit/inpaint model or template; route to qwen-image or hidream",
+      "src": "S-HF-HD"
+    },
+    {
+      "task": "control",
+      "recipe": null,
+      "status": "NOT FOUND: no ControlNet / IP-Adapter for Chroma",
+      "src": "S-HF-HD"
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "BasicScheduler|BetaSamplingScheduler",
+      "input": "steps",
+      "meaning": "sigma schedule length for SamplerCustomAdvanced",
+      "defaults": {
+        "t2i-hd": 26,
+        "t2i-radiance": 30,
+        "t2i-flash": 8
+      },
+      "range": [
+        8,
+        50
+      ],
+      "official_reference_code": {
+        "card diffusers": 40,
+        "lodestones workflow": 26,
+        "flash (community)": "8 (second-order sampler) or 16 (multistep)"
+      },
+      "interactions": "Flash with many steps wastes the distillation",
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD",
+        "S-HF-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "CFGGuider",
+      "input": "cfg",
+      "meaning": "full classifier-free guidance; Chroma honours the negative prompt",
+      "defaults": {
+        "t2i-hd": 3.5,
+        "t2i-radiance": 3.5,
+        "t2i-flash": 1.0
+      },
+      "range": [
+        3.0,
+        7.0
+      ],
+      "official_reference_code": {
+        "card": 3.0,
+        "lodestones workflow": 3.8,
+        "community": "4.0, 'some say 6 to 7 is good'"
+      },
+      "interactions": "Flash: cfg 1-1.5 (baked); HD: very high cfg with shift 1 hurts",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-NOMADOOR",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "name": "shift",
+      "node": "ModelSamplingAuraFlow",
+      "input": "shift",
+      "meaning": "flow shift; 'Flow Shift node set to 1.0 represents intended shift by the creator of the Chroma model and will produce greater detail'",
+      "defaults": {
+        "all": 1.0
+      },
+      "range": [
+        1.0,
+        3.0
+      ],
+      "official_reference_code": {
+        "radiance note": "'can be raised up to 3.0 in order to help with complex compositions'"
+      },
+      "interactions": "node default 1.73 is not the creator's value; raising shift trades detail for composition",
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "sampler_name",
+      "node": "KSamplerSelect",
+      "input": "sampler_name",
+      "meaning": "",
+      "defaults": {
+        "hd": "euler",
+        "radiance": "euler",
+        "flash": "heun (community; also dpmpp_sde / dpmpp_2s_ancestral)"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "name": "scheduler",
+      "node": "BasicScheduler|BetaSamplingScheduler",
+      "input": "scheduler / alpha, beta",
+      "meaning": "beta schedule in every official graph",
+      "defaults": {
+        "hd template": "BasicScheduler beta",
+        "lodestones": "BetaSamplingScheduler alpha 0.45 beta 0.45",
+        "radiance": "BetaSamplingScheduler alpha 0.4 beta 0.4 (node defaults 0.6/0.6)"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-TPL-RAD",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptySD3LatentImage|EmptyChromaRadianceLatentImage",
+      "input": "width, height",
+      "meaning": "multiples of 16 (both nodes step 16); HD/Base/Flash latent is Flux-type /8, Radiance works in pixels",
+      "defaults": {
+        "templates": "1024x1024",
+        "lodestones workflow": "1152x1152"
+      },
+      "range": null,
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "min_padding / min_length",
+      "node": "T5TokenizerOptions",
+      "input": "min_padding, min_length",
+      "meaning": "T5 padding-token masking ('Unmask just one padding token while masking the rest')",
+      "defaults": {
+        "templates": "0 / 0"
+      },
+      "range": [
+        0,
+        1
+      ],
+      "interactions": "'min_padding 1 is the official way. setting it to 0 works too. might vary depending on t5 variant'; community: 'no big difference'",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-HF-HD",
+        "S-NOMADOOR"
+      ]
+    },
+    {
+      "name": "nerf_tile_size",
+      "node": "ChromaRadianceOptions",
+      "input": "nerf_tile_size",
+      "meaning": "Radiance NeRF decoder tiling: -1 = default 32, 0 = no tiling",
+      "defaults": {
+        "template": -1
+      },
+      "range": null,
+      "interactions": "'as large as possible until you run out of GPU memory if you want increased speed'; 0 'may require a lot of VRAM'; force_sequential_txt_ids only for 2026-05-22..06-01 checkpoints lacking __sequential__",
+      "src": [
+        "S-TPL-RAD",
+        "S-NODES",
+        "S-DOCS-NODES"
+      ]
+    },
+    {
+      "name": "seed",
+      "node": "RandomNoise",
+      "input": "noise_seed",
+      "meaning": "",
+      "defaults": {
+        "templates": "randomize"
+      },
+      "range": null,
+      "src": "S-TPL-HD"
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-chroma",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(Chroma1-|chroma-radiance)"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "chroma"
+      },
+      "message": "Chroma uses ONLY T5-XXL: CLIPLoader with type 'chroma' (ComfyUI clip_target = PixArt-style T5 encoder). DualCLIPLoader type flux with clip_l is the Flux habit and is WRONG for Chroma",
+      "src": [
+        "S-NODES",
+        "S-TPL-HD",
+        "S-NOMADOOR"
+      ]
+    },
+    {
+      "id": "encoder-is-t5xxl",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "chroma"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^t5xxl_(fp16|fp8_e4m3fn|fp8_e4m3fn_scaled)\\.safetensors$"
+      },
+      "message": "the Chroma text encoder is a T5-XXL file from comfyanonymous/flux_text_encoders (fp16 recommended, fp8_scaled for less memory)",
+      "src": [
+        "S-HF-T5",
+        "S-EXAMPLES",
+        "S-HF-LEGACY"
+      ]
+    },
+    {
+      "id": "vae-for-latent-models",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^Chroma1-"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "ae.safetensors"
+      },
+      "message": "Chroma1-HD / Base / Flash decode with the FLUX autoencoder ae.safetensors (latent_format Flux)",
+      "src": [
+        "S-NODES",
+        "S-TPL-HD",
+        "S-HF-HD"
+      ]
+    },
+    {
+      "id": "radiance-pixel-space",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^chroma-radiance|^latest_x0"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "pixel_space"
+      },
+      "message": "Chroma1-Radiance generates in pixel space: 'No additional VAE is needed' - VAELoader must be the built-in 'pixel_space' option, not ae.safetensors",
+      "src": [
+        "S-TPL-RAD",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "radiance-latent-node",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^chroma-radiance|^latest_x0"
+      },
+      "require": {
+        "node": "EmptyChromaRadianceLatentImage",
+        "input": "width",
+        "exists": true
+      },
+      "message": "Radiance's 'latent' is a [B,3,H,W] pixel tensor from EmptyChromaRadianceLatentImage; EmptySD3LatentImage (16-ch) is the wrong shape",
+      "src": [
+        "S-TPL-RAD",
+        "S-NODES"
+      ]
+    },
+    {
+      "id": "radiance-options",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^chroma-radiance|^latest_x0"
+      },
+      "require": {
+        "node": "ChromaRadianceOptions",
+        "input": "model",
+        "linked": true
+      },
+      "message": "the official Radiance template patches the model with ChromaRadianceOptions (preserve_wrapper true, start_sigma 1, end_sigma 0, nerf_tile_size -1); without it tiling/speed cannot be tuned",
+      "src": "S-TPL-RAD"
+    },
+    {
+      "id": "shift-window",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(Chroma1-|chroma-radiance)"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "min": 1.0,
+        "max": 3.0,
+        "all": true
+      },
+      "message": "Chroma's Flow Shift is 1.0 (creator-intended, 'greater detail'), raised at most to 3.0 for complex compositions",
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD"
+      ]
+    },
+    {
+      "id": "shift-1-intended",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(Chroma1-|chroma-radiance)"
+      },
+      "require": {
+        "node": "ModelSamplingAuraFlow",
+        "input": "shift",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "every official Chroma graph sets shift 1.0; the node default 1.73 is an AuraFlow value, not the creator's. Raise toward 3 only to fix a complex composition",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "hd-cfg-window",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^Chroma1-(HD|HD-fp8mixed|Base)\\.safetensors$|^chroma-radiance"
+      },
+      "require": {
+        "node": "CFGGuider",
+        "input": "cfg",
+        "min": 3.0,
+        "max": 7.0,
+        "all": true
+      },
+      "message": "official cfg is 3.0 (card) / 3.5 (template) / 3.8 (lodestones); community goes to 6-7; below 3 the negative stops working, far above 7 oversaturates",
+      "src": [
+        "S-HF-HD",
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW",
+        "S-NOMADOOR"
+      ]
+    },
+    {
+      "id": "hd-steps-window",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^Chroma1-(HD|HD-fp8mixed|Base)\\.safetensors$|^chroma-radiance"
+      },
+      "require": {
+        "node": "BasicScheduler|BetaSamplingScheduler",
+        "input": "steps",
+        "min": 20,
+        "max": 50,
+        "all": true
+      },
+      "message": "HD/Base/Radiance are full models: 26 (templates/lodestones) to 40 (card) steps; 8 steps is a Flash setting",
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD",
+        "S-HF-HD",
+        "S-HF-HD-WORKFLOW"
+      ]
+    },
+    {
+      "id": "flash-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "Flash"
+      },
+      "require": {
+        "node": "CFGGuider",
+        "input": "cfg",
+        "max": 1.5,
+        "all": true
+      },
+      "message": "Chroma1-Flash is 'the fast CFG baked version': community settings are cfg 1-1.5; running it at cfg 3.5 wastes the distillation (no official doc exists)",
+      "src": [
+        "S-HF-LEGACY",
+        "S-FLASH-GUIDES"
+      ]
+    },
+    {
+      "id": "flash-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "Flash"
+      },
+      "require": {
+        "node": "BasicScheduler|BetaSamplingScheduler",
+        "input": "steps",
+        "max": 16,
+        "all": true
+      },
+      "message": "Flash: 8 steps with a second-order sampler (heun) or 16 with a multistep sampler (community)",
+      "src": "S-FLASH-GUIDES"
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptySD3LatentImage|EmptyChromaRadianceLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "both latent nodes take width/height in multiples of 16",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "no-deprecated-checkpoints",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^chroma-unlocked-v"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^Chroma1-"
+      },
+      "message": "the lodestones/Chroma v11..v50 checkpoints are 'DEPRECATED! use Chroma1-HD, Chroma1-Base or Chroma1-Flash instead'",
+      "src": "S-HF-LEGACY"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs at least this ComfyUI (HD 0.3.31, Radiance 0.3.60 - both below the pinned 0.35.0)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "This low quality greyscale unfinished sketch is inaccurate and flawed. The image is very blurred and lacks detail with excessive chromatic aberrations and artifacts. The image is overly saturated with excessive bloom. It has a toony aesthetic with bold outlines and flat colors. ",
+    "negative_src": "S-TPL-HD",
+    "negative_alternatives": {
+      "radiance template": "This low quality greyscale unfinished sketch is inaccurate and flawed. The image is very blurred and lacks detail with excessive chromatic aberrations and artifacts. The image is overly saturated with excessive bloom.",
+      "card (diffusers)": "low quality, ugly, unfinished, out of focus, deformed, disfigure, blurry, smudged, restricted palette, flat colors",
+      "lodestones workflow (opening)": "This greyscale unfinished sketch has bad proportions, is featureless and disfigured. It is a blurry ugly mess and with excessive gaussian blur. It is riddled with watermarks and signatures. Everything is smudged with leaking colors and nonsensical orientation of objects..."
+    },
+    "positive": [
+      {
+        "line": "Long natural-language captions - the encoder is T5-only (no CLIP tags); official examples end with photographic qualifiers: 'Amateur photography. Unfiltered. Real life. Natural light. Subtle shadows.' (template) / 'Amateur photography. unfiltered. natural lighting. anatomically correct.' (lodestones)",
+        "class": "official",
+        "src": [
+          "S-TPL-HD",
+          "S-HF-HD-WORKFLOW"
+        ]
+      },
+      {
+        "line": "Card example: 'A high-fashion close-up portrait of a blonde woman in clear sunglasses. The image uses a bold teal and red color split for dramatic lighting. The background is a simple teal-green. The photo is sharp and well-composed, and is designed for viewing with anaglyph 3D glasses for optimal effect. It looks professionally done.'",
+        "class": "official",
+        "src": "S-HF-HD"
+      },
+      {
+        "line": "Text rendering is demonstrated with a quoted title ('a title text that says \"CHROMA1-HD\" in a large white 3D letters'); extent beyond that NOT FOUND",
+        "class": "official",
+        "src": "S-TPL-HD"
+      },
+      {
+        "line": "The negative prompt is a full descriptive sentence in every official graph and it works (full-CFG model) - describe the failure mode, not a tag list",
+        "class": "official",
+        "src": [
+          "S-TPL-HD",
+          "S-HF-HD-WORKFLOW"
+        ]
+      },
+      {
+        "line": "Trained on artistic, photographic, anime/furry and niche styles, 'fully uncensored, reintroducing missing anatomical concepts' - style words are followed literally",
+        "class": "official",
+        "src": [
+          "S-HF-HD",
+          "S-HF-LEGACY"
+        ]
+      }
+    ],
+    "structure": "one descriptive paragraph: shot type -> subject -> detail -> text (quoted) -> photographic/style qualifiers; negative as a sentence describing what a bad result looks like",
+    "hurts": [
+      {
+        "line": "tag-soup prompts (T5 captions are sentence-based)",
+        "src": "S-NOMADOOR"
+      },
+      {
+        "line": "very high cfg with shift 1 (community upper range 6-7)",
+        "src": "S-NOMADOOR"
+      },
+      {
+        "line": "Flash with cfg above ~1.5 or many steps",
+        "src": "S-FLASH-GUIDES"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "garbled or weak prompt following, load error on clip_l",
+      "cause": "loaded like Flux (DualCLIPLoader with clip_l)",
+      "fix": "CLIPLoader type 'chroma' with a T5-XXL file only",
+      "src": [
+        "S-NODES",
+        "S-NOMADOOR"
+      ]
+    },
+    {
+      "symptom": "less detail than the template",
+      "cause": "ModelSamplingAuraFlow at its 1.73 default",
+      "fix": "shift 1.0; raise toward 3 only for complex compositions",
+      "src": [
+        "S-TPL-HD",
+        "S-TPL-RAD"
+      ]
+    },
+    {
+      "symptom": "missing-node / wrong model errors from an old guide",
+      "cause": "deprecated lodestones/Chroma v-checkpoints or the old ComfyUI_FluxMod custom node",
+      "fix": "Chroma1-HD/Base/Flash + core nodes (native since CLIPType.CHROMA)",
+      "src": "S-HF-LEGACY"
+    },
+    {
+      "symptom": "'squiggles' in fine detail (Radiance)",
+      "cause": "the model is WIP and upstream changes hourly",
+      "fix": "pin the Comfy-Org chroma-radiance-x0 snapshot; enable force_sequential_txt_ids only for 2026-05-22..06-01 checkpoints lacking __sequential__",
+      "src": [
+        "S-HF-RAD",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "Radiance slow / OOM",
+      "cause": "nerf_tile_size",
+      "fix": "raise nerf_tile_size until OOM for speed; 0 disables tiling and 'may require a lot of VRAM'",
+      "src": [
+        "S-TPL-RAD",
+        "S-NODES"
+      ]
+    },
+    {
+      "symptom": "Flash looks like a slow HD run",
+      "cause": "cfg 3.5 / 26 steps on the CFG-baked checkpoint",
+      "fix": "heun/beta, 8 steps, cfg 1 (community)",
+      "src": "S-FLASH-GUIDES"
+    },
+    {
+      "symptom": "fp8 file from lodestones' workflow not found",
+      "cause": "Chroma1-HD-fp8_scaled_rev2 moved under do_not_use/ in the silveroxides repo",
+      "fix": "Comfy-Org Chroma1-HD-fp8mixed.safetensors",
+      "src": [
+        "S-HF-HD-WORKFLOW",
+        "S-GGUF"
+      ]
+    },
+    {
+      "symptom": "T5 padding question",
+      "cause": "'min_padding 1 is the official way' vs template 0",
+      "fix": "0 works; 'might vary depending on t5 variant' - try 1 if a FLAN/other T5 variant misbehaves",
+      "src": [
+        "S-TPL-HD",
+        "S-HF-HD-WORKFLOW"
+      ]
+    },
+    {
+      "symptom": "wanting ControlNet / inpaint / IP-Adapter on Chroma",
+      "cause": "none exist",
+      "fix": "another family (qwen-image, flux-1) for those stages; Chroma for the T2I pass",
+      "src": "S-HF-HD"
+    },
+    {
+      "symptom": "unsafe output",
+      "cause": "model is unaligned/uncensored by design",
+      "fix": "add your own safeguards ('Users are responsible for their own use of this model')",
+      "src": "S-HF-HD"
+    }
+  ],
+  "sources": {
+    "S-HF-HD": {
+      "url": "https://huggingface.co/lodestones/Chroma1-HD (raw README, API, tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-HD-WORKFLOW": {
+      "url": "https://huggingface.co/lodestones/Chroma1-HD/resolve/main/ComfyUI_Chroma1-HD_T2I-workflow.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-BASE": {
+      "url": "https://huggingface.co/lodestones/Chroma1-Base",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-FLASH": {
+      "url": "https://huggingface.co/lodestones/Chroma1-Flash (README is only the license header; tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-RAD": {
+      "url": "https://huggingface.co/lodestones/Chroma1-Radiance",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-LEGACY": {
+      "url": "https://huggingface.co/lodestones/Chroma (deprecated v11..v50 repo README)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFY-TREE": {
+      "url": "https://huggingface.co/Comfy-Org/Chroma1-HD_repackaged (README + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-RAD-TREE": {
+      "url": "https://huggingface.co/Comfy-Org/Chroma1-Radiance_Repackaged (README + tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-T5": {
+      "url": "https://huggingface.co/comfyanonymous/flux_text_encoders (tree API)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-HD": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_chroma_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-RAD": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_chroma1_radiance_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI tag v0.38.1: comfy_extras/nodes_chroma_radiance.py, nodes_cond.py (T5TokenizerOptions), nodes_custom_sampler.py, nodes_model_advanced.py, comfy/supported_models.py, comfy/latent_formats.py, comfy/sd.py (CLIPType.CHROMA)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "KB/node_schemas_v0.35.0.json (native node registry of the pinned image, ComfyUI v0.35.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-NODES": {
+      "url": "https://docs.comfy.org/built-in-nodes/ChromaRadianceOptions.md and EmptyChromaRadianceLatentImage.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES": {
+      "url": "https://comfyanonymous.github.io/ComfyUI_examples/chroma/",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GGUF": {
+      "url": "https://huggingface.co/silveroxides/Chroma1-HD-GGUF , https://huggingface.co/silveroxides/Chroma1-HD-fp8-scaled , https://huggingface.co/Clybius/Chroma-fp8-scaled (tree API)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-NOMADOOR": {
+      "url": "https://comfyui.nomadoor.net/en/basic-workflows/chroma1-hd/",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-FLASH-GUIDES": {
+      "url": "https://localaimaster.com/blog/chroma-local-guide and https://github.com/maybleMyers/chromaforge/blob/main/levzzz_chroma_guide.md",
+      "accessed": "2026-10-01",
+      "class": "community"
+    }
+  }
+}

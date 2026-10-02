@@ -1,0 +1,2207 @@
+{
+  "schema": 2,
+  "id": "flux-2",
+  "name": "FLUX.2",
+  "publisher": "Black Forest Labs (BFL); Comfy-Org repackages; fp8 dev weights by NVIDIA; Turbo LoRA by fal (ComfyUI conversion by ByteZSzn)",
+  "release": {
+    "dev": "2025-11-25",
+    "klein 4B / 4B Base / 9B / 9B Base (+ fp8, nvfp4)": "2026-01-15",
+    "klein 9B KV": "2026-03-09",
+    "Small Decoder": "2026-04-06",
+    "src": [
+      "S-HF-BFL2",
+      "S-BFL-BLOG-FLUX2",
+      "S-BFL-BLOG-KLEIN",
+      "S-NEWS"
+    ]
+  },
+  "license": {
+    "name": "FLUX [dev] Non-Commercial License v2.0 (dev); FLUX Non-Commercial License v2.1 (klein 9B, 9B Base, 9B KV); Apache-2.0 (klein 4B, 4B Base, Small Decoder)",
+    "commercial": false,
+    "per_variant": {
+      "flux2-dev / fp8mixed / nvfp4 / Turbo LoRAs": "FLUX [dev] Non-Commercial License v2.0 — model use only for a 'Non-Commercial Purpose'; OUTPUTS usable 'for any purpose (including for commercial purposes)' but not to train a competing model; 'Filters or manual review must be used'; commercial self-hosting licence via bfl.ai",
+      "klein 9B / 9B Base / 9B KV (+ fp8, nvfp4)": "FLUX Non-Commercial License v2.1, gated repos",
+      "klein 4B / 4B Base (+ fp8, nvfp4), Small Decoder": "Apache-2.0 — 'Open weights available for commercial use'; BFL 'encourage[s]' (does not require) content mitigations"
+    },
+    "notes": "Comfy-Org/flux2-dev's README metadata says flux-1-dev-non-commercial-license (a copy); the files are FLUX.2 [dev] derivatives, so the FLUX [dev] NC v2.0 governs. Cost axis: free (open weights).",
+    "src": [
+      "S-BFL2-LICENSE",
+      "S-HF-BFL2",
+      "S-HF-KLEIN-CARDS",
+      "S-HF-COMFYORG2"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i",
+    "edit"
+  ],
+  "cannot": [
+    {
+      "what": "negative prompts / real CFG on dev (guidance-distilled; BasicGuider + FluxGuidance only); klein base is the one FLUX.2 that takes a real negative",
+      "src": [
+        "S-BFL-PROMPT",
+        "S-TPL-K4-T2I"
+      ]
+    },
+    {
+      "what": "inpaint/outpaint with a Fill model, Depth/Canny/Redux tools: none exist for FLUX.2 (editing and references are built into dev and klein); outpainting is a pad + green-mask edit that needs nodes absent from v0.35.0",
+      "src": [
+        "S-BFL-BLOG-FLUX2",
+        "S-TPL-K9-EXTEND"
+      ]
+    },
+    {
+      "what": "commercial self-hosting of dev or klein 9B without a BFL licence (outputs are usable commercially); klein 4B is the Apache-2.0 route",
+      "src": "S-BFL2-LICENSE"
+    },
+    {
+      "what": "guaranteed text: 'While the model can output text, text rendered may be inaccurate or subject to distortion'",
+      "src": "S-HF-DEV-CARD"
+    },
+    {
+      "what": "more than 4 references on klein ('supports up to 4 references'); dev 'up to 10'",
+      "src": "S-BFL-PROMPT"
+    },
+    {
+      "what": "the 64 GB bf16 dev on anything below an 80 GB-class GPU without offload",
+      "src": "S-BFL2-GH"
+    },
+    {
+      "what": "FLUX.2 all-in-one checkpoints via CheckpointLoaderSimple ('clip input is invalid: None')",
+      "src": "S-GH-ISSUES"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "v0.38.0 source (comfy_extras/nodes_flux.py: EmptyFlux2LatentImage, Flux2Scheduler, FluxKVCache; nodes_edit_model.py: ReferenceLatent)",
+    "nodes_verified_against_registry": "v0.35.0 — all 20 recipes passed the offline structural check (verify_recipes.py) on 2026-10-02; FluxKVCache, EmptyFlux2LatentImage, Flux2Scheduler, CLIPLoader type flux2 all present",
+    "note": "FLUX.2 dev support v0.3.72 (2025-11-25), klein v0.9.2 (2026-01-15), FluxKVCache v0.17.0, small decoder v0.19.0, KV batch-split fix v0.25.0 — all on the image. DrawMaskOnImage / ColorMatch (klein outpainting template) are NOT in the v0.35.0 registry."
+  },
+  "files": [
+    {
+      "name": "flux2_dev_fp8mixed.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 35455599592,
+      "size_gb": 35.456,
+      "precision": "fp8 mixed (NVIDIA)",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/diffusion_models/flux2_dev_fp8mixed.safetensors",
+      "vram": {
+        "fits_gb": 24,
+        "evidence": "ComfyUI: FP8 'reducing the VRAM requirements by 50% down to 15GB' (with offload to system RAM); community: 24 GB card with offload, 64-96 GB RAM",
+        "class": "official + community",
+        "src": [
+          "S-COMFY-X",
+          "S-SDTUTORIALS"
+        ]
+      },
+      "quality": "default in all three Comfy-Org dev templates; 'reduces requirements by 40%'",
+      "license": "FLUX [dev] Non-Commercial License v2.0",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux2-dev.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 64.447,
+      "precision": "bf16",
+      "variant": "dev",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-dev/resolve/main/flux2-dev.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 80,
+        "evidence": "BFL diffusers doc: 80 GB+ with enable_model_cpu_offload",
+        "class": "official",
+        "src": "S-BFL2-GH"
+      },
+      "quality": "full model (gated); 'Even an H100 can't hold the text-encoder, transformer and VAE at the same time' without offload; 80 GB+ class GPU or 4-bit on 24-32 GB",
+      "license": "FLUX [dev] Non-Commercial License v2.0",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux2-dev-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 21035602376,
+      "size_gb": 21.036,
+      "precision": "NVFP4",
+      "variant": "dev",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4/resolve/main/flux2-dev-nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "FLUX [dev] Non-Commercial License v2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux2-dev-nvfp4-mixed.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 22772036568,
+      "size_gb": 22.772,
+      "precision": "NVFP4 mixed ('small set of weights in BF16')",
+      "variant": "dev",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4/resolve/main/flux2-dev-nvfp4-mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "FLUX [dev] Non-Commercial License v2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-4b.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 7751105712,
+      "size_gb": 7.751,
+      "precision": "bf16",
+      "variant": "klein-4b-distilled",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/diffusion_models/flux-2-klein-4b.safetensors",
+      "vram": {
+        "fits_gb": 13,
+        "evidence": "BFL: '~13GB VRAM ... RTX 3090/4070 and above' (bf16 pipeline); docs.comfy.org fp8: 8.4 GB distilled / 9.2 GB base",
+        "class": "official",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-DOCS-KLEIN"
+        ]
+      },
+      "quality": "4-step distilled; byte-identical to BFL (sha ec3d4e73...); templates link Comfy-Org/flux2-klein which redirects here",
+      "license": "Apache-2.0",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-base-4b.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 7751105712,
+      "size_gb": 7.751,
+      "precision": "bf16",
+      "variant": "klein-4b-base",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/diffusion_models/flux-2-klein-base-4b.safetensors",
+      "vram": {
+        "fits_gb": 13,
+        "evidence": "BFL: '~13GB VRAM ... RTX 3090/4070 and above' (bf16 pipeline); docs.comfy.org fp8: 8.4 GB distilled / 9.2 GB base",
+        "class": "official",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-DOCS-KLEIN"
+        ]
+      },
+      "quality": "undistilled ('Trained without step or guidance distillation'); 4B T2I template default",
+      "license": "Apache-2.0",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-4b-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4070624520,
+      "size_gb": 4.071,
+      "precision": "fp8 (official)",
+      "variant": "klein-4b-distilled",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8/resolve/main/flux-2-klein-4b-fp8.safetensors",
+      "vram": {
+        "fits_gb": 13,
+        "evidence": "BFL: '~13GB VRAM ... RTX 3090/4070 and above' (bf16 pipeline); docs.comfy.org fp8: 8.4 GB distilled / 9.2 GB base",
+        "class": "official",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-DOCS-KLEIN"
+        ]
+      },
+      "quality": "template default for the 4B distilled edit; docs.comfy.org: ~1.2 s / 8.4 GB on a 5090",
+      "license": "Apache-2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-base-4b-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4089498488,
+      "size_gb": 4.089,
+      "precision": "fp8",
+      "variant": "klein-4b-base",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8/resolve/main/flux-2-klein-base-4b-fp8.safetensors",
+      "vram": {
+        "fits_gb": 13,
+        "evidence": "BFL: '~13GB VRAM ... RTX 3090/4070 and above' (bf16 pipeline); docs.comfy.org fp8: 8.4 GB distilled / 9.2 GB base",
+        "class": "official",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-DOCS-KLEIN"
+        ]
+      },
+      "quality": "template default for the 4B base edit; docs.comfy.org: ~17 s / 9.2 GB on a 5090",
+      "license": "Apache-2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-4b-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 2460413488,
+      "size_gb": 2.46,
+      "precision": "NVFP4",
+      "variant": "klein-4b-distilled",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-nvfp4/resolve/main/flux-2-klein-4b-nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "Apache-2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-base-4b-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 2487544776,
+      "size_gb": 2.488,
+      "precision": "NVFP4",
+      "variant": "klein-4b-base",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-nvfp4/resolve/main/flux-2-klein-base-4b-nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "Apache-2.0",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux-2-klein-9b.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 18.157,
+      "precision": "bf16",
+      "variant": "klein-9b-distilled",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9B/resolve/main/flux-2-klein-9b.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "gated; Comfy-Org hosts no 9B diffusion model ('Please visit BFL's repo, accept the agreement in the repo, and then download')",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-base-9b.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 18.157,
+      "precision": "bf16",
+      "variant": "klein-9b-base",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/resolve/main/flux-2-klein-base-9b.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "gated; used by the klein 9B outpainting template (needs DrawMaskOnImage/ColorMatch, not on v0.35.0)",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-9b-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 9.433,
+      "precision": "fp8",
+      "variant": "klein-9b-distilled",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "template default (9B distilled edit); gated",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-base-9b-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 9.567,
+      "precision": "fp8",
+      "variant": "klein-9b-base",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9b-fp8/resolve/main/flux-2-klein-base-9b-fp8.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "template default (9B base edit, 9B T2I); gated",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-9b-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 5.761,
+      "precision": "NVFP4",
+      "variant": "klein-9b-distilled",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-nvfp4/resolve/main/flux-2-klein-9b-nvfp4.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-base-9b-nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 5.809,
+      "precision": "NVFP4",
+      "variant": "klein-9b-base",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9b-nvfp4/resolve/main/flux-2-klein-base-9b-nvfp4.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-9b-kv.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": null,
+      "size_gb": 18.157,
+      "precision": "bf16",
+      "variant": "klein-9b-kv",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv/resolve/main/flux-2-klein-9b-kv.safetensors",
+      "bytes_note": "exact byte count not in the dossier; size_gb = HF API bytes/1e9",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "'optimized for fast image editing. It uses KV caching to avoid redundantly recomputing attention over reference image tokens'; needs FluxKVCache (ComfyUI >= 0.17.0)",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2"
+    },
+    {
+      "name": "flux-2-klein-9b-kv-fp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 9818935984,
+      "size_gb": 9.819,
+      "precision": "fp8",
+      "variant": "klein-9b-kv",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv-fp8/resolve/main/flux-2-klein-9b-kv-fp8.safetensors",
+      "vram": {
+        "fits_gb": 29,
+        "evidence": "BFL: '~29GB VRAM ... RTX 4090 and above' for bf16; fp8 'up to 40% less VRAM' (community: 16 GB with fp8 files, direction only)",
+        "class": "official + community",
+        "src": [
+          "S-HF-KLEIN-CARDS",
+          "S-BFL-BLOG-KLEIN",
+          "S-VRAM-TABLES"
+        ]
+      },
+      "quality": "KV template default (9.14 GB in the template note); needs FluxKVCache",
+      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
+      "src": "S-HF-BFL2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "mistral_3_small_flux2_bf16.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 35584897447,
+      "size_gb": 35.585,
+      "precision": "bf16",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/text_encoders/mistral_3_small_flux2_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Mistral-Small-3.2-24B-Instruct-2506 as FLUX.2 [dev]'s text encoder; default in image_flux2 and image_flux2_text_to_image; renamed from mistral_3_small_flux2.safetensors",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "mistral_3_small_flux2_fp8.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 18034640095,
+      "size_gb": 18.035,
+      "precision": "fp8",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/text_encoders/mistral_3_small_flux2_fp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "default in image_flux2_fp8 and the ComfyUI_examples flux2 page; the OOM fix for the bf16 encoder",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "mistral_3_small_flux2_fp4_mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 12275678071,
+      "size_gb": 12.276,
+      "precision": "fp4 mixed",
+      "variant": "dev",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/text_encoders/mistral_3_small_flux2_fp4_mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "listed in the Comfy-Org README; no template uses it",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_4b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 8044982048,
+      "size_gb": 8.045,
+      "precision": "bf16",
+      "variant": "klein-4b",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen3-4B embedder for all klein 4B templates; same file as Z-Image Turbo's (Comfy-Org/z_image_turbo URL in the edit templates)",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_4b_fp4_flux2.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 3848213998,
+      "size_gb": 3.848,
+      "precision": "fp4",
+      "variant": "klein-4b",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/text_encoders/qwen_3_4b_fp4_flux2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "small-card encoder for klein 4B; no template uses it",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_8b.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 16381517176,
+      "size_gb": 16.382,
+      "precision": "bf16",
+      "variant": "klein-9b",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'8B Qwen3 text embedder' for klein 9B; used by the 9B outpainting template",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_8b_fp8mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 8664848742,
+      "size_gb": 8.665,
+      "precision": "fp8 mixed",
+      "variant": "klein-9b",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "all 9B templates (8.07 GB in the notes); templates link Comfy-Org/flux2-klein-9B which redirects here",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "qwen_3_8b_fp4mixed.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 6802593327,
+      "size_gb": 6.803,
+      "precision": "fp4 mixed",
+      "variant": "klein-9b",
+      "url": "https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b_fp4mixed.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "small-card encoder for klein 9B",
+      "src": "S-HF-COMFYORG2",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "flux2-vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 336213556,
+      "size_gb": 0.336,
+      "precision": "fp32",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the FLUX.2 VAE (128-channel latent at 1/16); sha d64f3a68... The klein repos' split_files/vae/flux2-vae.safetensors is a different build (336,211,292 bytes, sha 868fe7b3...) — both load as the FLUX.2 VAE; prefer the one the template links. NOT the FLUX.1 ae.safetensors (16-channel).",
+      "src": "S-HF-COMFYORG2"
+    },
+    {
+      "name": "full_encoder_small_decoder.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 249519092,
+      "size_gb": 0.25,
+      "precision": "fp32 encoder + distilled decoder",
+      "variant": "shared",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-small-decoder/resolve/main/full_encoder_small_decoder.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "FLUX.2 Small Decoder (Apache-2.0): 'drop-in replacement for the standard FLUX.2 decoder', '~1.4x faster decoding', '~1.4x less VRAM at decode time', '~28M decoder parameters (vs ~50M)'; needs ComfyUI >= 0.19.0; default in the newest templates",
+      "license": "Apache-2.0",
+      "src": "S-HF-SMALL-DECODER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "small_decoder.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 111801980,
+      "size_gb": 0.112,
+      "precision": "decoder only",
+      "variant": "shared",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-small-decoder/resolve/main/small_decoder.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "decoder-only file: cannot VAEEncode references; use full_encoder_small_decoder for edit graphs",
+      "license": "Apache-2.0",
+      "src": "S-HF-SMALL-DECODER",
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Flux_2-Turbo-LoRA_comfyui.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 2760814880,
+      "size_gb": 2.761,
+      "precision": "LoRA (ComfyUI conversion)",
+      "variant": "dev-turbo",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/loras/Flux_2-Turbo-LoRA_comfyui.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fal FLUX.2-dev-Turbo: 'high-quality image generation in just 8 inference steps'; identical sha at ByteZSzn/Flux.2-Turbo-ComfyUI (the templates' URL) and fal/FLUX.2-dev-Turbo/comfy/; fal's raw flux.2-turbo-lora.safetensors is 'not suitable for ComfyUI'",
+      "license": "FLUX [dev] Non-Commercial (inherited from dev)",
+      "src": [
+        "S-HF-COMFYORG2",
+        "S-FAL-TURBO",
+        "S-BYTEZSZN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "Flux2TurboComfyv2.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 2760814872,
+      "size_gb": 2.761,
+      "precision": "LoRA v2 (ComfyUI conversion)",
+      "variant": "dev-turbo",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/loras/Flux2TurboComfyv2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official ComfyUI VRAM table for FLUX.2)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Turbo LoRA v2; used by image_flux2_fp8",
+      "license": "FLUX [dev] Non-Commercial (inherited from dev)",
+      "src": [
+        "S-HF-COMFYORG2",
+        "S-BYTEZSZN"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "GGUF FLUX.2 [dev]: unsloth/FLUX.2-dev-GGUF (Q2_K 12.9 GB ... Q4_K_M 20.0 ... Q8_0 35.0 GB) and city96/FLUX.2-dev-gguf (same ladder; 'Q5_K_M, Q4_K_M, Q3_K_M, Q3_K_S and Q2_K have some extra logic as to which blocks to keep in high precision'); pair with the Mistral TE ('Safetensors or GGUF') and the flux2 VAE",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "folder": "diffusion_models (or unet)",
+      "node": "UnetLoaderGGUF",
+      "class": "community",
+      "src": [
+        "S-GGUF-REPOS2",
+        "S-GGUF-NODE"
+      ]
+    },
+    {
+      "what": "GGUF klein: unsloth/FLUX.2-klein-9B-GGUF (Q4_K_M 5.9 GB, Q8_0 10.0 GB; 354k downloads), unsloth/FLUX.2-klein-4B-GGUF (Q8_0 4.3 GB), -base- variants, QuantStack/FLUX.2-Klein-9B-KV-GGUF (single-source)",
+      "needs_pack": "city96/ComfyUI-GGUF",
+      "node": "UnetLoaderGGUF",
+      "class": "community",
+      "src": "S-GGUF-REPOS2"
+    },
+    {
+      "what": "silveroxides/FLUX.2-dev-fp8_scaled (32.2 GB) and flux2-dev-turbo-fp8mixed (Turbo baked in)",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": "S-SILVEROXIDES"
+    },
+    {
+      "what": "ControlNet for FLUX.2: alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union — existence only, no Comfy-Org template, not verified",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": "S-SILVEROXIDES"
+    },
+    {
+      "what": "Outpainting without a Fill model: the klein 9B 'Image Outpainting' template pads with ImagePadForOutpaint, paints the pad green with DrawMaskOnImage, edits with 'remove the green part' and ColorMatches the result — DrawMaskOnImage and ColorMatch are not in the v0.35.0 registry",
+      "needs_pack": "newer ComfyUI (template minComfyUIVersion 0.9.0; nodes absent from v0.35.0) or a custom pack",
+      "class": "official",
+      "src": "S-TPL-K9-EXTEND"
+    }
+  ],
+  "selection": [
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "recipe": "t2i-dev",
+      "why": "the quality route: 32B dev, 'up to 4MP', 'professional-class text rendering', 'hex-code accurate brand colors'; fp8 transformer 35 GB + bf16 encoder 36 GB on disk, offloaded to system RAM; swap the encoder to fp8 (18 GB) on 24 GB cards",
+      "src": [
+        "S-BFL-BLOG-FLUX2",
+        "S-COMFY-X",
+        "S-TPL-F2-T2I"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "t2i-dev-turbo",
+      "tradeoff": "8 steps instead of 20 with the fal Turbo LoRA (ComfyUI conversion); non-commercial",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-FAL-TURBO"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 16,
+      "recipe": "t2i-klein-9b-base",
+      "why": "undistilled 9B with real CFG and a negative prompt; fp8 9.6 GB + Qwen3-8B fp8 8.7 GB; gated, non-commercial",
+      "src": [
+        "S-TPL-K9-T2I",
+        "S-HF-KLEIN-CARDS"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 16,
+      "speed": "fast",
+      "recipe": "t2i-klein-9b-distilled",
+      "tradeoff": "4 steps, cfg 1, no negative; derived from the 9B template + the 4B distilled subgraph",
+      "src": [
+        "S-TPL-K9-T2I",
+        "S-TPL-K4-T2I"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 12,
+      "recipe": "t2i-klein-4b-base",
+      "why": "Apache-2.0 (commercial self-hosting allowed), ~13 GB bf16 pipeline, real CFG + negative, 'Higher output diversity'; the T2I template's active graph",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-HF-KLEIN-CARDS",
+        "S-BFL-BLOG-KLEIN"
+      ]
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 8,
+      "speed": "fast",
+      "recipe": "t2i-klein-4b-distilled",
+      "why": "Apache-2.0, 4 steps, 'under a second'; 8.4 GB on a 5090 with the fp8 file; community: 'fits on 8GB cards'",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-DOCS-KLEIN",
+        "S-VRAM-TABLES"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "recipe": "edit-dev",
+      "why": "the quality edit: 32B dev, single reference, 'improved editing precision'",
+      "src": [
+        "S-TPL-F2-EDIT",
+        "S-BFL-BLOG-FLUX2"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "edit-dev-turbo",
+      "tradeoff": "8 steps with the Turbo LoRA",
+      "src": "S-TPL-F2-EDIT"
+    },
+    {
+      "task": "edit",
+      "references": "2-10",
+      "vram_gb_min": 24,
+      "recipe": "edit-dev-multi",
+      "why": "'reliable multi-reference consistency (up to 10 images)'; one chained ReferenceLatent per image; fp8 encoder",
+      "src": [
+        "S-TPL-F2-FP8",
+        "S-BFL-BLOG-FLUX2"
+      ]
+    },
+    {
+      "task": "edit",
+      "references": "2-10",
+      "vram_gb_min": 24,
+      "speed": "fast",
+      "recipe": "edit-dev-multi-turbo",
+      "tradeoff": "8 steps with the Turbo LoRA v2",
+      "src": "S-TPL-F2-FP8"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 16,
+      "recipe": "edit-klein-9b-base",
+      "why": "undistilled 9B edit with CFG 5 and a negative; gated, non-commercial",
+      "src": "S-TPL-K9B-EDIT"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 16,
+      "speed": "fast",
+      "recipe": "edit-klein-9b-distilled",
+      "tradeoff": "4 steps, cfg 1",
+      "src": "S-TPL-K9D-EDIT"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 16,
+      "speed": "fast",
+      "references": "1-4",
+      "recipe": "edit-klein-9b-kv",
+      "why": "KV-cached editing: 1.4x faster at one reference, 2.2x at four, same 4-step quality class; FluxKVCache exists on v0.35.0",
+      "src": [
+        "S-TPL-K9-KV",
+        "S-BFL2-GH"
+      ]
+    },
+    {
+      "task": "edit",
+      "references": "2-4",
+      "vram_gb_min": 16,
+      "recipe": "edit-klein-9b-kv-multi",
+      "why": "the KV template as shipped (two references)",
+      "src": "S-TPL-K9-KV"
+    },
+    {
+      "task": "edit",
+      "references": "2-4",
+      "vram_gb_min": 16,
+      "recipe": "edit-klein-9b-base-multi",
+      "why": "two references on the undistilled 9B",
+      "src": "S-TPL-K9B-EDIT"
+    },
+    {
+      "task": "edit",
+      "references": "2-4",
+      "vram_gb_min": 16,
+      "speed": "fast",
+      "recipe": "edit-klein-9b-distilled-multi",
+      "why": "two references, 4 steps",
+      "src": "S-TPL-K9D-EDIT"
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 12,
+      "recipe": "edit-klein-4b-base",
+      "why": "Apache-2.0 edit with CFG + negative; 9.2 GB on a 5090 with the fp8 file",
+      "src": [
+        "S-TPL-K4B-EDIT",
+        "S-DOCS-KLEIN"
+      ]
+    },
+    {
+      "task": "edit",
+      "vram_gb_min": 8,
+      "speed": "fast",
+      "recipe": "edit-klein-4b-distilled",
+      "why": "Apache-2.0, 4 steps, 'interactive applications, real-time previews'",
+      "src": [
+        "S-TPL-K4D-EDIT",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "task": "edit",
+      "references": "2-4",
+      "vram_gb_min": 12,
+      "recipe": "edit-klein-4b-base-multi",
+      "why": "two references on the Apache-2.0 base",
+      "src": "S-TPL-K4B-EDIT"
+    },
+    {
+      "task": "edit",
+      "references": "2-4",
+      "vram_gb_min": 8,
+      "speed": "fast",
+      "recipe": "edit-klein-4b-distilled-multi",
+      "why": "two references, 4 steps, Apache-2.0",
+      "src": "S-TPL-K4D-EDIT"
+    },
+    {
+      "task": "outpaint",
+      "recipe": null,
+      "status": "pending: the klein 9B outpainting template (templates_doc_workbox_klein_9b_image_extend) needs DrawMaskOnImage and ColorMatch, which are not in the v0.35.0 registry (template minComfyUIVersion 0.9.0 but these nodes are newer); FLUX.2 has no Fill model",
+      "src": [
+        "S-TPL-K9-EXTEND",
+        "S-SRC2"
+      ]
+    },
+    {
+      "task": "inpaint",
+      "recipe": null,
+      "status": "NOT FOUND: no FLUX.2 Fill/inpaint model or template; masked edits are done as reference edits by prompt",
+      "src": "S-BFL-BLOG-FLUX2"
+    },
+    {
+      "task": "control",
+      "recipe": null,
+      "status": "NOT FOUND: no BFL FLUX.2 Depth/Canny/ControlNet; community alibaba-pai Fun-Controlnet-Union unverified",
+      "src": "S-SILVEROXIDES"
+    },
+    {
+      "task": "t2i",
+      "vram_gb_min": 8,
+      "recipe": null,
+      "status": "pending: GGUF routes (unsloth/city96 dev, klein) need the city96/ComfyUI-GGUF pack — Phase 2 install",
+      "src": [
+        "S-GGUF-REPOS2",
+        "S-GGUF-NODE"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "Flux2Scheduler",
+      "input": "steps",
+      "meaning": "number of sigmas; also changes the schedule shift (mu depends on steps for seq_len <= 4300)",
+      "defaults": {
+        "dev": 20,
+        "dev + Turbo LoRA": 8,
+        "klein base": 20,
+        "klein distilled": 4,
+        "klein 9B KV": 4
+      },
+      "range": [
+        4,
+        50
+      ],
+      "official_reference_code": {
+        "dev": "num_inference_steps=50, '28 steps can be a good trade-off'",
+        "klein distilled": 4,
+        "klein base": 50,
+        "Turbo LoRA": 8
+      },
+      "interactions": "distilled klein above 4 steps: no official guidance (NOT FOUND); community: base '16 to 24 steps' is enough",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-BFL2-GH",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "name": "guidance",
+      "node": "FluxGuidance",
+      "input": "guidance",
+      "meaning": "distilled guidance embedding — FLUX.2 [dev] only (klein templates have no FluxGuidance)",
+      "defaults": {
+        "dev": 4.0
+      },
+      "range": [
+        0.0,
+        100.0
+      ],
+      "official_reference_code": {
+        "dev": "guidance_scale=4",
+        "Turbo LoRA (fal)": 2.5
+      },
+      "interactions": "no negative prompt on dev (BasicGuider); the template keeps 4 even with the Turbo LoRA",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-BFL2-GH",
+        "S-FAL-TURBO"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "CFGGuider",
+      "input": "cfg",
+      "meaning": "real classifier-free guidance with the negative prompt — klein only",
+      "defaults": {
+        "klein base": 5.0,
+        "klein distilled / KV": 1.0
+      },
+      "range": [
+        1.0,
+        6.0
+      ],
+      "official_reference_code": {
+        "klein base": "guidance_scale=4.0",
+        "klein distilled": "guidance_scale=1.0"
+      },
+      "interactions": "cfg > 1 doubles compute; distilled models break with cfg > 1; base at cfg 1 is noisy/undercooked",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptyFlux2LatentImage|Flux2Scheduler",
+      "input": "width, height",
+      "meaning": "128-channel latent at 1/16 (step 16); Flux2Scheduler must receive the SAME values — its sigmas come from compute_empirical_mu over the image sequence length (w*h)/256; edit templates take both from GetImageSize of the 1-MP reference",
+      "defaults": {
+        "templates": "1024x1024",
+        "edit": "reference size after 1 MP scaling"
+      },
+      "range": null,
+      "official_reference_code": {
+        "BFL": "up to 4MP; aspect ratios 1:1, 16:9, 9:16, 4:3, 3:2, 21:9"
+      },
+      "interactions": "larger output -> longer schedule shift automatically; a scheduler size that disagrees with the latent gives wrong contrast / soft output",
+      "src": [
+        "S-SRC2",
+        "S-TPL-F2-EDIT",
+        "S-BFL-PROMPT",
+        "S-DOCS-NODES2"
+      ]
+    },
+    {
+      "name": "sampler",
+      "node": "KSamplerSelect",
+      "input": "sampler_name",
+      "meaning": "",
+      "defaults": {
+        "all templates": "euler"
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-F2-T2I"
+    },
+    {
+      "name": "seed",
+      "node": "RandomNoise",
+      "input": "noise_seed",
+      "meaning": "",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-F2-T2I"
+    },
+    {
+      "name": "reference images",
+      "node": "ReferenceLatent|ImageScaleToTotalPixels",
+      "input": "latent / megapixels",
+      "meaning": "one ReferenceLatent per image, chained; each image scaled to 1.0 MP (lanczos, area or nearest-exact in templates); with CFGGuider the reference goes on BOTH positive and negative",
+      "defaults": {
+        "templates": "1 or 2 references, 1.0 MP"
+      },
+      "range": null,
+      "official_reference_code": {
+        "dev": "'up to 10 images'",
+        "klein": "'FLUX.2 [klein] supports up to 4 references'"
+      },
+      "interactions": "each reference adds tokens -> VRAM ('Enhanced Flux2 reference image memory estimation' v0.3.75); KV cache speeds multi-ref (1.40x at 1 ref, 2.22x at 4)",
+      "src": [
+        "S-TPL-F2-FP8",
+        "S-TPL-K9B-EDIT",
+        "S-BFL-PROMPT",
+        "S-BFL2-GH",
+        "S-DOCS-CHANGELOG"
+      ]
+    },
+    {
+      "name": "reference method",
+      "node": "FluxKontextMultiReferenceLatentMethod|FluxKVCache",
+      "input": "reference_latents_method",
+      "meaning": "FLUX.2 default 'index' with ref_index_scale 10.0 (model_detection); FluxKVCache forces 'index_timestep_zero'; FluxKontextMultiReferenceLatentMethod can override (offset, index, uxo/uno, index_timestep_zero)",
+      "defaults": {
+        "templates": "not set (model default)"
+      },
+      "range": null,
+      "interactions": "",
+      "src": [
+        "S-SRC2",
+        "S-DOCS-NODES2"
+      ]
+    },
+    {
+      "name": "strength_model",
+      "node": "LoraLoaderModelOnly",
+      "input": "strength_model",
+      "meaning": "Turbo LoRA weight",
+      "defaults": {
+        "templates": 1.0
+      },
+      "range": [
+        0.0,
+        1.0
+      ],
+      "interactions": "steps must drop to 8 with it ('Remember to set the steps to 8')",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-TURBO-GUIDES"
+      ]
+    },
+    {
+      "name": "VAE decoder",
+      "node": "VAELoader",
+      "input": "vae_name",
+      "meaning": "flux2-vae.safetensors (full) or full_encoder_small_decoder.safetensors (full encoder + distilled decoder: '~1.4x faster decoding', '~1.4x less VRAM at decode time', 'Minimal quality loss'; ComfyUI >= 0.19.0)",
+      "defaults": {
+        "newest templates": "full_encoder_small_decoder",
+        "image_flux2_fp8, klein 4B T2I/distilled edit, KV": "flux2-vae"
+      },
+      "range": null,
+      "interactions": "never the FLUX.1 ae.safetensors (16 ch)",
+      "src": [
+        "S-HF-SMALL-DECODER",
+        "S-DOCS-CHANGELOG",
+        "S-SRC2"
+      ]
+    },
+    {
+      "name": "text encoder precision",
+      "node": "CLIPLoader",
+      "input": "clip_name, device",
+      "meaning": "dev: Mistral bf16 35.6 GB / fp8 18 GB / fp4 12.3 GB; klein 9B: Qwen3-8B 16.4 / 8.7 / 6.8 GB; klein 4B: Qwen3-4B 8.0 / 3.8 GB; device = cpu keeps the encoder off the GPU",
+      "defaults": {
+        "dev T2I + single edit": "bf16",
+        "dev multi (fp8 template)": "fp8",
+        "klein 9B": "fp8mixed",
+        "klein 4B": "bf16"
+      },
+      "range": null,
+      "interactions": "the bf16 Mistral + fp8 transformer is the classic OOM; v0.3.73/v0.4.0 fixed encoder memory accounting",
+      "src": [
+        "S-HF-COMFYORG2",
+        "S-DOCS-CHANGELOG",
+        "S-GH-ISSUES"
+      ]
+    },
+    {
+      "name": "prompt length",
+      "node": "CLIPTextEncode",
+      "input": "text",
+      "meaning": "ComfyUI pads/crops the Mistral embeddings to 512 tokens (Flux2.extra_conds target_text_len = 512); klein pads to min_length 512; (word:1.2) weighting is not applied for dev (disable_weights=True)",
+      "defaults": {},
+      "range": null,
+      "interactions": "BFL's '32K tokens' applies to the API models, not the ComfyUI dev path",
+      "src": [
+        "S-SRC2",
+        "S-BFL-PROMPT"
+      ]
+    },
+    {
+      "name": "denoise",
+      "node": "SamplerCustomAdvanced",
+      "input": "-",
+      "meaning": "not exposed: the custom-sampler pattern runs the full Flux2Scheduler schedule; edits are full re-generations conditioned by ReferenceLatent (the latent_image is always an EmptyFlux2LatentImage)",
+      "defaults": {},
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-F2-EDIT"
+    }
+  ],
+  "rules": [
+    {
+      "id": "clip-type-flux2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux(2|-2-klein)"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "flux2"
+      },
+      "message": "FLUX.2 text encoding is a single CLIPLoader with type 'flux2' (Mistral-3 for dev, Qwen3 for klein) — not DualCLIPLoader/clip_l+t5",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-SRC2"
+      ]
+    },
+    {
+      "id": "dev-encoder-is-mistral",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux2[-_]dev"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^mistral_3_small_flux2_(bf16|fp8|fp4_mixed)\\.safetensors$"
+      },
+      "message": "FLUX.2 [dev] encodes text with Mistral-Small-3.2-24B (mistral_3_small_flux2_*); a Qwen3 encoder belongs to klein",
+      "src": [
+        "S-BFL2-GH",
+        "S-HF-COMFYORG2",
+        "S-SRC2"
+      ]
+    },
+    {
+      "id": "klein-4b-encoder-is-qwen3-4b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-(base-)?4b"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen_3_4b"
+      },
+      "message": "klein 4B models use the Qwen3-4B embedder (qwen_3_4b*.safetensors)",
+      "src": [
+        "S-BFL-BLOG-KLEIN",
+        "S-TPL-K4-T2I"
+      ]
+    },
+    {
+      "id": "klein-9b-encoder-is-qwen3-8b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-(base-)?9b"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen_3_8b"
+      },
+      "message": "klein 9B models (incl. KV) use the '8B Qwen3 text embedder' (qwen_3_8b*.safetensors)",
+      "src": [
+        "S-HF-KLEIN-CARDS",
+        "S-TPL-K9-T2I"
+      ]
+    },
+    {
+      "id": "vae-is-flux2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux(2|-2-klein)"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^(flux2-vae|full_encoder_small_decoder)\\.safetensors$"
+      },
+      "message": "FLUX.2 latents are 128-channel at 1/16: decode/encode with flux2-vae.safetensors or full_encoder_small_decoder.safetensors. The FLUX.1 ae.safetensors (16-ch) gives a channel-mismatch error; small_decoder.safetensors alone cannot encode references",
+      "src": [
+        "S-SRC2",
+        "S-DOCS-MODEL-ISSUES",
+        "S-HF-SMALL-DECODER"
+      ]
+    },
+    {
+      "id": "latent-is-flux2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux(2|-2-klein)"
+      },
+      "require": {
+        "node": "EmptyFlux2LatentImage",
+        "input": "width",
+        "exists": true
+      },
+      "message": "FLUX.2 samples from EmptyFlux2LatentImage ([B,128,H/16,W/16]); EmptySD3LatentImage / EmptyLatentImage are the wrong shape",
+      "src": [
+        "S-SRC2",
+        "S-TPL-F2-T2I"
+      ]
+    },
+    {
+      "id": "latent-dims-16",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyFlux2LatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "EmptyFlux2LatentImage takes width/height in multiples of 16",
+      "src": "S-SRC2"
+    },
+    {
+      "id": "scheduler-is-flux2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux(2|-2-klein)"
+      },
+      "require": {
+        "node": "Flux2Scheduler",
+        "input": "steps",
+        "exists": true
+      },
+      "message": "every FLUX.2 template schedules with Flux2Scheduler(steps, width, height) -> SamplerCustomAdvanced, never KSampler/BasicScheduler: the shift is computed from the image sequence length",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-SRC2"
+      ]
+    },
+    {
+      "id": "scheduler-size-matches-latent",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "flux2_scheduler_size_matches_latent",
+      "args": {
+        "scheduler": "Flux2Scheduler",
+        "latent": "EmptyFlux2LatentImage",
+        "inputs": [
+          "width",
+          "height"
+        ],
+        "note": "equal literal values, or both linked to the same upstream output (GetImageSize)"
+      },
+      "message": "Flux2Scheduler.width/height must equal EmptyFlux2LatentImage.width/height (same literals or the same GetImageSize link): the sigmas depend on (width*height)/256, and a stale scheduler size after a resolution change gives wrong contrast / soft output",
+      "src": [
+        "S-SRC2",
+        "S-TPL-F2-EDIT",
+        "S-DOCS-NODES2"
+      ]
+    },
+    {
+      "id": "no-checkpoint-loader",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "matches": "flux2|klein"
+      },
+      "require": {
+        "node": "CheckpointLoaderSimple",
+        "input": "ckpt_name",
+        "equals": "__never__"
+      },
+      "message": "FLUX.2 all-in-one checkpoints fail with 'clip input is invalid: None' (Flux2.clip_target() returns None); always UNETLoader + CLIPLoader(flux2) + VAELoader — there is no Comfy-Org FLUX.2 checkpoint",
+      "src": "S-GH-ISSUES"
+    },
+    {
+      "id": "dev-uses-fluxguidance",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux2[-_]dev"
+      },
+      "require": {
+        "node": "FluxGuidance",
+        "input": "guidance",
+        "min": 2.0,
+        "max": 6.0
+      },
+      "message": "FLUX.2 [dev] is guidance-distilled: every dev template carries FluxGuidance 4 (BFL guidance_scale=4; fal Turbo 2.5) into a BasicGuider — no negative prompt",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-BFL2-GH",
+        "S-FAL-TURBO"
+      ]
+    },
+    {
+      "id": "dev-guider-is-basic",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux2[-_]dev"
+      },
+      "require": {
+        "node": "BasicGuider",
+        "input": "conditioning",
+        "linked": true
+      },
+      "message": "dev templates use BasicGuider (distilled guidance); a CFGGuider on dev must run cfg 1 — the negative prompt has no effect ('Most FLUX models do not support negative prompts')",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-BFL-PROMPT"
+      ]
+    },
+    {
+      "id": "klein-no-fluxguidance",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "FluxGuidance",
+        "input": "conditioning",
+        "linked": true
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(?!flux-2-klein)"
+      },
+      "message": "no klein template uses FluxGuidance: klein steers with CFGGuider (base: real CFG + negative; distilled: cfg 1)",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-TPL-K9B-EDIT"
+      ]
+    },
+    {
+      "id": "klein-distilled-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-(4b|9b)(-kv)?(-fp8|-nvfp4)?\\.safetensors$"
+      },
+      "require": {
+        "node": "CFGGuider",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "distilled klein (4b / 9b / 9b-kv, no 'base') runs at cfg 1 with ConditioningZeroOut as negative (BFL guidance_scale=1.0); 'distilled models break with cfg > 1'",
+      "src": [
+        "S-TPL-K4D-EDIT",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "id": "klein-distilled-steps-4",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-(4b|9b)(-kv)?(-fp8|-nvfp4)?\\.safetensors$"
+      },
+      "require": {
+        "node": "Flux2Scheduler",
+        "input": "steps",
+        "max": 4,
+        "all": true
+      },
+      "message": "distilled klein is a 4-step model (BFL num_inference_steps=4, all distilled templates 4); no official guidance exists for more steps",
+      "src": [
+        "S-HF-KLEIN-CARDS",
+        "S-TPL-K4D-EDIT"
+      ]
+    },
+    {
+      "id": "klein-base-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-base"
+      },
+      "require": {
+        "node": "CFGGuider",
+        "input": "cfg",
+        "min": 2.0,
+        "max": 6.0,
+        "all": true
+      },
+      "message": "klein base is undistilled: real CFG with a negative prompt, templates 5 / BFL 4.0; at cfg 1 and 4 steps it looks noisy/undercooked",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "id": "klein-base-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-base"
+      },
+      "require": {
+        "node": "Flux2Scheduler",
+        "input": "steps",
+        "min": 16,
+        "all": true
+      },
+      "message": "klein base templates run 20 steps (BFL 50; community '16 to 24 steps' is enough)",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "id": "turbo-lora-on-dev",
+      "severity": "error",
+      "kind": "upstream",
+      "via": "model",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "(?i)turbo"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux2[-_]dev"
+      },
+      "message": "the Turbo LoRAs are 'A distilled LoRA adapter for FLUX.2 [dev]'; not for klein",
+      "src": "S-FAL-TURBO"
+    },
+    {
+      "id": "turbo-lora-steps-8",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "(?i)turbo"
+      },
+      "require": {
+        "node": "Flux2Scheduler",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "with the Turbo LoRA set Flux2Scheduler steps to 8 ('Remember to set the steps to 8'); the template's switch does both",
+      "src": [
+        "S-TPL-F2-T2I",
+        "S-TURBO-GUIDES"
+      ]
+    },
+    {
+      "id": "turbo-lora-comfyui-conversion",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "(?i)flux.?2.?turbo"
+      },
+      "require": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "^(Flux_2-Turbo-LoRA_comfyui|Flux2TurboComfyv2)\\.safetensors$"
+      },
+      "message": "use the ComfyUI conversions (Flux_2-Turbo-LoRA_comfyui / Flux2TurboComfyv2); fal's raw flux.2-turbo-lora.safetensors 'is not suitable for ComfyUI'",
+      "src": [
+        "S-FAL-TURBO",
+        "S-BYTEZSZN",
+        "S-TURBO-GUIDES"
+      ]
+    },
+    {
+      "id": "kv-model-needs-kvcache",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^flux-2-klein-9b-kv"
+      },
+      "require": {
+        "node": "FluxKVCache",
+        "input": "model",
+        "linked": true
+      },
+      "message": "the klein 9B KV model expects the KV path: UNETLoader -> FluxKVCache -> guider (ComfyUI >= 0.17.0; batch-split crash fixed in 0.25.0)",
+      "src": [
+        "S-TPL-K9-KV",
+        "S-DOCS-CHANGELOG"
+      ]
+    },
+    {
+      "id": "reference-is-1mp",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "ReferenceLatent",
+        "input": "latent",
+        "linked": true
+      },
+      "require": {
+        "node": "ImageScaleToTotalPixels",
+        "input": "megapixels",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "every FLUX.2 template scales each reference to 1.0 megapixel before VAEEncode; larger references add tokens and VRAM",
+      "src": [
+        "S-TPL-F2-EDIT",
+        "S-TPL-F2-FP8",
+        "S-TPL-K9-KV"
+      ]
+    },
+    {
+      "id": "reference-on-both-cfg-branches",
+      "severity": "error",
+      "kind": "structural",
+      "structural": "reference_latent_on_both_branches",
+      "args": {
+        "guider": "CFGGuider",
+        "reference": "ReferenceLatent",
+        "note": "walk positive and negative upstream; each VAEEncode'd reference latent must appear on both"
+      },
+      "message": "with CFGGuider the reference latent is attached to BOTH the positive and the negative conditioning (klein templates: one ReferenceLatent per image per branch); a reference on one branch only is a wrong CFG",
+      "src": [
+        "S-TPL-K4B-EDIT",
+        "S-TPL-K9-KV"
+      ]
+    },
+    {
+      "id": "nvfp4-needs-blackwell",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "nvfp4"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "NVFP4 files need Blackwell (RTX 50 / sm120); on 40-series they fail or run slow (issue #11864) — use the fp8 files there",
+      "src": [
+        "S-GPU-GUIDES",
+        "S-BFL-BLOG-KLEIN"
+      ]
+    },
+    {
+      "id": "fp8-speedup-ada-only",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "fp8"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "equals": "__never__"
+      },
+      "message": "fp8 weights save VRAM everywhere but are faster only on Ada (RTX 40) and newer; Ampere (RTX 30) upcasts — GGUF Q8_0/Q6_K is the usual alternative. Answer: fine on an Ada/Blackwell box",
+      "src": "S-GPU-GUIDES",
+      "gpu_unless": "RTX ?40|RTX ?50|RTX PRO 6000|RTX 6000 ?Ada|RTX 5880 ?Ada|Ada|L40|\bL4\b|H100|H200|H20\b|B100|B200|GB200|Blackwell|4090|4080|5090|5080"
+    },
+    {
+      "id": "small-decoder-version",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "full_encoder_small_decoder.safetensors"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "full_encoder_small_decoder.safetensors"
+      },
+      "message": "the FLUX.2 Small Decoder VAE needs ComfyUI >= 0.19.0 ('Added support for small flux.2 decoder', 2026-04-13); the pinned 0.35.0 image has it — recipes using it carry min_comfyui 0.19.0",
+      "src": "S-DOCS-CHANGELOG"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "FLUX.2 support landed in 0.3.72 (dev), 0.9.2 (klein), 0.17.0 (FluxKVCache), 0.19.0 (small decoder); all below the pinned 0.35.0. The klein 9B outpainting template needs DrawMaskOnImage/ColorMatch which are absent from v0.35.0",
+      "src": [
+        "S-DOCS-CHANGELOG",
+        "S-TPL-INDEX",
+        "S-SRC2"
+      ]
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-K4-T2I",
+      "S-BFL-PROMPT"
+    ],
+    "negative_gloss": "dev: none (distilled, BasicGuider). klein base: a real negative is wired (CFGGuider cfg 5) but every template leaves it empty and BFL offers no guidance for it (NOT FOUND). klein distilled: ConditioningZeroOut.",
+    "positive": [
+      {
+        "line": "Structure: [SUBJECT], [LOCATION], [STYLE], [CAMERA SETTINGS], [LIGHTING], [COLORS], [EFFECT], [ADDITIONAL ELEMENTS] — 'a prompt-building aid, not a rule'; 'Start short. Add only what changes the image.'; 'Specific detail helps. Filler hurts.'; most important elements first",
+        "class": "official",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "No negations: 'no people' -> 'empty', 'deserted'; 'no text' -> 'clean surfaces', 'unmarked'; 'not dark' -> 'brightly lit'; 'not many' -> 'few', 'single'",
+        "class": "official",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "Photorealism: name camera and lens ('Shot on Hasselblad X2D, 80mm lens, f/2.8, natural lighting'); era styles ('2000s digicam aesthetic'); hex colours ('walls in hex #C4725A'); text in quotes with placement/style ('The text OPEN appears in red neon letters')",
+        "class": "official",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "Single-reference edits: 'FLUX.2 understands the context of your image and applies edits while preserving what you didn't ask to change' — 'Change it to Night'; 'Remove all of the sprinkles while keeping the rest of the image unchanged'; 'Change the cow's white fur to the color #8bc4bb'; 'Be specific about what should change and what should stay'",
+        "class": "official",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "Multi-reference: 'describe the role of each image so the model knows what to pull from where' — refer to 'image 1', 'image 2' in load order: 'A photograph of the woman in image 2 sitting on the swing in image 1 and the cat from image 3 sitting on her lap, all in the style of image 4'",
+        "class": "official",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "Template prompts follow the same pattern: 'Apply the design from Reference Image 1 onto objects in Reference Image 2.' (dev); 'Have the man in Figure 1 put on the clothes from Figure 2 ...' (klein KV); long preservation clauses for klein base ('Keep the person in the exact same position, scale, and pose. Maintain identical camera angle, framing, and perspective ...')",
+        "class": "official",
+        "src": [
+          "S-TPL-F2-FP8",
+          "S-TPL-K9-KV",
+          "S-TPL-K4B-EDIT"
+        ]
+      },
+      {
+        "line": "ComfyUI wraps the dev prompt in a Mistral system prompt ('You are an AI that reasons about image descriptions ...') and the klein prompt in a Qwen3 chat template with thinking disabled; (word:1.2) weights are not applied for dev",
+        "class": "official",
+        "src": "S-SRC2"
+      },
+      {
+        "line": "Budget in the ComfyUI dev path: 512 tokens (padded/cropped); BFL's '32K tokens' is for the API models",
+        "class": "official",
+        "src": [
+          "S-SRC2",
+          "S-BFL-PROMPT"
+        ]
+      }
+    ],
+    "structure": "subject, location, style, camera, lighting, colors, effect; for edits: what changes + what stays; for several references: the role of each image by number",
+    "hurts": [
+      {
+        "line": "negations",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "omitting roles for multiple references",
+        "src": "S-BFL-PROMPT"
+      },
+      {
+        "line": "many simultaneous edits without explicit preservation clauses",
+        "src": [
+          "S-BFL-PROMPT",
+          "S-TPL-K4B-EDIT"
+        ]
+      },
+      {
+        "line": "very long prompts in the ComfyUI dev path (512-token pad/crop)",
+        "src": "S-SRC2"
+      },
+      {
+        "line": "text to render that is not quoted; the card: 'text rendered may be inaccurate or subject to distortion'",
+        "src": [
+          "S-BFL-PROMPT",
+          "S-HF-DEV-CARD"
+        ]
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "OOM when the text encoder loads / on the first step ('torch.OutOfMemoryError: Allocation on device')",
+      "cause": "35.6 GB bf16 Mistral + 35 GB fp8 transformer; early versions mis-accounted memory",
+      "fix": "mistral_3_small_flux2_fp8 or _fp4_mixed; CLIPLoader.device = cpu; plenty of system RAM (64-96 GB reported); the 0.35.0 image is past the v0.3.73 / v0.4.0 fixes",
+      "src": [
+        "S-DOCS-CHANGELOG",
+        "S-GH-ISSUES",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "symptom": "'clip input is invalid: None' with a FLUX.2 all-in-one checkpoint",
+      "cause": "Flux2.clip_target() returns None — AIO checkpoints' text encoders are not loaded",
+      "fix": "UNETLoader + CLIPLoader(flux2) + VAELoader; there is no Comfy-Org FLUX.2 checkpoint",
+      "src": "S-GH-ISSUES"
+    },
+    {
+      "symptom": "channel-mismatch error at VAE decode / garbage output",
+      "cause": "FLUX.1 ae.safetensors (16 ch) with FLUX.2 (128 ch), or EmptySD3LatentImage instead of EmptyFlux2LatentImage",
+      "fix": "flux2-vae.safetensors / full_encoder_small_decoder.safetensors and EmptyFlux2LatentImage",
+      "src": [
+        "S-SRC2",
+        "S-DOCS-MODEL-ISSUES"
+      ]
+    },
+    {
+      "symptom": "wrong contrast / soft output after changing resolution",
+      "cause": "Flux2Scheduler width/height not updated — sigmas depend on (width*height)/256",
+      "fix": "wire the same width/height (or GetImageSize) into both EmptyFlux2LatentImage and Flux2Scheduler",
+      "src": [
+        "S-DOCS-NODES2",
+        "S-SRC2"
+      ]
+    },
+    {
+      "symptom": "klein base looks noisy/undercooked at 4 steps, or distilled looks burnt",
+      "cause": "wrong (steps, cfg) pair",
+      "fix": "base: 20 steps, CFGGuider 4-5, a negative; distilled: 4 steps, cfg 1, negative = ConditioningZeroOut",
+      "src": [
+        "S-TPL-K4-T2I",
+        "S-HF-KLEIN-CARDS",
+        "S-SDTUTORIALS"
+      ]
+    },
+    {
+      "symptom": "9B downloads 401",
+      "cause": "gated BFL repos (non-commercial licence)",
+      "fix": "accept the agreement on each black-forest-labs/FLUX.2-klein-*9b* repo; Comfy-Org hosts only the 9B encoder + VAE",
+      "src": [
+        "S-TPL-K9B-EDIT",
+        "S-DOCS-KLEIN"
+      ]
+    },
+    {
+      "symptom": "old template links Comfy-Org/flux2-klein, flux2-klein-4B, flux2-klein-9B",
+      "cause": "repos renamed to Comfy-Org/vae-text-encorder-for-flux-klein-4b / -9b",
+      "fix": "HF redirects; file names unchanged",
+      "src": "S-HF-COMFYORG2"
+    },
+    {
+      "symptom": "Turbo LoRA output poor",
+      "cause": "steps not set to 8, or fal's raw flux.2-turbo-lora.safetensors loaded",
+      "fix": "the _comfyui conversions and 8 steps",
+      "src": [
+        "S-FAL-TURBO",
+        "S-TURBO-GUIDES"
+      ]
+    },
+    {
+      "symptom": "fp8 no faster on RTX 30-series; NVFP4 fails or slow on 40-series",
+      "cause": "Ampere lacks FP8 tensor cores; NVFP4 needs Blackwell sm120",
+      "fix": "30-series: GGUF Q8_0/Q6_K; 40-series: fp8; 50-series: NVFP4 (issue #11864 for 5090 load failures)",
+      "src": "S-GPU-GUIDES"
+    },
+    {
+      "symptom": "reference image ignored or output the wrong size",
+      "cause": "reference not VAE-encoded through ReferenceLatent, or latent size not taken from the reference",
+      "fix": "scale each reference to 1 MP, VAEEncode, chain ReferenceLatent (both branches with CFGGuider), size from GetImageSize",
+      "src": [
+        "S-TPL-F2-EDIT",
+        "S-TPL-K9B-EDIT"
+      ]
+    },
+    {
+      "symptom": "KV model used without FluxKVCache / crash with split batches",
+      "cause": "the model expects the KV path; batch-split bug",
+      "fix": "FluxKVCache after UNETLoader; ComfyUI >= 0.25.0 for the batch fix (the 0.35.0 image has it)",
+      "src": [
+        "S-TPL-K9-KV",
+        "S-DOCS-CHANGELOG"
+      ]
+    },
+    {
+      "symptom": "negative prompt has no effect on dev",
+      "cause": "distilled guidance (BasicGuider)",
+      "fix": "only FluxGuidance matters; use positive phrasing",
+      "src": [
+        "S-BFL-PROMPT",
+        "S-TPL-F2-T2I"
+      ]
+    },
+    {
+      "symptom": "text rendering wrong",
+      "cause": "model limitation ('text rendered may be inaccurate or subject to distortion')",
+      "fix": "quote the exact text, specify font/placement; retry seeds",
+      "src": [
+        "S-HF-DEV-CARD",
+        "S-BFL-PROMPT"
+      ]
+    },
+    {
+      "symptom": "licence surprise",
+      "cause": "FLUX.2 [dev] and klein 9B outputs are usable commercially, but running the models for paid work needs a commercial licence plus content filters / manual review",
+      "fix": "klein 4B / 4B Base / Small Decoder (Apache-2.0) for unrestricted commercial self-hosting",
+      "src": "S-BFL2-LICENSE"
+    },
+    {
+      "symptom": "two different files both named flux2-vae.safetensors",
+      "cause": "Comfy-Org/flux2-dev (sha d64f3a68...) vs the klein repos (sha 868fe7b3...)",
+      "fix": "both are FLUX.2 VAEs; prefer the file the template links; quality difference NOT FOUND",
+      "src": "S-HF-COMFYORG2"
+    },
+    {
+      "symptom": "GGUF text encoder stays in RAM -> low-RAM OOM; klein-4B 'extremely high VRAM'",
+      "cause": "memory-estimation / offload bugs (issues #14433, #11913)",
+      "fix": "update; v0.11.0 'Flux2 Klein memory estimation adjustments'",
+      "src": "S-GH-ISSUES"
+    }
+  ],
+  "sources": {
+    "S-HF-BFL2": {
+      "url": "https://huggingface.co/api/models?author=black-forest-labs (trees/cardData for FLUX.2-dev, FLUX.2-dev-NVFP4, FLUX.2-klein-4B/-base-4B/-9B/-base-9B, the -fp8 and -nvfp4 repackages, FLUX.2-klein-9b-kv, -kv-fp8, FLUX.2-small-decoder)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFYORG2": {
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev (+ Comfy-Org/vae-text-encorder-for-flux-klein-4b and -9b, redirect targets of Comfy-Org/flux2-klein, flux2-klein-4B, flux2-klein-9B; Comfy-Org/z_image_turbo)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-KLEIN-CARDS": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B (+ -klein-base-4B, -klein-9B, -klein-base-9B, -klein-9b-kv READMEs)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-DEV-CARD": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SMALL-DECODER": {
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-small-decoder",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL2-GH": {
+      "url": "https://github.com/black-forest-labs/flux2 (README, model_cards/FLUX.2-dev.md, docs/flux2_dev_hf.md, docs/flux2_klein_kv_cache.md, docs/flux2_with_prompt_upsampling.md)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL2-LICENSE": {
+      "url": "https://github.com/black-forest-labs/flux2/tree/main/model_licenses (LICENSE-FLUX-DEV v2.0, LICENSE-FLUX-NON-COMMERICAL v2.1)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-BLOG-FLUX2": {
+      "url": "https://bfl.ai/blog/flux-2",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-BLOG-KLEIN": {
+      "url": "https://bfl.ai/blog/flux2-klein-towards-interactive-visual-intelligence",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-BFL-PROMPT": {
+      "url": "https://docs.bfl.ml/guides/ (prompting_unified_technical.md, prompting_unified_building.md, prompting_editing_single_reference.md, prompting_editing_multi_reference.md, prompting_guide_flux2)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-FLUX2-DEV": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-2-dev",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-KLEIN": {
+      "url": "https://docs.comfy.org/tutorials/flux/flux-2-klein",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-CHANGELOG": {
+      "url": "https://docs.comfy.org/changelog",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-NODES2": {
+      "url": "https://docs.comfy.org built-in node pages: Flux2Scheduler, EmptyFlux2LatentImage, FluxKVCache, ReferenceLatent, FluxKontextMultiReferenceLatentMethod",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-MODEL-ISSUES": {
+      "url": "https://docs.comfy.org/troubleshooting/model-issues",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-COMFY-BLOG-FLUX2": {
+      "url": "https://blog.comfy.org/p/flux2-state-of-the-art-visual-intelligence",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-COMFY-X": {
+      "url": "ComfyUI on X, 2025-11-25 (FLUX.2 Dev FP8 'down to 15GB'), via search result",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-EXAMPLES2": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/flux2/README.md",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SRC2": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/tree/v0.38.0 (comfy_extras/nodes_flux.py, nodes_edit_model.py, nodes.py; comfy/sd.py, text_encoders/flux.py, supported_models.py, model_base.py, latent_formats.py, model_detection.py, ldm/flux/model.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json (commit 0bfbbbfa26)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-F2-T2I": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-F2-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-F2-FP8": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_fp8.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K4-T2I": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_text_to_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K9-T2I": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_text_to_image_9b.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K4B-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_image_edit_4b_base.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K4D-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_image_edit_4b_distilled.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K9B-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_image_edit_9b_base.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K9D-EDIT": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_image_edit_9b_distilled.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K9-KV": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/image_flux2_klein_9b_kv_image_edit.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-K9-EXTEND": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/templates_doc_workbox_klein_9b_image_extend.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-PR-11890": {
+      "url": "https://github.com/Comfy-Org/ComfyUI/pull/11890 (Flux2 Klein support, merged 2026-01-15)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GGUF-NODE": {
+      "url": "https://raw.githubusercontent.com/city96/ComfyUI-GGUF/main/README.md (+ nodes.py)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-FAL-TURBO": {
+      "url": "https://huggingface.co/fal/FLUX.2-dev-Turbo",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-BYTEZSZN": {
+      "url": "https://huggingface.co/ByteZSzn/Flux.2-Turbo-ComfyUI",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-TURBO-GUIDES": {
+      "url": "kombitz.com (2026-01-01) + civitai FLUX.2-dev Turbo pages",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GGUF-REPOS2": {
+      "url": "https://huggingface.co/unsloth/FLUX.2-dev-GGUF (+ city96/FLUX.2-dev-gguf, unsloth/FLUX.2-klein-9B-GGUF, -klein-4B-GGUF, -klein-base-*-GGUF, QuantStack/FLUX.2-Klein-9B-KV-GGUF)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SDTUTORIALS": {
+      "url": "stablediffusiontutorials.com flux-2 (2025-11) and flux2-klein (2026-01) + neurocanvas + nextdiffusion",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GPU-GUIDES": {
+      "url": "comfyui-wiki GPU guide + dev.to furkangozukara (fp8 needs Ada; NVFP4 Blackwell) + runaihome NVFP4 guide + https://github.com/comfyanonymous/ComfyUI/issues/11864",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-VRAM-TABLES": {
+      "url": "localaimaster.com flux-2-local-setup-guide; willitrunai; botmonster (VRAM-by-GPU tables, direction only)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-GH-ISSUES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/issues/10891, /11061, /11913, /12032, /14433",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SILVEROXIDES": {
+      "url": "https://huggingface.co/silveroxides/FLUX.2-dev-fp8_scaled; QuantStack/FLUX.2-Klein-9B-KV-GGUF; alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union; kalle07 turbo LoRA set (existence only)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-NEWS": {
+      "url": "the-decoder / venturebeat / smol.ai 2025-11-25; testingcatalog / marktechpost 2026-01-15/16 (release-date corroboration)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

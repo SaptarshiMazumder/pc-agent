@@ -1,0 +1,325 @@
+{
+  "recipe": {
+    "id": "v2v-continue-ref2va",
+    "family": "minimax-h3",
+    "task": "v2v-continue",
+    "variant": "H3-Base Ref2VA int8, 20 steps: continues an existing clip (its first 22 frames + soundtrack anchored at frame 0 by one Add Guide)",
+    "from_template": "video_minimax_h3_multiframe_reference — its graph with a single Add Guide, wired as the template's own note prescribes for continuation ('feed the first 22 frames of an existing video plus its audio into one Add Guide at frame_idx 0 to continue both streams'); Comfy-Org ships no separate continuation graph (video_minimax_h3_i2v_continuation is a plain i2v)",
+    "min_comfyui": "0.34.0",
+    "confidence": "official",
+    "ports": {
+      "prompt": {
+        "node": "5",
+        "input": "prompt"
+      },
+      "width": {
+        "node": "5",
+        "input": "width"
+      },
+      "height": {
+        "node": "5",
+        "input": "height"
+      },
+      "length": {
+        "node": "5",
+        "input": "length"
+      },
+      "seed": {
+        "node": "8",
+        "input": "noise_seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps"
+      },
+      "sampler": {
+        "node": "6",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler"
+      },
+      "fps": {
+        "node": "13",
+        "input": "fps"
+      },
+      "source_start_s": {
+        "node": "16",
+        "input": "start_time"
+      },
+      "source_slice_s": {
+        "node": "16",
+        "input": "duration"
+      },
+      "guide_frame": {
+        "node": "30",
+        "input": "frame_idx"
+      }
+    },
+    "inputs": {
+      "source_video": {
+        "node": "15",
+        "input": "file",
+        "type": "VIDEO"
+      }
+    },
+    "outputs": {
+      "video": {
+        "node": "14",
+        "type": "VIDEO"
+      }
+    },
+    "files": [
+      "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "minimax_h3_video_vae_int8_convrot.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "864x480x124, 20 steps; the first 1.0 s of the source clip (24 frames at 24 fps, cropped by Add Guide to the 22-frame grid) and its audio are anchored at frame 0; the generated clip re-renders that second and continues it.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "class": "not-found",
+      "src": null,
+      "note": "same 20.97 GB build as the fl2va recipes; reference tokens 'ride along every sampling step' so expect more than t2v at the same canvas"
+    },
+    "notes": [
+      "length is frames at 24 fps on the 17k+5 grid: 5, 22, ..., 107 (~4.5 s), 124 (5.17 s), 141, ..., 362 (15.1 s). The template derives it from seconds as max(5, round(s*24)) + (5 - (max(5, round(s*24)) % 17)) % 17; this recipe inlines 124.",
+      "Canvas: 768 px short edge, capped at the 768x1344 pixel area, multiples of 32. Template default 0.4 MP 16:9 = 864x480 (fast preview); 0.98 MP = 1344x768 is the official 768p and holds faces/detail; never 1.0 MP (1376x768 is above the cap).",
+      "No negative prompt, no CFG: the checkpoints are CFG-distilled and the graph uses BasicGuider. Write bans as positives.",
+      "Add Guide crops an image batch DOWN to the 17k+5 clip lengths (5, 22, 39 ...), so the slice is 1.0 s (24 frames -> 22); a slice shorter than 22 frames would collapse to 5. The source must be 24 fps (an H3 output is). Audio is 'cropped to the video's remaining duration' from frame 0.",
+      "To extend clip A with this recipe: set source_start_s to A's duration minus 1.0 so the slice is A's last second, generate, then drop the first 22 frames of the result when joining A + B. Set the canvas to A's size (multiples of 32).",
+      "Guides condition, they do not seed the latent (docs: 'not video-to-video'); for restyling use a reference video on ref_videos, for partial regeneration the mask route. Optional: also connect the source clip to ref_videos.ref_video_0 (+ ref_video_audios.ref_video_audio_0) for identity/voice lock as <Video 1>/<Audio 1> at the cost of reference tokens on every step."
+    ],
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos and autogrow slots, links/types, enums, ranges, output node). Not yet run on a box.",
+      "Pattern from the official multiframe template note and docs.comfy.org; no official template wires it; not run."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "15": {
+      "class_type": "LoadVideo",
+      "inputs": {
+        "file": "@source_video"
+      }
+    },
+    "16": {
+      "class_type": "Video Slice",
+      "inputs": {
+        "video": [
+          "15",
+          0
+        ],
+        "start_time": 0.0,
+        "duration": 1.0,
+        "strict_duration": false
+      }
+    },
+    "17": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "16",
+          0
+        ]
+      }
+    },
+    "5": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "prompt": "integrated_multimodal_description: [Shot 1] Live-action, cinematic, the video continues seamlessly from its anchored opening frames: [describe the scene exactly as those frames show it: subject, clothing, setting, lighting, camera position]. [What happens next, as one continuous development.] The camera [tracks / pushes in / holds a static shot] with [small / large] amplitude at [slow / fast] speed.\n\noverall_soundscape: [The anchored soundtrack continues: ambient and physical-action sounds.]\n\nnon_diegetic_music: N/A",
+        "width": 864,
+        "height": 480,
+        "length": 124,
+        "ref_image_size": "match"
+      }
+    },
+    "30": {
+      "class_type": "MiniMaxH3AddGuide",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "latent": [
+          "5",
+          1
+        ],
+        "frame_idx": 0,
+        "vae": [
+          "3",
+          0
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "image": [
+          "17",
+          0
+        ],
+        "audio": [
+          "17",
+          1
+        ]
+      }
+    },
+    "6": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "res_multistep"
+      }
+    },
+    "7": {
+      "class_type": "BasicScheduler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 0
+      }
+    },
+    "9": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "conditioning": [
+          "30",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "9",
+          0
+        ],
+        "sampler": [
+          "6",
+          0
+        ],
+        "sigmas": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "5",
+          1
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "fps": 24,
+        "audio": [
+          "12",
+          0
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "video/MiniMax_H3/continue",
+        "format": "auto",
+        "format.codec": "auto"
+      }
+    }
+  }
+}

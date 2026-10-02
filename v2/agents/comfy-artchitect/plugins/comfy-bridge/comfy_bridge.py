@@ -61,8 +61,15 @@ from workflow_link import WorkflowLink
 import node_input_schema
 from workflow_reference_repository import WorkflowReferenceRepository
 from workflow_dependency_repository import WorkflowDependencyRepository
-from model_profile_catalog import ModelProfileCatalog
 from workflow_installer_exporter import WorkflowInstallerExporter
+from family_rule_validator import FamilyRuleValidator, RuleReport
+from family_structural_checks import FamilyStructuralChecks
+from graph_structural_validator import GraphStructuralValidator
+from knowledge_base_catalog import KnowledgeBaseCatalog
+from node_registry_cache import NodeRegistryCache
+
+#: The model families the agent knows, and the node catalogue it ships for the pinned ComfyUI.
+_KNOWLEDGE_BASE = Path(__file__).parent / "knowledge_base"
 
 #: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
 #: previous version of this tool was a hardcoded list of seven loaders, which made every model
@@ -446,9 +453,24 @@ class ComfyProbeTool(Tool):
                 vram_free=first.get("vram_free"),
                 vram_total=first.get("vram_total"),
             )
-            return ToolResult.text("\n".join(lines), details=data)
+            lines.append(_capture_node_registry(str(system.get("comfyui_version") or "")))
+            return ToolResult.text("\n".join(x for x in lines if x), details=data)
         except Exception as e:  # noqa: BLE001 — a tool reports, it does not crash the turn
             return ToolResult.text(f"comfy_probe failed: {type(e).__name__}: {e}", is_error=True)
+
+
+def _capture_node_registry(version: str) -> str:
+    """Keep this box's node catalogue for its version, once (NodeRegistryCache): every later design
+    is checked against it with no box up. '' when there is nothing to say."""
+    registry = NodeRegistryCache(Path(current_workspace(".") or "."), _KNOWLEDGE_BASE)
+    key = NodeRegistryCache.version_key(version)
+    if not key or registry.has_capture(key):
+        return ""
+    res = _get("/api/object_info", timeout_s=60.0)
+    if not res.ok:
+        return f"(node list not kept: {_failed(res, 'read the node catalogue')})"
+    registry.save(key, res.json() or {})
+    return f"node list of ComfyUI {key} kept: designs are checked against it while no GPU is up"
 
 
 #: What comfy_inventory says when it is called before there is a design to check against.
@@ -2482,103 +2504,40 @@ class ComfyValidateTool(Tool):
             except (OSError, ValueError):
                 pass  # do not change validation semantics if old export cleanup is unavailable
             settled = await _settle_downloads(abort, on_update, "validate")
+            # THE CATALOGUE: the box's own when there is a box, else the cached one for its
+            # version (NodeRegistryCache). A design is checkable before any GPU exists; only the
+            # model FILES need the box, and offline they are left to the box.
             res = _get("/api/object_info", timeout_s=60.0)
-            if not res.ok:
+            live = res.ok
+            if not live and not (getattr(res, "error", None) or isinstance(res, _NoInstance)):
                 return ToolResult.text(_failed(res, "validate"), is_error=True)
-            try:
-                catalogue = res.json()
-            except ValueError:
-                return ToolResult.text(
-                    "the instance's node catalogue is too large to fetch whole — validate "
-                    "per-node with comfy_node_spec instead.",
-                    is_error=True,
-                )
-
-            unknown_nodes: list[str] = []
-            missing_files: list[str] = []
-            # The same facts without the prose, for the record the install gates read.
-            raw_unknown: list[str] = []
-            raw_missing: list[str] = []
-            bad_enums: list[str] = []
-            bad_links: list[str] = []
-            # INPUTS AGAINST THE SCHEMA, for every node. "Compiles" used to mean the class exists,
-            # the links resolve and the enums are legal — and a node with the wrong KEYS passed,
-            # failed at execute time, and sent the agent into blind retries. Now the keys are
-            # checked here, with the right one named, and a deprecated class is refused outright:
-            # its successor is what goes in the graph (rule 20).
-            bad_inputs: list[str] = []
-            # A DEPRECATED NODE IN A SERVED DESIGN still runs, and it is not the agent's to swap
-            # (fixed_design_shape): rule 20 is for designs the agent builds. There it is a note.
-            served = (studio_state.fixed_shapes().get(_workflow_name(path)) or {})
-            deprecated_notes: list[str] = []
-            for nid, entry in graph.items():
-                if not isinstance(entry, dict):
-                    continue
-                cls = str(entry.get("class_type") or "")
-                spec = catalogue.get(cls)
-                if not isinstance(spec, dict):
-                    unknown_nodes.append(f"node {nid}: class '{cls}' does not exist here")
-                    raw_unknown.append(str(cls))
-                    continue
-                if node_input_schema.deprecated(spec) and (served.get(str(nid)) or {}).get("class") == cls:
-                    deprecated_notes.append(f"node {nid} ({cls})")
-                elif node_input_schema.deprecated(spec):
-                    bad_inputs.append(
-                        f"node {nid}: class '{cls}' is DEPRECATED here — comfy_node_search "
-                        f"'{cls}' names its successor; use that class"
+            gpu, vram, version = _machine_info() if live else ("", 0.0, _last_known_version())
+            registry = NodeRegistryCache(Path(current_workspace(".") or "."), _KNOWLEDGE_BASE)
+            if live:
+                try:
+                    catalogue = res.json()
+                except ValueError:
+                    return ToolResult.text(
+                        "the instance's node catalogue is too large to fetch whole — validate "
+                        "per-node with comfy_node_spec instead.",
+                        is_error=True,
                     )
-                schema = node_input_schema.NodeInputSchema(spec)
-                for problem in schema.check(entry.get("inputs") or {}, _is_api_link):
-                    bad_inputs.append(f"node {nid} ({cls}): {problem}")
-                sections = spec.get("input") or {}
-                specs = {
-                    name: s
-                    for section in ("required", "optional")
-                    for name, s in (sections.get(section) or {}).items()
-                }
-                for field, value in (entry.get("inputs") or {}).items():
-                    try:
-                        link = WorkflowLink.from_input(value, graph)
-                    except ValueError as exc:
-                        bad_links.append(f"node {nid}.{field} {exc}")
-                        continue
-                    if link is not None:
-                        continue
-                    if reference_slots.role_of(value) is not None:
-                        continue  # a reference slot — filled and checked at run time, listed below
-                    s = specs.get(field)
-                    choices = s[0] if isinstance(s, list) and s else None
-                    if not isinstance(choices, list) or not isinstance(value, str):
-                        continue
-                    if value in choices or ModelReadiness.spelled(value, choices):
-                        continue  # present — possibly spelled with the other slash; comfy_run respells it
-                    # A MISSING WEIGHT IS A SHOPPING-LIST ITEM, NOT AN INVALID VALUE. The field's
-                    # NAME says it is a weights slot; what is installed in it says nothing. On a
-                    # fresh box the VAE enum is one sentinel, `pixel_space`, so judged by its
-                    # contents `qwen_image_vae.safetensors` read as "not one of [pixel_space]",
-                    # comfy_install refused it (not on the list), and the only legal value left
-                    # was `pixel_space` — which validates, then renders a raw latent or runs out
-                    # of memory. The model diagnosed that, re-emitted the right file, and was
-                    # refused again. Same rule _hide_installed_files already applies.
-                    if ModelReadiness.is_model_input(field, choices, value):
-                        near = ModelReadiness.closest(value, choices)
-                        missing_files.append(
-                            f"{value}  (for {cls}.{field}, node {nid})"
-                            + (f" — this machine has '{near}': if that is the same model, ask the "
-                               "user in one line whether to use it before downloading anything"
-                               if near else "")
-                        )
-                        raw_missing.append(str(value))
-                    else:
-                        legal = ", ".join(str(c) for c in choices[:8])
-                        bad_enums.append(
-                            f"node {nid}.{field}: '{value}' is not one of [{legal}…]"
-                        )
+                registry.save(version, catalogue)
+                source = "this instance"
+            else:
+                catalogue, source = registry.load(version)
 
-            downloading = settled
+            # LAYER 1 — will ComfyUI accept it. A DEPRECATED NODE IN A SERVED DESIGN still runs,
+            # and it is not the agent's to swap (fixed_design_shape): there it is a note.
+            served = (studio_state.fixed_shapes().get(_workflow_name(path)) or {})
+            structure = GraphStructuralValidator(catalogue, live=live).check(graph, served)
+            # LAYER 2 — is it right for the models it runs (the knowledge base's rules).
+            rules = FamilyRuleValidator(KnowledgeBaseCatalog.shipped(), FamilyStructuralChecks()).check(
+                graph, comfyui_version=version, vram_gb=vram, gpu_name=gpu)
+
             # REFERENCE SLOTS, with their state. Not a compile error either way: an empty slot is
             # the user's move, in the References panel, and comfy_run refuses until it is made.
-            bad_enums += reference_slots.bad_roles(graph)
+            structure.bad_enums += reference_slots.bad_roles(graph)
             slot_roles = list(reference_slots.roles_in(graph))
             slots_note = ""
             if slot_roles:
@@ -2594,7 +2553,7 @@ class ComfyValidateTool(Tool):
             # one: the agent hunted "proof" for an hour and gave up, every time. Downloads stay
             # safe without it — safetensors only, real links only, every file verified.
             stack_note = ""
-            if raw_missing:
+            if structure.raw_missing:
                 reference_problems = WorkflowReferenceRepository(
                     Path(current_workspace(".") or "."), fetch=fetch,
                 ).check(graph, str(params.get("reference_workflow_url") or "").strip())
@@ -2603,69 +2562,88 @@ class ComfyValidateTool(Tool):
                         "\nnote — companion files not confirmed by a publisher workflow (a hint, not "
                         "a blocker; install and run as usual): " + " | ".join(reference_problems)
                     )
-            # THE RECORD THE INSTALL GATES READ. Written whether or not the graph compiles: a
-            # clean validation is also a fact ("nothing to install"), and comfy_install answers
-            # from this and nothing else.
-            try:
-                studio_state.mark_validated(_workflow_name(path), raw_missing, raw_unknown)
-            except Exception:  # noqa: BLE001 — the report still goes out
-                pass
-            # WHAT IS KNOWN ABOUT RUNNING THIS MODEL WELL, for THIS machine — the weights that
-            # fit it, the settings that keep quality, the model's own prompt format (see
-            # model_profile). Advice in the report, never a refusal.
-            profile_note = ModelProfileCatalog.shipped().notes_for(
-                graph, *_machine_gpu(), fixed_design=studio_state.fixed_design())
-            if profile_note:
-                stack_note = stack_note + "\n" + profile_note
-            if deprecated_notes:
+            # THE RECORD THE INSTALL GATES READ — only from a LIVE check: comfy_install answers
+            # from this and nothing else, and a cached catalogue knows nothing of the files.
+            if live:
+                try:
+                    studio_state.mark_validated(_workflow_name(path), structure.raw_missing, structure.raw_unknown)
+                except Exception:  # noqa: BLE001 — the report still goes out
+                    pass
+            if structure.deprecated_notes:
                 stack_note += (
                     "\nnote — deprecated but still runs, kept because this design was given as it "
-                    "is: " + ", ".join(deprecated_notes)
+                    "is: " + ", ".join(structure.deprecated_notes)
                 )
-            if not (unknown_nodes or missing_files or bad_enums or bad_links or bad_inputs):
+            fixed = studio_state.fixed_design()
+            knowledge = _rule_report_text(rules, fixed_design=fixed)
+            checked_against = (
+                "" if live else
+                f"\nchecked WITHOUT a GPU, against the {source}. Model files are not checked here: "
+                "the box checks them when it is up (validate again then, before installing)."
+            )
+            blocking_rules = [] if fixed else rules.errors
+            if structure.compiles and not blocking_rules:
                 artifacts, export_note = [], ""
-                try:
-                    artifacts, manifest = WorkflowInstallerExporter(
-                        Path(current_workspace(".") or "."), get=_get,
-                    ).export(path, graph, catalogue)
-                    export_note = "\nPortable installer: " + artifacts[0] + "\nDependency manifest: " + artifacts[1]
-                    if manifest["unresolved"]:
-                        export_note += "\nInstaller INCOMPLETE (will refuse to install): " + "; ".join(manifest["unresolved"])
-                    else:
-                        export_note += "\nUse the user's ComfyUI Python with --comfy-dir PATH; --dry-run previews it."
-                except Exception as error:  # export is optional; never turn a valid graph into a failure
-                    export_note = f"\nPortable installer export unavailable ({type(error).__name__}); validation still passed."
-                return ToolResult.text(
+                if live:
+                    try:
+                        artifacts, manifest = WorkflowInstallerExporter(
+                            Path(current_workspace(".") or "."), get=_get,
+                        ).export(path, graph, catalogue)
+                        export_note = "\nPortable installer: " + artifacts[0] + "\nDependency manifest: " + artifacts[1]
+                        if manifest["unresolved"]:
+                            export_note += "\nInstaller INCOMPLETE (will refuse to install): " + "; ".join(manifest["unresolved"])
+                        else:
+                            export_note += "\nUse the user's ComfyUI Python with --comfy-dir PATH; --dry-run previews it."
+                    except Exception as error:  # export is optional; never turn a valid graph into a failure
+                        export_note = f"\nPortable installer export unavailable ({type(error).__name__}); validation still passed."
+                head = (
                     f"compiles: all {len(graph)} node(s) exist on this instance, links resolve, "
                     "and every model file it names is loadable. Safe to comfy_run."
-                    + (f"\n{downloading}" if downloading else "")
-                    + slots_note + export_note + stack_note,
+                    if live else
+                    f"the design holds: all {len(graph)} node(s), links, inputs and values check out "
+                    "against the node list, and the knowledge base finds nothing wrong with it."
+                )
+                return ToolResult.text(
+                    head
+                    + (f"\n{settled}" if settled else "")
+                    + checked_against + knowledge + slots_note + export_note + stack_note,
                     artifacts=artifacts,
                 )
-            lines = ["the workflow does NOT compile against this instance:"]
-            if unknown_nodes:
+            lines = [
+                "the workflow does NOT compile against this instance:" if live else
+                "the design does NOT hold (checked without a GPU):"
+            ]
+            if structure.unknown_nodes:
                 lines.append(
                     "unknown node classes — USUALLY A WRONG NAME, not a missing pack. Look each "
                     "one up (comfy_node_spec / comfy_inventory) and re-emit with the real class. "
                     "If the class truly belongs to a pack this instance lacks, install it "
                     "yourself with comfy_node_install:"
                 )
-                lines += [f"  {x}" for x in unknown_nodes]
-            if bad_links:
+                lines += [f"  {x}" for x in structure.unknown_nodes]
+            if structure.bad_links:
                 lines.append("broken links:")
-                lines += [f"  {x}" for x in bad_links]
-            if bad_inputs:
+                lines += [f"  {x}" for x in structure.bad_links]
+            if structure.bad_inputs:
                 lines.append(
                     "inputs the node does not accept, or needs (comfy_node_spec <class> prints "
                     "the exact API-format keys — copy them):"
                 )
-                lines += [f"  {x}" for x in bad_inputs]
-            if bad_enums:
+                lines += [f"  {x}" for x in structure.bad_inputs]
+            if structure.bad_enums:
                 lines.append("invalid values (fix the workflow):")
-                lines += [f"  {x}" for x in bad_enums]
-            if missing_files:
+                lines += [f"  {x}" for x in structure.bad_enums]
+            if structure.bad_values:
+                lines.append("values outside what the node accepts (fix the workflow):")
+                lines += [f"  {x}" for x in structure.bad_values]
+            if structure.no_output_node:
+                lines.append(
+                    "no output node: ComfyUI refuses a graph that saves nothing ('Prompt has no "
+                    "outputs'). End it with SaveImage / SaveVideo."
+                )
+            if structure.missing_files:
                 lines.append("model files to install (this is the comfy_install shopping list):")
-                lines += [f"  {x}" for x in missing_files]
+                lines += [f"  {x}" for x in structure.missing_files]
                 # THE NEXT CALL, NAMED. Left to improvise, the agent once "checked" a missing
                 # file by fetching its weights URL as a page, and froze the daemon doing it.
                 lines.append(
@@ -2673,8 +2651,12 @@ class ComfyValidateTool(Tool):
                     "/resolve/ or Civitai download URL found by a comfy_research SEARCH). Never fetch "
                     "the file itself; the GPU downloads it."
                 )
-            if downloading:
-                lines.append(downloading)
+            if settled:
+                lines.append(settled)
+            if checked_against:
+                lines.append(checked_against.strip())
+            if knowledge:
+                lines.append(knowledge.strip())
             if slots_note:
                 lines.append(slots_note.strip())
             if stack_note:
@@ -2874,12 +2856,45 @@ def _workflow_path(name: str):
     return root / f"{folder}/{stem}.api.json"
 
 
-def _machine_gpu() -> tuple[str, float]:
-    """(GPU name, VRAM in GB) of the connected machine — ("", 0) when it does not say."""
+def _machine_info() -> tuple[str, float, str]:
+    """(GPU name, VRAM in GB, ComfyUI version) of the connected machine — empty when it does not say."""
     res = _get("/api/system_stats", timeout_s=15.0)
-    devices = (res.json() or {}).get("devices") or [] if res.ok else []
+    data = (res.json() or {}) if res.ok else {}
+    devices = data.get("devices") or []
     first = devices[0] if devices and isinstance(devices[0], dict) else {}
-    return str(first.get("name") or ""), int(first.get("vram_total") or 0) / (1024 ** 3)
+    version = str((data.get("system") or {}).get("comfyui_version") or "")
+    return str(first.get("name") or ""), int(first.get("vram_total") or 0) / (1024 ** 3), version
+
+
+def _last_known_version() -> str:
+    """The ComfyUI version the last probe saw ('' when nothing was ever probed) — what a design is
+    checked against while no box is up."""
+    return str((studio_state.read().get("instance") or {}).get("version") or "")
+
+
+def _rule_report_text(report: RuleReport, fixed_design: bool = False) -> str:
+    """The knowledge base's verdict, for a tool result: errors block, warnings must be answered.
+    A design given AS IT IS (a template, a Library workflow) is not the agent's to change: there
+    the same findings are notes to mention, not orders."""
+    if not report.families:
+        return ""
+    lines = [f"\nknowledge base ({', '.join(report.families)}): {report.checked} rule(s) checked"]
+    if fixed_design and report.findings:
+        lines.append("this design was given as it is — do not change it; where these matter, tell the user in one line:")
+        lines += [f"  {f.render()}" for f in report.findings]
+    elif report.errors or report.warnings:
+        if report.errors:
+            lines.append("WRONG FOR THESE MODELS — fix each:")
+            lines += [f"  {f.render()}" for f in report.errors]
+        if report.warnings:
+            lines.append("ANSWER EACH — fix it, or say in one line why it is right for this job:")
+            lines += [f"  {f.render()}" for f in report.warnings]
+    if report.not_judged:
+        lines.append(f"not judged from the graph alone (values computed at run time): {len(set(report.not_judged))}")
+    for family, guide in report.prompt_guides.items():
+        lines.append(f"\n{family.upper()} PROMPT FORMAT — when you write or change the prompt, use this "
+                     f"(a template or Library workflow run AS IT IS keeps its prompt):\n{guide}")
+    return "\n".join(lines)
 
 
 def _machine_nodes() -> dict:

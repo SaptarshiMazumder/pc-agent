@@ -1,0 +1,199 @@
+{
+  "recipe": {
+    "id": "t2i-medium-slg",
+    "family": "sd35",
+    "task": "t2i",
+    "variant": "Medium 2.5B all-in-one + SkipLayerGuidanceSD3 (layers 7,8,9; scale 2.5; 0.01-0.20) at cfg 4.0 — Stability's recommended Medium setup",
+    "from_template": "sd3.5_simple_example + SkipLayerGuidanceSD3 (comfy_extras/nodes_sd3.py) with the Stability-AI/sd3.5 reference SLG config",
+    "min_comfyui": "0.3.5",
+    "confidence": "official (reference-code SLG values on the official template graph)",
+    "ports": {
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "width": {
+        "node": "9",
+        "input": "width"
+      },
+      "height": {
+        "node": "9",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "9",
+        "input": "batch_size"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text",
+        "note": "official default is the empty string; SD3.5 negatives hurt (see rules)"
+      },
+      "checkpoint": {
+        "node": "1",
+        "input": "ckpt_name",
+        "note": "an all-in-one checkpoint (text encoders inside); originals need the triple-clip recipe"
+      },
+      "slg_scale": {
+        "node": "3",
+        "input": "scale",
+        "note": "reference 2.5; node default 3.0; 0 disables"
+      },
+      "slg_layers": {
+        "node": "3",
+        "input": "layers"
+      },
+      "slg_start": {
+        "node": "3",
+        "input": "start_percent"
+      },
+      "slg_end": {
+        "node": "3",
+        "input": "end_percent",
+        "note": "reference 0.20; node default 0.15"
+      }
+    },
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd3.5_medium_incl_clips_t5xxlfp8scaled.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "SLG 'for potentially better structure and anatomy coherency from SD3.5-Medium' (Stability README). Reference: scale 2.5, start 0.01, end 0.20, layers [7, 8, 9], cfg 4.0 (vs 5.0 without SLG). Community: SLG oversaturates — keep cfg down.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no official VRAM figure for any SD3.5 file)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "steps/sampler are the sd3.5_simple_example values; the reference code runs Medium at 50 steps / dpmpp_2m."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd3.5_medium_incl_clips_t5xxlfp8scaled.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "a bottle with a pink and red galaxy inside it on top of a wooden table on a table in the middle of a modern kitchen with a window to the outdoors mountain range bright sun clouds forest"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": ""
+      }
+    },
+    "9": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "3",
+          0
+        ],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "sgm_uniform",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sd35/t2i_medium_slg"
+      }
+    },
+    "3": {
+      "class_type": "SkipLayerGuidanceSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "layers": "7, 8, 9",
+        "scale": 2.5,
+        "start_percent": 0.01,
+        "end_percent": 0.2
+      }
+    }
+  }
+}

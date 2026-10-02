@@ -1,0 +1,1174 @@
+{
+  "schema": 2,
+  "id": "seedvr2",
+  "name": "SeedVR2",
+  "publisher": "ByteDance Seed (ByteDance-Seed/SeedVR); ComfyUI repack by Comfy-Org; native nodes in ComfyUI core (PR #14424, pollockjj; optimised by kijai in v0.38.0)",
+  "license": {
+    "name": "Apache-2.0",
+    "commercial": true,
+    "notes": "HF cardData license apache-2.0 on ByteDance-Seed/SeedVR2-3B and -7B; README: 'SeedVR and SeedVR2 are licensed under the Apache 2.0.'; the Comfy-Org/SeedVR2 repack is also apache-2.0. The optional numz node pack is Apache-2.0 as well.",
+    "src": [
+      "S-HF-SEEDVR2-7B",
+      "S-HF-COMFYORG-SEEDVR2",
+      "S-NUMZ-GH"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "enhance"
+  ],
+  "tasks": [
+    "upscale-image",
+    "upscale-video"
+  ],
+  "stage": {
+    "takes": [
+      "@image",
+      "@video"
+    ],
+    "gives": [
+      "IMAGE",
+      "VIDEO"
+    ],
+    "note": "an enhancement STAGE: it restores/upscales another stage's output (or an upload); it generates nothing from text and takes no prompt"
+  },
+  "cannot": [
+    {
+      "what": "take a text prompt: SeedVR2Conditioning supplies fixed positive/negative embeddings from the checkpoint (reference code ships pos_emb.pt/neg_emb.pt); any CLIPTextEncode in the graph is unused",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-HF-SEEDVR2-3B"
+      ]
+    },
+    {
+      "what": "be robust to heavy degradations and very large motions (official: 'sometimes not robust ... fail to fully remove the degradation or simply generate unpleasing details')",
+      "src": "S-HF-SEEDVR2-7B"
+    },
+    {
+      "what": "leave clean sources alone: 'tend to overly generate details on inputs with very light degradations, e.g., 720p AIGC videos, leading to oversharpened results occasionally'",
+      "src": "S-HF-SEEDVR2-7B"
+    },
+    {
+      "what": "load GGUF or the numz-named files (seedvr2_ema_*, models/SEEDVR2/) through the native nodes: GGUF stays a custom-node feature (maintainer statement)",
+      "src": [
+        "S-NUMZ-D589",
+        "S-NUMZ-GH"
+      ]
+    },
+    {
+      "what": "load the original ByteDance .pth weights: the native nodes read the Comfy-Org conversion (seedvr2_convert.py)",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "what": "multi-step sampling as a documented option: the model is one-step; the templates fix steps 1 / cfg 1 and other values are NOT FOUND in official text",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-HF-SEEDVR2-7B"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "nodes_read_from": "ComfyUI master comfy_extras/nodes_seedvr.py + comfy/ldm/seedvr/constants.py (fetched 2026-10-01); all five SeedVR2 classes are present in the v0.35.0 registry",
+    "nodes_verified_against_registry": "v0.35.0 - every recipe passed the offline structural check (verify_recipes.py) on 2026-10-01",
+    "note": "native support landed in v0.28.0 (added and reverted in v0.25.0); the templates' minComfyUIVersion is 0.28.0, below the pinned 0.35.0. v0.38.0 'Optimize Seedvr2' is not on the image."
+  },
+  "files": [
+    {
+      "name": "seedvr2_3b_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 6784268336,
+      "precision": "fp16",
+      "variant": "3b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "RTX 5090: max_latent_frames = (free_GiB - 8.5 - 2.2) / (0.55 * output_Mpx); 24 GiB free -> ~41 frames of 1080p per chunk",
+        "class": "official",
+        "src": "S-SEEDVR-CONSTANTS"
+      },
+      "quality": "docs: '3B FP16 base, lower VRAM'; the official chunk-size law was fitted on this file (RTX 5090)",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_3b_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 3392794232,
+      "precision": "fp8_e4m3fn",
+      "variant": "3b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "docs: '3B FP8 quantized'",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_3b_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 3458259704,
+      "precision": "int8_convrot",
+      "variant": "3b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the official template file (image + video); docs: INT8 'efficient inference with reduced VRAM usage compared to FP16' (template note says 3.22 GB)",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2",
+      "template_default": true
+    },
+    {
+      "name": "seedvr2_3b_mxfp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 3557857550,
+      "precision": "mxfp8",
+      "variant": "3b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_mxfp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "listed in the repack README; no doc note",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_3b_nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 1996687726,
+      "precision": "nvfp4",
+      "variant": "3b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "listed in the repack README; no doc note (smallest file)",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16480583960,
+      "precision": "fp16",
+      "variant": "7b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "docs: '7B FP16 base, higher quality'",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8240979248,
+      "precision": "fp8_e4m3fn",
+      "variant": "7b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "docs: '7B FP8 balanced'",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8334897976,
+      "precision": "int8_convrot",
+      "variant": "7b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the official 7B image template file (template note says 7.76 GB)",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2",
+      "template_default": true
+    },
+    {
+      "name": "seedvr2_7b_mxfp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8581725960,
+      "precision": "mxfp8",
+      "variant": "7b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_mxfp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "listed in the repack README; no doc note",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4759694792,
+      "precision": "nvfp4",
+      "variant": "7b",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "listed in the repack README; no doc note",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_sharp_fp16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 16480583960,
+      "precision": "fp16",
+      "variant": "7b-sharp",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_sharp_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "docs: '7B sharp variant' / 'Enhanced detail variant'; a definition of 'sharp' beyond that: NOT FOUND",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_sharp_fp8_e4m3fn.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8240979248,
+      "precision": "fp8_e4m3fn",
+      "variant": "7b-sharp",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_sharp_fp8_e4m3fn.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "sharp, fp8",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_sharp_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8334897976,
+      "precision": "int8_convrot",
+      "variant": "7b-sharp",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_sharp_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "sharp, int8; used by upscale-image-7b-sharp (no official template)",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_sharp_mxfp8.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 8581725960,
+      "precision": "mxfp8",
+      "variant": "7b-sharp",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_sharp_mxfp8.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "sharp, mxfp8",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_7b_sharp_nvfp4.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4759694792,
+      "precision": "nvfp4",
+      "variant": "7b-sharp",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_sharp_nvfp4.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (no official per-file VRAM number; see the chunk-size law in params/rules)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "sharp, nvfp4",
+      "pairs_with_vae": "seedvr2_ema_vae_fp16.safetensors",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    },
+    {
+      "name": "seedvr2_ema_vae_fp16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 501324814,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/seedvr2_ema_vae_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "VAE decode estimate: 3150 bytes per output pixel per frame + 384 MiB (fp16 channels-last; other dtypes x5); encode 2550 bytes per input pixel + 576 MiB (eager x3)",
+        "class": "official",
+        "src": "S-SEEDVR-CONSTANTS"
+      },
+      "quality": "the VAE every official template loads; causal 3D VAE, 16 latent channels, 8x spatial / 4x temporal; loaded with core VAELoader",
+      "src": [
+        "S-HF-COMFYORG-SEEDVR2",
+        "S-TPL-3B-IMG"
+      ]
+    },
+    {
+      "name": "ema_vae_fp16.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 501324814,
+      "precision": "fp16",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/ema_vae_fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "as seedvr2_ema_vae_fp16",
+        "class": "official",
+        "src": "S-SEEDVR-CONSTANTS"
+      },
+      "quality": "repack README: 'Both VAE filenames point to the same model; choose either one' (numz-style name)",
+      "src": "S-HF-COMFYORG-SEEDVR2"
+    }
+  ],
+  "community_alternatives": [
+    {
+      "what": "numz/ComfyUI-SeedVR2_VideoUpscaler: the community pack (v2.5.24, 2025-12-24, Apache-2.0) with GGUF, BlockSwap, attention backends (sdpa/flash_attn_2/3/sageattn_2/3), batch controls, torch.compile; registry id seedvr2_videoupscaler",
+      "needs_pack": "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler",
+      "folder": "SEEDVR2",
+      "nodes": [
+        "SeedVR2VideoUpscaler",
+        "SeedVR2LoadDiTModel",
+        "SeedVR2LoadVAEModel",
+        "SeedVR2TorchCompileSettings"
+      ],
+      "files": [
+        "numz/SeedVR2_comfyUI: seedvr2_ema_3b_fp16.safetensors 6,783,018,808 B; seedvr2_ema_3b_fp8_e4m3fn.safetensors 3,391,544,696 B; seedvr2_ema_7b_fp16.safetensors 16,479,334,424 B; seedvr2_ema_7b_fp8_e4m3fn.safetensors 8,239,729,704 B; seedvr2_ema_7b_sharp_fp16.safetensors 16,479,334,424 B; seedvr2_ema_7b_sharp_fp8_e4m3fn.safetensors 8,239,729,704 B; ema_vae_fp16.safetensors 501,324,814 B",
+        "AInVFX/SeedVR2_comfyUI: seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors (and _sharp_ twin) 8,466,296,338 B",
+        "cmeka/SeedVR2-GGUF 3B: Q3_K_M 1,553,006,944 / Q4_K_M 1,995,344,224 / Q5_K_M 2,411,661,664 / Q6_K 2,853,998,944 / Q8_0 3,660,613,984 B; 7B (and 7b_sharp): Q3_K_M 3,675,389,728 / Q4_K_M 4,758,306,592 / Q5_K_M 5,777,522,464 / Q6_K 6,860,439,328 / Q8_0 8,835,170,080 B"
+      ],
+      "rules_if_installed": [
+        "SeedVR2VideoUpscaler.batch_size must be 4n+1 (1, 5, 9, 13, 17, 21, 25 ...) - 'CRITICAL REQUIREMENT'; 'Match shot length ideally'; batches below 5 lose temporal consistency and flicker",
+        "on OOM at batch_size 5: offloading / BlockSwap / GGUF first, then lower resolution, then batch; 'The VAE is slow. Use large batch_size to mitigate this.'",
+        "README VRAM tiers: <=8 GB GGUF Q4_K_M + BlockSwap + VAE tiling; 12-16 GB FP8 + BlockSwap/tiling; 24 GB+ FP16 (batch 21 @1080; with torch.compile batch 81)",
+        "input_noise_scale 0.1-0.3 against artifacts at high output resolutions; latent_noise_scale 'best around 0.01-0.05' (template note); keep the pack updated: PyTorch 2.9+ needed the Conv3d workaround (2.5.23) or VRAM tripled"
+      ],
+      "templates": [
+        "utility_seedvr2_image_upscale (2026-02-06) and utility_seedvr2_video_upscale (2026-02-06) use these nodes plus LayerUtility: If / ImpactCompare / SimpleMath+ (other packs); NOT offered as native recipes"
+      ],
+      "evidence": "numz discussion #589 (2026-06-02): native has 'dynamic VRAM' but no GGUF; the custom node stays 'a playground for advanced features'",
+      "class": "community",
+      "src": [
+        "S-NUMZ-GH",
+        "S-NUMZ-HF",
+        "S-AINVFX-HF",
+        "S-CMEKA-HF",
+        "S-NUMZ-D589",
+        "S-TPL-NUMZ-VID",
+        "S-SEEDVR2NET"
+      ]
+    },
+    {
+      "what": "other wrappers seen in search, not evaluated: ussoewwin/ComfyUI-SeedVR2-VideoUpscaler-with-TensorRT-Decoder; filliptm/ComfyUI-FL-SeedVR2 (claims a '1.4B' model - not an official size, NOT VERIFIED)",
+      "needs_pack": null,
+      "class": "single-source",
+      "src": "S-SEARCH-COMMUNITY"
+    }
+  ],
+  "selection": [
+    {
+      "task": "upscale-image",
+      "vram_gb_min": 8,
+      "recipe": "upscale-image-3b",
+      "why": "the official 3B Int8 image template; 'lower VRAM'; same graph as the 7B, 3.46 GB file",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-DOCS-SEEDVR2"
+      ]
+    },
+    {
+      "task": "upscale-image",
+      "vram_gb_min": 16,
+      "quality": "high",
+      "recipe": "upscale-image-7b",
+      "why": "the official 7B Int8 image template; 'higher quality'; 8.33 GB file",
+      "src": [
+        "S-TPL-7B-IMG",
+        "S-DOCS-SEEDVR2"
+      ]
+    },
+    {
+      "task": "upscale-image",
+      "vram_gb_min": 16,
+      "quality": "sharp",
+      "recipe": "upscale-image-7b-sharp",
+      "why": "'enhanced detail variant' for sources that want crisper texture; avoid on already-clean AIGC images (oversharpening is the official failure mode)",
+      "tradeoff": "no official template; sharper = more invented detail",
+      "src": [
+        "S-DOCS-SEEDVR2",
+        "S-HF-SEEDVR2-7B"
+      ]
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 8,
+      "recipe": "upscale-video-3b",
+      "why": "the official 3B Int8 video template, whole clip as one latent; short clips",
+      "src": "S-TPL-3B-VID"
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 8,
+      "length": "long",
+      "recipe": "upscale-video-3b-chunked",
+      "why": "the template's split_latent branch: SeedVR2TemporalChunk (auto) sizes chunks from free VRAM with the official law; the OOM / long-clip route",
+      "src": [
+        "S-TPL-3B-VID",
+        "S-SEEDVR-CONSTANTS"
+      ]
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 24,
+      "quality": "high",
+      "recipe": "upscale-video-7b",
+      "why": "7B Int8 on the video graph; no official 7B video template, VRAM NOT FOUND - community puts fp8-class 7B at 12-16 GB",
+      "confidence": "official graph, community VRAM",
+      "src": [
+        "S-DOCS-SEEDVR2",
+        "S-NUMZ-GH"
+      ]
+    },
+    {
+      "task": "upscale-video",
+      "vram_gb_min": 24,
+      "quality": "high",
+      "length": "long",
+      "recipe": "upscale-video-7b-chunked",
+      "why": "7B with temporal chunking",
+      "src": [
+        "S-TPL-3B-VID",
+        "S-DOCS-SEEDVR2"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "scale",
+      "node": "ImageScaleBy (template: ResizeImageMaskNode 'scale by multiplier')",
+      "input": "scale_by",
+      "meaning": "the upscale factor applied BEFORE the DiT: SeedVR2 restores at the resolution it is handed",
+      "defaults": {
+        "image": 4,
+        "video": 2
+      },
+      "range": [
+        1.0,
+        8.0
+      ],
+      "interactions": "VRAM and time scale with output megapixels x frames (see the chunk-size law); very large stills: docs suggest downscaling to ~0.35 Mpx with ImageScaleToTotalPixels before upscaling; lower the multiplier on clean sources to limit oversharpening",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-TPL-3B-VID",
+        "S-DOCS-IMAGE-UPSCALE",
+        "S-HF-SEEDVR2-7B"
+      ]
+    },
+    {
+      "name": "steps / cfg / denoise",
+      "node": "KSampler",
+      "input": "steps, cfg, denoise",
+      "meaning": "one-step model: steps 1, cfg 1 (negative conditioning is a fixed embedding), denoise 1 = 'full restore'",
+      "defaults": {
+        "all recipes": "1 / 1 / 1.0"
+      },
+      "range": null,
+      "interactions": "the templates fix steps and cfg and only expose denoise; other values: NOT FOUND officially",
+      "src": [
+        "S-TPL-3B-VID",
+        "S-TPL-3B-IMG"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "all recipes": "euler / simple"
+      },
+      "range": null,
+      "interactions": "no official guidance beyond the defaults",
+      "src": "S-TPL-3B-IMG"
+    },
+    {
+      "name": "seed",
+      "node": "KSampler",
+      "input": "seed",
+      "meaning": "a one-step model still consumes noise; the seed changes micro-detail",
+      "defaults": {
+        "templates": 959948902156062,
+        "control": "fixed"
+      },
+      "range": null,
+      "interactions": "",
+      "src": "S-TPL-3B-IMG"
+    },
+    {
+      "name": "color_correction_method",
+      "node": "SeedVR2PostProcessing",
+      "input": "color_correction_method",
+      "meaning": "match the output's colours to the resized original: lab = CIELAB transfer 'most faithful'; wavelet = low-frequency colour only; adain = per-channel mean/std 'fastest, global tint'; none = geometry alignment only",
+      "defaults": {
+        "node": "lab",
+        "templates": "none"
+      },
+      "range": [
+        "lab",
+        "wavelet",
+        "adain",
+        "none"
+      ],
+      "interactions": "lab needs the most memory (constants: per-frame byte multipliers LAB 13, wavelet 10, adain 6; chunked with OOM back-off)",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-SEEDVR-CONSTANTS",
+        "S-TPL-3B-IMG"
+      ]
+    },
+    {
+      "name": "VAE tiling",
+      "node": "VAEEncodeTiled|VAEDecodeTiled",
+      "input": "tile_size, overlap, temporal_size, temporal_overlap",
+      "meaning": "spatial/temporal tiling of the causal 3D VAE",
+      "defaults": {
+        "image": "512 / 128 / 4096 / 8",
+        "video": "512 / 128 / 64 / 8"
+      },
+      "range": null,
+      "interactions": "ComfyUI's VAE wrapper also auto-dispatches tiling from free VRAM (PR #14424); tiled decode tile 32-96 latent units (<=768 px)",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-TPL-3B-VID",
+        "S-PR-14424",
+        "S-SEEDVR-CONSTANTS"
+      ]
+    },
+    {
+      "name": "chunking_mode / frames_per_chunk",
+      "node": "SeedVR2TemporalChunk",
+      "input": "chunking_mode, chunking_mode.frames_per_chunk",
+      "meaning": "auto = 'predict the largest chunk that fits free VRAM' (the law below); manual = frames_per_chunk exactly (4n+1, default 21)",
+      "defaults": {
+        "template": "auto"
+      },
+      "range": null,
+      "interactions": "the KSampler runs once per chunk; SeedVR2TemporalMerge recombines",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-TPL-3B-VID"
+      ]
+    },
+    {
+      "name": "temporal_overlap (chunks)",
+      "node": "SeedVR2TemporalChunk",
+      "input": "temporal_overlap",
+      "meaning": "latent frames shared by adjacent chunks, Hann-crossfaded by SeedVR2TemporalMerge",
+      "defaults": {
+        "template": 0
+      },
+      "range": [
+        0,
+        16384
+      ],
+      "interactions": "0 = hard cut at chunk borders; clamped to chunk_latent-1; raise it to hide seams",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "name": "VRAM chunk-size law",
+      "node": "(SeedVR2TemporalChunk auto; also the manual budget)",
+      "input": "output megapixels x latent frames",
+      "meaning": "official: 'the sampler's activation wall is linear in T_latent * pixel area' - max_latent_frames = (free_GiB - RESERVED - K*SIGMA) / (GIB_PER_MPX_FRAME * megapixels)",
+      "defaults": {
+        "SEEDVR2_CHUNK_GIB_PER_MPX_FRAME": 0.55,
+        "SEEDVR2_CHUNK_RESERVED_GIB": 8.5,
+        "SEEDVR2_CHUNK_SIGMA_GIB": 0.55,
+        "SEEDVR2_CHUNK_SIGMA_K": 4,
+        "fitted_on": "3B fp16, RTX 5090, 17-cell resolution sweep + T bisection"
+      },
+      "range": null,
+      "interactions": "max_latent_frames = (free_GiB - 8.5 - 4*0.55) / (0.55 * output_megapixels); pixel frames = 4*latent_frames - 3. Example (3B fp16, RTX 5090): 1920x1080 output = 2.07 Mpx -> 1.14 GiB per latent frame; 24 GiB free -> ~11 latent frames ~ 41 pixel frames per chunk; latent frames = (pixel_frames - 1) / 4 + 1; pixel-frame temporal downsample 4, spatial 8, 16 latent channels",
+      "src": "S-SEEDVR-CONSTANTS"
+    },
+    {
+      "name": "frame count",
+      "node": "SeedVR2Preprocess",
+      "input": "(frames of resized_images)",
+      "meaning": "pads frames to 4n+1 (1 passes; 2-4 padded to 5) by repeating the last frame; SeedVR2PostProcessing crops back",
+      "defaults": {},
+      "range": null,
+      "interactions": "manual frames_per_chunk must itself be 4n+1 (node step 4)",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "name": "weight_dtype",
+      "node": "UNETLoader",
+      "input": "weight_dtype",
+      "meaning": "the templates load the pre-quantised int8_convrot files with 'default'",
+      "defaults": {
+        "templates": "default"
+      },
+      "range": [
+        "default",
+        "fp8_e4m3fn",
+        "fp8_e4m3fn_fast",
+        "fp8_e5m2"
+      ],
+      "interactions": "pick precision by FILE (fp16 / fp8_e4m3fn / int8_convrot / mxfp8 / nvfp4), not by re-casting",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-HF-COMFYORG-SEEDVR2"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "vae-is-seedvr2-ema",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^seedvr2_"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "in": [
+          "seedvr2_ema_vae_fp16.safetensors",
+          "ema_vae_fp16.safetensors"
+        ]
+      },
+      "message": "SeedVR2 encodes/decodes with its own causal 3D VAE (seedvr2_ema_vae_fp16.safetensors == ema_vae_fp16.safetensors, 16-channel); every official template loads it, no other VAE fits the 5-D latent",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-HF-COMFYORG-SEEDVR2",
+        "S-NODES-SEEDVR"
+      ]
+    },
+    {
+      "id": "native-file-set",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "seedvr"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^seedvr2_(3b|7b|7b_sharp)_(fp16|fp8_e4m3fn|int8_convrot|mxfp8|nvfp4)\\.safetensors$",
+        "all": true
+      },
+      "message": "the native loader takes the Comfy-Org repack files in models/diffusion_models (seedvr2_{3b,7b,7b_sharp}_{fp16,fp8_e4m3fn,int8_convrot,mxfp8,nvfp4}.safetensors); numz-named files (seedvr2_ema_*, models/SEEDVR2), GGUF and the ByteDance .pth are not loadable natively",
+      "src": [
+        "S-HF-COMFYORG-SEEDVR2",
+        "S-NUMZ-D589",
+        "S-NUMZ-GH"
+      ]
+    },
+    {
+      "id": "prequantised-keeps-default-dtype",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "seedvr2_.*_(int8_convrot|fp8_e4m3fn|mxfp8|nvfp4)\\.safetensors$"
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "weight_dtype",
+        "equals": "default",
+        "all": true
+      },
+      "message": "the official templates load the pre-quantised int8/fp8 SeedVR2 files with weight_dtype 'default'; precision is chosen by file (fp16 / fp8_e4m3fn / int8_convrot / mxfp8 / nvfp4 pairs of the same size), not by re-casting an already quantised file",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-HF-COMFYORG-SEEDVR2"
+      ]
+    },
+    {
+      "id": "conditioning-node-present",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^seedvr2_"
+      },
+      "require": {
+        "node": "SeedVR2Conditioning",
+        "input": "vae_conditioning",
+        "linked": true
+      },
+      "message": "SeedVR2 has no text encoder: KSampler's positive/negative must come from SeedVR2Conditioning (model + the VAE-encoded latent); CLIPTextEncode conditioning is wrong for this model",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "id": "preprocess-before-encode",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "SeedVR2Conditioning",
+        "input": "model",
+        "linked": true
+      },
+      "require": {
+        "node": "VAEEncodeTiled|VAEEncode",
+        "input": "pixels",
+        "linked_from": "SeedVR2Preprocess"
+      },
+      "message": "the frames must pass SeedVR2Preprocess before VAE encoding (drops alpha, clamps 0-1, pads H/W to multiples of 16 and frames to 4n+1); SeedVR2Conditioning requires the resulting 5-D latent",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "id": "postprocess-after-decode",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "SeedVR2Conditioning",
+        "input": "model",
+        "linked": true
+      },
+      "require": {
+        "node": "SeedVR2PostProcessing",
+        "input": "original_resized_images",
+        "linked": true
+      },
+      "message": "SeedVR2PostProcessing must follow the decode, with original_resized_images = the RESIZED input (the same tensor fed to SeedVR2Preprocess, not the raw LoadImage): it crops the padding back, re-applies alpha and does the optional colour match",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-TPL-3B-IMG"
+      ]
+    },
+    {
+      "id": "one-step-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^seedvr2_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "equals": 1,
+        "all": true
+      },
+      "message": "SeedVR2 is a one-step model ('One-Step Video Restoration via Diffusion Adversarial Post-Training'); every official template fixes steps=1 and values other than 1 are not documented",
+      "src": [
+        "S-TPL-3B-IMG",
+        "S-HF-SEEDVR2-7B"
+      ]
+    },
+    {
+      "id": "one-step-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^seedvr2_"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "cfg 1 in every official template: the negative conditioning is a fixed embedding, guidance above 1 is undocumented",
+      "src": "S-TPL-3B-IMG"
+    },
+    {
+      "id": "chunk-needs-merge",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "SeedVR2TemporalChunk",
+        "input": "latent",
+        "linked": true
+      },
+      "require": {
+        "node": "SeedVR2TemporalMerge",
+        "input": "temporal_overlap",
+        "linked_from": "SeedVR2TemporalChunk"
+      },
+      "message": "Split SeedVR2 Latent emits a LIST of chunks: the sampler runs per chunk and Merge SeedVR2 Latents must recombine them, with its temporal_overlap wired from the Chunk node's temporal_overlap output (the effective overlap after clamping) before VAEDecodeTiled",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-TPL-3B-VID"
+      ]
+    },
+    {
+      "id": "chunk-feeds-both",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "SeedVR2TemporalChunk",
+        "input": "latent",
+        "linked": true
+      },
+      "require": {
+        "node": "SeedVR2Conditioning",
+        "input": "vae_conditioning",
+        "linked_from": "SeedVR2TemporalChunk"
+      },
+      "message": "when chunking, the chunk list feeds BOTH SeedVR2Conditioning.vae_conditioning and KSampler.latent_image (node description), otherwise the conditioning latent and the sampled latent have different lengths",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "id": "manual-chunk-4n+1",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "SeedVR2TemporalChunk",
+        "input": "chunking_mode.frames_per_chunk"
+      },
+      "numeric": {
+        "modulo": [
+          4,
+          1
+        ]
+      },
+      "message": "frames_per_chunk is pixel frames and must be 4n+1 (1, 5, 9, 13, 17, 21 ...); the node steps by 4 from 1 and the VAE's temporal downsample is 4",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "id": "vram-law",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "ImageScaleBy|ResizeImageMaskNode",
+        "input": "scale_by (output megapixels) x input frames"
+      },
+      "numeric": {
+        "max_latent_frames": "(free_GiB - 8.5 - 4*0.55) / (0.55 * output_megapixels)",
+        "latent_frames": "(pixel_frames - 1) / 4 + 1",
+        "constants": {
+          "GIB_PER_MPX_FRAME": 0.55,
+          "RESERVED_GIB": 8.5,
+          "SIGMA_GIB": 0.55,
+          "SIGMA_K": 4
+        },
+        "fitted_on": "3B fp16, RTX 5090"
+      },
+      "message": "official chunk-size law (comfy/ldm/seedvr/constants.py): a clip whose latent frames x output megapixels exceeds (free_GiB - 10.7) / 0.55 will not sample in one latent - e.g. 24 GiB free fits ~11 latent frames (~41 pixel frames) at 1080p output, ~5 (~17 frames) at 4K. Use the -chunked recipe (auto applies this law), lower the scale, or trim. The 7B needs more: NOT FOUND",
+      "src": "S-SEEDVR-CONSTANTS"
+    },
+    {
+      "id": "fps-preserved",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CreateVideo",
+        "input": "images",
+        "linked": true
+      },
+      "require": {
+        "node": "CreateVideo",
+        "input": "fps",
+        "linked": true
+      },
+      "message": "SeedVR2 restores frames, it does not add or drop them: CreateVideo.fps must be the source fps wired from GetVideoComponents (the template links fps, audio and bit_depth through); a literal fps changes playback speed",
+      "src": "S-TPL-3B-VID"
+    },
+    {
+      "id": "no-text-encoder",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPTextEncode",
+        "input": "text",
+        "exists": true
+      },
+      "require": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^(?!seedvr2_)"
+      },
+      "message": "a CLIPTextEncode in a SeedVR2 graph is dead weight: the model takes no prompt, SeedVR2Conditioning supplies the fixed embeddings",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "min_comfyui": "0.28.0",
+      "per_recipe": true,
+      "message": "native SeedVR2 nodes exist from ComfyUI v0.28.0 (templates: minComfyUIVersion 0.28.0); the pinned 0.35.0 image qualifies",
+      "src": [
+        "S-TPL-INDEX",
+        "S-GH-RELEASES"
+      ]
+    }
+  ],
+  "prompting": {
+    "negative_default": null,
+    "note": "not applicable: SeedVR2 takes no text prompt in ComfyUI. SeedVR2Conditioning supplies fixed positive/negative embeddings stored in the converted checkpoint (reference implementation ships pos_emb.pt / neg_emb.pt).",
+    "positive": [],
+    "structure": null,
+    "hurts": [],
+    "src": [
+      "S-NODES-SEEDVR",
+      "S-HF-SEEDVR2-3B"
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "black / empty output",
+      "cause": "attention backend, precision or an incomplete download (official docs troubleshooting)",
+      "fix": "'Disable FlashAttention, switch to FP16/FP8, verify complete file downloads, or disable live preview'",
+      "src": "S-DOCS-SEEDVR2"
+    },
+    {
+      "symptom": "out of memory on a clip",
+      "cause": "latent frames x output megapixels over the chunk-size law",
+      "fix": "the -chunked recipe (SeedVR2TemporalChunk auto), a smaller scale, or trim and process segments (template tip); add chunk temporal_overlap to hide seams",
+      "src": [
+        "S-TPL-3B-VID",
+        "S-SEEDVR-CONSTANTS"
+      ]
+    },
+    {
+      "symptom": "oversharpened, invented texture on a clean or AIGC 720p source",
+      "cause": "official limitation: 'overly generate details on inputs with very light degradations'",
+      "fix": "lower the scale multiplier, prefer 3B/7B over 7B-sharp; (numz only) small input_noise_scale / latent_noise_scale 0.01-0.05",
+      "src": [
+        "S-HF-SEEDVR2-7B",
+        "S-TPL-NUMZ-VID"
+      ]
+    },
+    {
+      "symptom": "degradation not removed / unpleasing details on heavy degradation or big motion",
+      "cause": "official limitation",
+      "fix": "no fix beyond pre-denoising; expect it",
+      "src": "S-HF-SEEDVR2-7B"
+    },
+    {
+      "symptom": "model not found / wrong folder",
+      "cause": "native nodes read models/diffusion_models + models/vae (Comfy-Org repack names); numz reads models/SEEDVR2 with seedvr2_ema_* names; ByteDance .pth are unconverted",
+      "fix": "use the Comfy-Org files in profile.files",
+      "src": [
+        "S-HF-COMFYORG-SEEDVR2",
+        "S-NUMZ-GH"
+      ]
+    },
+    {
+      "symptom": "alpha lost or output mis-cropped",
+      "cause": "original_resized_images wired from the raw LoadImage instead of the resized RGBA",
+      "fix": "JoinImageWithAlpha -> resize -> feed the SAME resized tensor to SeedVR2Preprocess and to SeedVR2PostProcessing.original_resized_images (the recipe does)",
+      "src": [
+        "S-NODES-SEEDVR",
+        "S-TPL-3B-IMG"
+      ]
+    },
+    {
+      "symptom": "frame count differs from the input mid-graph",
+      "cause": "SeedVR2Preprocess pads to 4n+1 by repeating the last frame",
+      "fix": "nothing: SeedVR2PostProcessing crops back to the reference length",
+      "src": "S-NODES-SEEDVR"
+    },
+    {
+      "symptom": "wants GGUF / BlockSwap / 8 GB cards",
+      "cause": "not in the native nodes",
+      "fix": "the numz pack (community_alternatives): GGUF Q4_K_M + BlockSwap + VAE tiling on <=8 GB; 4n+1 batch_size",
+      "src": [
+        "S-NUMZ-D589",
+        "S-NUMZ-GH"
+      ]
+    },
+    {
+      "symptom": "VRAM tripled after a PyTorch upgrade (numz pack)",
+      "cause": "PyTorch 2.9+ Conv3d memory behaviour",
+      "fix": "update the pack (2.5.23 extended the workaround)",
+      "src": "S-NUMZ-GH"
+    },
+    {
+      "symptom": "which precision",
+      "cause": "a single search summary claims '7B FP16 for quality, 3B FP8 for speed, avoid 7B FP8' - unverified",
+      "fix": "the official templates ship INT8 for both sizes; start there",
+      "src": [
+        "S-SEARCH-COMMUNITY",
+        "S-TPL-3B-IMG"
+      ]
+    }
+  ],
+  "sources": {
+    "S-GH-SEEDVR": {
+      "url": "https://github.com/ByteDance-Seed/SeedVR",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SEEDVR2-7B": {
+      "url": "https://huggingface.co/ByteDance-Seed/SeedVR2-7B",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-SEEDVR2-3B": {
+      "url": "https://huggingface.co/ByteDance-Seed/SeedVR2-3B",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-HF-COMFYORG-SEEDVR2": {
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2 (README + API tree)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-SEEDVR2": {
+      "url": "https://docs.comfy.org/tutorials/utility/seedvr2",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-DOCS-IMAGE-UPSCALE": {
+      "url": "https://docs.comfy.org/tutorials/utility/image-upscale",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/index.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-3B-IMG": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/utility_seedvr2_3b_int8_upscale_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-7B-IMG": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/utility_seedvr2_7b_int8_upscale_image.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-3B-VID": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/utility_seedvr2_3b_int8_upscale_video.json",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-TPL-NUMZ-VID": {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/utility_seedvr2_video_upscale.json (+ utility_seedvr2_image_upscale.json)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NODES-SEEDVR": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy_extras/nodes_seedvr.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-SEEDVR-CONSTANTS": {
+      "url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/comfy/ldm/seedvr/constants.py",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-PR-14424": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/pull/14424",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-GH-RELEASES": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/releases (v0.25.0, v0.28.0, v0.38.0)",
+      "accessed": "2026-10-01",
+      "class": "official"
+    },
+    "S-NUMZ-GH": {
+      "url": "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler (README, src/interfaces/*.py, changelog)",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-NUMZ-HF": {
+      "url": "https://huggingface.co/numz/SeedVR2_comfyUI",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-AINVFX-HF": {
+      "url": "https://huggingface.co/AInVFX/SeedVR2_comfyUI",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-CMEKA-HF": {
+      "url": "https://huggingface.co/cmeka/SeedVR2-GGUF",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-NUMZ-D589": {
+      "url": "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/discussions/589",
+      "accessed": "2026-10-01",
+      "class": "community"
+    },
+    "S-SEEDVR2NET": {
+      "url": "https://seedvr2.net/seedvr2-16gb-vram",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    },
+    "S-SEARCH-COMMUNITY": {
+      "url": "web search summaries citing seedvr2.net / instasd.com (instasd returned HTTP 403)",
+      "accessed": "2026-10-01",
+      "class": "single-source"
+    }
+  }
+}

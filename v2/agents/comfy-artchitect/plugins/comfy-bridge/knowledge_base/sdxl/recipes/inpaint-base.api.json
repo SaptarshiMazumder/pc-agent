@@ -1,0 +1,182 @@
+{
+  "recipe": {
+    "id": "inpaint-base",
+    "family": "sdxl",
+    "task": "inpaint",
+    "variant": "SDXL 1.0 base inpaint: LoadImage (mask from alpha) -> VAEEncodeForInpaint -> KSampler denoise 1, 25 steps, cfg 7, dpmpp_2m/karras",
+    "from_template": "generic ComfyUI inpaint pattern (docs.comfy.org 'Inpainting' / ComfyUI_examples inpaint: VAEEncodeForInpaint(pixels, vae, mask, grow_mask_by)) on the image_sdxl_simple spine; no SDXL inpaint template exists",
+    "min_comfyui": "0.0.1",
+    "confidence": "official pattern (docs) + official template settings; not a shipped SDXL graph",
+    "ports": {
+      "checkpoint": {
+        "node": "1",
+        "input": "ckpt_name",
+        "note": "any SDXL 1.0 checkpoint (fine-tunes: see profile.selection)"
+      },
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "negative": {
+        "node": "7",
+        "input": "text"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "grow_mask_by": {
+        "node": "11",
+        "input": "grow_mask_by",
+        "note": "node default 6 px; widens the repainted area"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "15",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "an RGBA image whose alpha is the mask (Mask Editor / upstream stage): LoadImage output 1 (MASK) feeds the encoder"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "14",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "sd_xl_base_1.0.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "'It also works with non inpainting models' (ComfyUI_examples). Alternatives in the docs: SetLatentNoiseMask on a VAEEncode latent for partial denoise; InpaintModelConditioning for inpaint-trained checkpoints; ImagePadForOutpaint in front for outpainting; ControlNet Union ProMax adds 'repaint'/'tile' types.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (Stability publishes no ComfyUI VRAM figure for SDXL; the fp16 base is 6.94 GB on disk)",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-02 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box."
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "sd_xl_base_1.0.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "a giant classical marble statue standing alone in a pure white empty void, soft diffused lighting, subtle shadows, surreal, minimalist, fine art photography, quiet atmosphere, sense of scale"
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "text": "text, watermark"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 7.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "11",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "12": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
+    },
+    "14": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "12",
+          0
+        ],
+        "filename_prefix": "sdxl/inpaint_base"
+      }
+    },
+    "15": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "11": {
+      "class_type": "VAEEncodeForInpaint",
+      "inputs": {
+        "pixels": [
+          "15",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ],
+        "mask": [
+          "15",
+          1
+        ],
+        "grow_mask_by": 6
+      }
+    }
+  }
+}

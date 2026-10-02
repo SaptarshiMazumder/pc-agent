@@ -1,0 +1,260 @@
+{
+  "recipe": {
+    "id": "hires-fix-latent",
+    "family": "upscale-models",
+    "task": "hires-fix",
+    "variant": "latent hires fix as a FRAGMENT: LatentUpscale 1.5x (nearest-exact) -> second KSampler at denoise 0.5 (dpmpp_2m / simple / 14 steps / cfg 8) -> VAEDecode -> SaveImage, spliced after any sampler; the official SD1.5 first pass is kept so the file runs and validates on its own",
+    "from_template": "hiresfix_latent_workflow (archived; ComfyUI_examples '2 pass txt2img'): EmptyLatentImage 512x512 -> KSampler 12 steps dpmpp_sde/normal cfg 8 denoise 1 -> LatentUpscale nearest-exact 768x768 -> KSampler 14 steps dpmpp_2m/simple cfg 8 denoise 0.5 -> VAEDecode -> SaveImage; the pass-1 VAEDecode + PreviewImage is dropped. Values are the Comfy-Org template JSON's (512 -> 768 with DreamShaper 8; the ComfyUI_examples page shows 768 -> 1152 with v2-1).",
+    "min_comfyui": null,
+    "min_comfyui_note": "NOT FOUND (archived example without minComfyUIVersion; all core nodes present in v0.35.0)",
+    "confidence": "official",
+    "fragment": {
+      "nodes": [
+        "9",
+        "10",
+        "11",
+        "12"
+      ],
+      "attach": {
+        "9.samples": {
+          "from": "the upstream sampler's LATENT output (replaces node 8 here)",
+          "type": "LATENT"
+        },
+        "10.model": {
+          "from": "the upstream MODEL (same checkpoint + LoRA chain as pass 1; the 'different prompt' example uses another checkpoint)",
+          "type": "MODEL"
+        },
+        "10.positive": {
+          "from": "the upstream positive CONDITIONING (reuse pass 1's, or re-encode a new prompt)",
+          "type": "CONDITIONING"
+        },
+        "10.negative": {
+          "from": "the upstream negative CONDITIONING",
+          "type": "CONDITIONING"
+        },
+        "11.vae": {
+          "from": "the upstream VAE",
+          "type": "VAE"
+        }
+      },
+      "replaces": "the upstream stage's VAEDecode -> SaveImage tail (keep pass 1's own SaveImage if both sizes are wanted; the template saves both)",
+      "standalone_context": "nodes 4-8 are the official template's SD1.5 pass 1 (DreamShaper_8_pruned.safetensors, 512x512, 12 steps dpmpp_sde) kept so this file is a complete, validatable graph",
+      "scale_math": "LatentUpscale width/height are PIXEL sizes in multiples of 8 (768 = 1.5 x 512); LatentUpscaleBy scale_by 1.5 (nearest-exact) is the equivalent used by the 'different prompt' example (which runs pass 2 at 8 steps, cfg 13, denoise 0.35 on a different checkpoint)"
+    },
+    "ports": {
+      "upscale_width": {
+        "node": "9",
+        "input": "width",
+        "note": "pass-2 width in pixels, multiple of 8 (template 768 = 1.5x of 512)"
+      },
+      "upscale_height": {
+        "node": "9",
+        "input": "height",
+        "note": "pass-2 height in pixels, multiple of 8"
+      },
+      "upscale_method": {
+        "node": "9",
+        "input": "upscale_method",
+        "note": "nearest-exact (template) | bilinear | area | bicubic | bislerp (latent-only option)"
+      },
+      "denoise": {
+        "node": "10",
+        "input": "denoise",
+        "note": "0.5 in both official hires-fix examples (0.52 in the pose example, 0.35 in the different-prompt example); lower leaves interpolation blur, higher drifts structure"
+      },
+      "steps": {
+        "node": "10",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "10",
+        "input": "cfg"
+      },
+      "sampler_name": {
+        "node": "10",
+        "input": "sampler_name"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler"
+      },
+      "seed": {
+        "node": "10",
+        "input": "seed"
+      },
+      "prompt": {
+        "node": "5",
+        "input": "text",
+        "note": "standalone context only; in a splice the upstream conditioning is used"
+      },
+      "negative": {
+        "node": "6",
+        "input": "text"
+      },
+      "checkpoint": {
+        "node": "4",
+        "input": "ckpt_name",
+        "note": "standalone context only (template placeholder DreamShaper_8_pruned.safetensors)"
+      },
+      "base_width": {
+        "node": "7",
+        "input": "width"
+      },
+      "base_height": {
+        "node": "7",
+        "input": "height"
+      }
+    },
+    "inputs": {},
+    "inputs_note": "no media slot: the fragment consumes the upstream LATENT (see fragment.attach); run standalone it is a txt2img + hires fix",
+    "outputs": {
+      "image": {
+        "node": "12",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "DreamShaper_8_pruned.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "1.5x latent upscale (512 -> 768) at denoise 0.5, 14 steps dpmpp_2m/simple, cfg 8, same prompts as pass 1. Latent interpolation is blurry: denoise around 0.5 repairs it (official examples); the pixel path (hires-fix-pixel) tolerates lower denoise.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (that of the checkpoint at the pass-2 size)",
+      "time_s": null,
+      "class": "not-found",
+      "src": null
+    },
+    "verify": [
+      "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos, links/types, enums, ranges, output node). Not yet run on a box.",
+      "DreamShaper_8_pruned.safetensors is the template's placeholder checkpoint: bytes NOT FOUND in the dossier."
+    ]
+  },
+  "graph": {
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "DreamShaper_8_pruned.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          1
+        ],
+        "text": "masterpiece HDR victorian portrait painting of woman, blonde hair, mountain nature, blue sky, (oil painting:1.1)"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "4",
+          1
+        ],
+        "text": "bad hands, text, watermark,nsfw\n"
+      }
+    },
+    "7": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 512,
+        "height": 512,
+        "batch_size": 1
+      }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 873141143997374,
+        "steps": 12,
+        "cfg": 8.0,
+        "sampler_name": "dpmpp_sde",
+        "scheduler": "normal",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "7",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "LatentUpscale",
+      "inputs": {
+        "samples": [
+          "8",
+          0
+        ],
+        "upscale_method": "nearest-exact",
+        "width": 768,
+        "height": 768,
+        "crop": "disabled"
+      }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "4",
+          0
+        ],
+        "seed": 32484370206415,
+        "steps": 14,
+        "cfg": 8.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "simple",
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "9",
+          0
+        ],
+        "denoise": 0.5
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "10",
+          0
+        ],
+        "vae": [
+          "4",
+          2
+        ]
+      }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "filename_prefix": "hiresfix/ComfyUI"
+      }
+    }
+  }
+}
