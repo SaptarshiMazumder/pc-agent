@@ -14,7 +14,6 @@
           "44"
         ],
         "input": "direction",
-        "same_value": true,
         "note": "right = side by side, down = one above the other"
       },
       "spacing": {
@@ -23,8 +22,7 @@
           "43",
           "44"
         ],
-        "input": "spacing_width",
-        "same_value": true
+        "input": "spacing_width"
       }
     },
     "inputs": {

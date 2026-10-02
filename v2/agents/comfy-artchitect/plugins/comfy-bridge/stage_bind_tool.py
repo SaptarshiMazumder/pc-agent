@@ -44,24 +44,25 @@ class StageBindTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             ctx = self._context()
-            pipeline = ctx.store.load()
-            if pipeline is None:
-                return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
-            stage = pipeline.stage(str(params.get("stage") or ""))
-            if stage is None:
-                return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
-            name, source = str(params.get("input") or "").strip(), str(params.get("source") or "").strip()
-            stage.inputs = [i for i in stage.inputs if i.name != name] + [StageInput(name, source)]
-            order = pipeline.order_problems()
-            if order:
-                return ToolResult.text("\n".join(order), is_error=True)
-            try:
-                ctx.store.save(pipeline, only={stage.name})
-            except StageBuildError as e:
-                return ToolResult.text(str(e), is_error=True)
-            report = ctx.validate(pipeline)
-            return ToolResult.text(f"stage {stage.name}.{name} <- {source}\n" + render_report(report),
-                                   details={"holds": report.holds}, is_error=not report.holds)
+            with ctx.store.locked():  # one change to this chat's pipeline at a time
+                pipeline = ctx.store.load()
+                if pipeline is None:
+                    return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
+                stage = pipeline.stage(str(params.get("stage") or ""))
+                if stage is None:
+                    return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
+                name, source = str(params.get("input") or "").strip(), str(params.get("source") or "").strip()
+                stage.inputs = [i for i in stage.inputs if i.name != name] + [StageInput(name, source)]
+                order = pipeline.order_problems()
+                if order:
+                    return ToolResult.text("\n".join(order), is_error=True)
+                try:
+                    ctx.store.save(pipeline, only={stage.name})
+                except StageBuildError as e:
+                    return ToolResult.text(str(e), is_error=True)
+                report = ctx.validate(pipeline)
+                return ToolResult.text(f"stage {stage.name}.{name} <- {source}\n" + render_report(report),
+                                       details={"holds": report.holds}, is_error=not report.holds)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"stage_bind failed: {type(e).__name__}: {e}", is_error=True)
 

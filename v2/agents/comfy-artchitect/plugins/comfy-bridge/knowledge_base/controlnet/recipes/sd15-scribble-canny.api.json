@@ -81,7 +81,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo or sketch; native Canny 0.35/0.8 produces the line map the scribble net reads"
+        "note": "raw photo or sketch; native Canny 0.35/0.8 produces the line map the scribble net reads",
+        "raw": "edges"
       }
     },
     "outputs": {

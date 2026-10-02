@@ -11,6 +11,9 @@ each one is for.
 from __future__ import annotations
 
 import json
+import os
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import chat_paths
@@ -63,9 +66,40 @@ class PipelineStore:
             fed_by = {i.role: f"{i.producer[0]}.{i.producer[1]}" for i in stage.inputs if i.producer}
             written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by)
         self.folder.mkdir(parents=True, exist_ok=True)
-        (self.folder / PIPELINE_FILE).write_text(json.dumps(pipeline.to_dict(), indent=2, ensure_ascii=False) + "\n",
-                                                encoding="utf-8")
+        # ATOMIC: a reader (or a parallel call) never sees half a file.
+        tmp = self.folder / f"{PIPELINE_FILE}.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps(pipeline.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, self.folder / PIPELINE_FILE)
         return written
+
+    @contextmanager
+    def locked(self, timeout_s: float = 60.0, stale_s: float = 300.0):
+        """One change to this chat's pipeline at a time. Every design tool runs in its own process and
+        does load -> change -> save; two at once (parallel tool calls) interleaved their writes and
+        corrupted pipeline.json, or one silently dropped the other's change."""
+        self.folder.mkdir(parents=True, exist_ok=True)
+        lock = self.folder / ".pipeline.lock"
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode())
+                os.close(fd)
+                break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > stale_s:
+                        lock.unlink(missing_ok=True)  # a holder that died long ago
+                        continue
+                except FileNotFoundError:
+                    continue
+                if time.monotonic() > deadline:
+                    raise TimeoutError("another change to this pipeline is still being written - try again")
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            lock.unlink(missing_ok=True)
 
     def _drop_stages_not_in(self, pipeline: Pipeline) -> None:
         """A REPLACED DESIGN LEAVES NO STAGES BEHIND. The previous pipeline's stages that the new

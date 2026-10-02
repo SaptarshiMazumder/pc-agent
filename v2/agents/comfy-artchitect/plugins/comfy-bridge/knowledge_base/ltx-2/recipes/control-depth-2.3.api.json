@@ -101,7 +101,8 @@
         "node": "57",
         "input": "file",
         "type": "VIDEO",
-        "note": "the motion source; depth is estimated per frame (MoGe); keep it <= 2048 px wide"
+        "note": "the motion source; depth is estimated per frame (MoGe); keep it <= 2048 px wide",
+        "raw": "depth"
       }
     },
     "outputs": {

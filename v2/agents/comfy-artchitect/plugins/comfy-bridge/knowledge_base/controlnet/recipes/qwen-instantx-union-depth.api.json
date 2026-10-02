@@ -88,7 +88,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a raw photo; the recipe computes the depth map with the native Lotus chain (nodes 40-51, 1-step SD1.5-sized depth model, inverted as the templates do). To feed a READY depth map instead, drop 40-51 and wire the map where node 51 was. Pose/lineart/softedge maps need comfyui_controlnet_aux (profile.preprocessors)."
+        "note": "a raw photo; the recipe computes the depth map with the native Lotus chain (nodes 40-51, 1-step SD1.5-sized depth model, inverted as the templates do). To feed a READY depth map instead, drop 40-51 and wire the map where node 51 was. Pose/lineart/softedge maps need comfyui_controlnet_aux (profile.preprocessors).",
+        "raw": "edges"
       }
     },
     "outputs": {

@@ -74,48 +74,49 @@ class PipelinePlanTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             ctx = self._context()
-            stages, customs = [], {}
-            for raw in params.get("stages") or []:
-                if not isinstance(raw, dict):
-                    return ToolResult.text(f"not a stage object: {raw!r}", is_error=True)
-                stage = Stage(
-                    name=str(raw.get("name") or "").strip(), family=str(raw.get("family") or "").strip(),
-                    recipe=str(raw.get("recipe") or "").strip(), ports=dict(raw.get("ports") or {}),
-                    inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
-                    outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
-                    note=str(raw.get("note") or ""),
+            with ctx.store.locked():  # one change to this chat's pipeline at a time
+                stages, customs = [], {}
+                for raw in params.get("stages") or []:
+                    if not isinstance(raw, dict):
+                        return ToolResult.text(f"not a stage object: {raw!r}", is_error=True)
+                    stage = Stage(
+                        name=str(raw.get("name") or "").strip(), family=str(raw.get("family") or "").strip(),
+                        recipe=str(raw.get("recipe") or "").strip(), ports=dict(raw.get("ports") or {}),
+                        inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
+                        outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
+                        note=str(raw.get("note") or ""),
+                    )
+                    if not stage.note.strip():
+                        return ToolResult.text(f"stage {stage.name or '?'}: `note` is required — what this step "
+                                               "makes, in plain words for the person", is_error=True)
+                    if stage.custom:
+                        graph, problem = _graph_from_nodes(raw.get("nodes"))
+                        if problem:
+                            return ToolResult.text(f"stage {stage.name}: {problem}", is_error=True)
+                        if not stage.outputs:
+                            return ToolResult.text(f"stage {stage.name}: a custom stage names its outputs "
+                                                   "({name: {node, type}})", is_error=True)
+                        customs[stage.name] = graph
+                    stages.append(stage)
+                deliver = str(params.get("deliver_size") or "").strip().lower().replace(" ", "")
+                if deliver and not re.fullmatch(r"\d+x\d+", deliver):
+                    return ToolResult.text(f"deliver_size '{deliver}' is WIDTHxHEIGHT, e.g. 3840x2160", is_error=True)
+                pipeline = Pipeline(str(params.get("name") or "").strip(), stages, deliver_size=deliver)
+                order = pipeline.order_problems()
+                if order:
+                    return ToolResult.text("the pipeline cannot be laid out:\n  " + "\n  ".join(order), is_error=True)
+                try:
+                    written = ctx.store.save(pipeline, customs)
+                except StageBuildError as e:
+                    return ToolResult.text(str(e), is_error=True)
+                report = ctx.validate(pipeline)
+                files = [w.api_rel for w in written.values()]
+                return ToolResult.text(
+                    render_report(report) + "\nstage workflows: " + ", ".join(files),
+                    details={"holds": report.holds, "stages": [s.name for s in pipeline.stages]},
+                    artifacts=files,
+                    is_error=not report.holds,
                 )
-                if not stage.note.strip():
-                    return ToolResult.text(f"stage {stage.name or '?'}: `note` is required — what this step "
-                                           "makes, in plain words for the person", is_error=True)
-                if stage.custom:
-                    graph, problem = _graph_from_nodes(raw.get("nodes"))
-                    if problem:
-                        return ToolResult.text(f"stage {stage.name}: {problem}", is_error=True)
-                    if not stage.outputs:
-                        return ToolResult.text(f"stage {stage.name}: a custom stage names its outputs "
-                                               "({name: {node, type}})", is_error=True)
-                    customs[stage.name] = graph
-                stages.append(stage)
-            deliver = str(params.get("deliver_size") or "").strip().lower().replace(" ", "")
-            if deliver and not re.fullmatch(r"\d+x\d+", deliver):
-                return ToolResult.text(f"deliver_size '{deliver}' is WIDTHxHEIGHT, e.g. 3840x2160", is_error=True)
-            pipeline = Pipeline(str(params.get("name") or "").strip(), stages, deliver_size=deliver)
-            order = pipeline.order_problems()
-            if order:
-                return ToolResult.text("the pipeline cannot be laid out:\n  " + "\n  ".join(order), is_error=True)
-            try:
-                written = ctx.store.save(pipeline, customs)
-            except StageBuildError as e:
-                return ToolResult.text(str(e), is_error=True)
-            report = ctx.validate(pipeline)
-            files = [w.api_rel for w in written.values()]
-            return ToolResult.text(
-                render_report(report) + "\nstage workflows: " + ", ".join(files),
-                details={"holds": report.holds, "stages": [s.name for s in pipeline.stages]},
-                artifacts=files,
-                is_error=not report.holds,
-            )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_plan failed: {type(e).__name__}: {e}", is_error=True)
 

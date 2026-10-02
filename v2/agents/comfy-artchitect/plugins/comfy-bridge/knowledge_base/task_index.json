@@ -1661,7 +1661,9 @@
           }
         ],
         "constraints": [
-          "needs the ComfyUI-SAM3 pack pinned at commit 978bb763 - its latest renamed the inputs this graph uses, and setup installs only a pack's latest"
+          "custom node packs (setup installs them; ComfyUI-SAM3 pinned at 978bb763)",
+          "~35 GB fp16 VACE model",
+          "Triton on the box (torch.compile)"
         ]
       }
     ],

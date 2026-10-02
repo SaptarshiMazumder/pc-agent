@@ -64,7 +64,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "a raw photo or line drawing; native Canny (node 30) turns it into the edge map. Its size becomes the output size (resize it first to the target size, multiples of 16)."
+        "note": "a raw photo or line drawing; native Canny (node 30) turns it into the edge map. Its size becomes the output size (resize it first to the target size, multiples of 16).",
+        "raw": "edges"
       }
     },
     "outputs": {

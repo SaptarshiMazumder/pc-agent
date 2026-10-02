@@ -42,7 +42,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the structure source; Canny edge map computed in-graph"
+        "note": "the structure source; Canny edge map computed in-graph",
+        "raw": "edges"
       }
     },
     "outputs": {

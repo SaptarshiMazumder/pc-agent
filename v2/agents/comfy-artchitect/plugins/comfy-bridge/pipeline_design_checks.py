@@ -43,6 +43,7 @@ class PipelineDesignChecks:
             out += self._same_file_twice(stage, graphs.get(stage.name) or {})
             out += self._video_from_raw_reference(stage, takes, makes, self._frames(stage))
             out += self._raw_into_prepared(stage, self._prepared(stage))
+            out += self._map_into_raw(pipeline, stage)
             out += self._hand_written_but_covered(stage, graphs.get(stage.name) or {})
         out += self._review_with_nothing_after(pipeline)
         out += self._made_but_never_read(pipeline)
@@ -173,6 +174,22 @@ class PipelineDesignChecks:
         if stage.custom:
             return {}
         return {n: str(s["prepared"]) for n, s in self._builder.recipe_of(stage).inputs.items() if s.get("prepared")}
+
+    def _map_into_raw(self, pipeline: Pipeline, stage: Stage) -> list[str]:
+        """The opposite mistake: a control MAP fed into an input that computes the map itself from the
+        original footage — depth of a depth map, edges of an edge map."""
+        if stage.custom:
+            return []
+        specs = self._builder.recipe_of(stage).inputs
+        out = []
+        for i in stage.inputs:
+            kind = (specs.get(i.name) or {}).get("raw")
+            producer = pipeline.stage(i.producer[0]) if i.producer else None
+            if kind and producer is not None and producer.family == "control-maps":
+                out.append(f"stage {stage.name}.{i.name} computes the {kind} itself from the ORIGINAL photo or clip, but "
+                           f"it reads {producer.name}'s map — that is {kind} of a {kind} map. Bind the original "
+                           "(user:<role>, or the stage that made the footage) and drop the map stage.")
+        return out
 
     @staticmethod
     def _raw_into_prepared(stage: Stage, prepared: dict[str, str]) -> list[str]:

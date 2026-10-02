@@ -105,7 +105,8 @@
         "node": "57",
         "input": "file",
         "type": "VIDEO",
-        "note": "edges are extracted per frame"
+        "note": "edges are extracted per frame",
+        "raw": "edges"
       }
     },
     "outputs": {

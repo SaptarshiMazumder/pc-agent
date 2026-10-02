@@ -46,32 +46,33 @@ class StageEditGraphTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             ctx = self._context()
-            pipeline = ctx.store.load()
-            if pipeline is None:
-                return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
-            stage = pipeline.stage(str(params.get("stage") or ""))
-            if stage is None:
-                return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
-            try:
-                edited, done = GraphEditOps(ctx.catalogue).apply(ctx.store.graph(stage), params.get("ops") or [])
-            except GraphEditError as e:
-                return ToolResult.text(f"nothing changed — {e}", is_error=True)
-            note = ""
-            if not stage.custom:
-                # The graph is the stage's own from here: what the recipe exposed carries over.
-                recipe = ctx.builder.recipe_of(stage)
-                stage.outputs = dict(recipe.outputs)
-                stage.inputs = [StageInput(i.role, i.source) for i in stage.inputs]
-                stage.recipe, stage.ports = "", {}
-                note = (f"\nstage {stage.name} was rewired, so it is now a custom stage: its graph is its own, "
-                        "its ports are gone — change values with set_input.")
-            try:
-                ctx.store.save(pipeline, custom_graphs={stage.name: edited}, only={stage.name})
-            except StageBuildError as e:
-                return ToolResult.text(str(e), is_error=True)
-            report = ctx.validate(pipeline)
-            return ToolResult.text("applied:\n  " + "\n  ".join(done) + note + "\n" + render_report(report),
-                                   details={"holds": report.holds}, is_error=not report.holds)
+            with ctx.store.locked():  # one change to this chat's pipeline at a time
+                pipeline = ctx.store.load()
+                if pipeline is None:
+                    return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
+                stage = pipeline.stage(str(params.get("stage") or ""))
+                if stage is None:
+                    return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
+                try:
+                    edited, done = GraphEditOps(ctx.catalogue).apply(ctx.store.graph(stage), params.get("ops") or [])
+                except GraphEditError as e:
+                    return ToolResult.text(f"nothing changed — {e}", is_error=True)
+                note = ""
+                if not stage.custom:
+                    # The graph is the stage's own from here: what the recipe exposed carries over.
+                    recipe = ctx.builder.recipe_of(stage)
+                    stage.outputs = dict(recipe.outputs)
+                    stage.inputs = [StageInput(i.role, i.source) for i in stage.inputs]
+                    stage.recipe, stage.ports = "", {}
+                    note = (f"\nstage {stage.name} was rewired, so it is now a custom stage: its graph is its own, "
+                            "its ports are gone — change values with set_input.")
+                try:
+                    ctx.store.save(pipeline, custom_graphs={stage.name: edited}, only={stage.name})
+                except StageBuildError as e:
+                    return ToolResult.text(str(e), is_error=True)
+                report = ctx.validate(pipeline)
+                return ToolResult.text("applied:\n  " + "\n  ".join(done) + note + "\n" + render_report(report),
+                                       details={"holds": report.holds}, is_error=not report.holds)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"stage_edit_graph failed: {type(e).__name__}: {e}", is_error=True)
 

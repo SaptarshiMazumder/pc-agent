@@ -6,7 +6,8 @@ Manager will only install from a raw git URL at a security level we never lower.
 
 What it does, exactly what Manager does for a git install: clone into ComfyUI/custom_nodes, pip
 install the pack's requirements into ComfyUI's own Python, run its install.py if it has one, then
-restart ComfyUI so the nodes load. Only repositories on the hosts below, only an owner/repo path —
+restart ComfyUI so the nodes load (at a pinned commit when the link ends in `@<commit>`). Only repositories on the
+hosts below, only an owner/repo path —
 the URL is checked here, on the machine, as well as by the plugin.
 
 SEVERAL PACKS, ONE RESTART. A template names every pack it needs; installed one call at a time
@@ -35,12 +36,22 @@ from comfy_process_control import ComfyProcessControl
 
 HOSTS = ("github.com", "gitlab.com", "huggingface.co")
 _PATH = re.compile(r"^/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$")
+#: A pinned pack: `<repository link>@<commit>` — the commit a design was built against, when the
+#: pack's latest renamed the inputs it uses.
+_PIN = re.compile(r"^(.*?)@([0-9a-f]{7,40})$")
 STATUS_DIR = "agentd-node-installs"
 
 
+def pinned(url: str) -> tuple[str, str]:
+    """(the link without its pin, the pinned commit or '')."""
+    match = _PIN.match((url or "").strip())
+    return (match.group(1), match.group(2)) if match else ((url or "").strip(), "")
+
+
 def repository(url: str) -> tuple[str, str]:
-    """(clone URL, folder name) for an allowed repository link — ValueError for anything else."""
-    parts = urlsplit((url or "").strip())
+    """(clone URL, folder name) for an allowed repository link — ValueError for anything else. A
+    pinned link (`…@<commit>`) names the same repository and folder."""
+    parts = urlsplit(pinned(url)[0])
     match = _PATH.match(parts.path or "")
     if parts.scheme != "https" or parts.hostname not in HOSTS or parts.port or parts.username or not match:
         raise ValueError(
@@ -74,7 +85,9 @@ class GpuNodePackWorker:
             (folder / f"{job}.json").write_text(json.dumps(data), encoding="utf-8")
 
         try:
-            targets = [repository(u) for u in ([urls] if isinstance(urls, str) else list(urls))]
+            links = [urls] if isinstance(urls, str) else list(urls)
+            targets = [repository(u) for u in links]
+            commits = {repository(u)[1]: pinned(u)[1] for u in links}
             if not targets:
                 raise ValueError("no node pack to install")
             for _, name in targets:
@@ -83,9 +96,17 @@ class GpuNodePackWorker:
             def fetch(target) -> None:
                 clone, name = target
                 dest = self.root / "custom_nodes" / name
+                commit = commits.get(name, "")
                 if not dest.exists():
                     packs[name] = "cloning"
-                    self._step(["git", "clone", "--depth", "1", clone, str(dest)], timeout=900)
+                    # A pin needs the history to reach its commit; the latest needs only the tip.
+                    self._step(["git", "clone", *([] if commit else ["--depth", "1"]), clone, str(dest)], timeout=900)
+                elif commit:
+                    packs[name] = "fetching"  # already there, maybe at another version: bring the pin in
+                    self._step(["git", "-C", str(dest), "fetch", "--unshallow"] if (dest / ".git" / "shallow").exists()
+                               else ["git", "-C", str(dest), "fetch", "origin"], timeout=900)
+                if commit:
+                    self._step(["git", "-C", str(dest), "checkout", "--force", commit], timeout=120)
 
             report("cloning")
             with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:

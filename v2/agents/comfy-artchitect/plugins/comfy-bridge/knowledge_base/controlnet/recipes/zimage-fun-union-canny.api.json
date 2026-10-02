@@ -68,7 +68,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo (<= ~2500 px); native Canny 0.1/0.32; its size becomes the output size"
+        "note": "raw photo (<= ~2500 px); native Canny 0.1/0.32; its size becomes the output size",
+        "raw": "edges"
       }
     },
     "outputs": {

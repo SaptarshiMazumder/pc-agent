@@ -96,7 +96,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo for the canny type (native Canny at the node defaults 0.4/0.8 - no publisher thresholds exist for SDXL). For openpose/depth/hed/... replace node 31 with the matching comfyui_controlnet_aux node (OpenposePreprocessor with scale_stick_for_xinsr_cn=enable for this net) and set union_type accordingly."
+        "note": "raw photo for the canny type (native Canny at the node defaults 0.4/0.8 - no publisher thresholds exist for SDXL). For openpose/depth/hed/... replace node 31 with the matching comfyui_controlnet_aux node (OpenposePreprocessor with scale_stick_for_xinsr_cn=enable for this net) and set union_type accordingly.",
+        "raw": "edges"
       }
     },
     "outputs": {

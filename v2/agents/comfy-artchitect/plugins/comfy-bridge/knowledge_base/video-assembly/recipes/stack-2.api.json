@@ -12,15 +12,13 @@
           "42"
         ],
         "input": "direction",
-        "same_value": true,
         "note": "right = side by side, down = one above the other"
       },
       "spacing": {
         "nodes": [
           "42"
         ],
-        "input": "spacing_width",
-        "same_value": true
+        "input": "spacing_width"
       }
     },
     "inputs": {

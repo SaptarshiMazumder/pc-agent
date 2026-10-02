@@ -127,7 +127,7 @@ class PipelineValidator:
                 if self._version and not recipe.runs_on(self._version):
                     v.problems.append(f"recipe {recipe.family}/{recipe.id} needs ComfyUI "
                                       f"{recipe.meta.get('min_comfyui')}; the box runs {self._version}")
-                packs += [str(p.get("repo") if isinstance(p, dict) else p) for p in recipe.packs]
+                packs += recipe.pack_links
             for i in stage.inputs:
                 if not i.producer:
                     user_inputs.setdefault(i.role, f"stage {stage.name}: {i.name}")

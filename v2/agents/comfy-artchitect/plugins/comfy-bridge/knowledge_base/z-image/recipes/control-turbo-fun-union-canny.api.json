@@ -53,7 +53,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the source photo; Canny runs in-graph. Output size = this image's size (GetImageSize -> EmptySD3LatentImage), so keep it around 1024 px and a multiple of 16"
+        "note": "the source photo; Canny runs in-graph. Output size = this image's size (GetImageSize -> EmptySD3LatentImage), so keep it around 1024 px and a multiple of 16",
+        "raw": "edges"
       }
     },
     "outputs": {

@@ -38,7 +38,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "the structure source; Canny (low 0.15, high 0.3) turns it into the edge map the model follows; output size = image size"
+        "note": "the structure source; Canny (low 0.15, high 0.3) turns it into the edge map the model follows; output size = image size",
+        "raw": "edges"
       }
     },
     "outputs": {

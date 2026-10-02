@@ -38,7 +38,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "any RGB image; its depth is estimated by Lotus (SD1.5-based, 1.62 GB + an SD1.5 VAE)"
+        "note": "any RGB image; its depth is estimated by Lotus (SD1.5-based, 1.62 GB + an SD1.5 VAE)",
+        "raw": "depth"
       }
     },
     "outputs": {

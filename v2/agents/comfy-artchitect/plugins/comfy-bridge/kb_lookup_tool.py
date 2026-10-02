@@ -240,7 +240,8 @@ class KbLookupTool(Tool):
             lines.append(f"    {name} = {shown}{opts}" + (f" — {spec['note']}" if spec.get("note") else ""))
         lines.append("  takes (bind with stage_bind): " + (", ".join(
             f"{n} ({s.get('type')}" + (f", becomes the {s['frame'].upper()} frame" if s.get("frame") else "")
-            + (f", a PREPARED {s['prepared']} signal" if s.get("prepared") else "") + ")"
+            + (f", a PREPARED {s['prepared']} signal" if s.get("prepared") else "")
+            + (f", RAW footage/photo: computes the {s['raw']} itself" if s.get("raw") else "") + ")"
             for n, s in r.inputs.items()) or "nothing"))
         lines.append("  makes: " + ", ".join(f"{n} ({s.get('type')})" for n, s in r.outputs.items()))
         size = 0

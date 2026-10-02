@@ -142,8 +142,7 @@ class PipelineProvisionTool(Tool):
             state.missing[stage.name] = list(rec.get("missing_files") or [])
             state.unknown[stage.name] = list(rec.get("unknown_classes") or [])
             if not stage.custom:
-                for p in ctx.builder.recipe_of(stage).packs:
-                    state.packs.add(str(p.get("repo") if isinstance(p, dict) else p))
+                state.packs.update(ctx.builder.recipe_of(stage).pack_links)
         return state
 
     @staticmethod

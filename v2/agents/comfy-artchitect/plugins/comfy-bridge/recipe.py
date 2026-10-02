@@ -68,6 +68,19 @@ class Recipe:
     def min_comfyui(self) -> tuple[int, int, int]:
         return version_tuple(str(self.meta.get("min_comfyui") or "0"))
 
+    @property
+    def pack_links(self) -> list[str]:
+        """Each node pack as the link setup installs: its repository, `@<commit>` when the recipe was
+        built against a pinned version (the pack's latest renamed what the graph uses)."""
+        out = []
+        for pack in self.packs:
+            if not isinstance(pack, dict):
+                out.append(str(pack))
+                continue
+            link = str(pack.get("repo") or pack.get("git") or "")
+            out.append(f"{link}@{pack['commit']}" if pack.get("commit") else link)
+        return out
+
     def runs_on(self, comfyui_version: str) -> bool:
         """False when the recipe needs a newer ComfyUI than this one."""
         have = version_tuple(comfyui_version)

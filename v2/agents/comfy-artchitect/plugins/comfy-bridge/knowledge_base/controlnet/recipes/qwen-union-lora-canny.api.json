@@ -77,7 +77,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo; scaled to 1 MP (lanczos) then native Canny 0.26/0.35"
+        "note": "raw photo; scaled to 1 MP (lanczos) then native Canny 0.26/0.35",
+        "raw": "edges"
       }
     },
     "outputs": {

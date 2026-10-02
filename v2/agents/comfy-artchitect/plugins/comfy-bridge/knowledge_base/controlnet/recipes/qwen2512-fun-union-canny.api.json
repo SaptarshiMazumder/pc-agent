@@ -85,7 +85,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo; scaled to 1.6 MP (area) then native Canny 0.33/0.35; its size becomes the output size"
+        "note": "raw photo; scaled to 1.6 MP (area) then native Canny 0.33/0.35; its size becomes the output size",
+        "raw": "edges"
       }
     },
     "outputs": {

@@ -184,8 +184,7 @@
       "WanVideoTorchCompileSettings is wired into the model loader (template): torch.compile/inductor needs Triton on the box; if it is missing, unlink compile_args on node 1.",
       "WanVideoSLG acts on the uncond pass; with cfg 1.0 it likely has no effect (kept as the template has it).",
       "ComfyUI-SAM3 must be at commit 978bb76 for these input names (see packs[1].status)."
-    ],
-    "blocked": "needs the ComfyUI-SAM3 pack pinned at commit 978bb763 - its latest renamed the inputs this graph uses, and setup installs only a pack's latest"
+    ]
   },
   "graph": {
     "1": {

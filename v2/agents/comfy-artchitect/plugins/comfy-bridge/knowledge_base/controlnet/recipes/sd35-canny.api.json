@@ -84,7 +84,8 @@
         "node": "15",
         "input": "image",
         "type": "IMAGE",
-        "note": "raw photo; native Canny (31) after a bilinear center-crop scale to the latent size (30)"
+        "note": "raw photo; native Canny (31) after a bilinear center-crop scale to the latent size (30)",
+        "raw": "edges"
       }
     },
     "outputs": {

@@ -30,12 +30,7 @@
     ],
     "note": "edits INSIDE a clip: only the masked object is regenerated, every other pixel is the source's"
   },
-  "cannot": [
-    {
-      "what": "run here until pinned pack installs exist (see the recipes' `blocked`)",
-      "src": "S-TPL-SHANE"
-    }
-  ],
+  "cannot": [],
   "comfyui": {
     "min": "0.20.0"
   },
@@ -148,8 +143,8 @@
   "pitfalls": [
     {
       "symptom": "SAM3 nodes fail with unknown inputs",
-      "cause": "ComfyUI-SAM3 installed at main",
-      "fix": "pin commit 978bb763",
+      "cause": "ComfyUI-SAM3 at its latest (renamed LoadSAM3Model inputs)",
+      "fix": "the recipes pin commit 978bb763 and setup installs that commit; a pack already on the box at another version is checked out to it",
       "src": "S-TPL-SHANE"
     }
   ],
