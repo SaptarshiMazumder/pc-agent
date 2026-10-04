@@ -2,8 +2,9 @@
 
 A rented GPU and a person's own Vast machine have an Instance Portal that runs our downloader on
 the box. A plain ComfyUI address has only ComfyUI's own API, which cannot fetch a file, so any
-model ComfyUI-Manager will not install has to be put there by the person. This names the file,
-where it goes, and the installer script that does it for them.
+model ComfyUI-Manager will not install has to be put there by the person. This names EVERY such
+file of the batch at once — its link and the exact models/ folder it goes in. (Not the portable
+installer: that is written only once a workflow compiles, so it never exists while files are missing.)
 """
 
 from __future__ import annotations
@@ -16,13 +17,8 @@ class ManualModelDownloader:
     available = False
 
     def start(self, request: ModelDownloadRequest) -> None:
-        raise ValueError(
-            f"{request.filename} cannot be downloaded onto this ComfyUI: it was connected by its "
-            "address alone, and Manager does not install this file. Tell the user to download "
-            f"{request.origin_url or request.url} into their ComfyUI's models/{request.kind} "
-            "folder (or run the workflow's install_<name>.py on that machine, which fetches every "
-            "file it needs), then call comfy_install again to confirm it is loadable."
-        )
+        """Nothing can fetch it. Not refused here: refusing the first file stopped the batch and
+        named only that one — wait() names them all."""
 
     def status(self, request: ModelDownloadRequest) -> dict | None:
         return None
@@ -31,5 +27,12 @@ class ManualModelDownloader:
         return False
 
     async def wait(self, requests: list[ModelDownloadRequest], abort, on_update=None) -> None:
-        if requests:
-            raise ValueError("no downloader on this ComfyUI; nothing was started")
+        if not requests:
+            return
+        lines = "\n".join(f"  models/{r.directory}/{r.filename}  <-  {r.origin_url or r.url}" for r in requests)
+        raise ValueError(
+            "this ComfyUI was connected by its address alone, so nothing here can download onto it, and "
+            f"ComfyUI-Manager does not install these {len(requests)} file(s). Tell the user to put each "
+            f"in their ComfyUI folder exactly here:\n{lines}\nFiles Manager accepted keep downloading. "
+            "Then call comfy_install again to confirm they are loadable."
+        )

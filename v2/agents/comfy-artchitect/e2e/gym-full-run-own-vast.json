@@ -1,0 +1,29 @@
+{
+  "id": "gym-full-run-own-vast",
+  "agent_id": "comfy-artchitect",
+  "goal": "The gym design end to end on a GPU the person rented themselves on their own Vast account. The agent connects to that machine by itself (their Vast key is saved in the Connection section), designs the multi-stage pipeline (an identity-locking stage before the video, earlier stages feeding later ones), gets the card approved, sets the machine up (node packs, then every model file through the machine's portal), runs every stage with the hand-over between them, stops at the review point, and delivers the video into the chat. Judged by looking at the stills and the video, not by the checks alone.",
+  "turns": [
+    {
+      "text": "Make me a short video of a woman in a gym. It opens on an extreme close-up of her face — sweaty, focused — then the camera slowly pulls back to reveal her doing a heavy deadlift. It's for Instagram. She has to look exactly like the woman in the photo I added, the same person the whole way through. I just rented a GPU on my Vast account for this — use that machine (the newest one on my account).",
+      "reference_media": [
+        { "role": "", "path": "assets/influencer-reference.png" }
+      ]
+    },
+    "Looks good — go ahead. Set it up on my machine and run it.",
+    "Yes, that's her. Keep going all the way to the video.",
+    "Keep going until the video is done."
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_punt_to_user" },
+    { "name": "tool_called", "tool": "comfy_connect" },
+    { "name": "tool_succeeded", "tool": "pipeline_present" },
+    { "name": "call_order", "first": "ask_user", "then": "pipeline_provision" },
+    { "name": "tool_succeeded", "tool": "pipeline_provision" },
+    { "name": "tool_succeeded", "tool": "pipeline_run" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "produced_artifact", "kind": "video" },
+    { "name": "max_turns", "n": 80 }
+  ],
+  "max_turns": 80
+}

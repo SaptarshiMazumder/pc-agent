@@ -19,7 +19,10 @@ class WorkflowInstallerManifest:
     def fingerprint(graph):
         return hashlib.sha256(json.dumps(graph, sort_keys=True).encode()).hexdigest()
 
-    def build(self, graph, catalogue, recorded, models, packs):
+    def build(self, graph, catalogue, recorded, models, packs, known=None):
+        """`known`: {file name: {url, folder}} from the knowledge base — the source of last resort
+        for a model this workspace never installed and Manager's catalogue does not list."""
+        known = known or {}
         downloads, nodes, unresolved, references, paid = {}, {}, set(), set(), set()
         for node in graph.values():
             cls = node["class_type"]
@@ -38,8 +41,11 @@ class WorkflowInstallerManifest:
                     try:
                         repo = InstallerSourcePolicy.repository_url(repos.pop())
                         name = InstallerSourcePolicy.relative_path(repo.rsplit("/", 1)[1])
-                        nodes[repo] = {"repository": repo, "directory": name,
-                                       "revision": None, "evidence": "ComfyUI-Manager registry"}
+                        # The commit a recipe pinned the pack to, when it was installed pinned.
+                        revision = next((InstallerSourcePolicy.revision(e["revision"]) for e in candidates
+                                         if e.get("revision")), None)
+                        nodes[repo] = {"repository": repo, "directory": name, "revision": revision,
+                                       "evidence": "pinned by the recipe" if revision else "ComfyUI-Manager registry"}
                     except ValueError:
                         unresolved.add(f"Node pack source for {cls}")
                 else:
@@ -70,7 +76,7 @@ class WorkflowInstallerManifest:
                         if str(entry.get("filename", "")).replace("\\", "/") != name:
                             continue
                         kind_name = str(entry.get("type", "")).lower()
-                        kind = ModelDownloadRequest.DIRECTORIES.get(kind_name) or {
+                        kind = ModelDownloadRequest.folder_of(kind_name) or {
                             "clip_vision": "clip_vision", "style_model": "style_models",
                             "embedding": "embeddings", "gligen": "gligen",
                         }.get(kind_name)
@@ -81,6 +87,12 @@ class WorkflowInstallerManifest:
                             candidates.append({"url": entry.get("url", ""),
                                                "destination": f"models/{folder}/{name}",
                                                "evidence": "ComfyUI-Manager model catalogue"})
+                if not candidates:
+                    hit = known.get(name) or known.get(PurePosixPath(name).name)
+                    if hit:
+                        # Where the LOADER looks wins over the knowledge base's folder.
+                        candidates.append({"url": hit["url"], "destination": f"models/{directory or hit['folder']}/{name}",
+                                           "evidence": "the agent's knowledge base"})
                 sources = {}
                 for candidate in candidates:
                     try:

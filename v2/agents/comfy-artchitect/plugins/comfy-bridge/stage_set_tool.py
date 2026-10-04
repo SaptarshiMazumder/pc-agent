@@ -13,6 +13,7 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
+from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
@@ -61,9 +62,11 @@ class StageSetTool(Tool):
                     ctx.store.save(pipeline, only={stage.name})
                 except StageBuildError as e:
                     return ToolResult.text(str(e), is_error=True)
+                stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
                 report = ctx.validate(pipeline)
                 return ToolResult.text(
-                    f"stage {stage.name}: set {', '.join(new)}\n" + render_report(report),
+                    f"stage {stage.name}: set {', '.join(new)}\n" + render_report(report)
+                    + PipelineRunRecord.describe_stale(stale),
                     details={"holds": report.holds}, is_error=not report.holds,
                 )
         except Exception as e:  # noqa: BLE001

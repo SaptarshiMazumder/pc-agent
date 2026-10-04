@@ -32,7 +32,7 @@ from stage_builder import StageBuildError, StageBuilder
 
 #: The rented box's disk (vast InstanceSettings.disk_gb) less room for ComfyUI's own files,
 #: outputs and temporary downloads.
-DISK_GB = 60.0
+DISK_GB = 120.0
 DISK_HEADROOM_GB = 8.0
 
 
@@ -132,8 +132,7 @@ class PipelineValidator:
                 if not i.producer:
                     user_inputs.setdefault(i.role, f"stage {stage.name}: {i.name}")
             for name in self._model_files(graph):
-                rec = self._catalog.describe_file(name)
-                files.setdefault(name, (rec[1].get("bytes") if rec else None))
+                files.setdefault(name, self._catalog.file_bytes(name))
             unknown = self._catalog.unknown_model_files(graph)
             if unknown:
                 warnings.append(f"stage {stage.name}: model files no knowledge-base family describes — "

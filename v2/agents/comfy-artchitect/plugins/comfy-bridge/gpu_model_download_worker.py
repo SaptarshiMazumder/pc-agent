@@ -6,6 +6,7 @@ deduplicates chats/retries; a partial file is not a Comfy model until verificati
 
 from __future__ import annotations
 
+import errno
 import json
 from http.client import IncompleteRead
 import os
@@ -68,6 +69,10 @@ class GpuModelDownloadWorker:
                 data = {"state": state, "filename": request.filename,
                         "source_id": request.source_id, "attempt_id": attempt_id,
                         "updated_at": time.time(), **fields}
+                # The folder is ComfyUI's temp (the only place /api/view can read it from), and
+                # ComfyUI empties temp when it starts: a restart mid-download (a node pack, the
+                # person's own) took the folder away and every later status write failed.
+                status_dir.mkdir(parents=True, exist_ok=True)
                 temporary = status_path.with_suffix(".tmp")
                 temporary.write_text(json.dumps(data), encoding="utf-8")
                 temporary.replace(status_path)
@@ -88,10 +93,14 @@ class GpuModelDownloadWorker:
                           "http_status": error.code if isinstance(error, urllib.error.HTTPError) else None}
                 try:
                     report("failed", **failed)
-                except OSError:
+                except OSError as write_error:
                     # A FAILURE IS ALWAYS SAID. With the disk full the worker could not write that
                     # it had failed, so the job went silent at 96% and the plugin waited minutes for
                     # a download that had died. Free this job's half-written file, then say it.
+                    # ONLY a full disk: any other write failure keeps the partial, which a retry
+                    # resumes from — minutes of a 20 GB file are not thrown away for a status line.
+                    if write_error.errno != errno.ENOSPC:
+                        raise
                     self.discard_partial(request)
                     report("failed", **failed)
 

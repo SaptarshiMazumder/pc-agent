@@ -16,6 +16,7 @@ from agent_runtime.application.run_context import current_workspace
 
 from graph_edit_ops import GraphEditError, GraphEditOps
 from pipeline import StageInput
+from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
@@ -70,8 +71,10 @@ class StageEditGraphTool(Tool):
                     ctx.store.save(pipeline, custom_graphs={stage.name: edited}, only={stage.name})
                 except StageBuildError as e:
                     return ToolResult.text(str(e), is_error=True)
+                stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
                 report = ctx.validate(pipeline)
-                return ToolResult.text("applied:\n  " + "\n  ".join(done) + note + "\n" + render_report(report),
+                return ToolResult.text("applied:\n  " + "\n  ".join(done) + note + "\n" + render_report(report)
+                                       + PipelineRunRecord.describe_stale(stale),
                                        details={"holds": report.holds}, is_error=not report.holds)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"stage_edit_graph failed: {type(e).__name__}: {e}", is_error=True)

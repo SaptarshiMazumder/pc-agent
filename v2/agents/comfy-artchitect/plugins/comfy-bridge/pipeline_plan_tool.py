@@ -18,6 +18,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 from pipeline import Pipeline, Stage, StageInput
+from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
@@ -109,10 +110,13 @@ class PipelinePlanTool(Tool):
                     written = ctx.store.save(pipeline, customs)
                 except StageBuildError as e:
                     return ToolResult.text(str(e), is_error=True)
+                # A NEW DESIGN: nothing an earlier one rendered is its result.
+                stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, pipeline.stages[0].name)
                 report = ctx.validate(pipeline)
                 files = [w.api_rel for w in written.values()]
                 return ToolResult.text(
-                    render_report(report) + "\nstage workflows: " + ", ".join(files),
+                    render_report(report) + "\nstage workflows: " + ", ".join(files)
+                    + PipelineRunRecord.describe_stale(stale),
                     details={"holds": report.holds, "stages": [s.name for s in pipeline.stages]},
                     artifacts=files,
                     is_error=not report.holds,

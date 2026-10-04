@@ -57,13 +57,28 @@ class StageBuilder:
                 raise StageBuildError(f"stage {stage.name} has no recipe and no graph")
             graph = copy.deepcopy(custom_graph)
             self._bind_custom(stage, graph)
+            self._name_outputs(stage, graph)
             return graph
         recipe = self.recipe_of(stage)
         graph = copy.deepcopy(recipe.graph)
         for port, value in stage.ports.items():
             self.apply_port(recipe, graph, port, value, stage.name)
         self._bind_recipe(stage, recipe, graph)
+        self._name_outputs(stage, graph)
         return graph
+
+    @staticmethod
+    def _name_outputs(stage: Stage, graph: dict) -> None:
+        """EVERY FILE A STAGE SAVES IS NAMED FOR THE STAGE: `<stage>/<stage>_00001_.png`. Recipes keep
+        their template's prefix ("ComfyUI", "upscaled/ComfyUI", "video/joined"), and ComfyUI numbers
+        each subfolder from 1 — but the chat keeps a download by its file name alone, so one stage's
+        `ComfyUI_00001_.png` replaced another's, in the chat and in what was handed to the next stage.
+        A stage with several savers adds the node id."""
+        savers = [nid for nid, node in graph.items()
+                  if isinstance(node, dict) and isinstance((node.get("inputs") or {}).get("filename_prefix"), str)]
+        for nid in savers:
+            name = stage.name if len(savers) == 1 else f"{stage.name}_{nid}"
+            graph[nid]["inputs"]["filename_prefix"] = f"{stage.name}/{name}"
 
     # ------------------------------------------------------------------ ports
 

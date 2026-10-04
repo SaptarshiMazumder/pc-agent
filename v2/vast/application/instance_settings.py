@@ -55,7 +55,10 @@ class InstanceSettings:
     #: "we only need this one" trim that works until the thing you trimmed was load-bearing for
     #: boot. `comfy_port` is still the one an address is read back from.
     publish_ports: tuple = (1111, 8080, 8188, 8288, 8384, 10100, 10200, 72299)
-    disk_gb: int = 60
+    #: 120, not 60: one multi-stage design (a Qwen edit stage feeding LTX-2) is ~70 GB of models
+    #: before ComfyUI's own files and the outputs. Comfy Penguin's setup check reads the same
+    #: figure (pipeline_validator.DISK_GB).
+    disk_gb: int = 120
     comfy_port: int = 8188
 
     #: A CEILING THE MARKETPLACE NEVER SEES PAST: passed as a filter on the offer search, and

@@ -1,20 +1,45 @@
 """Write a portable, fixed-code installer and its inspectable dependency manifest."""
 
+import ast
 import json
 from pathlib import Path
 
 from workflow_dependency_repository import WorkflowDependencyRepository
 from workflow_installer_manifest import WorkflowInstallerManifest
 
+_HERE = Path(__file__).parent
+
 
 class WorkflowInstallerExporter:
-    SOURCES = ("installer_source_policy", "model_download_request", "model_download_redirect_policy",
-               "gpu_download_activity", "model_download_resume_state",
-               "gpu_model_download_worker", "workflow_installer_runtime")
+    ENTRY = "workflow_installer_runtime"
 
-    def __init__(self, workspace, *, get):
+    @classmethod
+    def sources(cls) -> tuple[str, ...]:
+        """Every module of this plugin the installer's runtime imports, transitively — the code the
+        generated script embeds. Derived, not listed: a hand-kept list fell behind the downloader's
+        own imports, and every installer it wrote stopped at an ImportError."""
+        local = {p.stem for p in _HERE.glob("*.py")}
+        need, todo = set(), [cls.ENTRY]
+        while todo:
+            module = todo.pop()
+            if module in need:
+                continue
+            need.add(module)
+            for node in ast.walk(ast.parse((_HERE / f"{module}.py").read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    names = [node.module]
+                elif isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                else:
+                    continue
+                todo.extend(n.split(".")[0] for n in names if n.split(".")[0] in local)
+        return tuple(sorted(need))
+
+    def __init__(self, workspace, *, get, known_files=None):
         self.workspace = Path(workspace).resolve()
         self.get = get
+        #: {file name: {url, folder}} — KnowledgeBaseCatalog.model_sources()
+        self.known_files = known_files or {}
 
     @staticmethod
     def invalidate(path):
@@ -60,19 +85,19 @@ class WorkflowInstallerExporter:
         # Packs this workspace installed from their repositories are known without Manager: a
         # pack Manager does not list stays resolved in the installer (and a template's guide).
         installed_packs = dependencies.node_packs()
-        initial = builder.build(graph, catalogue, recorded, [], installed_packs)
+        initial = builder.build(graph, catalogue, recorded, [], installed_packs, self.known_files)
         models = (self._catalogue("/externalmodel/getlist?mode=cache", "models", [])
                   if any(item.startswith("Model source") for item in initial["unresolved"]) else [])
         packs = (self._catalogue("/customnode/getlist?mode=cache", "node_packs", {})
                  if any(item.startswith("Node pack source") for item in initial["unresolved"]) else {})
-        manifest = builder.build(graph, catalogue, recorded, models, {**installed_packs, **packs})
+        manifest = builder.build(graph, catalogue, recorded, models, {**installed_packs, **packs}, self.known_files)
         manifest["workflow"] = target.name
         manifest["generator"] = "comfy-workflow-installer"
         name = target.name.removesuffix(".api.json")
         manifest_path = target.with_name(f"install_{name}.manifest.json")
         script_path = target.with_name(f"install_{name}.py")
-        sources = {f"{name}.py": (Path(__file__).parent / f"{name}.py").read_text(encoding="utf-8")
-                   for name in self.SOURCES}
+        sources = {f"{name}.py": (_HERE / f"{name}.py").read_text(encoding="utf-8")
+                   for name in self.sources()}
         # The manifest is DATA, never interpolated into commands or generated Python syntax.
         script = (
             '#!/usr/bin/env python3\n"""Generated ComfyUI dependency installer (Python 3.10+).\n'

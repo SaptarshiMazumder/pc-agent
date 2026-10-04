@@ -330,6 +330,23 @@ def _lease(seconds: int) -> None:
         raise RuntimeError("GPU keepalive was not confirmed; call gpu_ensure before submitting more work")
 
 
+def _release_rented() -> None:
+    """Give this account's rented GPU back now (the platform's /vast/release) — when the account
+    switches to the person's own machine. ValueError when the platform did not confirm it."""
+    account_id = current_account_id()
+    if not account_id:
+        raise ValueError("no account on this run")
+    response = fetch(
+        f"{_ACCOUNTS}/vast/release",
+        method="POST",
+        json={"account_id": account_id},
+        headers=_AUTH,
+        timeout_s=30.0,
+    )
+    if not response.ok:
+        raise ValueError(f"the platform answered HTTP {response.status}")
+
+
 #: How long a render or a download may hold the machine without anyone talking to it. SHORT,
 #: because it is the weakest of the three witnesses: the daemon heartbeats while the run
 #: produces events, and the reaper asks the box itself whether a render or a download is in
@@ -1421,6 +1438,13 @@ class ComfyRunTool(Tool):
         },
     }
 
+    def __init__(self, fed: dict[str, str] | None = None) -> None:
+        # role -> workspace-relative file that fills it for THIS run, ahead of the reference slots:
+        # an earlier pipeline stage's recorded output. It goes up from where the host downloaded
+        # it — a copy into the slot folder is made inside the sandbox, and on a microVM the host,
+        # which does the upload, never sees that copy.
+        self._fed = dict(fed or {})
+
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             path = Path(str(params.get("workflow_path") or "").strip())
@@ -1475,7 +1499,9 @@ class ComfyRunTool(Tool):
                     return ToolResult.text(
                         "bad reference slot(s):\n  " + "\n  ".join(problems), is_error=True
                     )
-                filled, missing = reference_slots.status(ws, roles)
+                fed = {role: rel for role, rel in self._fed.items() if role in roles}
+                filled, missing = reference_slots.status(ws, [r for r in roles if r not in fed])
+                filled.update(fed)
                 if missing:
                     return ToolResult.text(
                         "waiting for reference(s). The user adds them in the References panel, "
@@ -2283,6 +2309,24 @@ class ComfyNodeInstallTool(Tool):
                     "still do not resolve, ComfyUI may need a restart to load them."
                 )
 
+            return await ComfyNodeInstallTool._manager_install(
+                [(pack_id, entry)], abort, on_update, restart=bool(params.get("restart", True)))
+        except Exception as e:  # noqa: BLE001
+            return ToolResult.text(
+                f"comfy_node_install failed: {type(e).__name__}: {e}", is_error=True
+            )
+
+
+    @staticmethod
+    async def _install_from_repo(repo: str, abort, on_update) -> ToolResult:
+        """One pack from its repository — see _install_from_repos."""
+        return await ComfyNodeInstallTool._install_from_repos([repo], abort, on_update)
+
+    @staticmethod
+    async def _manager_install(packs: list[tuple[str, dict]], abort, on_update, restart: bool = True) -> ToolResult:
+        """Packs from ComfyUI-Manager's registry, (id, entry) each: all queued, one wait, ONE restart."""
+        names = ", ".join(f"{e.get('title') or pid} ({pid})" for pid, e in packs)
+        for pack_id, entry in packs:
             body = {
                 "ui_id": f"agent-{pack_id}",
                 "id": pack_id,
@@ -2304,57 +2348,75 @@ class ComfyNodeInstallTool(Tool):
                         is_error=True,
                     )
                 return ToolResult.text(_failed(res, f"install {pack_id}"), is_error=True)
-            _lease(_WORK_LEASE_S)
-            _post("/manager/queue/start", None, timeout_s=15.0)
+        _lease(_WORK_LEASE_S)
+        _post("/manager/queue/start", None, timeout_s=15.0)
 
-            # The same hold as comfy_install: this returns when Manager is done, not before.
-            state, waited = await _hold_until_manager_idle(abort, on_update, f"installing {title}")
-            if state == "aborted":
-                return ToolResult.text(
-                    f"stopped after {_clock(waited)}; Manager continues installing {title}. Call "
-                    "comfy_node_install again to finish (restart included)."
-                )
-            if state == "unreachable":
-                return ToolResult.text(
-                    f"lost ComfyUI-Manager after {_clock(waited)} while installing {title}. If "
-                    "the GPU was reclaimed, gpu_ensure; then call comfy_node_install again.",
-                    is_error=True,
-                )
-
-            if not (params.get("restart", True)):
-                return ToolResult.text(
-                    f"installed {title} ({pack_id}). ComfyUI must RESTART before its nodes load — "
-                    "call comfy_node_install again with restart, or ask the user to restart."
-                )
-            # A pack that is installed but not loaded is still a missing node. Rebooting is the
-            # step that makes it real, and Manager owns it — and so is waiting for the instance
-            # to answer again, which used to be "call comfy_probe until it answers".
-            _post("/manager/reboot", None, timeout_s=20.0)
-            if on_update is not None:
-                on_update(ToolResult.text(f"installed {title}; restarting ComfyUI"))
-            back = await _await_instance(abort)
-            if back is None:
-                return ToolResult.text(
-                    f"installed {title} ({pack_id}) and restarted ComfyUI, but the instance has "
-                    f"not answered in {_clock(_REBOOT_WAIT_S)}. comfy_probe to see whether it is "
-                    "back; if not, the restart may have failed on the instance.",
-                    is_error=True,
-                )
+        # The same hold as comfy_install: this returns when Manager is done, not before.
+        state, waited = await _hold_until_manager_idle(abort, on_update, f"installing {names}")
+        if state == "aborted":
             return ToolResult.text(
-                f"installed {title} ({pack_id}) and restarted ComfyUI — it answers again "
-                f"({_clock(back)} to come back). comfy_node_spec the node class you need to "
-                "confirm it loaded before emitting a workflow that uses it."
+                f"stopped after {_clock(waited)}; Manager continues installing {names}. Call "
+                "comfy_node_install again to finish (restart included)."
             )
-        except Exception as e:  # noqa: BLE001
+        if state == "unreachable":
             return ToolResult.text(
-                f"comfy_node_install failed: {type(e).__name__}: {e}", is_error=True
+                f"lost ComfyUI-Manager after {_clock(waited)} while installing {names}. If "
+                "the GPU was reclaimed, gpu_ensure; then call comfy_node_install again.",
+                is_error=True,
             )
 
+        if not restart:
+            return ToolResult.text(
+                f"installed {names}. ComfyUI must RESTART before its nodes load — "
+                "call comfy_node_install again with restart, or ask the user to restart."
+            )
+        # A pack that is installed but not loaded is still a missing node. Rebooting is the
+        # step that makes it real, and Manager owns it — and so is waiting for the instance
+        # to answer again, which used to be "call comfy_probe until it answers".
+        _post("/manager/reboot", None, timeout_s=20.0)
+        if on_update is not None:
+            on_update(ToolResult.text(f"installed {names}; restarting ComfyUI"))
+        back = await _await_instance(abort)
+        if back is None:
+            return ToolResult.text(
+                f"installed {names} and restarted ComfyUI, but the instance has "
+                f"not answered in {_clock(_REBOOT_WAIT_S)}. comfy_probe to see whether it is "
+                "back; if not, the restart may have failed on the instance.",
+                is_error=True,
+            )
+        return ToolResult.text(
+            f"installed {names} and restarted ComfyUI — it answers again "
+            f"({_clock(back)} to come back). comfy_node_spec the node class you need to "
+            "confirm it loaded before emitting a workflow that uses it."
+        )
 
     @staticmethod
-    async def _install_from_repo(repo: str, abort, on_update) -> ToolResult:
-        """One pack from its repository — see _install_from_repos."""
-        return await ComfyNodeInstallTool._install_from_repos([repo], abort, on_update)
+    async def _install_through_manager(repos: list[str], why_no_portal: str, abort, on_update) -> ToolResult:
+        """A plain address has no portal to clone on; its ComfyUI-Manager, when it has one, installs
+        the same packs from its registry. A pinned commit cannot be asked of Manager — said, not hidden."""
+        names = ", ".join(f"custom_nodes/{gpu_node_pack_worker.repository(r)[1]}" for r in repos)
+        by_hand = (f"Tell the user to install it themselves: clone {', '.join(repos)} into their "
+                   f"ComfyUI's custom_nodes folder (as {names}), pip install each requirements.txt "
+                   "if there is one, and restart ComfyUI — then call comfy_validate again.")
+        if not _manager_present():
+            return ToolResult.text(f"{why_no_portal}, and it has no ComfyUI-Manager. {by_hand}", is_error=True)
+        catalog, catalog_error = _node_catalog()
+        if not catalog:
+            return ToolResult.text(f"{catalog_error}. {by_hand}", is_error=True)
+        found, absent = [], []
+        for repo in repos:
+            hit = _resolve_pack(catalog, gpu_node_pack_worker.repository(repo)[0])
+            (found.append(hit) if hit else absent.append(repo))
+        if absent:
+            return ToolResult.text(f"{why_no_portal}, and ComfyUI-Manager's registry does not list "
+                                   f"{', '.join(absent)}. {by_hand}", is_error=True)
+        res = await ComfyNodeInstallTool._manager_install(found, abort, on_update)
+        pinned = [r for r in repos if gpu_node_pack_worker.pinned(r)[1]]
+        if pinned and not res.is_error:
+            return ToolResult.text(res.content[0].text + "\nThrough Manager, so at its LATEST version, not the "
+                                   f"commit the recipe was checked at: {', '.join(pinned)}. If a stage fails on "
+                                   "one of its nodes, that is the likely cause — say so to the user.")
+        return res
 
     @staticmethod
     async def _install_from_repos(repos: list[str], abort, on_update) -> ToolResult:
@@ -2364,13 +2426,7 @@ class ComfyNodeInstallTool(Tool):
         try:
             portal = _portal_connection(_override() or {})
         except ValueError as e:
-            names = ", ".join(f"custom_nodes/{gpu_node_pack_worker.repository(r)[1]}" for r in repos)
-            return ToolResult.text(
-                f"{e}. Tell the user to install it themselves: clone {', '.join(repos)} into their "
-                f"ComfyUI's custom_nodes folder (as {names}), pip install each requirements.txt "
-                "if there is one, and restart ComfyUI — then call comfy_validate again.",
-                is_error=True,
-            )
+            return await ComfyNodeInstallTool._install_through_manager(repos, str(e), abort, on_update)
 
         def report(message):
             if on_update:
@@ -2601,6 +2657,7 @@ class ComfyValidateTool(Tool):
                     try:
                         artifacts, manifest = WorkflowInstallerExporter(
                             Path(current_workspace(".") or "."), get=_get,
+                            known_files=KnowledgeBaseCatalog.shipped().model_sources(),
                         ).export(path, graph, catalogue)
                         export_note = "\nPortable installer: " + artifacts[0] + "\nDependency manifest: " + artifacts[1]
                         if manifest["unresolved"]:
@@ -2956,7 +3013,7 @@ def register(api, ctx):
     api.register_tool(ComfyReferenceAssignTool())
     api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyPriceTool())
-    api.register_tool(ComfyConnectTool())
+    api.register_tool(ComfyConnectTool(release_rented=_release_rented))
     api.register_tool(ComfyRunTool())
     api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())
@@ -3008,9 +3065,10 @@ def register(api, ctx):
         install_models=lambda files, abort, upd: ComfyInstallTool().execute("", {"files": files}, abort, upd),
         install_packs=ComfyNodeInstallTool._install_from_repos,
         timeout_s=_WAIT_ATTEMPT_S, max_retries=_WAIT_ATTEMPTS,
+        own_machine=_own_connection,
     ))
     api.register_tool(PipelineRunTool(
-        run=lambda path, abort, upd: ComfyRunTool().execute(
+        run=lambda path, fed, abort, upd: ComfyRunTool(fed).execute(
             "", {"workflow_path": path, "timeout_s": _RUN_WAIT_CAP_S}, abort, upd),
         run_status=lambda prompt_id, abort, upd: ComfyRunStatusTool().execute(
             "", {"prompt_id": prompt_id, "timeout_s": _RUN_WAIT_CAP_S}, abort, upd),

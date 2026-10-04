@@ -37,7 +37,7 @@ def settings_from_env() -> InstanceSettings:
         # safe here. Duplicating it meant one place got fixed and the other kept renting
         # machines to pull an image that does not exist.
         image=os.environ.get("VAST_IMAGE", "").strip() or InstanceSettings.image,
-        disk_gb=int(os.environ.get("VAST_DISK_GB", "") or 60),
+        disk_gb=int(os.environ.get("VAST_DISK_GB", "") or InstanceSettings.disk_gb),
         comfy_port=int(os.environ.get("VAST_COMFY_PORT", "") or 8188),
         max_hourly_usd=float(
             os.environ.get("VAST_MAX_HOURLY_USD", "") or InstanceSettings.max_hourly_usd

@@ -549,6 +549,13 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
         return True, ""
     if name in _template_steps():
         return True, ""
+    rec_card = _card()
+    card = PipelineCard(rec_card.get("card") or {}, rec_card.get("stages"))
+    if name in card.stage_names and rec_card.get("approved_at"):
+        # THE CARD WAS ANSWERED ALREADY. A later ask (a review point's "is this right?") re-stamps
+        # the checkpoint with ITS question; judged against that, the rest of an approved design was
+        # refused as "they approved something else". A new card (record_card) clears this.
+        return True, ""
     rec = ((_read_json(_CHECKPOINT_FILE).get("sessions") or {}).get(session) or {})
     presented = float(rec.get("presented_at") or 0.0)
     answered = float(rec.get("answered_at") or 0.0)
@@ -563,8 +570,6 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
             f"'{name}': the ask was presented but the user has not answered it. Do nothing more "
             "this turn — the answer arrives as their next message."
         )
-    rec_card = _card()
-    card = PipelineCard(rec_card.get("card") or {}, rec_card.get("stages"))
     if name in card.stage_names:
         if "presented" not in rec:
             return False, (
@@ -579,7 +584,33 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
                 f"changed {'; '.join(changed)}. They approved something else. Call pipeline_present, "
                 "then ask_user with EXACTLY its arguments, and end the turn."
             )
+        _approve_card(answered)
     return True, ""
+
+
+def design_approved(stages: list[str]) -> str:
+    """'' when every one of `stages` was on the approval card this conversation's person answered;
+    otherwise what to do. Provision and run ask this before anything is installed or rendered."""
+    unshown = [s for s in stages if s not in presented_stages()]
+    if unshown:
+        return (f"the design was never put to the person as a whole ({', '.join(unshown)} not on an approval "
+                "card): pipeline_present, then ask_user with exactly its arguments, and wait for the answer.")
+    for stage in stages:
+        ok, why = checkpoint_answered(stage)
+        if not ok:
+            return why
+    return ""
+
+
+def _approve_card(answered_at: float) -> None:
+    """The person answered THIS card: its stages stay approved through later asks."""
+    data = _read_json(_CARD_FILE)
+    sessions = data.get("sessions") or {}
+    mine = sessions.get(_session())
+    if not mine:
+        return
+    mine["approved_at"] = answered_at
+    _write_json(_CARD_FILE, {"sessions": _prune(sessions)})
 
 
 def record_card(card: dict, stages: list[str]) -> None:

@@ -26,7 +26,7 @@ from pipeline import Pipeline, Stage
 from pipeline_run_record import DONE, RENDERING, PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 
-Run = Callable[[str, object, object], Awaitable[ToolResult]]  # (workflow_path, abort, on_update)
+Run = Callable[[str, dict, object, object], Awaitable[ToolResult]]  # (workflow_path, fed, abort, on_update)
 RunStatus = Callable[[str, object, object], Awaitable[ToolResult]]  # (prompt_id, abort, on_update)
 Download = Callable[[list, object, object], Awaitable[ToolResult]]  # ([{filename, subfolder, type}], …)
 
@@ -63,12 +63,9 @@ class PipelineRunTool(Tool):
             pipeline = ctx.store.load()
             if pipeline is None:
                 return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
-            unshown = [s.name for s in pipeline.stages if s.name not in studio_state.presented_stages()]
-            if unshown:
-                return ToolResult.text(
-                    f"the design was never put to the person as a whole ({', '.join(unshown)} not on an approval "
-                    "card): pipeline_present, then ask_user with exactly its arguments, and wait for the answer.",
-                    is_error=True)
+            refused = studio_state.design_approved([s.name for s in pipeline.stages])
+            if refused:
+                return ToolResult.text(refused, is_error=True)
             record = PipelineRunRecord(ctx.workspace)
             asked = str(params.get("stage") or "").strip()
             name = asked or record.next_to_run(pipeline)
@@ -83,12 +80,12 @@ class PipelineRunTool(Tool):
             if record.status(name) == RENDERING and pending.get("prompt_id") and not asked:
                 res = await self._run_status(pending["prompt_id"], abort, on_update)
             else:
-                problem = self._hand_over(ctx, pipeline, stage, record)
+                problem, fed = self._hand_over(ctx, pipeline, stage, record)
                 if problem:
                     return ToolResult.text(problem, is_error=True)
                 if asked:
                     record.stale_after(pipeline, name)
-                res = await self._run(ctx.store.rel(f"{stage.name}.api.json"), abort, on_update)
+                res = await self._run(ctx.store.rel(f"{stage.name}.api.json"), fed, abort, on_update)
             text = res.content[0].text if res.content else ""
             if res.is_error:
                 record.failed(name, text)
@@ -104,27 +101,33 @@ class PipelineRunTool(Tool):
     # ------------------------------------------------------------------ hand-over
 
     @staticmethod
-    def _hand_over(ctx: PipelineToolContext, pipeline: Pipeline, stage: Stage, record: PipelineRunRecord) -> str:
-        """Put each earlier stage's output in the slot this stage reads it through. '' when done."""
+    def _hand_over(ctx: PipelineToolContext, pipeline: Pipeline, stage: Stage,
+                   record: PipelineRunRecord) -> tuple[str, dict[str, str]]:
+        """(problem or '', {role: the earlier stage's recorded output}). The run uploads the RECORDED
+        file — the host downloaded it, so the host can send it. The copy into the slot folder is for
+        the References panel only: on a microVM it is made inside the sandbox and reaches the host
+        after the call, too late for an upload made during it."""
         folder = reference_slots.folder(ctx.workspace)
+        fed: dict[str, str] = {}
         for inp in stage.inputs:
             prod = inp.producer
             if not prod:
                 continue
             if record.status(prod[0]) != DONE:
-                return f"stage {stage.name} needs {prod[0]}'s {prod[1]} — run {prod[0]} first (pipeline_run)."
+                return f"stage {stage.name} needs {prod[0]}'s {prod[1]} — run {prod[0]} first (pipeline_run).", {}
             files = record.output_files(prod[0], prod[1])
             if not files:
-                return f"stage {prod[0]} ran but produced no '{prod[1]}' — check its result before going on."
+                return f"stage {prod[0]} ran but produced no '{prod[1]}' — check its result before going on.", {}
             src = ctx.workspace / files[0]
             if not src.is_file():
-                return f"{files[0]} (stage {prod[0]}'s {prod[1]}) is not in the workspace any more — run {prod[0]} again."
+                return f"{files[0]} (stage {prod[0]}'s {prod[1]}) is not in the workspace any more — run {prod[0]} again.", {}
             folder.mkdir(parents=True, exist_ok=True)
             for old in folder.iterdir():  # one file per role
                 if old.is_file() and old.stem == inp.role:
                     old.unlink()
             shutil.copyfile(src, folder / f"{inp.role}{src.suffix.lower()}")
-        return ""
+            fed[inp.role] = files[0]
+        return "", fed
 
     # ------------------------------------------------------------------ collect
 

@@ -36,21 +36,28 @@ class ModelInstallationService:
         listed = self.loadable()
         present = {f["filename"]: listed[_base(f["filename"])]
                    for f in files if _base(f["filename"]) in listed}
-        plans = []
+        plans, refused = [], []
         for file in files:
             if file["filename"] in present:
                 continue
             entry = next((m for m in catalog if str(m.get("filename", "")).lower()
                           == file["filename"].lower()), None)
-            # Validate all uncatalogued requests BEFORE starting any expensive transfer.
+            # Validate all uncatalogued requests BEFORE starting any expensive transfer. ONE file
+            # that cannot be fetched (a format the direct downloader refuses, a gated link the key
+            # cannot open) is set aside and named — it does not stop the rest of the batch.
             try:
-                request = ModelDownloadRequest(**file)
-            except ValueError:
-                if entry is None:
-                    raise
-                request = None  # Manager may support formats/hosts direct downloads forbid.
-            else:
-                request = ModelDownloadRequest(**self.resolve_source(file))
+                try:
+                    request = ModelDownloadRequest(**file)
+                except ValueError:
+                    if entry is None:
+                        raise
+                    request = None  # Manager may support formats/hosts direct downloads forbid.
+                else:
+                    request = ModelDownloadRequest(**self.resolve_source(file))
+            except ValueError as error:
+                refused.append(f"{file['filename']} ({error})")
+                report(f"{file['filename']}: not installable here: {error}")
+                continue
             plans.append((file, entry, request))
         queued, waiting, direct = [], [], []
         manager_files = {}
@@ -137,9 +144,15 @@ class ModelInstallationService:
         pending = queued + waiting + [r.filename for r in direct]
         landed = await self.await_loadable(pending, abort) if pending else {}
         missing = [f for f in pending if f not in landed]
-        if missing:
-            raise ValueError("ComfyUI does not list: " + ", ".join(missing)
-                             + ". Installation is NOT confirmed; do not claim the files downloaded or run yet.")
+        if missing or refused:
+            parts = []
+            if missing:
+                parts.append("ComfyUI does not list: " + ", ".join(missing)
+                             + " — installation is NOT confirmed; do not claim the files downloaded or run yet")
+            if refused:
+                parts.append("NOT installed: " + "; ".join(refused))
+            done = [f for f in pending if f in landed] + list(present)
+            raise ValueError(". ".join(parts) + (f". Installed: {', '.join(done)}" if done else "") + ".")
         if abort is not None and abort.is_set():
             raise ValueError("Install verification cancelled; success is unconfirmed")
         return {**present, **landed}

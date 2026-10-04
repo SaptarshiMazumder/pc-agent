@@ -131,6 +131,7 @@ class WorkflowInstallerRuntime:
 
     def install_pack(self, pack, constraints):
         repo = InstallerSourcePolicy.repository_url(pack["repository"])
+        revision = InstallerSourcePolicy.revision(pack.get("revision"))
         name = InstallerSourcePolicy.relative_path(pack["directory"])
         if "/" in name:
             raise ValueError("Node pack directory must be a basename")
@@ -142,6 +143,17 @@ class WorkflowInstallerRuntime:
             if InstallerSourcePolicy.repository_url(result.stdout.strip()) != repo:
                 raise ValueError(f"Existing node folder has a different source: {name}")
             print(f"Keeping existing node repository (no pull/reset): {name}")
+            if revision:
+                head = self.command(["git", "-C", str(destination), "rev-parse", "HEAD"],
+                                    check=True, capture_output=True, text=True).stdout.strip()
+                if not head.startswith(revision):
+                    print(f"MANUAL STEP: {name} is at {head[:12]}; this workflow was checked with commit "
+                          f"{revision}. If its nodes fail: git -C custom_nodes/{name} checkout {revision}")
+        elif revision:
+            # PINNED: the whole history, then exactly that commit — a shallow clone has only the
+            # newest one, and a pack's newer version renamed inputs this workflow uses.
+            self.command(["git", "clone", "--", repo, str(destination)], check=True)
+            self.command(["git", "-C", str(destination), "checkout", "--force", revision], check=True)
         else:
             self.command(["git", "clone", "--depth", "1", "--", repo, str(destination)], check=True)
         requirements = destination / "requirements.txt"

@@ -36,6 +36,29 @@ class ModelDownloadRequest:
         "text_encoders": "text_encoders", "loras": "loras", "upscale_models": "upscale_models",
     }
 
+    #: Every models/ folder a download may land in: ComfyUI's own (folder_paths) and the ones the
+    #: knowledge base's node packs read. A kind is one of these, or a safe subfolder of one
+    #: (insightface/models/antelopev2). Anything else is refused — a download never writes outside
+    #: models/.
+    FOLDERS = frozenset({
+        "checkpoints", "diffusion_models", "unet", "vae", "text_encoders", "clip", "loras", "controlnet",
+        "upscale_models", "clip_vision", "style_models", "latent_upscale_models", "model_patches",
+        "audio_encoders", "embeddings", "hypernetworks", "gligen", "photomaker", "vae_approx",
+        "ipadapter", "pulid", "instantid", "insightface", "facexlib", "sam2", "sam3", "detection",
+        "FlashVSR", "infinite_you", "geometry_estimation", "xlabs",
+    })
+
+    @classmethod
+    def folder_of(cls, kind: str) -> str | None:
+        """The models/ folder a kind names, or None when it names none."""
+        kind = str(kind or "").strip().strip("/")
+        if kind in cls.DIRECTORIES:
+            return cls.DIRECTORIES[kind]
+        parts = kind.split("/")
+        if parts[0] in cls.FOLDERS and len(parts) <= 4 and all(re.fullmatch(r"[\w][\w.-]{0,80}", p) for p in parts):
+            return kind
+        return None
+
     def __post_init__(self):
         # A MODEL NAME MAY CARRY ITS SUBFOLDER — `Krea2/lora.safetensors` is how a workflow names
         # a file ComfyUI lists from models/loras/Krea2/, and a Windows-made workflow writes it
@@ -49,7 +72,7 @@ class ModelDownloadRequest:
                 or any(not re.fullmatch(r"[\w][\w .()\[\]-]{0,100}", f) for f in folders)):
             raise ValueError("GPU direct downloads require a file ending in .safetensors, optionally "
                              "inside a subfolder (Folder/file.safetensors)")
-        if self.kind not in self.DIRECTORIES:
+        if self.folder_of(self.kind) is None:
             raise ValueError(f"Unsupported model kind: {self.kind}")
         self._check_url()
 
@@ -80,7 +103,7 @@ class ModelDownloadRequest:
 
     @property
     def directory(self) -> str:
-        return self.DIRECTORIES[self.kind]
+        return self.folder_of(self.kind) or ""
 
     @property
     def job_id(self) -> str:

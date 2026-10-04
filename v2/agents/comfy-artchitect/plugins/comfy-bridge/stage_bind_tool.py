@@ -15,6 +15,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 from pipeline import StageInput
+from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
@@ -60,8 +61,10 @@ class StageBindTool(Tool):
                     ctx.store.save(pipeline, only={stage.name})
                 except StageBuildError as e:
                     return ToolResult.text(str(e), is_error=True)
+                stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
                 report = ctx.validate(pipeline)
-                return ToolResult.text(f"stage {stage.name}.{name} <- {source}\n" + render_report(report),
+                return ToolResult.text(f"stage {stage.name}.{name} <- {source}\n" + render_report(report)
+                                       + PipelineRunRecord.describe_stale(stale),
                                        details={"holds": report.holds}, is_error=not report.holds)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"stage_bind failed: {type(e).__name__}: {e}", is_error=True)

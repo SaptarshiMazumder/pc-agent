@@ -13,14 +13,16 @@ next `status`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 from agent_runtime.infrastructure.net.outbound import fetch
 
-from account_connection_repository import RENTED, USER_VAST, AccountConnectionRepository
+from account_connection_repository import OWN, RENTED, USER_VAST, AccountConnectionRepository
 from comfy_connection_probe import ComfyConnectionProbe
+from comfy_connection_resolver import ComfyConnectionResolver
 from model_storage_detector import DISK, VOLUME, WORKSPACE_VOLUME
 from model_storage_setup_client import PENDING, ModelStorageSetupClient
 from vast_account_client import VastAccountClient
@@ -58,7 +60,12 @@ def _settle_storage(repository: AccountConnectionRepository, record: dict | None
     storage = (record or {}).get("storage") or {}
     if storage.get("kind") != PENDING:
         return record
-    answer = ModelStorageSetupClient(fetch=fetch).read(record, storage["nonce"])
+    try:
+        answer = ModelStorageSetupClient(fetch=fetch).read(record, storage["nonce"])
+    except ValueError as e:
+        # The check failed on the machine: kept as unchecked with its reason, as connect does —
+        # left pending, every `status` raised the same failure again and nothing settled it.
+        answer = {"kind": _UNCHECKED, "error": str(e)}
     if answer is None:
         return record
     record = {**record, "storage": answer}
@@ -95,13 +102,24 @@ class ComfyConnectTool(Tool):
         },
     }
 
+    def __init__(self, release_rented: Callable[[], None]) -> None:
+        # Gives the platform's rented GPU back (POST /vast/release). Called when the account
+        # switches to the person's own machine: the window's heartbeat kept the rented one alive,
+        # and billing, for as long as the chat stayed open.
+        self._release_rented = release_rented
+
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        repository = AccountConnectionRepository(Path(current_workspace(".") or "."))
+        root = Path(current_workspace(".") or ".")
+        repository = AccountConnectionRepository(root)
+        resolver = ComfyConnectionResolver(root, repository)
         action = str(params.get("action") or "")
         try:
+            was_rented = resolver.choice() == RENTED
+            note = ""
             if action == "status":
                 view = _view(_settle_storage(repository, repository.read()))
             elif action == "rent":
+                resolver.forget_rented_address()  # gpu_ensure writes the one it starts
                 repository.save({"kind": RENTED})
                 view = _view(repository.read())
             elif action == "connect":
@@ -116,9 +134,21 @@ class ComfyConnectTool(Tool):
                 return ToolResult.text(
                     "action must be connect, rent, status, vast_machines or use_vast_machine", is_error=True
                 )
-            return ToolResult.text(self._say(view), details=view)
+            if was_rented and view["kind"] in OWN:
+                resolver.forget_rented_address()
+                note = self._give_back()
+            return ToolResult.text(self._say(view) + note, details=view)
         except ValueError as e:
             return ToolResult.text(f"comfy_connect: {e}", is_error=True)
+
+    def _give_back(self) -> str:
+        """The switch is made either way; a release the platform did not confirm is said."""
+        try:
+            self._release_rented()
+        except ValueError as e:
+            return (f"\nThe GPU rented before could not be given back ({e}). It stops by itself after "
+                    "ten minutes nobody uses it — tell the user, in case they want to check.")
+        return "\nThe GPU rented before was given back, so it no longer uses credits."
 
     @staticmethod
     def _connect(repository: AccountConnectionRepository, record: dict) -> dict:

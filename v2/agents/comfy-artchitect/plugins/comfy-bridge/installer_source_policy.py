@@ -62,3 +62,22 @@ class InstallerSourcePolicy:
         if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
             raise ValueError("Node source must be a credential-free GitHub repository")
         return value
+
+    @staticmethod
+    def pinned_repository(value):
+        """(repository URL, commit or None) from `https://github.com/o/r@<commit>` or a plain link.
+        A recipe pins a pack to the commit it was checked at; the installer checks that out."""
+        value = str(value).strip()
+        match = re.fullmatch(r"(.+)@([0-9a-f]{7,40})", value)
+        if match:
+            return InstallerSourcePolicy.repository_url(match.group(1)), match.group(2)
+        return InstallerSourcePolicy.repository_url(value), None
+
+    @staticmethod
+    def revision(value):
+        """A commit to check out, or None. Anything else is refused: it reaches a git command line."""
+        if value is None:
+            return None
+        if not re.fullmatch(r"[0-9a-f]{7,40}", str(value)):
+            raise ValueError("Node pack revision must be a commit hash")
+        return str(value)

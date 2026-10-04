@@ -19,6 +19,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 import studio_state
+from model_download_request import ModelDownloadRequest
 from pipeline import Pipeline
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import DISK_GB, DISK_HEADROOM_GB
@@ -36,12 +37,16 @@ InstallPacks = Callable[[list, object, object], Awaitable[ToolResult]]
 class _LiveState:
     missing: dict[str, list[str]] = field(default_factory=dict)  # stage -> missing model files
     unknown: dict[str, list[str]] = field(default_factory=dict)  # stage -> node classes the box lacks
+    # stage -> the box's own report, when it refuses the stage for anything else (a value it does
+    # not accept, a rule it breaks): nothing to install, but the stage does not run either.
+    broken: dict[str, str] = field(default_factory=dict)
     packs: set[str] = field(default_factory=set)  # repos the recipes need
     unreachable: str = ""
 
     @property
     def ready(self) -> bool:
-        return not self.unreachable and not any(self.missing.values()) and not any(self.unknown.values())
+        return (not self.unreachable and not any(self.missing.values()) and not any(self.unknown.values())
+                and not self.broken)
 
 
 class PipelineProvisionTool(Tool):
@@ -58,11 +63,14 @@ class PipelineProvisionTool(Tool):
     parameters = {"type": "object", "properties": {}}
 
     def __init__(self, validate: Validate, install_models: InstallModels, install_packs: InstallPacks,
-                 timeout_s: float, max_retries: int,
+                 timeout_s: float, max_retries: int, own_machine: Callable[[], bool],
                  context: Callable[[], PipelineToolContext] | None = None) -> None:
         self._validate = validate
         self._install_models = install_models
         self._install_packs = install_packs
+        # The person's own ComfyUI (their Vast machine, or a link they gave): nothing to start, and
+        # its disk is theirs — the rented GPU's disk size says nothing about it.
+        self._own_machine = own_machine
         self._context = context or (lambda: PipelineToolContext.for_workspace(Path(current_workspace(".") or ".")))
         # A model download is minutes: the same declared wait as comfy_install, whose call this holds.
         self.default_timeout_sec = timeout_s
@@ -74,16 +82,13 @@ class PipelineProvisionTool(Tool):
             pipeline = ctx.store.load()
             if pipeline is None:
                 return ToolResult.text("no pipeline in this chat yet — pipeline_plan first", is_error=True)
-            unshown = [s.name for s in pipeline.stages if s.name not in studio_state.presented_stages()]
-            if unshown:
-                return ToolResult.text(
-                    f"the design was never put to the person as a whole ({', '.join(unshown)} not on an approval "
-                    "card): pipeline_present, then ask_user with exactly its arguments, and wait for the answer.",
-                    is_error=True)
+            refused = studio_state.design_approved([s.name for s in pipeline.stages])
+            if refused:
+                return ToolResult.text(refused, is_error=True)
+            own = self._own_machine()
             state = await self._check(ctx, pipeline, abort)
             if state.unreachable:
-                return ToolResult.text("the GPU is not reachable — call gpu_ensure, then pipeline_provision "
-                                       f"again.\n  {state.unreachable}", is_error=True)
+                return self._unreachable(own, state.unreachable)
             lines = []
             packs = sorted(state.packs) if any(state.unknown.values()) else []
             if packs:
@@ -91,10 +96,14 @@ class PipelineProvisionTool(Tool):
                 lines.append(f"node packs {', '.join(packs)}: " + ("FAILED" if res.is_error else "installed"))
                 if res.is_error:
                     return ToolResult.text("\n".join(lines) + "\n" + res.content[0].text, is_error=True)
-            files, unsourced = self._install_list(ctx, state.missing)
-            need_gb = sum(int((ctx.catalog.describe_file(f["filename"]) or (None, {}))[1].get("bytes") or 0)
-                          for f in files) / 1e9
-            if need_gb > DISK_GB - DISK_HEADROOM_GB:
+                # PACKS FIRST, THEN LOOK AGAIN: a pack's own loaders list their model folders only once
+                # the pack is loaded, so the files they need show up as missing only now.
+                state = await self._check(ctx, pipeline, abort)
+                if state.unreachable:
+                    return self._unreachable(own, state.unreachable)
+            files, unsourced = self._install_list(ctx, pipeline, state.missing)
+            need_gb = sum(ctx.catalog.file_bytes(f["filename"]) or 0 for f in files) / 1e9
+            if not own and need_gb > DISK_GB - DISK_HEADROOM_GB:
                 # Said BEFORE a byte moves: a disk that fills halfway leaves a box with half a design.
                 return ToolResult.text(
                     f"the missing models come to {need_gb:.1f} GB; the rented GPU keeps "
@@ -109,7 +118,7 @@ class PipelineProvisionTool(Tool):
                 lines.append(res.content[0].text)
                 if res.is_error:
                     return ToolResult.text("\n".join(lines), is_error=True)
-            if packs or files:
+            if files:
                 state = await self._check(ctx, pipeline, abort)
             if state.ready:
                 lines.append(f"ready: all {len(pipeline.stages)} stage(s) compile on the GPU with every model "
@@ -120,9 +129,21 @@ class PipelineProvisionTool(Tool):
                 if any(state.unknown.values()):
                     lines.append("node classes the GPU does not have: "
                                  + ", ".join(sorted({c for v in state.unknown.values() for c in v})))
+                for name, report in state.broken.items():
+                    lines.append(f"stage {name} does not compile on this GPU, with nothing left to install:\n{report}")
             return ToolResult.text("\n".join(lines), details={"ready": state.ready}, is_error=not state.ready)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_provision failed: {type(e).__name__}: {e}", is_error=True)
+
+    @staticmethod
+    def _unreachable(own: bool, why: str) -> ToolResult:
+        if own:
+            return ToolResult.text(
+                "the person's own ComfyUI did not answer — nothing here can start it. Ask them to check that "
+                f"it is running and that the link still works, then call pipeline_provision again.\n  {why}",
+                is_error=True)
+        return ToolResult.text(f"the GPU is not reachable — call gpu_ensure, then pipeline_provision again.\n  {why}",
+                               is_error=True)
 
     # ------------------------------------------------------------------ live check
 
@@ -141,25 +162,37 @@ class PipelineProvisionTool(Tool):
             rec = studio_state.validation(stage.name)
             state.missing[stage.name] = list(rec.get("missing_files") or [])
             state.unknown[stage.name] = list(rec.get("unknown_classes") or [])
+            if res.is_error and not state.missing[stage.name] and not state.unknown[stage.name]:
+                state.broken[stage.name] = text
             if not stage.custom:
                 state.packs.update(ctx.builder.recipe_of(stage).pack_links)
         return state
 
     @staticmethod
-    def _install_list(ctx: PipelineToolContext, missing: dict[str, list[str]]) -> tuple[list[dict], list[str]]:
+    def _install_list(ctx: PipelineToolContext, pipeline: Pipeline,
+                      missing: dict[str, list[str]]) -> tuple[list[dict], list[str]]:
         """[{filename, url, kind}] for every missing file the knowledge base describes (once each),
-        and the names it does not."""
+        and the names it does not. The stage's OWN family is asked first: one file name can sit in
+        two families under different folders (a FLUX checkpoint the controlnet family also lists),
+        and the wrong folder makes the file "installed" yet never loadable — a loop."""
         files, unsourced, seen = [], [], set()
-        for names in missing.values():
+        for stage_name, names in missing.items():
+            stage = pipeline.stage(stage_name)
+            own = ctx.catalog.families.get(stage.family) if stage is not None and stage.family else None
             for name in names:
                 base = name.replace("\\", "/").rsplit("/", 1)[-1]
                 if base in seen:
                     continue
                 seen.add(base)
-                found = ctx.catalog.describe_file(base)
-                rec = found[1] if found else None
+                rec = own.file(base) if own is not None else None
+                if rec is None:
+                    found = ctx.catalog.describe_file(base)
+                    rec = found[1] if found else None
                 if not rec or not rec.get("url") or not rec.get("folder"):
                     unsourced.append(base)
+                    continue
+                if ModelDownloadRequest.folder_of(str(rec["folder"])) is None:
+                    unsourced.append(f"{base} (its node pack sets it up: {rec['folder']})")
                     continue
                 files.append({"filename": base, "url": str(rec["url"]), "kind": str(rec["folder"])})
         return files, unsourced

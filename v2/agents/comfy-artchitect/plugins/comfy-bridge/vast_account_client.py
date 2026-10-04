@@ -13,6 +13,7 @@ the person set one. Which of them the portal accepts is settled by asking it
 
 from __future__ import annotations
 
+from connection_value_guard import ConnectionValueGuard
 _API = "https://console.vast.ai/api/v0"
 _AUTH = {"Authorization": "Bearer ${USER_VAST_API_KEY}", "Accept": "application/json"}
 _PORTAL_PORT = "1111"
@@ -44,6 +45,7 @@ class VastAccountClient:
                 "that Vast machine publishes no Instance Portal — rent it with Vast's ComfyUI template"
             )
         tokens = [t for t in (self._env(row, "OPEN_BUTTON_TOKEN"), str(row.get("jupyter_token") or "")) if t]
+        ConnectionValueGuard.check("the machine's access token", ip, *tokens)
         if not tokens:
             raise ValueError("Vast reported no access token for that machine")
         return {

@@ -14,6 +14,7 @@ Nothing is saved until the address has answered as one of the two.
 
 from __future__ import annotations
 
+from connection_value_guard import ConnectionValueGuard
 import base64
 import re
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
@@ -26,6 +27,7 @@ class ComfyConnectionProbe:
         self._fetch = fetch
 
     def probe(self, pasted: str) -> dict:
+        ConnectionValueGuard.check("the link", pasted)
         parts = urlsplit((pasted or "").strip())
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise ValueError("that is not a web address — paste a link that starts with http:// or https://")
@@ -75,6 +77,7 @@ class ComfyConnectionProbe:
                 "with Vast's ComfyUI template, or paste the ComfyUI link itself"
             )
         url = str(comfy["direct_url"]).rstrip("/")
+        ConnectionValueGuard.check("the address the Vast machine reports", url)
         self._comfy(url, "", bearer)
         return {"kind": USER_VAST, "url": url, "auth": bearer, "portal_url": portal, "label": label}
 

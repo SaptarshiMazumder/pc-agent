@@ -3,7 +3,8 @@
 Per stage: its status, the prompt it is rendering (a video outlives one tool call), and the files it
 produced, by output name. The run reads it to hand a stage's output to the stages after it; the
 agent reads it (pipeline_status) to say where the job is. Re-running a stage marks every stage
-after it STALE — their inputs are about to change — so nothing downstream is shown as current.
+after it STALE — their inputs are about to change — and changing a stage's design marks it and every
+stage after it STALE, so nothing that no longer matches the design is shown as current or handed on.
 """
 
 from __future__ import annotations
@@ -46,14 +47,33 @@ class PipelineRunRecord:
         self._set(name, {"status": FAILED, "prompt_id": "", "outputs": {}, "why": why[:500]})
 
     def stale_after(self, pipeline: Pipeline, name: str) -> list[str]:
-        """Mark every stage after `name` stale; returns their names."""
+        """Mark every stage after `name` stale (`name` is about to run again); returns those marked."""
+        return self._mark_stale(pipeline, name, inclusive=False)
+
+    def stale_from(self, pipeline: Pipeline, name: str) -> list[str]:
+        """`name`'s design changed: its result and every later stage's no longer match it. Returns
+        the stages that had a result and are now stale."""
+        return self._mark_stale(pipeline, name, inclusive=True)
+
+    @staticmethod
+    def describe_stale(marked: list[str]) -> str:
+        """The line an edit tool adds when its change made earlier results stale; '' when none did."""
+        if not marked:
+            return ""
+        return (f"\nno longer current (made before this change): {', '.join(marked)} — "
+                "pipeline_run redoes them from the first.")
+
+    def _mark_stale(self, pipeline: Pipeline, name: str, inclusive: bool) -> list[str]:
         names = [s.name for s in pipeline.stages]
-        later = names[names.index(name) + 1:] if name in names else []
-        for n in later:
-            if n in self._data:
-                self._data[n]["status"] = STALE
-        self._save()
-        return later
+        if name not in names:
+            return []
+        start = names.index(name) + (0 if inclusive else 1)
+        marked = [n for n in names[start:] if n in self._data and self._data[n].get("status") != STALE]
+        for n in marked:
+            self._data[n]["status"] = STALE
+        if marked:
+            self._save()
+        return marked
 
     def next_to_run(self, pipeline: Pipeline) -> str | None:
         for s in pipeline.stages:

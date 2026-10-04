@@ -244,10 +244,7 @@ class KbLookupTool(Tool):
             + (f", RAW footage/photo: computes the {s['raw']} itself" if s.get("raw") else "") + ")"
             for n, s in r.inputs.items()) or "nothing"))
         lines.append("  makes: " + ", ".join(f"{n} ({s.get('type')})" for n, s in r.outputs.items()))
-        size = 0
-        for f in r.files:
-            rec = fam.file(f) or {}
-            size += rec.get("bytes") or 0
+        size = sum(ctx.catalog.file_bytes(f) or 0 for f in r.files)
         lines.append(f"  files: {len(r.files)}, {size / 1e9:.1f} GB" + (f"; packs: {r.packs}" if r.packs else ""))
         ve = r.meta.get("vram_evidence") or {}
         if ve:

@@ -129,9 +129,11 @@ class ModelReadiness:
         return out
 
     def contains(self, request):
-        fields = self.DIRECTORY_FIELDS[request.directory]
+        """Does a loader list this file? Folders without a known loader field (clip_vision,
+        latent_upscale_models, a pack's own folder) are answered from every loader's list."""
+        fields = self.DIRECTORY_FIELDS.get(request.directory)
         return any(
             PurePosixPath(value.replace("\\", "/")).name == request.basename
-            for _, field, choices in self.model_enums() if field in fields
+            for _, field, choices in self.model_enums() if fields is None or field in fields
             for value in choices
         )

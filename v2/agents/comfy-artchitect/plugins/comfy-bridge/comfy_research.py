@@ -35,14 +35,28 @@ _CLAMP = 14_000
 _MODEL_FILES = ModelFileUrlDetector()
 
 
+#: Where each token may go: a 401 from any other host must never be answered with it — a page a
+#: search turned up would otherwise collect the platform's Hugging Face key.
+_TOKEN_HOSTS = {"${HF_TOKEN}": "huggingface.co", "${CIVITAI_TOKEN}": "civitai.com"}
+
+
+def _token_may_go_to(url: str, token_placeholder: str) -> bool:
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(url).hostname or "").lower()
+    owner = _TOKEN_HOSTS.get(token_placeholder, "")
+    return bool(owner) and urlsplit(url).scheme == "https" and (host == owner or host.endswith("." + owner))
+
+
 def _web_get(url: str, token_placeholder: str | None = None, timeout_s: float = 30.0):
-    """GET a public URL; on 401/403 retry once carrying the named token.
+    """GET a public URL; on 401/403 retry once carrying the named token — only to that token's own
+    host (_TOKEN_HOSTS).
 
     Bare-first is load-bearing, not politeness — see the module docstring: an UNSET secret
     would otherwise poison every public request with a literal `${NAME}` header.
     """
     res = fetch(url, timeout_s=timeout_s)
-    if res.status in (401, 403) and token_placeholder:
+    if res.status in (401, 403) and token_placeholder and _token_may_go_to(url, token_placeholder):
         res = fetch(
             url,
             headers={"Authorization": f"Bearer {token_placeholder}"},

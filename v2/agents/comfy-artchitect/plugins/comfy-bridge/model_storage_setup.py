@@ -47,7 +47,7 @@ class ModelStorageSetup:
         if storage["kind"] != VOLUME:
             return {**storage, "models_dir": str(self._root / "models"), "restarted": False}
         models = Path(storage["path"]) / "ComfyUI" / "models"
-        for folder in sorted(set(ModelDownloadRequest.DIRECTORIES.values())):
+        for folder in sorted(set(ModelDownloadRequest.DIRECTORIES.values()) | ModelDownloadRequest.FOLDERS):
             (models / folder).mkdir(parents=True, exist_ok=True)
         changed = self._write_paths(models)
         if changed:
@@ -59,7 +59,7 @@ class ModelStorageSetup:
         path = self._root / "extra_model_paths.yaml"
         current = path.read_text(encoding="utf-8") if path.is_file() else ""
         lines = [_BEGIN, "agentd_volume:", f"    base_path: {json.dumps(str(models))}"]
-        lines += [f"    {f}: {f}" for f in sorted(set(ModelDownloadRequest.DIRECTORIES.values()))]
+        lines += [f"    {f}: {f}" for f in sorted(set(ModelDownloadRequest.DIRECTORIES.values()) | ModelDownloadRequest.FOLDERS)]
         block = "\n".join(lines + [_END]) + "\n"
         kept = re.sub(re.escape(_BEGIN) + r".*?" + re.escape(_END) + r"\n?", "", current, flags=re.S)
         updated = (kept.rstrip("\n") + "\n\n" if kept.strip() else "") + block
