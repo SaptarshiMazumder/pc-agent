@@ -69,7 +69,7 @@ class TemplateAboutFactsBuilder:
             out += [f"Model: {m.filename} ({m.kind})" for m in guide.models]
             out += [f"Node pack: {p.name} ({p.repository})" for p in guide.node_packs]
             paid = sorted({n for m in manifests for n in (self._json(m) or {}).get("paid_api_nodes") or []})
-            out.append("Paid services: " + (", ".join(paid) if paid else "none — runs on the machine's own GPU, 0 credits"))
+            out.append("Paid services: " + (", ".join(paid) if paid else "none — runs on Comfy Cloud on the person's Comfy plan, no extra credits"))
         if inputs:
             out.append("\n=== INPUTS THE PERSON FILLS ===")
             out += [f"@{i.get('role')}: {i.get('what') or ''}" for i in inputs]

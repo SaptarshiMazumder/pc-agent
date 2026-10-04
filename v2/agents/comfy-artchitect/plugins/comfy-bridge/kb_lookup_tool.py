@@ -20,7 +20,6 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
-from model_readiness import ModelReadiness
 from pipeline_tool_context import PipelineToolContext
 
 #: Index task id -> the profile `selection` task names that serve it.
@@ -113,17 +112,20 @@ class KbLookupTool(Tool):
             task = str(params.get("task") or "").strip()
             query = str(params.get("query") or "").strip()
             if query and not (family or task):
-                return ToolResult.text(self._search(ctx, query))
-            if family and recipe:
-                return ToolResult.text(self._recipe(ctx, family, recipe))
-            if family:
-                return ToolResult.text(self._family(ctx, family, task))
-            if task:
-                return ToolResult.text(self._task(ctx, task))
-            return ToolResult.text(
-                "families: " + ", ".join(sorted(ctx.catalog.families))
-                + "\ntasks: " + ", ".join(sorted(_TASK_FAMILY_TASKS))
-                + "\nCall with `task` to get the ranked picks.")
+                text = self._search(ctx, query)
+            elif family and recipe:
+                text = self._recipe(ctx, family, recipe)
+            elif family:
+                text = self._family(ctx, family, task)
+            elif task:
+                text = self._task(ctx, task)
+            else:
+                text = ("families: " + ", ".join(sorted(ctx.catalog.families))
+                        + "\ntasks: " + ", ".join(sorted(_TASK_FAMILY_TASKS))
+                        + "\nCall with `task` to get the ranked picks.")
+            skipped = "".join(f"\n! family '{name}' was skipped (it could not be read: {why[:160]}); every other "
+                              "family works" for name, why in ctx.catalog.broken.items())
+            return ToolResult.text(text + skipped)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"kb_lookup failed: {type(e).__name__}: {e}", is_error=True)
 
@@ -160,24 +162,6 @@ class KbLookupTool(Tool):
     # ------------------------------------------------------------------ by task
 
     @staticmethod
-    def _cloud_files(ctx: PipelineToolContext) -> set[str] | None:
-        """The model files Comfy Cloud lists in its loaders, by base name — from its node list as
-        captured (NodeRegistryCache); None when only the shipped list is at hand, which says nothing
-        about what Comfy Cloud has."""
-        if "captured" not in str(ctx.catalogue_source):
-            return None
-        names: set[str] = set()
-        for spec in (ctx.catalogue or {}).values():
-            inputs = (spec or {}).get("input") or {} if isinstance(spec, dict) else {}
-            for section in ("required", "optional"):
-                for entry in (inputs.get(section) or {}).values():
-                    values = entry[0] if isinstance(entry, list) and entry else None
-                    if isinstance(values, list):
-                        names.update(str(v).replace("\\", "/").rsplit("/", 1)[-1] for v in values
-                                     if isinstance(v, str) and v.lower().endswith(ModelReadiness.EXTENSIONS))
-        return names or None
-
-    @staticmethod
     def _cloud_note(recipe, cloud: set[str] | None, constraints: list) -> list:
         """A recipe's constraints as they stand ON COMFY CLOUD: 'gated' is a download hurdle, and
         a model Comfy Cloud already has is not downloaded — the label had the agent pass over the
@@ -195,7 +179,7 @@ class KbLookupTool(Tool):
         wanted = _TASK_FAMILY_TASKS.get(task, (task,))
         lines = [f"best free models for {task}, best first:"]
         ranked = ctx.task_index.ranked(task) if ctx.task_index else []
-        cloud = self._cloud_files(ctx)
+        cloud = ctx.cloud_files()
         listed = set()
         for choice in ranked:
             fam = ctx.catalog.families.get(choice.family)

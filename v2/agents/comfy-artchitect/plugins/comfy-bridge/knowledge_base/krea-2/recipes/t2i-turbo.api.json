@@ -1,0 +1,182 @@
+{
+  "recipe": {
+    "id": "t2i-turbo",
+    "family": "krea-2",
+    "task": "t2i",
+    "variant": "Krea 2 Turbo fp8_scaled, 8 steps, cfg 1, euler/simple, 1024x1024, ConditioningZeroOut negative - the default",
+    "from_template": "image_krea2_turbo_t2i (subgraph 'Text to Image (Krea-2 Turbo)' flattened; prompt_enhance and the optional style LoRA left off)",
+    "min_comfyui": "0.24.1",
+    "confidence": "official",
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "29",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "krea2_turbo_fp8_scaled.safetensors",
+      "qwen3vl_4b_fp8_scaled.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "packs": [],
+    "ports": {
+      "unet_name": {
+        "node": "10",
+        "input": "unet_name",
+        "note": "the Krea 2 Turbo build: Comfy Cloud has krea2_turbo_fp8_scaled (template), krea2_turbo_int8_convrot, krea2_turbo_bf16, krea2_turbo_mxfp8, krea2_turbo_nvfp4 — same 8-step settings"
+      },
+      "prompt": {
+        "node": "6",
+        "input": "text"
+      },
+      "seed": {
+        "node": "3",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "3",
+        "input": "steps",
+        "note": "8 = the distilled count (Krea README: 'run with 8 steps'; template 8)"
+      },
+      "cfg": {
+        "node": "3",
+        "input": "cfg",
+        "note": "keep 1.0: Turbo runs with CFG disabled (Krea README cfg 0 = ComfyUI cfg 1; template 1)"
+      },
+      "sampler": {
+        "node": "3",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "3",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
+      },
+      "width": {
+        "node": "5",
+        "input": "width"
+      },
+      "height": {
+        "node": "5",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "5",
+        "input": "batch_size"
+      }
+    },
+    "defaults_note": "The template's generation path exactly: krea2_turbo_fp8_scaled.safetensors, CLIPLoader qwen3vl_4b_fp8_scaled type krea2, qwen_image_vae, 1024x1024 (ResolutionSelector 1:1 at 1 MP), 8 steps, cfg 1, euler/simple, denoise 1, ConditioningZeroOut of the positive as the negative (no negative prompt). Seed 0 (template 594361197674106, randomize). Left out: the template's prompt enhancement (TextGenerate rewrites the prompt with Qwen3-VL first, ON by default) — here the prompt is encoded as written, the template's prompt_enhance=false path; and its optional style LoRA (krea2_darkbrush @0.8 behind 'Enable LoRA?', OFF by default) — LoRAs come through the stage's `loras`.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "Built from templates/image_krea2_turbo_t2i.json (Comfy-Org/workflow_templates main) on 2026-10-05; classes, inputs and enums checked against the captured Comfy Cloud node list 0.38.2; checked by the plugin validators."
+    ]
+  },
+  "graph": {
+    "10": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "krea2_turbo_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "11": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+        "type": "krea2",
+        "device": "default"
+      }
+    },
+    "12": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "A high-resolution, surreal digital illustration showing a human hand holding a martini glass. The image is overlaid with whimsical, expressive ink-style doodles, including a cartoon figure inside the glass, a drawn citrus wedge on the rim, and various abstract sketches and faces surrounding the glass against a clean, white background. The style seamlessly blends a realistic, lit photograph with loose, hand-drawn marker artistry, creating a playful and artistic juxtaposition.",
+        "clip": [
+          "11",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "6",
+          0
+        ]
+      }
+    },
+    "5": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "3": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 0,
+        "steps": 8,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "13",
+          0
+        ],
+        "latent_image": [
+          "5",
+          0
+        ],
+        "model": [
+          "10",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "3",
+          0
+        ],
+        "vae": [
+          "12",
+          0
+        ]
+      }
+    },
+    "29": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "8",
+          0
+        ],
+        "filename_prefix": "krea-2/t2i_turbo"
+      }
+    }
+  }
+}

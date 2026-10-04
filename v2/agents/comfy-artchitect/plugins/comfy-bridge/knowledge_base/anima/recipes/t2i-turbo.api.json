@@ -1,0 +1,209 @@
+{
+  "recipe": {
+    "id": "t2i-turbo",
+    "family": "anima",
+    "task": "t2i",
+    "variant": "Anima Base v1.0 + the official Turbo LoRA v0.2 (the template's turbo switch on): 8 steps, cfg 1, euler/simple, 1024x1024",
+    "from_template": "image_anima_base_v1",
+    "min_comfyui": "0.16.0",
+    "confidence": "official",
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "73",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "anima-base-v1.0.safetensors",
+      "anima-turbo-lora-v0.2.safetensors",
+      "qwen_3_06b_base.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "packs": [],
+    "ports": {
+      "unet_name": {
+        "node": "78",
+        "input": "unet_name",
+        "note": "the Anima diffusion model the Turbo LoRA patches: Comfy Cloud has anima-base-v1.0, anima-preview3-base, anima-preview2 and anima-preview; the template pairs the LoRA with anima-base-v1.0"
+      },
+      "prompt": {
+        "node": "77",
+        "input": "text",
+        "note": "Danbooru tags (lowercase, spaces not underscores), natural language, or both; tag order: quality/meta/year/safety, 1girl/1boy, character, series, @artist, general tags"
+      },
+      "negative": {
+        "node": "75",
+        "input": "text"
+      },
+      "seed": {
+        "node": "76",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "76",
+        "input": "steps",
+        "note": "the template's turbo value is 8; the card gives 8-12 steps for the distilled Anima-Turbo"
+      },
+      "cfg": {
+        "node": "76",
+        "input": "cfg",
+        "note": "1 with the Turbo LoRA (template turbo value; card: Anima-Turbo 'Use at CFG 1'); at cfg 1 the negative has no effect"
+      },
+      "sampler": {
+        "node": "76",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, er_sde, euler_ancestral, dpmpp_2m_sde_gpu, …)"
+      },
+      "scheduler": {
+        "node": "76",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, beta57, …)"
+      },
+      "width": {
+        "node": "74",
+        "input": "width",
+        "note": "the card: 'Works at resolutions between 512^2 and 1536^2 pixels'; the template rounds to multiples of 16"
+      },
+      "height": {
+        "node": "74",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "74",
+        "input": "batch_size"
+      },
+      "lora_strength": {
+        "node": "83",
+        "input": "strength_model",
+        "note": "the Turbo LoRA's strength; the template uses 1"
+      }
+    },
+    "defaults_note": "The template's subgraph flattened with its 'turbo' PrimitiveBoolean at true: the ComfySwitchNodes pick UNETLoader -> LoraLoaderModelOnly(anima-turbo-lora-v0.2, 1) -> KSampler, steps 8 and cfg 1 (the 'on' PrimitiveInt/PrimitiveFloat values); everything else as t2i-base.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no publisher VRAM figure; Comfy docs only say the 2B model 'runs comfortably on consumer GPUs')",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "Built from templates/image_anima_base_v1.json (turbo branch) on 2026-10-05; checked against the captured Comfy Cloud node list (0.38.2) — anima-turbo-lora-v0.2.safetensors is in its LoraLoaderModelOnly list; checked by the plugin validators."
+    ]
+  },
+  "graph": {
+    "78": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "anima-base-v1.0.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "83": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "lora_name": "anima-turbo-lora-v0.2.safetensors",
+        "strength_model": 1.0,
+        "model": [
+          "78",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "Anima Turbo LoRA"
+      }
+    },
+    "71": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_06b_base.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      }
+    },
+    "72": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "77": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "Anime monochrome cyberpunk front portrait, male figure, sleek skin with delicate mechanical lines, piercing glowing eyes, partial exposed metallic mecha components and light cables, sharp domineering cool style, textured anime brushwork, faint circuit background, high contrast chiaroscuro lighting, immersive cinematic shadows, ultra fine details, 8K high-def render, futuristic dystopian mood",
+        "clip": [
+          "71",
+          0
+        ]
+      }
+    },
+    "75": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia",
+        "clip": [
+          "71",
+          0
+        ]
+      }
+    },
+    "74": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "76": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 755918130909406,
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0,
+        "model": [
+          "83",
+          0
+        ],
+        "positive": [
+          "77",
+          0
+        ],
+        "negative": [
+          "75",
+          0
+        ],
+        "latent_image": [
+          "74",
+          0
+        ]
+      }
+    },
+    "73": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "76",
+          0
+        ],
+        "vae": [
+          "72",
+          0
+        ]
+      }
+    },
+    "46": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "73",
+          0
+        ],
+        "filename_prefix": "anima/t2i_turbo"
+      }
+    }
+  }
+}

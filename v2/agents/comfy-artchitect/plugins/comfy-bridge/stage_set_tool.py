@@ -80,8 +80,10 @@ class StageSetTool(Tool):
                     return ToolResult.text(str(e), is_error=True)
                 stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
                 report = ctx.validate(pipeline)
+                design_note = ctx.store.write_design(pipeline)
                 return ToolResult.text(
                     f"stage {stage.name}: set {', '.join(new)}\n" + render_report(report)
+                    + (f"\n! {design_note}" if design_note else "")
                     + PipelineRunRecord.describe_stale(stale),
                     details={"holds": report.holds}, is_error=not report.holds,
                 )

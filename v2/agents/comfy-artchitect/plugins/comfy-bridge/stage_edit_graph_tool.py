@@ -4,6 +4,9 @@ For what ports cannot express: adding a LoRA, swapping a node, rewiring an input
 (GraphEditOps) apply to the stage's current graph and each is checked as it applies; nothing is
 written unless all of them did. A RECIPE stage that is rewired becomes a CUSTOM stage — its graph
 is its own from then on, so its ports are gone (values change with `set_input`); the tool says so.
+A VALUE IS NOT WIRING: `set_input` ops that land on inputs the recipe's ports set are applied as
+those ports, and the stage keeps its recipe — a changed length once cost a stage its ports, its
+LoRAs and its checks against the recipe for the rest of the design.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 from graph_edit_ops import GraphEditError, GraphEditOps
+from recipe import Recipe
 from pipeline import StageInput
 from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
@@ -41,6 +45,18 @@ class StageEditGraphTool(Tool):
         },
     }
 
+    @staticmethod
+    def _as_ports(recipe: Recipe, ops: list) -> dict | None:
+        """{port: value} when every op only sets a value a port of the recipe sets; else None."""
+        ports = _port_inputs(recipe)
+        out = {}
+        for op in ops:
+            key = (str((op or {}).get("node")), str((op or {}).get("input")))
+            if (op or {}).get("op") != "set_input" or key not in ports:
+                return None
+            out[ports[key]] = op.get("value")
+        return out or None
+
     def __init__(self, context: Callable[[], PipelineToolContext] | None = None) -> None:
         self._context = context or (lambda: PipelineToolContext.for_workspace(Path(current_workspace(".") or ".")))
 
@@ -54,6 +70,22 @@ class StageEditGraphTool(Tool):
                 stage = pipeline.stage(str(params.get("stage") or ""))
                 if stage is None:
                     return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
+                as_ports = None if stage.custom else self._as_ports(ctx.builder.recipe_of(stage), params.get("ops") or [])
+                if as_ports:
+                    stage.ports.update(as_ports)
+                    try:
+                        ctx.store.save(pipeline, only={stage.name})
+                    except StageBuildError as e:
+                        return ToolResult.text(str(e), is_error=True)
+                    stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
+                    report = ctx.validate(pipeline)
+                    design_note = ctx.store.write_design(pipeline)
+                    return ToolResult.text(
+                        f"stage {stage.name}: values set through its recipe's ports "
+                        f"({', '.join(f'{k} = {v!r}' for k, v in as_ports.items())}) — it keeps its recipe\n"
+                        + render_report(report) + (f"\n! {design_note}" if design_note else "")
+                        + PipelineRunRecord.describe_stale(stale),
+                        details={"holds": report.holds}, is_error=not report.holds)
                 try:
                     edited, done = GraphEditOps(ctx.catalogue).apply(ctx.store.graph(stage), params.get("ops") or [])
                 except GraphEditError as e:
@@ -73,11 +105,22 @@ class StageEditGraphTool(Tool):
                     return ToolResult.text(str(e), is_error=True)
                 stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, stage.name)
                 report = ctx.validate(pipeline)
+                design_note = ctx.store.write_design(pipeline)
                 return ToolResult.text("applied:\n  " + "\n  ".join(done) + note + "\n" + render_report(report)
+                                       + (f"\n! {design_note}" if design_note else "")
                                        + PipelineRunRecord.describe_stale(stale),
                                        details={"holds": report.holds}, is_error=not report.holds)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"stage_edit_graph failed: {type(e).__name__}: {e}", is_error=True)
+
+
+def _port_inputs(recipe: Recipe) -> dict[tuple[str, str], str]:
+    """{(node id, input): port} — the inputs a recipe's ports set."""
+    out = {}
+    for name, spec in recipe.ports.items():
+        for nid in spec.get("nodes") or ([spec["node"]] if spec.get("node") else []):
+            out[(str(nid), str(spec.get("input")))] = name
+    return out
 
 
 __all__ = ["StageEditGraphTool"]

@@ -6,6 +6,11 @@ which families a workflow runs (by the model files it names), where a file is de
 recipe a family offers for a task.
 
 Families are folders; nothing here names one. Adding a family is adding a folder.
+
+ONE BROKEN FAMILY IS ONE FAMILY GONE, NOT ALL OF THEM. A folder whose profile or recipe cannot be
+read is left out and named in `broken` — the design tools say so in every report — while every
+other family works. Refusing the whole catalogue over one folder (a family half-written in place)
+took down every design tool in a live chat, and the agent reported itself blocked.
 """
 
 from __future__ import annotations
@@ -21,21 +26,30 @@ FOLDER = Path(__file__).parent / "knowledge_base"
 
 
 class KnowledgeBaseCatalog:
-    def __init__(self, families: list[FamilyProfile], recipes: list[Recipe]) -> None:
+    def __init__(self, families: list[FamilyProfile], recipes: list[Recipe],
+                 broken: dict[str, str] | None = None) -> None:
         self.families = {f.id: f for f in families}
         self.recipes = {(r.family, r.id): r for r in recipes}
+        #: folder name -> why it could not be read (left out of the catalogue)
+        self.broken = dict(broken or {})
 
     @classmethod
     def shipped(cls, folder: Path = FOLDER) -> "KnowledgeBaseCatalog":
-        families, recipes = [], []
+        families, recipes, broken = [], [], {}
         for d in sorted(p for p in Path(folder).iterdir() if p.is_dir()):
-            profile = FamilyProfile.load(d)
+            try:
+                profile = FamilyProfile.load(d)
+                mine = []
+                for rp in sorted((d / "recipes").glob(f"*{SUFFIX}")):
+                    r = Recipe.load(rp)
+                    r.family = r.family or profile.id
+                    mine.append(r)
+            except (OSError, ValueError) as e:
+                broken[d.name] = str(e)
+                continue
             families.append(profile)
-            for rp in sorted((d / "recipes").glob(f"*{SUFFIX}")):
-                r = Recipe.load(rp)
-                r.family = r.family or profile.id
-                recipes.append(r)
-        return cls(families, recipes)
+            recipes += mine
+        return cls(families, recipes, broken)
 
     def families_for(self, graph: dict) -> list[FamilyProfile]:
         """The families whose model files this workflow names, in a stable order."""

@@ -34,7 +34,7 @@ short sentences; no marketing words. Answer with ONE JSON object and nothing els
    resolution, a quality/speed setting — only where the notes or settings show it"],
  "example": {"prompt": "the shipped prompt, shortened to its gist", "result": "what it produces"}
             or null when no prompt is shipped,
- "needs": {"runs_on": "the machine's GPU, or which paid service", "credits": "0, or the paid cost",
+ "needs": {"runs_on": "Comfy Cloud (the person's Comfy plan), plus any paid service", "credits": "0, or the paid cost",
            "vram": "only if the notes say", "time": "from the completed runs, if any"},
  "limits": ["what makes results worse or slower, from the notes and settings"]}
 

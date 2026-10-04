@@ -1,0 +1,187 @@
+{
+  "recipe": {
+    "id": "t2i-base",
+    "family": "anima",
+    "task": "t2i",
+    "variant": "Anima Base v1.0 as the official template ships it (turbo switch off): 30 steps, cfg 4, euler/simple, 1024x1024",
+    "from_template": "image_anima_base_v1",
+    "min_comfyui": "0.16.0",
+    "confidence": "official",
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "73",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "anima-base-v1.0.safetensors",
+      "qwen_3_06b_base.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "packs": [],
+    "ports": {
+      "unet_name": {
+        "node": "78",
+        "input": "unet_name",
+        "note": "the Anima diffusion model: Comfy Cloud has anima-base-v1.0, anima-preview3-base, anima-preview2 and anima-preview (diffusion_models). A Civitai Anima version Cloud lacks (aesthetic-v1.x, turbo-v1.x) comes in the stage's `models` with folder diffusion_models, base 'Anima'"
+      },
+      "prompt": {
+        "node": "77",
+        "input": "text",
+        "note": "Danbooru tags (lowercase, spaces not underscores), natural language, or both; tag order: quality/meta/year/safety, 1girl/1boy, character, series, @artist, general tags"
+      },
+      "negative": {
+        "node": "75",
+        "input": "text"
+      },
+      "seed": {
+        "node": "76",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "76",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "76",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "76",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, er_sde, euler_ancestral, dpmpp_2m_sde_gpu, …)"
+      },
+      "scheduler": {
+        "node": "76",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, beta57, …)"
+      },
+      "width": {
+        "node": "74",
+        "input": "width",
+        "note": "the card: 'Works at resolutions between 512^2 and 1536^2 pixels'; the template rounds to multiples of 16"
+      },
+      "height": {
+        "node": "74",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "74",
+        "input": "batch_size"
+      }
+    },
+    "defaults_note": "The template's subgraph flattened with its 'turbo' PrimitiveBoolean at false: the ComfySwitchNodes pick UNETLoader -> KSampler directly, steps 30 and cfg 4 (the PrimitiveInt/PrimitiveFloat 'off' values); the outer ResolutionSelector (1:1, 1.0 MP, multiple 16) gives the subgraph's own 1024x1024. Seed, prompt and negative are the template's. Only the SaveImage prefix differs ('Anima' in the template). The Base 1.0 blueprint (text_to_image_anima_base_1_0) runs the same model with er_sde/simple, 30 steps, cfg 4.",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no publisher VRAM figure; Comfy docs only say the 2B model 'runs comfortably on consumer GPUs')",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "Built from templates/image_anima_base_v1.json (Comfy-Org/workflow_templates main) on 2026-10-05; class types, input names and enums checked against the captured Comfy Cloud node list (0.38.2); checked by the plugin validators."
+    ]
+  },
+  "graph": {
+    "78": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "anima-base-v1.0.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "71": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_06b_base.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      }
+    },
+    "72": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "77": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "Anime monochrome cyberpunk front portrait, male figure, sleek skin with delicate mechanical lines, piercing glowing eyes, partial exposed metallic mecha components and light cables, sharp domineering cool style, textured anime brushwork, faint circuit background, high contrast chiaroscuro lighting, immersive cinematic shadows, ultra fine details, 8K high-def render, futuristic dystopian mood",
+        "clip": [
+          "71",
+          0
+        ]
+      }
+    },
+    "75": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia",
+        "clip": [
+          "71",
+          0
+        ]
+      }
+    },
+    "74": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "76": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 755918130909406,
+        "steps": 30,
+        "cfg": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0,
+        "model": [
+          "78",
+          0
+        ],
+        "positive": [
+          "77",
+          0
+        ],
+        "negative": [
+          "75",
+          0
+        ],
+        "latent_image": [
+          "74",
+          0
+        ]
+      }
+    },
+    "73": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "76",
+          0
+        ],
+        "vae": [
+          "72",
+          0
+        ]
+      }
+    },
+    "46": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "73",
+          0
+        ],
+        "filename_prefix": "anima/t2i_base"
+      }
+    }
+  }
+}

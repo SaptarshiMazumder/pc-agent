@@ -312,6 +312,13 @@ with "let me know how you'd like to proceed".
 11. **Workflows are written only by the tools.** New designs by `pipeline_plan` and the stage
     tools; a template's or brought workflow's values by `comfy_emit`. No plans or notes in place
     of a workflow.
+12. **NEVER END A TURN "BLOCKED".** A tool that fails — even with an internal error — is a reason
+    to change the design, not to stop: retry once as it was, then change what the failing call
+    was given (another binding for an input, another recipe of the same job, a stage split in
+    two, a step written node by node) and go on in the same turn. A recipe you chose and a design
+    you settled are still yours to deliver: never swap them for an unrelated saved template to
+    get past an error. Stop only when every route the knowledge base offers has been tried, and
+    then say what you tried, what failed and the closest thing that does work.
 
 ## Settings
 

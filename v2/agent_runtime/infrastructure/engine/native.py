@@ -445,11 +445,12 @@ async def run_agent_loop(
                 # window renders it, and the right next move for the model is to say nothing.
                 # Without this, the empty message that follows read as a lost answer and the
                 # retry below made the model re-ask in prose.
-                if any(
+                asked_now = any(
                     getattr(_unwrap_tool(tool_map.get(c.name)), "checkpoint", False)
                     and not getattr(r, "is_error", False)
                     for c, r in zip(tool_calls, results)
-                ):
+                )
+                if asked_now:
                     checkpoint_presented = True
                     produced_visible_text = True
                 for r in results:  # assistant source order
@@ -467,8 +468,17 @@ async def run_agent_loop(
                 # tool's result, before the model thinks again — which is the first moment it
                 # can be acted on. "All reference slots are filled" lands the moment the install
                 # that was holding the turn returns, instead of after the run, as a new run.
-                for m in await interjections():
+                spoke = await interjections()
+                for m in spoke:
                     persist(m)
+                # A QUESTION ON SCREEN ENDS THE TURN. Its answer is the person's next message;
+                # "end your turn now" in the tool's result was only a request, and a model that
+                # went on called setup 11 s after asking, was refused, then told the person an
+                # invented reason and a magic phrase to type. Unless they already answered while
+                # the tool ran, nothing more happens this turn.
+                if asked_now and not spoke:
+                    stop_reason = "stop"
+                    break
                 # A milestone or drift is the manager's cue; small work never reaches it.
                 if checkpoints is not None:
                     note = await checkpoints.after_step(messages, tool_halts)

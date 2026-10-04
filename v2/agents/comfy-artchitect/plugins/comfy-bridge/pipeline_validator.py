@@ -68,6 +68,8 @@ class PipelineReport:
     catalogue_source: str
     #: Facts for Phase 2 (disk) — never design questions: the design does not bend to the machine.
     setup_notes: list[str] = field(default_factory=list)
+    #: Knowledge-base families that could not be read, and why — left out, said in every report.
+    skipped_families: dict[str, str] = field(default_factory=dict)
 
     @property
     def holds(self) -> bool:
@@ -152,7 +154,7 @@ class PipelineValidator:
         warnings += self._design.check(pipeline, graphs)
         setup_notes: list[str] = []
         return PipelineReport(verdicts, problems, warnings, user_inputs, files, sorted(set(packs)), self._source,
-                              setup_notes)
+                              setup_notes, dict(self._catalog.broken))
 
     def _not_judged_here(self, recipe, structure: StructuralReport) -> list[str]:
         """Classes the node list here cannot know, though the box will have them: a recipe's custom
@@ -245,6 +247,8 @@ def render_report(report: PipelineReport) -> str:
     lines.append(f"downloads: {len(report.files)} model file(s), {report.download_gb:.1f} GB"
                  + (f"; node packs: {', '.join(report.packs)}" if report.packs else ""))
     lines += [f"for setup: {note}" for note in report.setup_notes]
+    lines += [f"! knowledge base: family '{name}' was skipped (it could not be read: {why[:160]}) — every other "
+              "family works; design with those" for name, why in report.skipped_families.items()]
     if report.questions:
         lines.append("? = answer each: fix it in the design, or give one line on why it is right for this job "
                      "(pipeline_present takes those lines as `answers`, by number).")

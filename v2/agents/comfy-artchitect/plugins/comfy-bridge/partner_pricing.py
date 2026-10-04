@@ -115,7 +115,7 @@ class Quote:
 
     def as_text(self, platform_rate: float | None = None) -> str:
         if not self.items and not self.unpriced:
-            return "no paid services — this workflow runs entirely on the instance's own GPU."
+            return "no paid partner services — it runs on Comfy Cloud, on the GPU time of the person's Comfy plan (no extra credits)."
         lines = []
         per = self.credits_per_usd or 100.0
         for i in self.items:

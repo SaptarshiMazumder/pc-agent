@@ -57,9 +57,12 @@ class PipelineWorkflowAssembler:
                                list(ids[stage.name].values())))
         specs = {s.name: self._builder.output_specs(s) for s in pipeline.stages}
         for stage in pipeline.stages:
-            for inp in stage.inputs:
-                if inp.producer:
-                    self._wire(out, ids, specs, stage.name, inp.role, inp.producer)
+            # ONE HAND-OVER PER SLOT: two inputs reading the same earlier output share its slot
+            # (`<stage>_<output>`), and wiring it once wires both — a second pass would look up
+            # the loaders the first one already replaced.
+            handed = dict.fromkeys((inp.role, inp.producer) for inp in stage.inputs if inp.producer)
+            for role, producer in handed:
+                self._wire(out, ids, specs, stage.name, role, producer)
         return out
 
     # ------------------------------------------------------------------ hand-over

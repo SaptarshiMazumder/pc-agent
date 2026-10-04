@@ -124,9 +124,11 @@ class PipelinePlanTool(Tool):
                 # A NEW DESIGN: nothing an earlier one rendered is its result.
                 stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, pipeline.stages[0].name)
                 report = ctx.validate(pipeline)
+                design_note = ctx.store.write_design(pipeline)
                 files = [w.api_rel for w in written.values()]
                 return ToolResult.text(
                     render_report(report) + "\nstage workflows: " + ", ".join(files)
+                    + (f"\n! {design_note}" if design_note else "")
                     + PipelineRunRecord.describe_stale(stale),
                     details={"holds": report.holds, "stages": [s.name for s in pipeline.stages]},
                     artifacts=files,

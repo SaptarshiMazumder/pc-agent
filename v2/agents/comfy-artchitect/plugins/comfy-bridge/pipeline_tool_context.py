@@ -16,6 +16,7 @@ import studio_state
 from family_rule_validator import FamilyRuleValidator
 from family_structural_checks import FamilyStructuralChecks
 from knowledge_base_catalog import FOLDER as KNOWLEDGE_BASE, KnowledgeBaseCatalog
+from model_readiness import ModelReadiness
 from node_registry_cache import NodeRegistryCache
 from pipeline import Pipeline
 from output_size_estimator import OutputSizeEstimator
@@ -55,6 +56,23 @@ class PipelineToolContext:
             rules=FamilyRuleValidator(catalog, FamilyStructuralChecks()), catalogue=catalogue,
             catalogue_source=source, catalogue_version=listed, comfyui_version=NodeRegistryCache.version_key(version) or "0.35.0",
         )
+
+    def cloud_files(self) -> set[str] | None:
+        """The model files Comfy Cloud lists in its loaders, by base name — from its node list as
+        captured (NodeRegistryCache); None when only the shipped list is at hand, which says nothing
+        about what Comfy Cloud has."""
+        if "captured" not in str(self.catalogue_source):
+            return None
+        names: set[str] = set()
+        for spec in (self.catalogue or {}).values():
+            inputs = (spec or {}).get("input") or {} if isinstance(spec, dict) else {}
+            for section in ("required", "optional"):
+                for entry in (inputs.get(section) or {}).values():
+                    values = entry[0] if isinstance(entry, list) and entry else None
+                    if isinstance(values, list):
+                        names.update(str(v).replace("\\", "/").rsplit("/", 1)[-1] for v in values
+                                     if isinstance(v, str) and v.lower().endswith(ModelReadiness.EXTENSIONS))
+        return names or None
 
     def validate(self, pipeline: Pipeline) -> PipelineReport:
         graphs = {s.name: self.store.graph(s) for s in pipeline.stages}

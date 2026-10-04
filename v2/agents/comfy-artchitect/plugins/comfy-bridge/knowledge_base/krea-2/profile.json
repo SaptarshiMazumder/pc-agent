@@ -1,0 +1,587 @@
+{
+  "schema": 2,
+  "id": "krea-2",
+  "name": "Krea 2",
+  "publisher": "Krea AI (weights: krea/Krea-2-Raw, krea/Krea-2-Turbo); Comfy-Org repackages (Comfy-Org/Krea-2)",
+  "release": {
+    "Comfy template image_krea2_turbo_t2i": "2026-06-24",
+    "Comfy template image_krea2_turbo_t2i_int8": "2026-07-08",
+    "src": [
+      "S-TPL-INDEX"
+    ]
+  },
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i"
+  ],
+  "cannot": [
+    {
+      "what": "negative prompts / real CFG on Turbo: it is distilled to 8 steps with CFG disabled ('run with 8 steps and CFG disabled'); the template feeds ConditioningZeroOut of the positive as the negative",
+      "src": [
+        "S-GH-KREA",
+        "S-TPL-T2I"
+      ]
+    },
+    {
+      "what": "RAW much past 1K: 'The model has been trained to generate upto 1k resolution' (Turbo: 1K to 2K)",
+      "src": [
+        "S-GH-KREA",
+        "S-DOCS"
+      ]
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "template_min_versions": {
+      "image_krea2_turbo_t2i": "0.24.1",
+      "image_krea2_turbo_t2i_int8": "0.24.1"
+    },
+    "nodes_verified_against_registry": "captured Comfy Cloud node list 0.38.2: every class, input name and enum of the three recipes (CLIPLoader type krea2; the krea2_* diffusion files, qwen3vl_4b_fp8_scaled, qwen_image_vae)",
+    "note": "ComfyUI's Krea2 model config: sampling shift 1.15 (flux-type time shift), latent format Wan21 (16-ch), text encoder Qwen3-VL-4B detected at prefix qwen3vl_4b.transformer."
+  },
+  "files": [
+    {
+      "name": "krea2_turbo_fp8_scaled.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 13141730784,
+      "size_gb": 13.142,
+      "precision": "fp8_scaled",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (13.14 GB on disk)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the template default; docs.comfy.org: 'Turbo FP8 (recommended for most users)'; Comfy Cloud has it",
+      "used_by": [
+        "t2i-turbo"
+      ],
+      "src": [
+        "S-TPL-T2I",
+        "S-DOCS",
+        "S-HF-COMFYORG",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "krea2_turbo_int8_convrot.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 13492686496,
+      "size_gb": 13.493,
+      "precision": "int8 ConvRot",
+      "variant": "turbo",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (13.49 GB on disk)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "template index: 'the high-performance Int8 Convrot format, which delivers better quality than FP8 while generally running faster across most GPUs'; Comfy Cloud has it",
+      "used_by": [
+        "t2i-turbo-int8"
+      ],
+      "src": [
+        "S-TPL-T2I-INT8",
+        "S-TPL-INDEX",
+        "S-HF-COMFYORG",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "krea2_raw_bf16.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 26283332608,
+      "size_gb": 26.283,
+      "precision": "bf16",
+      "variant": "raw",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_raw_bf16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (26.28 GB on disk)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the undistilled base: 'diverse and highly malleable', for fine-tuning and LoRA training; 52 steps with CFG; Comfy Cloud has it (also krea2_raw_fp8_scaled, krea2_raw_int8_convrot)",
+      "used_by": [
+        "t2i-raw"
+      ],
+      "src": [
+        "S-GH-KREA",
+        "S-HF-COMFYORG",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 5242467968,
+      "size_gb": 5.242,
+      "precision": "fp8_scaled",
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen3-VL-4B text encoder, CLIPLoader type krea2, in every Krea 2 template; Comfy Cloud has it (and qwen3vl_4b_bf16)",
+      "used_by": [
+        "t2i-turbo",
+        "t2i-turbo-int8",
+        "t2i-raw"
+      ],
+      "src": [
+        "S-TPL-T2I",
+        "S-DOCS",
+        "S-HF-COMFYORG",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "qwen_image_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253806246,
+      "size_gb": 0.254,
+      "precision": null,
+      "variant": "shared",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the Qwen-Image VAE (16-ch, ComfyUI latent format Wan21 for Krea2), in every Krea 2 template; Comfy Cloud has it",
+      "used_by": [
+        "t2i-turbo",
+        "t2i-turbo-int8",
+        "t2i-raw"
+      ],
+      "src": [
+        "S-TPL-T2I",
+        "S-CU-MODELS",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    }
+  ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Krea 2",
+        "file": "^krea2_(turbo|raw)_",
+        "bases": [
+          "Krea 2"
+        ],
+        "cloud": [
+          "^krea2[-_]",
+          "krea2"
+        ]
+      }
+    ],
+    "src": [
+      "S-CU-LORA",
+      "S-TPL-T2I",
+      "S-GH-KREA",
+      "S-CIVITAI-ENUM"
+    ],
+    "confirmed": true,
+    "note": "LoraLoaderModelOnly on the UNETLoader's MODEL, as the template's optional style LoRA (node 15); ComfyUI maps Krea2 LoRA keys (comfy/lora.py). One base for both builds: Krea 'TRAIN on Raw and RUN on Turbo' — 'LoRAs trained on RAW apply seamlessly to Turbo'. Civitai base 'Krea 2'. Krea's own style LoRAs (Comfy Cloud has all nine) need their trigger in the prompt, recommended strength 1.0: krea2_darkbrush 'monochrome ink wash style', krea2_dotmatrix 'monochrome stippling style', krea2_kidsdrawing 'naive expressive sketch style', krea2_neondrip 'textured abstract style', krea2_rainywindow 'rainy window style', krea2_retroanime 'purple retro anime style', krea2_softwatercolor 'art deco watercolor style', krea2_sunsetblur 'ethereal motion blur style', krea2_vintagetarot 'vintage tarot style'."
+  },
+  "selection": [
+    {
+      "task": "t2i",
+      "recipe": "t2i-turbo",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (13.14 GB model + 5.24 GB encoder)",
+      "why": "the official template: Krea 2 Turbo fp8, 8 steps, cfg 1, euler/simple, 1024x1024 (1K-2K supported); Krea: 'TRAIN on Raw and RUN on Turbo'; docs: fp8 'recommended for most users'. Aesthetic, stylistically diverse images; recreates Civitai 'Krea 2' images",
+      "src": [
+        "S-TPL-T2I",
+        "S-DOCS",
+        "S-GH-KREA"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-turbo-int8",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (13.49 GB model)",
+      "why": "the same Turbo graph on the int8 ConvRot build: 'better quality than FP8 while generally running faster across most GPUs' (template index)",
+      "src": [
+        "S-TPL-T2I-INT8",
+        "S-TPL-INDEX"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-raw",
+      "quality": "diversity|negative-prompt",
+      "vram_gb_min": null,
+      "vram_note": "NOT FOUND (26.28 GB bf16 model)",
+      "tradeoff": "the undistilled base: real CFG and negative, 52 steps (~6.5x Turbo's 8, each with a negative pass), up to ~1K. Krea recommends it for training, not inference — pick it to recreate an image a record says was made on RAW (~50 steps, cfg > 1); Krea's resolution-shifted RAW schedule via ModelSamplingFlux (max_shift 0.91, base_shift 0.5)",
+      "src": [
+        "S-GH-KREA",
+        "S-GH-KREA-SAMPLING",
+        "S-CU-MODEL-ADVANCED",
+        "S-TPL-STYLE-REF"
+      ]
+    }
+  ],
+  "params": [],
+  "rules": [
+    {
+      "id": "dims-multiple-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "EmptyLatentImage takes width/height in multiples of 8 (node step 8; 8x VAE)",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "Krea 2 patchifies the 8x latent in 2x2 blocks: Krea's sampler pads width/height up to a multiple of 16 ('padded up to a multiple of 16 if needed') — use multiples of 16 for the exact size",
+      "src": [
+        "S-GH-KREA",
+        "S-GH-KREA-SAMPLING"
+      ]
+    },
+    {
+      "id": "clip-type-krea2",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "krea2"
+      },
+      "message": "Krea 2's Qwen3-VL-4B encoder loads through CLIPLoader with type 'krea2' (every Krea 2 template; ComfyUI's Krea2 clip target)",
+      "src": [
+        "S-TPL-T2I",
+        "S-CU-MODELS",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "id": "encoder-is-qwen3vl-4b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "CLIPLoader",
+        "input": "type",
+        "equals": "krea2"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen3vl_4b_(fp8_scaled|bf16)\\.safetensors$"
+      },
+      "message": "the Krea 2 text encoder is Qwen3-VL-4B (qwen3vl_4b_fp8_scaled / qwen3vl_4b_bf16 from Comfy-Org/Krea-2); ComfyUI detects it at prefix qwen3vl_4b.transformer. — not the 8B",
+      "src": [
+        "S-HF-COMFYORG",
+        "S-CU-MODELS",
+        "S-GH-KREA"
+      ]
+    },
+    {
+      "id": "vae-is-qwen-image",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "equals": "qwen_image_vae.safetensors"
+      },
+      "message": "Krea 2 decodes with qwen_image_vae.safetensors (16-ch; every Krea 2 template; Krea's QwenAutoencoder)",
+      "src": [
+        "S-TPL-T2I",
+        "S-HF-COMFYORG",
+        "S-CU-MODELS"
+      ]
+    },
+    {
+      "id": "turbo-cfg-1",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_turbo_"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Krea 2 Turbo runs with CFG disabled (Krea README '--cfg 0.0' = ComfyUI cfg 1, the template's value): above 1 adds a negative pass the distilled model was not made for",
+      "src": [
+        "S-GH-KREA",
+        "S-TPL-T2I",
+        "S-CU-SAMPLERS"
+      ]
+    },
+    {
+      "id": "turbo-steps-8",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_turbo_"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "equals": 8,
+        "all": true
+      },
+      "message": "Krea 2 Turbo is 'an 8-step distilled checkpoint' (README '--steps 8'; template 8)",
+      "src": [
+        "S-GH-KREA",
+        "S-TPL-T2I",
+        "S-DOCS"
+      ]
+    },
+    {
+      "id": "raw-needs-cfg",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_raw_"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "cfg",
+        "min": 1.5,
+        "all": true
+      },
+      "message": "RAW is undistilled: 'Use the full sampler with classifier-free guidance' (README --cfg 3.5). Krea's --cfg g is ComfyUI cfg g + 1 (Krea: cond + g*(cond-uncond)), so 3.5 = 4.5 here; cfg 1 turns guidance off",
+      "src": [
+        "S-GH-KREA",
+        "S-GH-KREA-SAMPLING",
+        "S-CU-SAMPLERS"
+      ]
+    },
+    {
+      "id": "raw-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "^krea2_raw_"
+      },
+      "require": {
+        "node": "KSampler|KSamplerAdvanced",
+        "input": "steps",
+        "min": 28,
+        "all": true
+      },
+      "message": "RAW is 'the base model with full-step sampling (52 steps)' (README '--steps 52'; Krea's script default 28); 8 steps is the Turbo setting",
+      "src": [
+        "S-GH-KREA",
+        "S-DOCS"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "",
+    "negative_src": [
+      "S-TPL-T2I",
+      "S-GH-KREA-SAMPLING"
+    ],
+    "negative_note": "Turbo: no negative at all — the template feeds ConditioningZeroOut of the positive (CFG disabled); phrase exclusions positively. RAW: a real negative, empty by default (Krea's sampler negative_prompts [''])",
+    "positive": [
+      {
+        "line": "Natural language: 'We recommend users to use natural language prompts'; 'Long detailed prompts yield best results, but the model is capable of generating high quality images with minimal prompt engineering'",
+        "class": "official",
+        "src": [
+          "S-GH-KREA-PROMPTING"
+        ]
+      },
+      {
+        "line": "Text rendering: 'we recommend putting quotes around the words to be rendered'",
+        "class": "official",
+        "src": [
+          "S-GH-KREA-PROMPTING"
+        ]
+      },
+      {
+        "line": "Official examples run from one line ('immense rocket launch exhaust as seen from extremely close up') to dense paragraphs naming subject, medium/style, composition, lighting and palette ('A tiny, russet-brown harvest mouse clings to a slender diagonal branch ... In this macro photograph, an extremely shallow depth of field ...')",
+        "class": "official",
+        "src": [
+          "S-GH-KREA-PROMPTING"
+        ]
+      },
+      {
+        "line": "The template expands the prompt with Qwen3-VL first (prompt_enhance, on by default; system prompt: preserve every subject, honour a stated medium, quote requested text) — the recipes encode the prompt as written, so write the full description yourself",
+        "class": "official",
+        "src": [
+          "S-TPL-T2I",
+          "S-DOCS"
+        ]
+      },
+      {
+        "line": "A style LoRA's trigger goes in the prompt (Krea's nine style LoRAs: see lora.note; recommended strength 1.0)",
+        "class": "official",
+        "src": [
+          "S-TPL-T2I",
+          "S-HF-COMFYORG"
+        ]
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "RAW looks washed out / ignores the prompt, or is burnt",
+      "cause": "Krea's --cfg is not ComfyUI's cfg: Krea computes cond + g*(cond - uncond), ComfyUI uncond + cfg*(cond - uncond)",
+      "fix": "ComfyUI cfg = Krea cfg + 1 (README RAW 3.5 -> 4.5; Turbo 0 -> 1)",
+      "src": [
+        "S-GH-KREA-SAMPLING",
+        "S-CU-SAMPLERS"
+      ]
+    }
+  ],
+  "sources": {
+    "S-TPL-T2I": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-TPL-T2I-INT8": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i_int8.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-TPL-STYLE-REF": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_int8_image_style_reference.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/index.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-DOCS": {
+      "url": "https://docs.comfy.org/tutorials/image/krea/krea-2",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-HF-COMFYORG": {
+      "url": "https://huggingface.co/Comfy-Org/Krea-2",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-GH-KREA": {
+      "url": "https://github.com/krea-ai/krea-2/blob/main/README.md",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-GH-KREA-SAMPLING": {
+      "url": "https://github.com/krea-ai/krea-2/blob/main/sampling.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-GH-KREA-PROMPTING": {
+      "url": "https://github.com/krea-ai/krea-2/blob/main/docs/prompting.md",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-MODELS": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/supported_models.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-SAMPLERS": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/samplers.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-MODEL-ADVANCED": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy_extras/nodes_model_advanced.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-LORA": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "ComfyUI node registry (captured from Comfy Cloud, 0.38.2)",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CIVITAI-ENUM": {
+      "url": "https://civitai.com/api/v1/enums",
+      "accessed": "2026-10-04",
+      "class": "official"
+    }
+  },
+  "card": {
+    "short_name": "Krea 2",
+    "recipes": [
+      {
+        "match": "turbo",
+        "short_name": "Krea 2 Turbo"
+      },
+      {
+        "match": "raw",
+        "short_name": "Krea 2 RAW"
+      }
+    ]
+  }
+}

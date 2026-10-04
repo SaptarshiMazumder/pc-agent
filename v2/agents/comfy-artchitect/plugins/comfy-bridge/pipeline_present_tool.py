@@ -137,14 +137,24 @@ class PipelinePresentTool(Tool):
                 + (f"your {follows} image" if follows else "its input image"))
 
     @staticmethod
-    def _download_text(report: PipelineReport) -> str:
-        """The size the person reads. A file whose size the knowledge base does not know (a gated
-        download) is said as such — '0 GB' for a 40 GB model is a number that is simply wrong."""
-        unknown = sum(1 for b in report.files.values() if b is None)
-        if not unknown:
-            return f"{report.download_gb:.0f} GB"
-        known = f"at least {report.download_gb:.0f} GB" if report.download_gb >= 1 else "an unknown amount"
-        return f"{known} ({unknown} file size(s) unknown)"
+    def _download_text(report: PipelineReport, cloud: set[str] | None) -> str:
+        """What setup brings in, as the person reads it. Comfy Cloud already has most models: only
+        what it lacks is imported — "Downloads 70 GB" for files it has was simply untrue. A file
+        whose size nothing records is said as such ('0 GB' for a 40 GB model would be wrong).
+        Without Comfy Cloud's list at hand, every file is counted."""
+        def base(name: str) -> str:
+            return name.replace("\\", "/").rsplit("/", 1)[-1]
+
+        missing = {n: b for n, b in report.files.items() if cloud is None or base(n) not in cloud}
+        if not missing:
+            return "Every model file is already on Comfy Cloud — nothing to import"
+        gb = sum(b or 0 for b in missing.values()) / 1e9
+        unknown = sum(1 for b in missing.values() if b is None)
+        size = (f"{gb:.0f} GB" if not unknown else
+                f"at least {gb:.0f} GB, {unknown} size(s) unknown" if gb >= 1 else "size unknown")
+        what = "Imports" if cloud is not None else "Downloads"
+        names = ", ".join(base(n) for n in list(missing)[:3]) + (", …" if len(missing) > 3 else "")
+        return f"{what} {len(missing)} model file(s) Comfy Cloud lacks ({size}): {names}"
 
     @staticmethod
     def _fit_card(workflows: list[dict], questions: list, keys: list[tuple]) -> tuple[list[dict], list[dict]]:
@@ -216,10 +226,10 @@ class PipelinePresentTool(Tool):
         references = [{"role": role, "what": "for " + "; ".join(used_for.get(role) or [what])}
                       for role, what in sorted(report.user_inputs.items())]
         title = (f"{pipeline.name.replace('_', ' ')}: {len(pipeline.stages)} step(s)"
-                 + (f" — {why}" if why else "")
+                 + (f" — {why.strip().rstrip('.')}" if why.strip() else "")
                  + PipelinePresentTool._delivers(ctx, pipeline)
                  + PipelinePresentTool._what_you_get(ctx, pipeline)
-                 + f". Downloads {PipelinePresentTool._download_text(report)}, all free.")
+                 + f". {PipelinePresentTool._download_text(report, ctx.cloud_files())}")
         if not questions:
             # A design with no prompt to read (an upscale, a restore) still needs one question: ask_user
             # refuses a card with nothing to answer, and the agent then rewrote the card to pass.

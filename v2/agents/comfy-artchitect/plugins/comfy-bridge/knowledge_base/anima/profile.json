@@ -1,0 +1,807 @@
+{
+  "schema": 2,
+  "id": "anima",
+  "name": "Anima (CircleStone Labs x Comfy Org)",
+  "publisher": "CircleStone Labs in collaboration with Comfy Org; a derivative of NVIDIA Cosmos-Predict2-2B-Text2Image",
+  "cost": "free",
+  "license": {
+    "what": "CircleStone Labs Non-Commercial License (+ NVIDIA Open Model License for the Cosmos derivative): the MODEL is non-commercial (no paid hosting / API / monetized product without a license); generated IMAGES may be used commercially",
+    "src": "S-HF-ANIMA"
+  },
+  "architecture": {
+    "what": "2B-parameter flow DiT built on Cosmos-Predict2-2B (ComfyUI detects it as a Cosmos Predict2 state dict with an llm_adapter); text encoder Qwen-3 0.6B base (qwen_3_06b_base, CLIPLoader); VAE the Qwen-Image VAE (qwen_image_vae, latent format Wan21); ComfyUI model class Anima: sampling shift 3.0, patch 2",
+    "src": [
+      "S-HF-ANIMA",
+      "S-DOCS",
+      "S-CU-SUPPORTED",
+      "S-CU-DETECT"
+    ]
+  },
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i"
+  ],
+  "cannot": [
+    {
+      "what": "realism / photographs: 'The model doesn't do realism well. This is intended.' — use a photoreal family",
+      "src": [
+        "S-HF-ANIMA",
+        "S-DOCS"
+      ]
+    },
+    {
+      "what": "lengthy text: 'It can generally do single words and sometimes short phrases, but lengthy text rendering won't work well'",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "what": "resolutions outside 512^2-1536^2 pixels ('Works at resolutions between 512^2 and 1536^2 pixels'); template note: 'weak high-res' — upscale after",
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-PREVIEW"
+      ]
+    },
+    {
+      "what": "a styled look from the base model alone: 'The default style is very plain and neutral, which is especially apparent if you don't use artist or quality tags'",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "what": "image-to-image, inpainting or control in this knowledge base: only text-to-image recipes (the Anima LLLite control/inpaint templates, minComfyUIVersion 0.29.0, are not built here)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.38.2",
+    "template_min_versions": {
+      "image_anima_base_v1": "0.16.0",
+      "image_anima_preview": "0.11.0"
+    },
+    "nodes_verified_against_registry": "every node, input name and enum of the three recipes against the captured Comfy Cloud node list (0.38.2)",
+    "model_class": "comfy/supported_models.py class Anima (unet_config image_model 'anima', latent_format Wan21, sampling shift 3.0); comfy/model_base.py class Anima (ModelType.FLOW)"
+  },
+  "files": [
+    {
+      "name": "anima-base-v1.0.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4182218328,
+      "size_gb": 4.18,
+      "precision": "NOT FOUND",
+      "variant": "base-v1.0",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-base-v1.0.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Anima-Base 1.0: 'The pretrained, unrefined base model. Maximum flexibility, diversity, and style adherence.' 'LoRAs should be trained using this version.' On Comfy Cloud.",
+      "used_by": [
+        "t2i-base",
+        "t2i-turbo"
+      ],
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-BASE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "anima-preview3-base.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4182218360,
+      "size_gb": 4.18,
+      "precision": "NOT FOUND",
+      "variant": "preview3-base",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-preview3-base.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the third preview, the preview template's model; template note: 'Preview version trained on anime; final version to improve details.' On Comfy Cloud.",
+      "used_by": [
+        "t2i-preview"
+      ],
+      "src": [
+        "S-TPL-PREVIEW",
+        "S-DOCS"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "anima-preview2.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4182218360,
+      "size_gb": 4.18,
+      "precision": "NOT FOUND",
+      "variant": "preview2",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-preview2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the second preview; no recipe of its own — t2i-preview's unet_name port takes it (on Comfy Cloud)",
+      "used_by": [],
+      "src": [
+        "S-HF-ANIMA",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "anima-preview.safetensors",
+      "role": "diffusion",
+      "folder": "diffusion_models",
+      "bytes": 4182218360,
+      "size_gb": 4.18,
+      "precision": "NOT FOUND",
+      "variant": "preview",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-preview.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the first preview; no recipe of its own — t2i-preview's unet_name port takes it (on Comfy Cloud)",
+      "used_by": [],
+      "src": [
+        "S-HF-ANIMA",
+        "S-REGISTRY"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "qwen_3_06b_base.safetensors",
+      "role": "text_encoder",
+      "folder": "text_encoders",
+      "bytes": 1192135096,
+      "size_gb": 1.19,
+      "precision": "NOT FOUND",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "Qwen-3 0.6B base, 'shared by both workflows'; CLIPLoader type stable_diffusion in the templates",
+      "used_by": [
+        "t2i-base",
+        "t2i-turbo",
+        "t2i-preview"
+      ],
+      "src": [
+        "S-TPL-BASE",
+        "S-DOCS"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "qwen_image_vae.safetensors",
+      "role": "vae",
+      "folder": "vae",
+      "bytes": 253806246,
+      "size_gb": 0.254,
+      "precision": "NOT FOUND",
+      "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (Comfy docs: the 2B model 'runs comfortably on consumer GPUs' — no figure)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "'this is the Qwen-Image VAE, you might already have it'",
+      "used_by": [
+        "t2i-base",
+        "t2i-turbo",
+        "t2i-preview"
+      ],
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-BASE"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    },
+    {
+      "name": "anima-turbo-lora-v0.2.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 148902616,
+      "size_gb": 0.149,
+      "precision": "NOT FOUND",
+      "variant": "turbo-lora-v0.2",
+      "url": "https://huggingface.co/circlestone-labs/Anima-Official-LoRAs/resolve/main/anima-turbo-lora-v0.2.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "",
+        "class": "official",
+        "src": "S-TPL-BASE"
+      },
+      "quality": "the official Turbo LoRA the base template switches in (strength 1, 8 steps, cfg 1); on Comfy Cloud",
+      "used_by": [
+        "t2i-turbo"
+      ],
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-LORAS"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    }
+  ],
+  "not_on_cloud": {
+    "what": "Anima-Aesthetic (v1.0, v1.0b, v1.1) and the full Anima-Turbo models (v1.0, v1.1) are published (HF split_files; Civitai model 2458426 as anima_aestheticV10/V11, anima_turboV10/V11) but are NOT in Comfy Cloud's UNETLoader list: a recreation of one brings it in the stage's `models` (folder diffusion_models, base 'Anima') and sets the unet_name port",
+    "src": [
+      "S-HF-ANIMA",
+      "S-CIVITAI-ANIMA",
+      "S-REGISTRY"
+    ]
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Anima",
+        "file": "(?i)^anima[-_](base|preview|aesthetic|turbo)",
+        "bases": [
+          "Anima"
+        ],
+        "cloud": [
+          "^anima[-_]"
+        ]
+      }
+    ],
+    "src": [
+      "S-TPL-BASE",
+      "S-CU-LORA",
+      "S-CIVITAI-ENUM"
+    ],
+    "confirmed": true,
+    "note": "After the UNETLoader, before the KSampler — where the official base template puts its Turbo LoRA (LoraLoaderModelOnly). Core lora.py maps diffusion-model LoRA keys generically ('lora_unet_*' and plain 'diffusion_model.*' keys for every model) and names 'kohya anima' text-encoder LoRAs; LoraLoaderModelOnly patches the model only. Civitai tags Anima LoRAs 'Anima'. The card: LoRAs 'should be trained using' Anima-Base."
+  },
+  "selection": [
+    {
+      "task": "t2i",
+      "recipe": "t2i-base",
+      "vram_gb_min": null,
+      "why": "the official Anima Base v1 template: 30 steps, cfg 4, euler/simple, 1024x1024 — the faithful default for anime / illustration work and for Anima images made with base-v1.0",
+      "src": [
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "task": "t2i",
+      "speed": "fast",
+      "recipe": "t2i-turbo",
+      "vram_gb_min": null,
+      "tradeoff": "8 steps at cfg 1 with the Turbo LoRA (the template's turbo switch); the card on distillation: 'increases stability and gives the model a strong default style, but reduces diversity'; the author 'recommend[s] starting with Anima-Turbo' for iterating on prompts",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA"
+      ]
+    },
+    {
+      "task": "t2i",
+      "recipe": "t2i-preview",
+      "vram_gb_min": null,
+      "why": "the official preview template (anima-preview3-base, er_sde): RECREATE images made with the preview models (unet_name port: anima-preview3-base / anima-preview2 / anima-preview, all on Comfy Cloud)",
+      "src": [
+        "S-TPL-PREVIEW",
+        "S-REGISTRY"
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "steps",
+      "node": "KSampler",
+      "input": "steps",
+      "meaning": "denoise steps",
+      "defaults": {
+        "t2i-base": 30,
+        "t2i-preview": 30,
+        "t2i-turbo": 8
+      },
+      "range": [
+        8,
+        50
+      ],
+      "official_reference_code": {
+        "base / aesthetic": "30-50",
+        "Anima-Turbo": "8-12"
+      },
+      "interactions": "the Turbo LoRA / Turbo model is distilled for few steps",
+      "src": [
+        "S-TPL-BASE",
+        "S-TPL-PREVIEW",
+        "S-HF-ANIMA"
+      ]
+    },
+    {
+      "name": "cfg",
+      "node": "KSampler",
+      "input": "cfg",
+      "meaning": "classifier-free guidance",
+      "defaults": {
+        "t2i-base": 4.0,
+        "t2i-preview": 4.0,
+        "t2i-turbo": 1.0
+      },
+      "range": [
+        1.0,
+        5.0
+      ],
+      "official_reference_code": {
+        "base / aesthetic": "4-5",
+        "Anima-Turbo": "1"
+      },
+      "interactions": "euler_a: 'CFG can be pushed a bit higher than other samplers without burning the image'; at cfg 1 the negative has no effect",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA"
+      ]
+    },
+    {
+      "name": "sampler_name / scheduler",
+      "node": "KSampler",
+      "input": "sampler_name, scheduler",
+      "meaning": "",
+      "defaults": {
+        "t2i-base": "euler / simple",
+        "t2i-turbo": "euler / simple",
+        "t2i-preview": "er_sde / simple",
+        "Base 1.0 blueprint": "er_sde / simple"
+      },
+      "range": null,
+      "official_reference_code": {
+        "er_sde": "'neutral style, flat colors, sharp lines. I use this as a reasonable default.'",
+        "euler_a": "'Softer, thinner lines. Can sometimes tend towards a 2.5D look.'",
+        "dpmpp_2m_sde_gpu": "'similar in style to er_sde but can produce more variety ... can get too wild sometimes'",
+        "euler": "'a bit more creative than er_sde. Good with the Turbo and Aesthetic versions'",
+        "beta57 scheduler": "'for a more realistic / painterly look' (RES4LYF on the card; beta57 is in Comfy Cloud's core scheduler list)"
+      },
+      "interactions": "",
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-BASE",
+        "S-TPL-PREVIEW",
+        "S-BP-BASE",
+        "S-REGISTRY"
+      ]
+    },
+    {
+      "name": "width / height",
+      "node": "EmptyLatentImage",
+      "input": "width, height",
+      "meaning": "output size",
+      "defaults": {
+        "all": "1024x1024 (ResolutionSelector 1:1, 1.0 MP, multiple 16)"
+      },
+      "range": [
+        512,
+        1536
+      ],
+      "interactions": "'Works at resolutions between 512^2 and 1536^2 pixels'",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "dims-multiple-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "EmptyLatentImage takes width/height in multiples of 8 (node step 8)",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "dims-multiple-16",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 16
+      },
+      "message": "the official template sizes Anima in multiples of 16 (ResolutionSelector multiple 16; the DiT patches the latent 2x2)",
+      "src": [
+        "S-TPL-BASE",
+        "S-CU-DETECT"
+      ]
+    },
+    {
+      "id": "size-range",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "min": 512,
+        "max": 1536
+      },
+      "message": "the card: 'Works at resolutions between 512^2 and 1536^2 pixels' (checked per side) — render inside it and upscale after",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "id": "text-encoder-qwen3-06b",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_]"
+      },
+      "require": {
+        "node": "CLIPLoader",
+        "input": "clip_name",
+        "matches": "^qwen_3_06b_base\\.safetensors$"
+      },
+      "message": "Anima encodes text with Qwen-3 0.6B base (qwen_3_06b_base.safetensors in a CLIPLoader, type stable_diffusion in the templates); ComfyUI's Anima clip target is that model",
+      "src": [
+        "S-TPL-BASE",
+        "S-CU-SUPPORTED"
+      ]
+    },
+    {
+      "id": "vae-qwen-image",
+      "severity": "error",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_]"
+      },
+      "require": {
+        "node": "VAELoader",
+        "input": "vae_name",
+        "matches": "^qwen_image_vae\\.safetensors$"
+      },
+      "message": "Anima decodes with the Qwen-Image VAE (qwen_image_vae.safetensors; latent format Wan21) — an SD/SDXL/FLUX VAE does not fit its latent",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA",
+        "S-CU-SUPPORTED"
+      ]
+    },
+    {
+      "id": "turbo-lora-cfg-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "(?i)^anima-turbo-lora"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "with the Turbo LoRA the official template sets cfg 1 (card, Anima-Turbo: 'Use at CFG 1')",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA"
+      ]
+    },
+    {
+      "id": "turbo-lora-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "LoraLoaderModelOnly",
+        "input": "lora_name",
+        "matches": "(?i)^anima-turbo-lora"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "min": 8,
+        "max": 12,
+        "all": true
+      },
+      "message": "with the Turbo LoRA the official template runs 8 steps (card, Anima-Turbo: '8-12 steps')",
+      "src": [
+        "S-TPL-BASE",
+        "S-HF-ANIMA"
+      ]
+    },
+    {
+      "id": "turbo-model-cfg-1",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_]turbo(?!-lora)"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "equals": 1.0,
+        "all": true
+      },
+      "message": "Anima-Turbo (the distilled model): 'Use at CFG 1 and 8-12 steps'",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "id": "turbo-model-steps",
+      "severity": "warn",
+      "kind": "pair",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_]turbo(?!-lora)"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "min": 8,
+        "max": 12,
+        "all": true
+      },
+      "message": "Anima-Turbo (the distilled model): 'Use at CFG 1 and 8-12 steps'",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "id": "base-cfg-range",
+      "severity": "warn",
+      "kind": "pair",
+      "unless_file": "^anima[-_]turbo",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_](base|preview|aesthetic)"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "cfg",
+        "min": 4.0,
+        "max": 5.0,
+        "all": true
+      },
+      "message": "the card's generation settings: 'CFG 4-5' (the templates use 4); a recreation keeps the record's value",
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "id": "base-steps-range",
+      "severity": "warn",
+      "kind": "pair",
+      "unless_file": "^anima[-_]turbo",
+      "when": {
+        "node": "UNETLoader",
+        "input": "unet_name",
+        "matches": "(?i)^anima[-_](base|preview|aesthetic)"
+      },
+      "require": {
+        "node": "KSampler",
+        "input": "steps",
+        "min": 30,
+        "max": 50,
+        "all": true
+      },
+      "message": "the card's generation settings: '30-50 steps' (the templates use 30); a recreation keeps the record's value",
+      "src": [
+        "S-HF-ANIMA",
+        "S-TPL-BASE"
+      ]
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image (index.json minComfyUIVersion: base v1 0.16.0, preview 0.11.0)",
+      "src": "S-TPL-INDEX"
+    }
+  ],
+  "prompting": {
+    "negative_default": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia",
+    "negative_src": [
+      "S-TPL-BASE",
+      "S-TPL-PREVIEW",
+      "S-BP-BASE"
+    ],
+    "negative_gloss": "the templates' negative; the card recommends 'worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration'. Aesthetic versions: no score_* tags in either prompt",
+    "positive": [
+      {
+        "line": "Trained on Danbooru-style tags, natural-language captions, and both mixed: 'Use lowercase for tags, and spaces instead of underscores. Score tags are the only tags that use underscores.'",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Recommended positive prefix: 'masterpiece, best quality, score_7, safe, ' (the preview template opens with it; the base template prompt is plain natural language)",
+        "class": "official",
+        "src": [
+          "S-HF-ANIMA",
+          "S-TPL-PREVIEW",
+          "S-TPL-BASE"
+        ]
+      },
+      {
+        "line": "Tag order: [quality/meta/year/safety tags] [1girl/1boy/1other etc] [character] [series] [artist] [general tags]",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Quality tags: masterpiece … worst quality, and/or score_9 … score_1; time: 'year 2025', newest/recent/mid/early/old; meta: highres, absurdres, anime screenshot, official art; safety: safe, sensitive, nsfw, explicit",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Artists need '@': '@big chungus' — 'The effect will be very weak if you don't'",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Natural language: at least 2 sentences ('Extremely short prompts can give unexpected results'); name a character, then describe their appearance — 'extra important when prompting for multiple characters'",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Weights work but need more than SDXL: '(chibi:2)'; Danbooru vs Gelbooru tag: prefer Gelbooru",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "Non-anime datasets: a first line 'ye-pop' or 'deviantart' (then optionally the alt-text / title on line 2) steers toward those styles",
+        "class": "official",
+        "src": "S-HF-ANIMA"
+      }
+    ],
+    "hurts": [
+      {
+        "line": "asking for photorealism",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "short, under-specified prompts without safety tags ('The model may generate undesired content, especially if the prompt is short or lacking details')",
+        "src": "S-HF-ANIMA"
+      },
+      {
+        "line": "score_* tags on Anima-Aesthetic ('can push it too hard into slop territory')",
+        "src": "S-HF-ANIMA"
+      }
+    ]
+  },
+  "pitfalls": [
+    {
+      "symptom": "plain, neutral, 'unstyled' images from the base model",
+      "cause": "'The base version is a true base model ... The default style is very plain and neutral'",
+      "fix": "add quality tags and an @artist tag, or the Turbo LoRA's stronger default style",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "symptom": "an artist tag has almost no effect",
+      "cause": "no '@' before the artist name",
+      "fix": "'@artist name'",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "symptom": "unwanted NSFW content",
+      "cause": "short prompt, no safety tag",
+      "fix": "'safe' in the positive (and nsfw/explicit in the negative), and a longer prompt",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "symptom": "multiple named characters blend",
+      "cause": "names without appearance",
+      "fix": "describe each character's appearance after naming them",
+      "src": "S-HF-ANIMA"
+    },
+    {
+      "symptom": "fried / over-contrasted output with the Turbo LoRA",
+      "cause": "base settings (cfg 4, 30 steps) kept with the LoRA",
+      "fix": "cfg 1, 8 steps (the template's turbo values)",
+      "src": "S-TPL-BASE"
+    }
+  ],
+  "sources": {
+    "S-TPL-BASE": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_anima_base_v1.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-TPL-PREVIEW": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_anima_preview.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-BP-BASE": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/blueprints/text_to_image_anima_base_1_0.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-BP-ANIMA": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/blueprints/text_to_image_anima.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-TPL-INDEX": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/index.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-DOCS": {
+      "url": "https://docs.comfy.org/tutorials/image/anima/anima",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-HF-ANIMA": {
+      "url": "https://huggingface.co/circlestone-labs/Anima",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-HF-LORAS": {
+      "url": "https://huggingface.co/circlestone-labs/Anima-Official-LoRAs",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "ComfyUI node registry (captured from Comfy Cloud, 0.38.2)",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-SUPPORTED": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/supported_models.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-DETECT": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/model_detection.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CU-LORA": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CIVITAI-ENUM": {
+      "url": "https://civitai.com/api/v1/enums",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CIVITAI-ANIMA": {
+      "url": "https://civitai.com/models/2458426/anima",
+      "accessed": "2026-10-05",
+      "class": "official"
+    }
+  },
+  "card": {
+    "short_name": "Anima",
+    "recipes": [
+      {
+        "match": "turbo",
+        "short_name": "Anima Turbo"
+      },
+      {
+        "match": "preview",
+        "short_name": "Anima Preview"
+      }
+    ]
+  }
+}

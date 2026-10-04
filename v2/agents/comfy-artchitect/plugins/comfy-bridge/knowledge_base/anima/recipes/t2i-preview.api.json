@@ -1,0 +1,187 @@
+{
+  "recipe": {
+    "id": "t2i-preview",
+    "family": "anima",
+    "task": "t2i",
+    "variant": "Anima Preview 3 (base) as the official preview template ships it: 30 steps, cfg 4, er_sde/simple, 1024x1024 — for recreating images made with the preview models",
+    "from_template": "image_anima_preview",
+    "min_comfyui": "0.11.0",
+    "confidence": "official",
+    "inputs": {},
+    "outputs": {
+      "image": {
+        "node": "8",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "anima-preview3-base.safetensors",
+      "qwen_3_06b_base.safetensors",
+      "qwen_image_vae.safetensors"
+    ],
+    "packs": [],
+    "ports": {
+      "unet_name": {
+        "node": "44",
+        "input": "unet_name",
+        "note": "the preview model: anima-preview3-base (template), anima-preview2 or anima-preview — all three on Comfy Cloud; set the one the image was made with"
+      },
+      "prompt": {
+        "node": "11",
+        "input": "text",
+        "note": "Danbooru tags (lowercase, spaces not underscores), natural language, or both; tag order: quality/meta/year/safety, 1girl/1boy, character, series, @artist, general tags"
+      },
+      "negative": {
+        "node": "12",
+        "input": "text"
+      },
+      "seed": {
+        "node": "19",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "19",
+        "input": "steps"
+      },
+      "cfg": {
+        "node": "19",
+        "input": "cfg"
+      },
+      "sampler": {
+        "node": "19",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, er_sde, euler_ancestral, dpmpp_2m_sde_gpu, …)"
+      },
+      "scheduler": {
+        "node": "19",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, beta57, …)"
+      },
+      "width": {
+        "node": "28",
+        "input": "width",
+        "note": "the card: 'Works at resolutions between 512^2 and 1536^2 pixels'; the template rounds to multiples of 16"
+      },
+      "height": {
+        "node": "28",
+        "input": "height"
+      },
+      "batch_size": {
+        "node": "28",
+        "input": "batch_size"
+      }
+    },
+    "defaults_note": "The template's subgraph flattened (no switches); the template differs from t2i-base in its model (anima-preview3-base) and sampler (er_sde). Seed, prompt and negative are the template's. Only the SaveImage prefix differs ('Anima' in the template).",
+    "vram_evidence": {
+      "gpu": null,
+      "at": null,
+      "usage": "NOT FOUND (no publisher VRAM figure; Comfy docs only say the 2B model 'runs comfortably on consumer GPUs')",
+      "time_s": null,
+      "src": null
+    },
+    "verify": [
+      "Built from templates/image_anima_preview.json on 2026-10-05; checked against the captured Comfy Cloud node list (0.38.2); checked by the plugin validators."
+    ]
+  },
+  "graph": {
+    "44": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "anima-preview3-base.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "45": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen_3_06b_base.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      }
+    },
+    "15": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      }
+    },
+    "11": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "masterpiece, best quality, score_7, safe, anime, a close-up of a futuristic cyberpunk robotic eye, original close-up eye composition strictly preserved, encased in weathered metallic blue and chrome plating with exposed wiring, glowing orange indicator lights, hydraulic pistons, and panel seams wrapping around the eyelid, a chrome mechanical tear duct with fine circuit details, long dark anime-style eyelashes framing the eye, soft pink sclera. The dark pupil holds a complete, glowing Earth with blue atmosphere and white clouds as a reflection, while the surrounding iris reflects a vivid cosmic scene: a fiery red shooting star, wispy cyan nebula clouds, and tiny glowing star specks. No change to the original close-up eye framing, no additional elements outside the eye structure, neon accent lighting, high contrast cyberpunk color palette, intricate mechanical engineering, sharp line art, gritty futuristic sci-fi atmosphere.",
+        "clip": [
+          "45",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia",
+        "clip": [
+          "45",
+          0
+        ]
+      }
+    },
+    "28": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "19": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 875817230929465,
+        "steps": 30,
+        "cfg": 4.0,
+        "sampler_name": "er_sde",
+        "scheduler": "simple",
+        "denoise": 1.0,
+        "model": [
+          "44",
+          0
+        ],
+        "positive": [
+          "11",
+          0
+        ],
+        "negative": [
+          "12",
+          0
+        ],
+        "latent_image": [
+          "28",
+          0
+        ]
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "19",
+          0
+        ],
+        "vae": [
+          "15",
+          0
+        ]
+      }
+    },
+    "46": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "8",
+          0
+        ],
+        "filename_prefix": "anima/t2i_preview"
+      }
+    }
+  }
+}

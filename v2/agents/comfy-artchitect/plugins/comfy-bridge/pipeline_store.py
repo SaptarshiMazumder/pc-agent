@@ -76,9 +76,9 @@ class PipelineStore:
 
     def save(self, pipeline: Pipeline, custom_graphs: dict[str, dict] | None = None,
              only: set[str] | None = None) -> dict[str, WrittenWorkflow]:
-        """Write pipeline.json, (re)build the stages named in `only` (all when None), and write the
-        one combined workflow again. `custom_graphs`: the graph of each custom stage, by name,
-        when it is new or changed."""
+        """Write pipeline.json and (re)build the stages named in `only` (all when None).
+        `custom_graphs`: the graph of each custom stage, by name, when it is new or changed. The one
+        combined workflow is write_design's — a side product, never what decides a design."""
         custom_graphs = custom_graphs or {}
         written = {}
         old = self.load()
@@ -92,7 +92,7 @@ class PipelineStore:
             whats = {i.role: self._what(pipeline, stage, i) for i in stage.inputs}
             fed_by = {i.role: f"{i.producer[0]}.{i.producer[1]}" for i in stage.inputs if i.producer}
             written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by, subfolder=STAGES)
-        self._write_design(old, pipeline)
+        self._drop_old_design(old, pipeline)
         # IN stages/, NOT BESIDE THE WORKFLOW: the window lists every .json in the chat's folder as
         # a ComfyUI file, and the design's bookkeeping showed up as two extra "workflows".
         stages = self.folder / STAGES
@@ -139,16 +139,26 @@ class PipelineStore:
         finally:
             lock.unlink(missing_ok=True)
 
-    def _write_design(self, old: Pipeline | None, pipeline: Pipeline) -> None:
-        """The ONE workflow: every stage's current graph, joined and wired. A renamed design takes
-        its old file with it."""
-        name = self.design_name(pipeline)
-        if old is not None and self.design_name(old) != name:
+    def write_design(self, pipeline: Pipeline) -> str:
+        """The ONE workflow the person downloads: every stage's current graph, joined and wired.
+        A SIDE PRODUCT: the stage files and the design check are the design. Joining them once
+        crashed on a case nobody had built (two inputs reading one output) and took the whole
+        design call down with it — so a failure here is returned as one line for the tool's result
+        (the download is missing, the design stands), never raised into the design tools."""
+        try:
+            assembled = self._assembler.assemble(pipeline, {s.name: self.graph(s) for s in pipeline.stages})
+            self._writer.write_files(chat_paths.chat_rel(chat_paths.WORKFLOWS), self.design_name(pipeline),
+                                     assembled.graph, groups=assembled.groups)
+        except Exception as e:  # noqa: BLE001 — said in the result, see the docstring
+            return (f"the one-file download ({self.design_rel(pipeline)}) was not written: {type(e).__name__}: "
+                    f"{e}. The design and its stage files stand; tell the person this one file is missing.")
+        return ""
+
+    def _drop_old_design(self, old: Pipeline | None, pipeline: Pipeline) -> None:
+        """A renamed design takes its old one-file workflow with it."""
+        if old is not None and self.design_name(old) != self.design_name(pipeline):
             for suffix in (".api.json", ".json"):
                 (self.folder / f"{self.design_name(old)}{suffix}").unlink(missing_ok=True)
-        assembled = self._assembler.assemble(pipeline, {s.name: self.graph(s) for s in pipeline.stages})
-        self._writer.write_files(chat_paths.chat_rel(chat_paths.WORKFLOWS), name, assembled.graph,
-                                 groups=assembled.groups)
 
     def _drop_stages_not_in(self, old: Pipeline | None, pipeline: Pipeline) -> None:
         """A REPLACED DESIGN LEAVES NO STAGES BEHIND. The previous pipeline's stages that the new

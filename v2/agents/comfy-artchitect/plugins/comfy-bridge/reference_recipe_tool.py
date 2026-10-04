@@ -80,12 +80,12 @@ class ReferenceRecipeTool(Tool):
             return ToolResult.text(note or f"{source} carries no generation record (its metadata was "
                                    "stripped): recreate it from what it shows — kb_lookup and lora_search.",
                                    is_error=not note)
-        resolved = self._resolve(recipe)
+        resolved = self._resolve(recipe, self._cloud_loras(ctx))
         checkpoints = self._checkpoints(recipe)
         return ToolResult.text(self._render(ctx, recipe, base, resolved, checkpoints, note), details={
             "settings": recipe.settings(), "models": recipe.models,
-            "loras": [{"as_named": lo.name, "strength": lo.strength, "lookup_failed": failed,
-                       "civitai": dataclasses.asdict(hit) if hit else None} for lo, hit, failed in resolved]})
+            "loras": [{"as_named": lo.name, "strength": lo.strength, "lookup_failed": failed, "on_comfy_cloud": cloud,
+                       "civitai": dataclasses.asdict(hit) if hit else None} for lo, hit, failed, cloud in resolved]})
 
     # ------------------------------------------------------------------ reading
 
@@ -125,11 +125,20 @@ class ReferenceRecipeTool(Tool):
 
     # ------------------------------------------------------------------ resolving
 
-    def _resolve(self, recipe: ImageRecipe) -> list[tuple[ImageRecipeLora, CivitaiLora | None, str]]:
-        """(the LoRA as the image names it, its Civitai version, why the lookup failed) — a failed
-        lookup is that LoRA's to report: the recipe read from the image stands without it."""
-        out = []
+    def _resolve(self, recipe: ImageRecipe, cloud: list[str]) -> list[tuple[ImageRecipeLora, CivitaiLora | None, str, str]]:
+        """(the LoRA as the image names it, its Civitai version, why the lookup failed, the name
+        Comfy Cloud has it under) — a failed lookup is that LoRA's to report: the recipe read from
+        the image stands without it. A LoRA whose very file Comfy Cloud has (a speed LoRA from
+        Hugging Face, `Wan2.2-Lightning_…`) is that file: nothing to look up or import."""
+        on_cloud = {_stem(n): n for n in cloud}
+        out, seen = [], set()
         for lo in recipe.loras[:MAX_LORAS]:
+            if lo.name in seen:
+                continue  # a graph that loads one LoRA in several places names it once here
+            seen.add(lo.name)
+            if _stem(lo.name) in on_cloud:
+                out.append((lo, None, "", on_cloud[_stem(lo.name)]))
+                continue
             hit, failed = None, ""
             try:
                 if lo.version_id:
@@ -140,16 +149,19 @@ class ReferenceRecipeTool(Tool):
                     hit = self._civitai.lora_by_file(lo.name)
             except CivitaiError as e:
                 failed = str(e)
-            out.append((lo, hit, failed))
+            out.append((lo, hit, failed, ""))
         return self._one_per_lora(out)
 
     def _one_per_lora(self, rows: list) -> list:
         """A LoRA the record names TWICE — by its short name in the prompt (`<lora:gr33nXLP:1>`) and
         by its Civitai version — is one LoRA: the unresolved name whose file the resolved version
         ships is dropped. A short name nothing resolved is then looked up as `<name>.safetensors`."""
-        stems = {_stem(hit.file) for _, hit, _ in rows if hit is not None}
+        stems = {_stem(hit.file) for _, hit, _, _ in rows if hit is not None}
         out = []
-        for lo, hit, failed in rows:
+        for lo, hit, failed, cloud in rows:
+            if cloud:
+                out.append((lo, hit, failed, cloud))
+                continue
             if hit is None and not failed and _stem(lo.name) in stems:
                 continue
             if hit is None and not failed and not lo.version_id and not lo.hash and "." not in _stem_tail(lo.name):
@@ -157,7 +169,7 @@ class ReferenceRecipeTool(Tool):
                     hit = self._civitai.lora_by_file(f"{_stem(lo.name)}.safetensors")
                 except CivitaiError as e:
                     failed = str(e)
-            out.append((lo, hit, failed))
+            out.append((lo, hit, failed, ""))
         return out
 
     def _checkpoints(self, recipe: ImageRecipe) -> list[tuple[int, CivitaiLora | None, str]]:
@@ -174,11 +186,11 @@ class ReferenceRecipeTool(Tool):
     # ------------------------------------------------------------------ the answer
 
     def _render(self, ctx: PipelineToolContext, recipe: ImageRecipe, image_base: str,
-                resolved: list[tuple[ImageRecipeLora, CivitaiLora | None, str]],
+                resolved: list[tuple[ImageRecipeLora, CivitaiLora | None, str, str]],
                 checkpoints: list[tuple[int, CivitaiLora | None, str]], note: str) -> str:
         lines = [f"Recipe, from {recipe.source}:"]
         bases = [b for b in [image_base, *(c.base for _, c, _ in checkpoints if c),
-                             *(h.base for _, h, _ in resolved if h)] if b]
+                             *(h.base for _, h, _, _ in resolved if h)] if b]
         if recipe.models:
             lines.append(f"  model: {', '.join(recipe.models)}" + (f" [{image_base}]" if image_base else ""))
         elif image_base:
@@ -202,7 +214,11 @@ class ReferenceRecipeTool(Tool):
             lines.append("")
             lines.append("LoRAs:")
             cloud = self._cloud_loras(ctx)
-            for lo, hit, failed in resolved:
+            for lo, hit, failed, on_cloud in resolved:
+                if on_cloud:
+                    lines.append(f"  {lo.name} @{lo.strength:g} — Comfy Cloud has this very file: loras entry "
+                                 f"{{'name': {on_cloud!r}, 'strength': {lo.strength:g}}} (no download)")
+                    continue
                 if failed:
                     file = lo.name.replace("\\", "/").rsplit("/", 1)[-1]
                     keep = {"name": file, "strength": lo.strength, **({"base": image_base} if image_base else {})}
@@ -234,7 +250,7 @@ class ReferenceRecipeTool(Tool):
         lines.append("")
         lines.append("To recreate it faithfully: one stage of that recipe with this prompt, size, steps, "
                      "guidance/cfg, sampler, scheduler, clip_skip and seed set through its ports (kb_lookup "
-                     "shows their names); the image's checkpoint in the recipe's `checkpoint` port with its "
+                     "shows their names); the image's model file in the port named above with its "
                      "`models` entry when it is not the recipe's own; and THESE LoRAs at THESE strengths in `loras`, exactly as listed — they ARE the "
                      "look; no other LoRA replaces or joins them unless one above was not found. Then change "
                      "only what the person asked to change.")
@@ -261,7 +277,9 @@ class ReferenceRecipeTool(Tool):
                                any(re.search(pattern, f.replace("\\", "/").rsplit("/", 1)[-1], re.I) for f in r.files)]
                     if not recipes:
                         continue
-                    t2i = sorted(r.id for r in recipes if r.task == "t2i")
+                    picks = [str(s.get("recipe")) for s in fam.selection if s.get("task") == "t2i"]
+                    t2i = sorted((r.id for r in recipes if r.task == "t2i"),
+                                 key=lambda rid: (picks.index(rid) if rid in picks else len(picks), rid))
                     rest = sorted(r.id for r in recipes if r.task != "t2i")
                     text = f"  {base} → {fam.id} ({model.get('name')}): " + (
                         f"text-to-image {', '.join(t2i)}" + (f"; also {', '.join(rest[:8])}" if rest else "")
@@ -292,27 +310,46 @@ class ReferenceRecipeTool(Tool):
                            f"{what}): leave the recipe's default {what} and say the result may differ slightly")
         return out
 
-    @staticmethod
-    def _checkpoint_lines(ctx: PipelineToolContext, checkpoints: list) -> list[str]:
-        """The image's checkpoint: what it is, and the `models` entry that brings it — or that Comfy
-        Cloud already has the very file."""
-        cloud = set()
-        if "captured" in str(ctx.catalogue_source):
-            spec = (ctx.catalogue.get("CheckpointLoaderSimple") or {}).get("input") or {}
-            cloud = {str(n).replace("\\", "/").rsplit("/", 1)[-1].lower()
-                     for n in ((spec.get("required") or {}).get("ckpt_name") or [[]])[0] if isinstance(n, str)}
+    #: The port that swaps a recipe's model, and the folder its file lives in — a checkpoint for the
+    #: SD lineage, a bare diffusion model for the DiT families (Anima, Krea 2, …).
+    MODEL_PORTS = (("checkpoint", "checkpoints", "CheckpointLoaderSimple", "ckpt_name"),
+                   ("unet_name", "diffusion_models", "UNETLoader", "unet_name"))
+
+    @classmethod
+    def _model_port(cls, ctx: PipelineToolContext, base: str) -> tuple[str, str, str, str]:
+        """(port, folder, loader class, loader input) for a model of Civitai base `base`: the port
+        the recipes of the family that runs it expose."""
+        for fam in ctx.catalog.families.values():
+            if not any(base in (m.get("bases") or []) for m in fam.lora.get("models") or []):
+                continue
+            for r in ctx.catalog.recipes_of(fam.id):
+                for entry in cls.MODEL_PORTS:
+                    if entry[0] in r.ports:
+                        return entry
+        return cls.MODEL_PORTS[0]
+
+    @classmethod
+    def _checkpoint_lines(cls, ctx: PipelineToolContext, checkpoints: list) -> list[str]:
+        """The image's model file: what it is, the port it goes in, and the `models` entry that
+        brings it — or that Comfy Cloud already has the very file."""
         lines = []
         for vid, hit, failed in checkpoints:
             if failed or hit is None:
                 why = f"the Civitai lookup FAILED ({failed})" if failed else "not found on Civitai"
-                lines.append(f"  checkpoint: Civitai version {vid} — {why}; call reference_recipe again in a moment")
+                lines.append(f"  model file: Civitai version {vid} — {why}; call reference_recipe again in a moment")
                 continue
-            lines.append(f"  checkpoint: {hit.name} — {hit.version} [{hit.base}], file {hit.file}")
+            port, folder, loader, field = cls._model_port(ctx, hit.base)
+            cloud = set()
+            if "captured" in str(ctx.catalogue_source):
+                spec = (ctx.catalogue.get(loader) or {}).get("input") or {}
+                cloud = {str(n).replace("\\", "/").rsplit("/", 1)[-1].lower()
+                         for n in ((spec.get("required") or {}).get(field) or [[]])[0] if isinstance(n, str)}
+            lines.append(f"  model file: {hit.name} — {hit.version} [{hit.base}], file {hit.file}")
             if hit.file.lower() in cloud:
-                lines.append(f"     Comfy Cloud has this very file: set the recipe's checkpoint port to {hit.file!r}")
+                lines.append(f"     Comfy Cloud has this very file: set the recipe's `{port}` port to {hit.file!r}")
             else:
-                entry = {"name": hit.file, "folder": "checkpoints", "base": hit.base, "url": hit.download_url}
-                lines.append(f"     models entry: {entry} — and the recipe's checkpoint port set to {hit.file!r}")
+                entry = {"name": hit.file, "folder": folder, "base": hit.base, "url": hit.download_url}
+                lines.append(f"     models entry: {entry} — and the recipe's `{port}` port set to {hit.file!r}")
             lines.append(f"     {hit.page}")
         return lines
 
