@@ -17,6 +17,8 @@ class CreativeBrief:
     shots: tuple[Shot, ...]
     caption: str
     look: dict = field(default_factory=dict)
+    # A text ad's words (PosterCopy as a dict); empty for a photo ad.
+    copy: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "CreativeBrief":
@@ -34,6 +36,7 @@ class CreativeBrief:
             shots=shots,
             caption=str(data.get("caption") or "").strip(),
             look=dict(data.get("look") or {}),
+            copy=dict(data.get("copy") or {}),
         )
 
     def shot(self, shot_id: str) -> Shot:
@@ -51,4 +54,5 @@ class CreativeBrief:
             "look": self.look,
             "shots": [s.to_dict() for s in self.shots],
             "caption": self.caption,
+            "copy": self.copy,
         }

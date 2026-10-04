@@ -1,0 +1,1 @@
+A real photograph, not a render. Natural available light with soft falloff and true, slightly uneven shadows; honest colour. Real materials with their true texture, wear and reflections — fibres, grain, tiny surface irregularities. Full-frame camera, 50mm lens at f/2.8, natural depth of field, subtle film grain. Sharp focus on the product. No text, no watermarks, no extra logos.

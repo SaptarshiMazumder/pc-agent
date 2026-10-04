@@ -11,8 +11,8 @@
 
 name = "Ad Studio"
 version = "0.2.0"
-# No project manager: the steps are fixed by the recipe in code (campaign_run), so there is no
-# plan for a manager to review — only a pipeline it could second-guess.
+# No project manager: a campaign's steps are its own checklist (from its recipe, changed by the
+# user as they go), so there is no plan for a manager to review.
 managed = false
 description = "Turns product photos into ad campaigns: reads the product, writes the brief, keeps a cast of recurring AI models, generates the stills and animates them into vertical video clips."
 tagline = "product in · ad out"
@@ -24,9 +24,9 @@ suggestions = [
   "Three street-walk shots for these earrings",
 ]
 
-# THE WINDOW: rail | chat | studio (the gate the campaign waits at, its stills and clips, the
-# cast). It reads through campaign_list / campaign_status / cast_list and acts only by sending
-# the user's answer as a chat message, so every gate is still passed by the user's own reply.
+# THE WINDOW: rail | chat | studio (the campaign's steps, every result of each, a Generate panel
+# per step, the gallery, the cast). It reads through campaign_list / campaign_status / cast_list,
+# picks a result directly (step_pick: free), and asks for anything that costs as a chat message.
 [app]
 title = "Ad Studio"
 mode = "window"
@@ -39,37 +39,38 @@ web = true
 # Shared tools it may reach, beyond its own ad-generation tools (implicitly allowed).
 #   ls / read          find the photos the user attached (uploads/) and read a campaign's files
 #   show_files         its output is images and clips; it shows them
-#   update_plan        a campaign is many steps and the user watches it
 #   web_search/fetch   read a product page the user links to
-# The gate question is its own campaign_ask (a checkpoint the daemon stamps), not the shared
-# ask_user: that one is written for ComfyUI jobs and its fields mean nothing here.
+# No update_plan: the studio already shows where the campaign stands, and every plan update was a
+# full model call (~40 s) the user waited through for a checklist nobody read.
 [tools]
-allow = ["ls", "read", "show_files", "update_plan", "web_search", "web_fetch"]
+allow = ["ls", "read", "show_files", "web_search", "web_fetch"]
 
-# Which backend each generation tool uses — fal to start. To move to BytePlus (half fal's price
-# for Seedance), switch all three together: provider = "byteplus", with models
-# "dola-seedream-5-0-pro-260628" (cast_create, keyframe_generate) and
-# "dreamina-seedance-2-5-260628" (shot_animate). Together, because BytePlus's Seedance accepts
+# The default backends: `images` (every images step and shoot sheet), `video` (every video step
+# and extension), and per tool for cast_create, still_fix and clip_edit. Each run can name another
+# model (the window's dropdowns). To move to BytePlus, switch images, video and cast_create
+# together: provider = "byteplus", with models "dola-seedream-5-0-pro-260628" (images,
+# cast_create) and "dreamina-seedance-2-5-260628" (video). Together, because BytePlus's Seedance accepts
 # faces only from images its own models made on the same account
 # (docs.byteplus.com/en/docs/ModelArk/1520757).
 [plugins.ad-generation.tools.cast_create]
 provider = "higgsfield"
 model = "seedream_v5_pro"
 
-[plugins.ad-generation.tools.keyframe_generate]
+[plugins.ad-generation.tools.images]
 provider = "higgsfield"
 model = "seedream_v5_pro"
-variants = 2
 
 # IMAGES ON HIGGSFIELD (subscription credits): Seedream 5 Pro 2.5 cr per image for sheets and
 # stills, Nano Banana Pro 2 cr for a fix. fal is a line away per tool, and cheaper in cash for
 # Seedream ($0.07): provider = "fal", model = "bytedance/seedream/v5/pro/edit" (still_fix:
 # "fal-ai/nano-banana-pro/edit"). Every tool also takes provider/model per call, so the same
 # sheet or still can be made on both and compared.
-# A targeted edit of one still (the user says what; only that changes): Nano Banana Pro.
+# A targeted edit of one still (the user says what; only that changes): GPT Image 2.5 by
+# default; the window's Fix model dropdown passes another per fix (Seedream 5 Pro edit,
+# Nano Banana Pro 4K). Every fix is scaled to the still's own size.
 [plugins.ad-generation.tools.still_fix]
 provider = "higgsfield"
-model = "nano_banana_pro"
+model = "gpt_image_2_5"
 
 # CLIPS ON HIGGSFIELD: its developer API bills the subscription's credits at the same prices the
 # web UI shows - Kling 3 std 5 s silent = 6.25 cr, Seedance 2.5 720p 5 s silent = 35 cr - and its
@@ -77,12 +78,25 @@ model = "nano_banana_pro"
 # the credits it charged, so the cost is exact. Models: kling3_0, kling3_0_pro, seedance_2_5
 # (takes reference images: the cast sheet and the other stills ride along), minimax_h3.
 # To go back to fal: provider = "fal", model = "fal-ai/kling-video/v3/standard/image-to-video".
-[plugins.ad-generation.tools.shot_animate]
+[plugins.ad-generation.tools.video]
 provider = "higgsfield"
 model = "kling3_0"
-resolution = "720p"
 # Silent ads: music is added in the edit.
 audio = false
+
+# CHANGING A CLIP THE USER SELECTED. Edit = same clip, one thing changed: Kling 3.0 Omni Edit
+# (7.5 cr / 5 s std) by default; Seedance 2.5 (38 cr) and Gemini Omni Flash 1.1 (24 cr) in the
+# window's dropdown. Extend = the clip continued: Seedance 2.5 continues the clip itself (35 cr);
+# any other clip model starts a new clip on the source's last frame (Kling 3 std, 6.25 cr).
+[plugins.ad-generation.tools.clip_edit]
+provider = "higgsfield"
+model = "kling3_0"
+
+# RUN APPROVAL: "ask" — nothing is generated until the user approves the run (its model) with a
+# click in the studio; a run the agent starts on its own becomes a proposal there. "auto" —
+# the agent generates when asked. This is each new campaign's default; the studio switches it.
+[plugins.ad-generation]
+generation_approval = "ask"
 
 # Higgsfield has no API key: its CLI login (`higgsfield auth login`) stores an OAuth access token
 # (~24 h) and a refresh token. HIGGSFIELD_ACCESS_TOKEN alone works until it expires; with

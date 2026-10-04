@@ -19,6 +19,8 @@ class Shot:
     cast: tuple[str, ...]  # cast member names in this shot; empty for product-only shots
     shows_product: bool
     spec: dict = field(default_factory=dict)
+    # A text ad's picture WITHOUT its words, for overlay mode; "" for a photo ad.
+    overlay_prompt: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> "Shot":
@@ -34,6 +36,7 @@ class Shot:
             cast=tuple(str(c).strip() for c in data.get("cast") or [] if str(c).strip()),
             shows_product=bool(data.get("shows_product", True)),
             spec=dict(data.get("spec") or {}),
+            overlay_prompt=str(data.get("overlay_prompt") or "").strip(),
         )
 
     def to_dict(self) -> dict:

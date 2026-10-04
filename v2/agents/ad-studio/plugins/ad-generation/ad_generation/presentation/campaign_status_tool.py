@@ -1,4 +1,4 @@
-"""campaign_status — one campaign as the window draws it: gate, brief, sheet, stills, clips. Read only."""
+"""campaign_status — one campaign as the window draws it: its steps and every result. Read only."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 from ad_generation.application.campaign_view_service import CampaignViewService
 from ad_generation.infrastructure.run_workspace import RunWorkspace
+from ad_generation.presentation.campaign_text import CampaignText
 from ad_generation.presentation.generation_backend_resolver import PLUGIN
 
 
@@ -14,8 +15,8 @@ class CampaignStatusTool(Tool):
     label = "Campaign status"
     plugin = PLUGIN
     description = (
-        "One campaign's state: the gate it waits at, the brief, the shoot sheet, each shot's "
-        "passing stills with scores, the chosen still, the clip, and the spend. Read only."
+        "One campaign: its checklist of steps, each with every result (score, model, cost), the "
+        "pick, the brief, and the spend. Read only."
     )
     parameters = {
         "type": "object",
@@ -34,6 +35,6 @@ class CampaignStatusTool(Tool):
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"campaign_status: {type(e).__name__}: {e}", is_error=True)
         return ToolResult.text(
-            f"{campaign} · {detail['product']['name']} · waits at {detail['gate']} · ${detail['spent_usd']:.2f}",
+            "\n".join(CampaignText.checklist(detail)),
             details={"root": str(self._ws.root()), "campaign": detail},
         )

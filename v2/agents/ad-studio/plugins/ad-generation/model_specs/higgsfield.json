@@ -1,5 +1,5 @@
 {
-  "_about": "Higgsfield developer API job types (GET /developer/v2alpha/job_types/<id> is the source). Cost is NOT here: every accepted job returns the credits it charged; agent.toml's usd_per_credit converts them.",
+  "_about": "Higgsfield developer API job types (GET /developer/v2alpha/job_types/<id> is the source). The price is quoted before each job (POST /jobs/<type>/cost) and charged credits come back with it; agent.toml's usd_per_credit converts them. price_note is for people.",
   "seedance_2_5": {
     "kind": "video",
     "fields": {
@@ -15,14 +15,59 @@
       "mode": "omni_reference",
       "bitrate_mode": "standard"
     },
-    "resolutions": [
-      "480p",
-      "720p",
-      "1080p"
-    ],
+    "resolutions": {
+      "480p": "15 cr / 5 s",
+      "720p": "35 cr / 5 s",
+      "1080p": "60 cr / 5 s"
+    },
     "source": "job_types/seedance_2_5",
     "label": "Seedance 2.5 (Higgsfield)",
-    "price_note": "35 cr / 5 s at 720p"
+    "price_note": "35 cr / 5 s at 720p, 60 at 1080p",
+    "durations": {
+      "min": 4,
+      "max": 30
+    },
+    "edit": {
+      "fixed": {
+        "mode": "video_edit",
+        "bitrate_mode": "standard",
+        "resolution": "720p"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_references",
+        "references": "image_references",
+        "resolution": "resolution",
+        "audio": "generate_audio"
+      },
+      "quote_duration": true,
+      "price_note": "38 cr / 5 s of source"
+    },
+    "extend": {
+      "fixed": {
+        "mode": "video_extension",
+        "bitrate_mode": "standard",
+        "resolution": "720p"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_references",
+        "references": "image_references",
+        "resolution": "resolution",
+        "audio": "generate_audio",
+        "duration": "duration",
+        "direction": "extension_mode"
+      },
+      "price_note": "35 cr / 5 s added"
+    },
+    "aspect_ratios": [
+      "21:9",
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16"
+    ]
   },
   "kling3_0": {
     "kind": "video",
@@ -41,8 +86,34 @@
       "mode": "std"
     },
     "source": "job_types/kling3_0",
-    "label": "Kling 3 standard (Higgsfield)",
-    "price_note": "6.25 cr / 5 s"
+    "label": "Kling 3 standard · 720p (Higgsfield)",
+    "price_note": "6.25 cr / 5 s",
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "edit": {
+      "job_type": "kling_video_edit",
+      "fixed": {
+        "mode": "std"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_references",
+        "references": "image_references"
+      },
+      "max_references": 4,
+      "quote_duration": true,
+      "price_note": "7.5 cr / 5 s of source"
+    },
+    "resolutions": {
+      "720p": "6.25 cr / 5 s"
+    },
+    "aspect_ratios": [
+      "16:9",
+      "9:16",
+      "1:1"
+    ]
   },
   "kling3_0_pro": {
     "kind": "video",
@@ -62,8 +133,67 @@
     },
     "job_type": "kling3_0",
     "source": "job_types/kling3_0 (mode pro)",
-    "label": "Kling 3 pro (Higgsfield)",
-    "price_note": "pro mode"
+    "label": "Kling 3 pro · 1080p (Higgsfield)",
+    "price_note": "7.5 cr / 5 s",
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "edit": {
+      "job_type": "kling_video_edit",
+      "fixed": {
+        "mode": "pro"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_references",
+        "references": "image_references"
+      },
+      "max_references": 4,
+      "quote_duration": true,
+      "price_note": "10 cr / 5 s of source"
+    },
+    "resolutions": {
+      "1080p": "7.5 cr / 5 s"
+    },
+    "aspect_ratios": [
+      "16:9",
+      "9:16",
+      "1:1"
+    ]
+  },
+  "kling3_0_4k": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio",
+      "audio": "sound"
+    },
+    "audio_values": {
+      "true": "on",
+      "false": "off"
+    },
+    "fixed": {
+      "mode": "4k"
+    },
+    "job_type": "kling3_0",
+    "source": "job_types/kling3_0 (mode 4k)",
+    "label": "Kling 3 · 4K (Higgsfield)",
+    "price_note": "30 cr / 5 s",
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "resolutions": {
+      "4K": "30 cr / 5 s"
+    },
+    "aspect_ratios": [
+      "16:9",
+      "9:16",
+      "1:1"
+    ]
   },
   "minimax_h3": {
     "kind": "video",
@@ -76,7 +206,52 @@
     },
     "source": "job_types/minimax_h3",
     "label": "MiniMax H3 (Higgsfield)",
-    "price_note": "10 cr / 5 s"
+    "price_note": "10 cr / 5 s",
+    "durations": {
+      "min": 4,
+      "max": 15
+    },
+    "resolutions": {
+      "2K": "10 cr / 5 s"
+    },
+    "aspect_ratios": [
+      "21:9",
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16"
+    ]
+  },
+  "minimax_h3_max": {
+    "kind": "video",
+    "label": "MiniMax H3 Max (Higgsfield)",
+    "price_note": "12.5 cr / 5 s",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image",
+      "references": "image_references",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio",
+      "resolution": "resolution"
+    },
+    "source": "job_types/minimax_h3_max",
+    "durations": {
+      "min": 5,
+      "max": 15
+    },
+    "resolutions": {
+      "480p": "",
+      "768p": "12.5 cr / 5 s"
+    },
+    "aspect_ratios": [
+      "21:9",
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16"
+    ]
   },
   "nano_banana_pro": {
     "kind": "image",
@@ -108,17 +283,154 @@
     "label": "Seedream 5 Pro (Higgsfield)",
     "price_note": "2.5 cr"
   },
-  "minimax_h3_max": {
-    "kind": "video",
-    "label": "MiniMax H3 Max (Higgsfield)",
-    "price_note": "12.5 cr / 5 s",
+  "text2image_soul_v2": {
+    "kind": "image",
+    "label": "Higgsfield Soul 2.0 (one reference: sheets only)",
+    "price_note": "0.12 cr",
     "fields": {
       "prompt": "prompt",
-      "first_frame": "start_image",
       "references": "image_references",
-      "duration": "duration",
       "aspect_ratio": "aspect_ratio"
     },
-    "source": "job_types/minimax_h3_max"
+    "fixed": {
+      "quality": "2k"
+    },
+    "max_references": 1,
+    "source": "job_types/text2image_soul_v2"
+  },
+  "gpt_image_2_5": {
+    "kind": "image",
+    "label": "GPT Image 2.5 Sunburst (Higgsfield)",
+    "price_note": "2.75 cr",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "variant": "sunburst",
+      "quality": "high",
+      "resolution": "2k"
+    },
+    "max_references": 16,
+    "source": "job_types/gpt_image_2_5"
+  },
+  "seedream_v5_pro_edit": {
+    "kind": "image",
+    "job_type": "seedream_v5_pro",
+    "label": "Seedream 5 Pro edit (Higgsfield)",
+    "price_note": "2.5 cr",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k",
+      "is_inpaint": true
+    },
+    "max_references": 14,
+    "fix_only": true,
+    "source": "job_types/seedream_v5_pro (is_inpaint: an edit of the reference, not a fresh image)"
+  },
+  "nano_banana_pro_4k": {
+    "kind": "image",
+    "job_type": "nano_banana_pro",
+    "label": "Nano Banana Pro 4K (Higgsfield)",
+    "price_note": "4 cr",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "4k"
+    },
+    "max_references": 14,
+    "source": "job_types/nano_banana_pro (resolution 4k)"
+  },
+  "gemini_omni_flash_1_1": {
+    "kind": "video",
+    "edit_only": true,
+    "label": "Gemini Omni Flash 1.1 (Higgsfield)",
+    "source": "job_types/gemini_omni_flash_1_1",
+    "fields": {
+      "prompt": "prompt"
+    },
+    "price_note": "edit 24 cr / 5 s of source",
+    "edit": {
+      "fixed": {
+        "mode": "edit",
+        "resolution": "720p"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_references"
+      },
+      "quote_duration": true,
+      "price_note": "24 cr / 5 s of source"
+    },
+    "aspect_ratios": [
+      "16:9",
+      "9:16"
+    ]
+  },
+  "ideogram_4_5": {
+    "kind": "image",
+    "label": "Ideogram 4.5 — best for text on images (Higgsfield)",
+    "price_note": "6.25 cr",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k",
+      "quality": "high",
+      "magic_prompt": "off"
+    },
+    "max_references": 5,
+    "aspect_ratios": [
+      "1:1",
+      "4:5",
+      "5:4",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "9:16",
+      "16:9",
+      "1:2",
+      "2:1"
+    ],
+    "source": "job_types/ideogram_4_5"
+  },
+  "flux_3_image": {
+    "kind": "image",
+    "label": "FLUX 3 — good text, 10 references (Higgsfield)",
+    "price_note": "3 cr",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k"
+    },
+    "max_references": 10,
+    "aspect_ratios": [
+      "21:9",
+      "16:9",
+      "3:2",
+      "4:3",
+      "5:4",
+      "1:1",
+      "4:5",
+      "3:4",
+      "2:3",
+      "9:16",
+      "1:2"
+    ],
+    "source": "job_types/flux_3_image"
   }
 }

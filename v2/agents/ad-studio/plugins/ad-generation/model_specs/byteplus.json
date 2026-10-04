@@ -13,7 +13,8 @@
       "per_extra_reference": 0.003
     },
     "source": "https://docs.byteplus.com/en/docs/ModelArk/1544106",
-    "label": "dola-seedream-5-0-pro-260628 (BytePlus)"
+    "label": "dola-seedream-5-0-pro-260628 (BytePlus)",
+    "max_references": 10
   },
   "dreamina-seedance-2-5-260628": {
     "kind": "video",
@@ -25,6 +26,11 @@
       }
     },
     "source": "https://docs.byteplus.com/en/docs/ModelArk/1544106",
-    "label": "dreamina-seedance-2-5-260628 (BytePlus)"
+    "label": "dreamina-seedance-2-5-260628 (BytePlus)",
+    "resolutions": {
+      "480p": "",
+      "720p": "",
+      "1080p": ""
+    }
   }
 }

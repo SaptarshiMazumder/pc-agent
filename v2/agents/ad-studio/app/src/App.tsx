@@ -1,19 +1,19 @@
 /* Ad Studio's window: a rail, then the chat beside the studio.
  *
- *   rail  | chat (thread + composer)  ┆  studio (the campaign's gate, its stills and clips, the cast)
+ *   rail  | chat (thread + composer)  ┆  studio (the campaign's steps, every result, the cast)
  *
- * THE STUDIO SHOWS, THE CHAT ACTS. Everything in the studio is read through the agent's read-only
- * tools; every decision there is sent as the user's own chat message, so the daemon's approval
- * stamps — not a button — are what open a gate. (agentd/campaigns.ts, studio/GatePanel.tsx)
+ * THE STUDIO SHOWS; WHAT COSTS GOES THROUGH THE CHAT. The studio reads through the agent's
+ * read-only tools and picks results directly (free); every generation is sent as a chat message
+ * carrying the exact call, so the thread records what was asked for. (agentd/campaigns.ts)
  *
  * The shared screens (credits, organizations, settings, sign-in) are the platform's, under
  * src/common/, and are not edited here.
  */
 
 import { useEffect } from 'react'
-import { Clapperboard, Images, Shirt, Sparkles, Users } from 'lucide-react'
+import { BookOpen, Images, Users } from 'lucide-react'
 
-import { campaignStatus } from './agentd/campaigns'
+import { campaignStatus, selectionBlock, START } from './agentd/campaigns'
 import { AGENT_ID, useClient } from './agentd/client'
 import { useCredits } from './agentd/credits'
 import { handleRunEvent } from './agentd/run-events'
@@ -27,7 +27,11 @@ import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CastPage } from './pages/CastPage'
+import { RecipesPage } from './pages/RecipesPage'
 import { ChatResizer } from './studio/ChatResizer'
+import { MediaViewer } from './studio/MediaViewer'
+import { NewAdOpening } from './studio/NewAdOpening'
+import { SelectionChips } from './studio/SelectionChips'
 import { Studio } from './studio/Studio'
 
 import Credits from './common/credits/Credits'
@@ -41,34 +45,6 @@ import './studio/studio.css'
 
 const AGENT_NAME = 'Ad Studio'
 
-/* The four ways in. Each SEEDS the composer: the product photos still have to be attached. */
-const OPENINGS: { icon: JSX.Element; title: string; sub: string; prompt: string }[] = [
-  {
-    icon: <Clapperboard size={15} strokeWidth={1.8} />,
-    title: 'Make an ad',
-    sub: 'Attach the product photos',
-    prompt: 'Make an ad for this product. ',
-  },
-  {
-    icon: <Users size={15} strokeWidth={1.8} />,
-    title: 'With one of our models',
-    sub: 'Pick a cast member',
-    prompt: 'Make an ad for this product with one of our existing models. ',
-  },
-  {
-    icon: <Shirt size={15} strokeWidth={1.8} />,
-    title: 'Direct the look',
-    sub: 'Outfit, place, light, mood',
-    prompt: 'Make an ad for this product. She wears … ; location … ; time of day … ; mood … ',
-  },
-  {
-    icon: <Sparkles size={15} strokeWidth={1.8} />,
-    title: 'New cast member',
-    sub: 'A recurring AI model',
-    prompt: 'Create a new cast member named : the attached image is AI-generated, not a real person — keep her face exactly. ',
-  },
-]
-
 export default function App() {
   const { client, status } = useClient()
   const connected = status === 'open'
@@ -79,10 +55,22 @@ export default function App() {
   const currentKey = useApp((s) => s.currentSessionKey)
   const chats = useApp((s) => s.chats)
   const seedComposer = useApp((s) => s.seedComposer)
+  const setStart = useApp((s) => s.setStart)
   const chatWidth = useApp((s) => s.chatWidth)
   const session = useSession()
 
   const { send, abort, addFiles, removeFile } = useRun(client)
+  /* A typed message carries what the user selected, by exact path, so the agent acts on exactly
+     those files. A message from a step panel already names its files in its call; it only clears the selection. */
+  const sendTyped = (text: string) => {
+    const { selection, clearSelection } = useApp.getState()
+    void send(text + selectionBlock(selection))
+    clearSelection()
+  }
+  const sendAnswer = (text: string) => {
+    void send(text)
+    useApp.getState().clearSelection()
+  }
   const credits = useCredits(client!, session.running)
   const account = useAuth(client!)
 
@@ -129,6 +117,18 @@ export default function App() {
     void listSessions(client).then((rows) => useApp.getState().setChats(rows))
   }, [connected, client, currentKey, newSession])
 
+  /** A new ad started from the Recipes or Cast page: a new chat with that choice made; the studio
+   *  offers the other one. */
+  const newAdWith = (choice: { recipe?: string; cast?: string }, text: string) => {
+    const key = newSession()
+    setStart(key, choice)
+    seedComposer(text + ' ')
+  }
+  const refreshChats = async () => {
+    if (!client) return
+    useApp.getState().setChats(await listSessions(client))
+  }
+
   /** Open a campaign: in the chat that started it, or pinned into this one. */
   const openCampaign = async (id: string) => {
     if (!client) return
@@ -158,6 +158,7 @@ export default function App() {
         view={view}
         onView={setView}
         onNewChat={() => newSession()}
+        onRefreshChats={refreshChats}
         account={account}
         client={client ?? undefined}
         status={status}
@@ -166,6 +167,7 @@ export default function App() {
         groupLabel="Studio"
         sharedGroupLabel="Account"
         extraDestinations={[
+          { id: 'recipes', label: 'Recipes', icon: <BookOpen size={15} /> },
           { id: 'campaigns', label: 'Campaigns', icon: <Images size={15} /> },
           { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
         ]}
@@ -180,12 +182,15 @@ export default function App() {
           client && <Settings client={client} agentId={AGENT_ID} />
         ) : view === 'campaigns' ? (
           <CampaignsPage client={client} onOpen={(id) => void openCampaign(id)} />
+        ) : view === 'recipes' ? (
+          <RecipesPage client={client} onUse={(key, startText) => newAdWith({ recipe: key }, START.recipe(key, startText))} />
         ) : view === 'cast' ? (
           <CastPage
             client={client}
-            onUse={(prompt) => {
+            onUse={(name) => newAdWith({ cast: name }, START.cast(name))}
+            onNew={() => {
               newSession()
-              seedComposer(prompt)
+              seedComposer(START.newCastAlone)
             }}
           />
         ) : (
@@ -201,25 +206,7 @@ export default function App() {
               </header>
 
               {empty ? (
-                <div className="opening">
-                  <span className="opening-eyebrow">Ad Studio</span>
-                  <h2 className="opening-headline">What are we selling today?</h2>
-                  <p className="opening-blurb">
-                    Attach the product photos and say who wears it and where. Every step stops for your say
-                    before anything more is spent.
-                  </p>
-                  <div className="opening-grid">
-                    {OPENINGS.map((o) => (
-                      <button key={o.title} className="opening-card" onClick={() => seedComposer(o.prompt)}>
-                        <span className="opening-card-ico">{o.icon}</span>
-                        <span className="opening-card-text">
-                          <span className="opening-card-title">{o.title}</span>
-                          <span className="opening-card-sub">{o.sub}</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <NewAdOpening client={client} session={currentKey} />
               ) : (
                 <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
               )}
@@ -227,7 +214,8 @@ export default function App() {
               <Composer
                 running={session.running}
                 pending={session.pending}
-                onSend={(text) => void send(text)}
+                onSend={sendTyped}
+                above={<SelectionChips />}
                 onAbort={() => void abort()}
                 onFiles={(files) => void addFiles(files)}
                 onRemoveFile={removeFile}
@@ -243,10 +231,11 @@ export default function App() {
 
             <ChatResizer />
 
-            <Studio client={client} session={currentKey} running={session.running} onAnswer={(t) => void send(t)} />
+            <Studio client={client} connected={connected} session={currentKey} running={session.running} onAnswer={sendAnswer} />
           </div>
         )}
       </main>
+      <MediaViewer />
     </div>
   )
 }

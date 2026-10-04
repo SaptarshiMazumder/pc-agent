@@ -1,6 +1,7 @@
 import { ExternalLink, FileText } from 'lucide-react'
 
 import { fileUrl, humanSize, type Artifact } from '../agentd/artifacts'
+import { useApp } from '../state/store'
 
 /**
  * Files an agent produced, shown under the answer that produced them.
@@ -36,11 +37,16 @@ function One({ a }: { a: Artifact }) {
 
   // Media renders ITSELF. An agent that just drew a chart should show the chart, not a row saying
   // a chart exists — seeing it is how you know whether it is right.
+  // Clicking an image opens it full screen IN the window (the studio's viewer), never a browser tab.
   if (a.kind === 'image') {
     return (
-      <a className="artifact-media" href={href} target="_blank" rel="noreferrer" title={a.name}>
+      <button
+        className="artifact-media artifact-open-btn"
+        title={a.name}
+        onClick={() => useApp.getState().openViewer({ src: href, kind: 'image', title: a.name })}
+      >
         <img src={href} alt={a.name} loading="lazy" />
-      </a>
+      </button>
     )
   }
   if (a.kind === 'video') {

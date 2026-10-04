@@ -20,6 +20,7 @@ import { create } from 'zustand'
 
 import { closeThinking, newSessionKey, type ThreadItem } from '../agentd/chat'
 import type { Artifact } from '../agentd/artifacts'
+import type { Selected } from '../agentd/campaigns'
 import type { Attachment } from '@agentd/client'
 import type { ChatRow } from '../agentd/sessions'
 
@@ -90,8 +91,17 @@ export interface AppState {
      message you already sent.
      AN OBJECT, not a bare string: editing the SAME message twice would otherwise set an identical
      value, the effect watching it would not re-run, and the second click would do nothing. */
-  composerSeed: { text: string } | null
+  composerSeed: { text: string; append?: boolean } | null
   seedComposer: (text: string | null) => void
+  /** Add text to what is already in the composer (a start choice after the first) — never
+   *  replacing what the user typed. */
+  appendComposer: (text: string) => void
+
+  /** What a new chat's start has chosen so far — a recipe, a cast member ('new' = make one) —
+   *  by session key, so the studio offers the OTHER choice next. Gone once the chat has a
+   *  campaign (the studio then shows the campaign). */
+  starts: Record<string, { recipe?: string; cast?: string; scene?: string }>
+  setStart: (session: string, choice: { recipe?: string; cast?: string; scene?: string }) => void
 
   /** Bumped whenever something the studio shows may have changed — a tool finished, a job ended,
    *  a run ended. The studio re-reads the campaign on each bump instead of guessing which tool
@@ -107,6 +117,20 @@ export interface AppState {
   /** The chat column's width, px. Dragged wider only — the studio needs its own minimum. */
   chatWidth: number
   setChatWidth: (px: number) => void
+
+  /** An image or clip shown full screen, over everything. */
+  viewer: { src: string; kind: 'image' | 'video'; title: string } | null
+  openViewer: (v: { src: string; kind: 'image' | 'video'; title: string }) => void
+  closeViewer: () => void
+
+  /** What the user selected — stills and clips, from the board or Generations. Shown as chips
+   *  above the composer; the next chat message carries their exact paths, then it clears. */
+  selection: Selected[]
+  toggleSelected: (item: Selected) => void
+  /** Select `item` as the ONE image of its shot (the stills gate's pick is the selection). */
+  selectOnly: (item: Selected) => void
+  unselect: (path: string) => void
+  clearSelection: () => void
 }
 
 export const CHAT_MIN_PX = 430
@@ -181,6 +205,11 @@ export const useApp = create<AppState>((set) => ({
 
   composerSeed: null,
   seedComposer: (text) => set({ composerSeed: text === null ? null : { text } }),
+  appendComposer: (text) => set({ composerSeed: { text, append: true } }),
+
+  starts: {},
+  setStart: (session, choice) =>
+    set((s) => ({ starts: { ...s.starts, [session]: { ...(s.starts[session] || {}), ...choice } } })),
 
   studioTick: 0,
   bumpStudio: () => set((s) => ({ studioTick: s.studioTick + 1 })),
@@ -190,6 +219,29 @@ export const useApp = create<AppState>((set) => ({
 
   chatWidth: CHAT_MIN_PX,
   setChatWidth: (px) => set({ chatWidth: Math.max(CHAT_MIN_PX, Math.round(px)) }),
+
+  viewer: null,
+  openViewer: (viewer) => set({ viewer }),
+  closeViewer: () => set({ viewer: null }),
+
+  selection: [],
+  toggleSelected: (item) =>
+    set((s) => ({
+      selection: s.selection.some((x) => x.path === item.path)
+        ? s.selection.filter((x) => x.path !== item.path)
+        : [...s.selection, item],
+    })),
+  selectOnly: (item) =>
+    set((s) => ({
+      selection: [
+        ...s.selection.filter(
+          (x) => !(x.kind === item.kind && x.campaign === item.campaign && x.shot === item.shot) && x.path !== item.path,
+        ),
+        item,
+      ],
+    })),
+  unselect: (path) => set((s) => ({ selection: s.selection.filter((x) => x.path !== path) })),
+  clearSelection: () => set({ selection: [] }),
 
   replaceLast: (key, item) =>
     set((s) => {

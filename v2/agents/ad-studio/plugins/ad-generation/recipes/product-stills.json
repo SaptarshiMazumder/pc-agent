@@ -1,0 +1,56 @@
+{
+  "title": "Product stills — the product alone, in natural light",
+  "covers": "product-only still images of ANY product, with no person in them: packshots, gift boxes, flat lays, the product on a styled surface — chosen by the user, never matched automatically",
+  "auto": false,
+  "formats": [
+    "gift-box-topdown",
+    "packshot",
+    "styled-surface",
+    "flat-lay",
+    "macro-detail"
+  ],
+  "scene_options": [
+    "In an open gift box, seen from directly above",
+    "A clean packshot on a plain, light surface",
+    "On a glass table by a window",
+    "A flat lay on linen, from above",
+    "Close-up of its finest detail"
+  ],
+  "aspect_ratio": "3:4",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "product still",
+      "direction": "The product alone, with no person — placed, laid or packed the way the chosen format shows it, framed so its whole shape and every must-keep detail read clearly, at its real size beside what is around it, its label facing the camera unless the format shows it from above, in natural light.",
+      "cast": false,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief"
+    },
+    {
+      "id": "product-sheet",
+      "title": "Product sheet",
+      "action": "product_sheet",
+      "cast": false,
+      "shows_product": true,
+      "model": "higgsfield/gpt_image_2_5"
+    },
+    {
+      "id": "stills",
+      "title": "Stills",
+      "action": "images",
+      "scene": "s1",
+      "cast": false,
+      "shows_product": true
+    }
+  ],
+  "variants": 3,
+  "resolution": "720p",
+  "budget_usd": 10
+}

@@ -1,4 +1,5 @@
 """A still or a clip -> a verdict: is the product exact, is the person the same, would it sell.
+Advice shown to the user beside the result — it never blocks or picks anything.
 
 A clip is judged by its last frame — where drift has had the whole clip to build up. A clip with
 no last frame on file cannot be checked here, and says so, rather than passing unseen.
@@ -37,9 +38,20 @@ class QualityCheckService:
         self._store.record_verdict(campaign_id, verdict)
         return verdict
 
-    def check(self, campaign_id: str, shot_id: str, media: str, last_frame: str) -> MediaVerdict:
+    def check(
+        self,
+        campaign_id: str,
+        media: str,
+        last_frame: str,
+        purpose: str,
+        cast_names: tuple[str, ...],
+        shows_product: bool,
+        copy: tuple[str, ...] = (),
+    ) -> MediaVerdict:
+        """ADVICE for the user, never a gate: the score and problems are shown beside the result,
+        and the user decides what to keep. `purpose` is what the result was made for (the step's
+        title); `cast_names` who should appear in it; `copy` a text ad's words, read back."""
         profile = self._store.profile(campaign_id)
-        shot = self._store.brief(campaign_id).shot(shot_id)
         is_clip = media.lower().endswith((".mp4", ".mov", ".webm"))
         if is_clip and not last_frame:
             raise ValueError(
@@ -47,16 +59,23 @@ class QualityCheckService:
                 "here — show it to the user instead."
             )
         judged = last_frame if is_clip else media
-        sheets = [self._cast.get(n).sheet for n in shot.cast]
+        sheets = [self._cast.get(n).sheet for n in cast_names]
         images = [judged, *profile.photos, *sheets]
         facts = {
-            "judged": "the LAST FRAME of a video clip" if is_clip else "a still",
-            "shot": shot.to_dict(),
-            "product": {"name": profile.name, "description": profile.description, "must_keep": profile.must_keep},
+            "judged": "the LAST FRAME of a video clip" if is_clip else ("a designed text ad" if copy else "a still"),
+            "shot": {"purpose": purpose, "cast": list(cast_names), "shows_product": shows_product},
+            "product": {
+                "name": profile.name,
+                "description": profile.description,
+                "must_keep": profile.must_keep,
+                "size": profile.size,
+                "label_text": profile.label_text,
+            },
+            "copy": list(copy),
             "image_order": (
                 ["image 1: the one being judged"]
                 + [f"image {i}: product photo" for i in range(2, 2 + len(profile.photos))]
-                + [f"image {2 + len(profile.photos) + i}: character sheet of {n}" for i, n in enumerate(shot.cast)]
+                + [f"image {2 + len(profile.photos) + i}: character sheet of {n}" for i, n in enumerate(cast_names)]
             ),
         }
         answer = self._reasoner.read_images(

@@ -15,7 +15,10 @@ import binascii
 import mimetypes
 import re
 import uuid
+from io import BytesIO
 from pathlib import Path
+
+from PIL import Image
 
 # --- extension -> mime, grouped by how a client should present each kind ------------
 _IMAGE = {
@@ -187,7 +190,31 @@ def image_data_url(path: str | Path) -> str | None:
         raw = p.read_bytes()
     except OSError:
         return None
-    return f"data:{cls[1]};base64,{base64.b64encode(raw).decode('ascii')}"
+    mime, raw = _fit_for_model(cls[1], raw)
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+# What a model is sent of an image. Vision models downscale anything larger themselves, so pixels
+# past this are paid for in upload size only — and EVERY turn re-sends every image the chat holds:
+# a few 7 MB generations made each request tens of MB, and the model proxy answered 502.
+_MODEL_MAX_SIDE = 1568
+_MODEL_MAX_BYTES = 1_500_000
+_RASTER = {"image/png", "image/jpeg", "image/webp", "image/bmp", "image/tiff"}
+
+
+def _fit_for_model(mime: str, raw: bytes) -> tuple[str, bytes]:
+    """A raster image too big to send as-is, re-encoded as a JPEG no larger than the model
+    would look at; anything else (small, vector, animated) unchanged."""
+    if mime not in _RASTER:
+        return mime, raw
+    with Image.open(BytesIO(raw)) as im:
+        if len(raw) <= _MODEL_MAX_BYTES and max(im.size) <= _MODEL_MAX_SIDE:
+            return mime, raw
+        im = im.convert("RGB")
+        im.thumbnail((_MODEL_MAX_SIDE, _MODEL_MAX_SIDE))
+        out = BytesIO()
+        im.save(out, "JPEG", quality=85)
+    return "image/jpeg", out.getvalue()
 
 
 def is_under_roots(path: str | Path, roots: list[Path]) -> bool:

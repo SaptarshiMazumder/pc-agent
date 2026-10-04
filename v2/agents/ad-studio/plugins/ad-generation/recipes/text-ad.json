@@ -1,0 +1,49 @@
+{
+  "title": "Text ad — a poster with the product and your words on it",
+  "covers": "a static designed ad with text — a headline, an offer, a call to action — for ANY product: sale posters, launch announcements, feed ads; chosen by the user, never matched automatically",
+  "auto": false,
+  "brief": "poster",
+  "start_text": "Text on it — headline: ; offer (only if there is one): ; button: Shop now.",
+  "formats": [
+    "poster-hero",
+    "offer-sale",
+    "launch-announcement",
+    "minimal-type"
+  ],
+  "scene_options": [
+    "A hero poster: the product big, a bold headline above it",
+    "A sale poster: the offer in huge type",
+    "A launch announcement: 'New' and the product's name",
+    "Minimal: a few words in big type, the product small and elegant"
+  ],
+  "aspect_ratio": "4:5",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "text ad",
+      "direction": "One designed poster: the product, shown exactly as in its photos, and the copy set in big, clean type that reads at a glance on a phone — few words, high contrast, generous space around the text.",
+      "cast": false,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 3,
+  "resolution": "720p",
+  "budget_usd": 10,
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Copy & design",
+      "action": "brief"
+    },
+    {
+      "id": "design",
+      "title": "Designs",
+      "action": "images",
+      "scene": "s1",
+      "cast": false,
+      "shows_product": true,
+      "model": "higgsfield/ideogram_4_5"
+    }
+  ]
+}

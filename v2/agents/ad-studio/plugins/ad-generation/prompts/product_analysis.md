@@ -15,6 +15,8 @@ Answer with ONE JSON object and nothing else:
     "pattern or print (exact motif, scale, colours)",
     "stitching, trims, edges, textures, number of parts, distinctive proportions"
   ],
+  "size": "its real size in words, e.g. 'about 9 cm tall, fits in a palm', 'over-ear, covers the ear', 'a drop earring about 4 cm long' — \"\" if the photos give no clue",
+  "label_text": ["each line of text printed on the product, exactly as written, e.g. 'MAISON LUNE', 'Eau de Parfum', '50 ml'"],
   "materials": ["leather", "gold-tone metal", "..."],
   "colors": ["exact colour names, e.g. 'cognac brown', 'off-white', not just 'brown'"],
   "audience": "who buys this, in a few words",
@@ -32,3 +34,7 @@ Rules:
   strap and parts. NOT micro-detail no one can read at that size — small engraved or printed
   secondary text, tiny emblems inside a logo, stitch counts.
 - 4 to 10 must_keep items. Each one short and specific.
+- label_text: only words you can actually read in the photos, letter for letter, with their
+  capitals — the brand, the product name, a size like "50 ml". Leave out fine print no one reads
+  at phone size, and never guess a word; [] when the product has no text.
+- size: judge from the photos (a hand, a surface, the product type); keep it rough.

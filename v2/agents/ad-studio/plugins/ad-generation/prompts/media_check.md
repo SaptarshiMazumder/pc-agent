@@ -11,6 +11,7 @@ Answer with ONE JSON object and nothing else:
 {
   "product_exact": true,
   "identity_kept": true,
+  "text_exact": true,
   "score": 8,
   "problems": ["each problem concrete enough to fix in the next prompt"]
 }
@@ -22,6 +23,19 @@ Answer with ONE JSON object and nothing else:
   Micro-detail no one can read at phone size (small engraved secondary text, tiny emblems inside
   a logo) never makes it false on its own — mention it in problems only if it looks broken.
   If the shot does not show the product, true.
+- label_text (when given): read the label on the judged image back, word by word. A visible
+  label word that is misspelt, garbled, changed or invented makes product_exact false — name it
+  in problems ("the label reads 'MAISN LUNE', not 'MAISON LUNE'"). A label turned away, cropped
+  out or too small to read at phone size is not a failure.
+- size (when given): a product clearly the wrong size against a hand, a face or the things
+  around it (a palm-sized bottle as big as a forearm) is a problem; badly wrong is product_exact
+  false.
+- text_exact (when FACTS.copy is given — a designed text ad): read every word on the image and
+  compare it with FACTS.copy, letter for letter. A copy line misspelt, garbled, missing or cut
+  off, or extra words that are not in the copy (the product's own label excepted) make it false
+  — name each one in problems ("the headline reads 'Glow Natrually'", "an extra line 'SALE'
+  appears"). Without FACTS.copy, true. For a text ad, the score also weighs how readable the text
+  is at a glance and how clean and professional the layout looks.
 - identity_kept: the person is recognisably the same as on the character sheet — face shape,
   features, hair colour and style, skin tone, build. If no person is cast, true. If the face is
   not in the frame (a detail or close-up shot), true — identity cannot be wrong where it is not

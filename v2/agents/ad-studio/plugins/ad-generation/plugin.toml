@@ -24,6 +24,4 @@ net = [
 ]
 # HIGGSFIELD_*: the CLI login's OAuth tokens (there is no API key) — see higgsfield_session.py.
 secrets = ["FAL_KEY", "BYTEPLUS_API_KEY", "HIGGSFIELD_ACCESS_TOKEN", "HIGGSFIELD_REFRESH_TOKEN"]
-# .studio/checkpoint.json: the daemon's record of when an ask was shown and answered — what
-# lets campaign_run past a gate.
-workspace = ["campaigns", "cast", "uploads", ".studio/checkpoint.json"]
+workspace = ["campaigns", "cast", "uploads"]

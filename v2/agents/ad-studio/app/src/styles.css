@@ -320,7 +320,12 @@ h2 { font-size: var(--fs-lead); }
   padding: 7px 10px; box-shadow: var(--shadow); animation: ag-pop var(--dur-fast) var(--ease-smooth);
 }
 .hovertip-title { font-size: var(--fs-help); font-weight: var(--fw-semi); color: var(--text); line-height: 1.35; word-break: break-word; }
-.hovertip-sub { margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim); white-space: nowrap; }
+/* WRAPS, AND STOPS. A chat's first message can be a paragraph; on one unbroken line it ran past
+   the 300px box across the page. Three lines is enough to recognise the chat. */
+.hovertip-sub {
+  margin-top: 2px; font: var(--fs-small) var(--mono); color: var(--dim);
+  overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 
 /* the per-chat ... menu */
 .chat-menu {

@@ -1,42 +1,53 @@
 {
   "title": "Wearables, with a shoot sheet — the model in the ad's outfit and light first, then the shots",
   "covers": "the same products as `wearable`, when likeness across shots and through the clip matters most: a shoot sheet of the cast member in the brief's wardrobe, place and light is made first (one extra image), and every still and clip references it",
-  "formats": ["street-walk", "cafe-lifestyle", "lookbook-turn", "mirror-try-on"],
+  "formats": [
+    "street-walk",
+    "cafe-lifestyle",
+    "lookbook-turn",
+    "mirror-try-on"
+  ],
   "aspect_ratio": "9:16",
-  "shoot_sheet": true,
   "shots": [
     {
       "id": "s1",
-      "purpose": "hook",
-      "direction": "Medium shot of the model wearing or holding the product, looking into the camera, mid-movement; the product clearly visible in the frame's lower-middle third.",
+      "purpose": "scene",
+      "direction": "The model wearing or holding the product in the ad's place — framed so the whole product reads clearly (full or three-quarter length for clothing, medium for bags and accessories, close for jewellery — for earrings a close portrait with the ear and jaw in frame, both earrings at their real size), the model mid-movement or in a confident pose, looking toward the camera.",
       "cast": true,
       "shows_product": true,
-      "animate": true,
-      "duration_s": 5
-    },
-    {
-      "id": "s2",
-      "purpose": "detail",
-      "direction": "Close-up of the product on the model — hands, shoulder, wrist or face, whichever the product sits on — filling most of the frame so its details, texture and hardware read clearly.",
-      "cast": true,
-      "shows_product": true,
-      "animate": true,
-      "duration_s": 5
-    },
-    {
-      "id": "s3",
-      "purpose": "payoff",
-      "direction": "Full-body shot of the model in the same place, the whole look with the product front and centre, a confident pose.",
-      "cast": true,
-      "shows_product": true,
-      "animate": true,
       "duration_s": 5
     }
   ],
-  "variants": 2,
-  "max_still_attempts": 3,
-  "max_clip_attempts": 2,
+  "variants": 3,
   "resolution": "720p",
   "budget_usd": 15,
-  "gates": ["brief", "sheet", "stills", "clips"]
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief"
+    },
+    {
+      "id": "sheet",
+      "title": "Shoot sheet",
+      "action": "sheet"
+    },
+    {
+      "id": "stills",
+      "title": "Stills",
+      "action": "images",
+      "scene": "s1",
+      "cast": true,
+      "shows_product": true
+    },
+    {
+      "id": "clip",
+      "title": "Clip",
+      "action": "video",
+      "scene": "s1",
+      "source": "stills",
+      "cast": true,
+      "shows_product": true
+    }
+  ]
 }

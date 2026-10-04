@@ -1,11 +1,11 @@
-"""Where a campaign's files live: its product photos, profile, brief, stills, clips, verdicts and
-cost ledger."""
+"""Where a campaign's files live: its product photos, profile, brief, checklist, every take of
+every step, verdicts and the cost ledger."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from ad_generation.domain.campaign_progress import CampaignProgress
+from ad_generation.domain.campaign_checklist import CampaignChecklist
 from ad_generation.domain.creative_brief import CreativeBrief
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.media_verdict import MediaVerdict
@@ -20,61 +20,56 @@ class CampaignStore(Protocol):
     def save_profile(self, campaign_id: str, profile: ProductProfile) -> None: ...
 
     def profile(self, campaign_id: str) -> ProductProfile:
-        """Raises KeyError when the campaign or its profile does not exist."""
+        """Raises KeyError when the campaign has none."""
         ...
 
     def save_brief(self, campaign_id: str, brief: CreativeBrief) -> None: ...
 
     def brief(self, campaign_id: str) -> CreativeBrief:
-        """Raises KeyError when the campaign has no brief yet."""
+        """Raises KeyError when the campaign has none."""
         ...
 
-    def save_progress(self, campaign_id: str, progress: CampaignProgress) -> None: ...
+    def save_checklist(self, campaign_id: str, checklist: CampaignChecklist) -> None: ...
 
-    def campaign_ids(self) -> list[str]:
-        """Every campaign started by campaign_run (those with recipe progress)."""
+    def checklist(self, campaign_id: str) -> CampaignChecklist | None:
+        """The campaign's checklist; None for a campaign from before checklists (see
+        legacy_progress)."""
         ...
+
+    def legacy_progress(self, campaign_id: str) -> dict | None:
+        """The gate-era progress record of a campaign made before checklists, as stored."""
+        ...
+
+    def campaign_ids(self) -> list[str]: ...
 
     def updated(self, campaign_id: str) -> float:
-        """When the campaign last changed (epoch seconds)."""
+        """When anything in the campaign last changed."""
         ...
 
-    def progress(self, campaign_id: str) -> CampaignProgress:
-        """Raises KeyError when the campaign was not started by campaign_run."""
+    def take_stem(self, campaign_id: str, step_id: str) -> str:
+        """The next free take of a step: campaigns/<id>/steps/<step>/take-NN (no extension)."""
         ...
 
-    def sheet_stem(self, campaign_id: str) -> str:
-        """A fresh workspace path stem for the campaign's next shoot sheet."""
-        ...
-
-    def still_stem(self, campaign_id: str, shot_id: str) -> str:
-        """A fresh workspace path stem for this shot's next batch of stills."""
-        ...
-
-    def clip_path(self, campaign_id: str, shot_id: str) -> str:
-        """A fresh workspace path for this shot's next clip."""
+    def import_file(self, campaign_id: str, step_id: str, src: str) -> str:
+        """A copy of the workspace file `src` as the step's next take; the copy's workspace path."""
         ...
 
     def record(self, campaign_id: str, media: GeneratedMedia) -> None:
-        """Append to the cost ledger."""
+        """Append a paid result to the cost ledger."""
         ...
 
     def record_verdict(self, campaign_id: str, verdict: MediaVerdict) -> None: ...
 
     def verdicts(self, campaign_id: str) -> dict[str, MediaVerdict]:
-        """Every recorded verdict, by the path it judged (the latest per path)."""
+        """The latest verdict per judged path."""
         ...
 
-    def stills_made(self, campaign_id: str, shot_id: str) -> list[list[str]]:
-        """The takes of stills already on disk for this shot under the current brief, oldest
-        first, each take's files together — what a step cut short left behind."""
+    def ledger(self, campaign_id: str) -> list[GeneratedMedia]:
+        """Everything the campaign paid for, oldest first."""
         ...
 
-    def clips_made(self, campaign_id: str, shot_id: str) -> list[tuple[str, str]]:
-        """The clips already on disk for this shot under the current brief, oldest first, each
-        with its last-frame image or ""."""
+    def made_at(self, path: str) -> float:
+        """When a workspace file was written; 0 when it is gone."""
         ...
 
-    def spent(self, campaign_id: str) -> float:
-        """Total USD the ledger holds for this campaign."""
-        ...
+    def spent(self, campaign_id: str) -> float: ...

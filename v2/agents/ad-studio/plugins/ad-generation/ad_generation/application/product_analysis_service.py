@@ -21,7 +21,8 @@ class ProductAnalysisService:
     def analyze(self, name: str, photos: list[str], notes: str) -> tuple[str, ProductProfile]:
         if not photos:
             raise ValueError("give at least one product photo")
-        recipes = self._recipes.all()
+        # Only recipes a product can be matched to — one the user must choose (product stills) is not.
+        recipes = [r for r in self._recipes.all() if r.auto]
         campaign_id, copies = self._store.create(name, photos)
         facts = {
             "name": name,

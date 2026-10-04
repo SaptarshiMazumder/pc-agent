@@ -12,7 +12,6 @@ class ShotTemplate:
     direction: str  # what the shot must show and how it is framed — the brief fills the scene in
     cast: bool  # a cast member appears
     shows_product: bool
-    animate: bool  # this shot becomes a clip
     duration_s: int
 
     @classmethod
@@ -26,7 +25,6 @@ class ShotTemplate:
             direction=str(data["direction"]),
             cast=bool(data.get("cast", False)),
             shows_product=bool(data.get("shows_product", True)),
-            animate=bool(data.get("animate", True)),
             duration_s=int(data.get("duration_s", 5)),
         )
 

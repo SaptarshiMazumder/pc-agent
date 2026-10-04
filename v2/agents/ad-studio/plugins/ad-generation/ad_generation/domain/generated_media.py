@@ -17,6 +17,22 @@ class GeneratedMedia:
     # A still of the clip's last frame, when the provider returns one — what a clip is checked by.
     last_frame: str = ""
     detail: dict = field(default_factory=dict)
+    # The campaign step it was made for; "" on media from before steps existed (placed by path).
+    step: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GeneratedMedia":
+        return cls(
+            path=str(data["path"]),
+            kind=str(data.get("kind") or ""),
+            provider=str(data.get("provider") or ""),
+            model=str(data.get("model") or ""),
+            cost_usd=float(data.get("cost_usd") or 0.0),
+            cost_basis=str(data.get("cost_basis") or ""),
+            last_frame=str(data.get("last_frame") or ""),
+            detail=dict(data.get("detail") or {}),
+            step=str(data.get("step") or ""),
+        )

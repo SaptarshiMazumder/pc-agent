@@ -12,5 +12,7 @@ Shots:
    it (marble, silk, sand, dark velvet).
 3. Payoff — a hand picks it up or wears it; the product lands centred and sharp.
 
-Look: studio still-life, dramatic directional light, deep shadows, rich colour, 100mm macro
-lens, slow and smooth. Product-only shots use "cast": [] (a hand needs no cast member).
+Look: a real still-life, lit by soft natural light from one side — a window, open shade —
+with the true shadows and reflections the product and surface give; honest colour, real
+texture, nothing glowing or too perfect. 100mm macro lens, slow and smooth. Product-only shots
+use "cast": [] (a hand needs no cast member).

@@ -1,89 +1,100 @@
-"""A shot of the brief -> its stills: the cast member and the product, in the shot's scene.
+"""An images step -> its images: a prompt and references, any number of times.
 
-THE STILL LOCKS THE LOOK. Face, outfit, product and light are settled here, where a retry costs
-cents; the clip only animates what the still already got right.
+The prompt and references are the step's defaults (its brief scene, the cast and product
+references) unless the run gives its own — the user types a prompt and picks references in the
+window, and those are exactly what is sent. The product's must-keep details are added whenever
+the step shows the product, and the photo style — a real photograph in natural light, with
+unretouched skin when a person is in it — is added to EVERY image, whoever wrote its prompt.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ad_generation.application.interfaces.campaign_store import CampaignStore
-from ad_generation.application.interfaces.cast_library import CastLibrary
 from ad_generation.application.interfaces.generator_catalog import GeneratorCatalog
+from ad_generation.application.step_defaults import StepDefaults
+from ad_generation.domain.campaign_checklist import CampaignChecklist
+from ad_generation.domain.campaign_step import CampaignStep
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.image_request import ImageRequest
+from ad_generation.domain.step_run import StepRun
 
 
 class KeyframeService:
     def __init__(
-        self, generators: GeneratorCatalog, store: CampaignStore, cast: CastLibrary, max_product_photos: int
+        self,
+        generators: GeneratorCatalog,
+        store: CampaignStore,
+        defaults: StepDefaults,
+        style_person: str,
+        style_product: str,
     ) -> None:
         self._generators = generators
         self._store = store
-        self._cast = cast
-        self._max_product_photos = max_product_photos
+        self._defaults = defaults
+        self._style_person = style_person.strip()
+        self._style_product = style_product.strip()
 
     def generate(
         self,
         campaign_id: str,
-        shot_id: str,
-        variants: int,
-        correction: str,
+        checklist: CampaignChecklist,
+        step: CampaignStep,
+        run: StepRun,
+        count: int,
         provider: str,
         model: str,
-        shoot_sheet: str = "",
         max_usd: float = 0.0,
     ) -> list[GeneratedMedia]:
-        profile = self._store.profile(campaign_id)
-        brief = self._store.brief(campaign_id)
-        shot = brief.shot(shot_id)
-
-        references: list[str] = []
-        legend: list[str] = []
-        if shoot_sheet and shot.cast:
-            # The campaign's own sheet: this person in THIS outfit and light. It leads; the
-            # identity sheet below still anchors the face.
-            references.append(shoot_sheet)
-            legend.append(
-                f"image 1: {shot.cast[0]} as she appears in this ad — match this outfit, hair styling "
-                "and light exactly"
-            )
-        for name in shot.cast:
-            member = self._cast.get(name)
-            references.append(member.sheet)
-            # IDENTITY ONLY. The sheet shows the person in some outfit, and image models copy what a
-            # reference shows — so it is named as a face-and-body reference and its clothes are
-            # explicitly ruled out; the outfit comes from the brief's look, stated in the prompt.
-            legend.append(
-                f"image {len(references)}: identity reference for {name} — use ONLY this person's "
-                "face, hair, skin tone and build; ignore the clothes, jewellery, accessories and "
-                "background shown in it"
-            )
-        if shot.shows_product:
-            for i, photo in enumerate(profile.photos[: self._max_product_photos], 1):
-                references.append(photo)
-                legend.append(f"image {len(references)}: the product, {profile.name} (photo {i})")
-
-        prompt = shot.keyframe_prompt
+        prompt = run.prompt or self._defaults.prompt(campaign_id, step)
+        if not prompt:
+            raise ValueError(f"step {step.id} has no prompt of its own and no brief scene — give one")
+        references = list(
+            run.references if run.references is not None else self._defaults.references(campaign_id, checklist, step)
+        )
+        if run.like and run.like not in references:
+            references.append(run.like)
+        identity = self._defaults.identity(checklist, step)
+        if identity:
+            prompt += "\n\n" + identity
+        legend = self._defaults.legend(campaign_id, checklist, references, run.like)
         if legend:
             prompt += "\n\nReference images, in order:\n" + "\n".join(legend)
-        if shot.shows_product and profile.must_keep:
+        profile = self._store.profile(campaign_id)
+        if step.shows_product and profile.must_keep:
             prompt += (
                 f"\n\nReproduce the product exactly as in its photos: {profile.description}. "
                 "These details must be exact: " + "; ".join(profile.must_keep) + "."
             )
-        if correction:
-            prompt += "\n\nFix from the last attempt: " + correction
-
+        if step.shows_product and profile.scale_and_label():
+            prompt += "\n\n" + profile.scale_and_label()
+        if run.change:
+            prompt += "\n\nChange from the last images: " + run.change
+        copy = self._defaults.copy_lines(campaign_id, step)
+        if copy and step.text == "overlay":
+            # The words are set on it afterwards, in real fonts: the picture carries none.
+            prompt += "\n\nThe result is one finished poster picture filling the whole frame, with no text anywhere."
+        elif copy:
+            # A TEXT AD is a design, not a photograph: no photo style; the words stay exact.
+            prompt += "\n\nThe result is one finished poster design filling the whole frame, with exactly the text above."
+        else:
+            style = self._style_person if step.cast else self._style_product
+            if style not in prompt:  # a prompt composed before the style moved here already ends with it
+                prompt += "\n\n" + style
+            # Each request makes ONE picture; said plainly, and nothing about how many or about
+            # layouts (naming "triptych" or "3 images" is what draws one).
+            prompt += "\n\nThe result is a single photograph filling the whole frame."
         request = ImageRequest(
             model=model,
             prompt=prompt,
             references=tuple(references),
-            aspect_ratio=brief.aspect_ratio,
-            variants=variants,
-            out_stem=self._store.still_stem(campaign_id, shot_id),
+            aspect_ratio=self._store.brief(campaign_id).aspect_ratio,
+            variants=count,
+            out_stem=self._store.take_stem(campaign_id, step.id),
             max_usd=max_usd,
         )
-        stills = self._generators.image(provider).generate(request)
-        for still in stills:
-            self._store.record(campaign_id, still)
-        return stills
+        made = [replace(m, step=step.id) for m in self._generators.image(provider).generate(request)]
+        for m in made:
+            self._store.record(campaign_id, m)
+        return made

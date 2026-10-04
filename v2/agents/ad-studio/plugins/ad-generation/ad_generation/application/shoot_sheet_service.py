@@ -9,6 +9,8 @@ clip of the campaign references the same person in the same outfit under the sam
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.cast_library import CastLibrary
 from ad_generation.application.interfaces.generator_catalog import GeneratorCatalog
@@ -35,7 +37,14 @@ class ShootSheetService:
         self._instructions = instructions
 
     def make(
-        self, campaign_id: str, cast_name: str, correction: str, provider: str, model: str, max_usd: float = 0.0
+        self,
+        campaign_id: str,
+        step_id: str,
+        cast_name: str,
+        correction: str,
+        provider: str,
+        model: str,
+        max_usd: float = 0.0,
     ) -> tuple[GeneratedMedia, MediaVerdict]:
         member = self._cast.get(cast_name)
         look = self._store.brief(campaign_id).look
@@ -51,10 +60,10 @@ class ShootSheetService:
             references=(member.sheet,),
             aspect_ratio="16:9",
             variants=1,
-            out_stem=self._store.sheet_stem(campaign_id),
+            out_stem=self._store.take_stem(campaign_id, step_id),
             max_usd=max_usd,
         )
-        sheet = self._generators.image(provider).generate(request)[0]
+        sheet = replace(self._generators.image(provider).generate(request)[0], step=step_id)
         self._store.record(campaign_id, sheet)
         verdict = self._checks.check_identity(campaign_id, sheet.path, cast_name)
         return sheet, verdict

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
+from ad_generation.domain.aspect_ratio import nearest_ratio, value
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.image_request import ImageRequest
 from ad_generation.infrastructure.higgsfield_api_client import HiggsfieldApiClient
@@ -40,16 +41,22 @@ class HiggsfieldImageGenerator:
                 {"id": self._client.upload_image(r), "type": "media_input"} for r in request.references
             ]
         if "aspect_ratio" in fields:
-            params[fields["aspect_ratio"]] = request.aspect_ratio
+            allowed = spec.get("aspect_ratios") or []
+            ratio = request.aspect_ratio
+            if allowed and ratio not in allowed:  # the nearest one the model makes, same orientation
+                ratio = nearest_ratio(value(ratio), 1.0, allowed)
+            params[fields["aspect_ratio"]] = ratio
         job_type = spec.get("job_type") or request.model
         if request.max_usd:
             cost = self._client.quote(job_type, params) * self._session.usd_per_credit() * request.variants
             if cost > request.max_usd:
                 raise BudgetExceeded(request.model, cost, request.max_usd)
+        # ALL SUBMITTED FIRST, then waited on: the provider works on them side by side, so two
+        # variants take about as long as one.
+        jobs = [self._client.submit("image", job_type, params) for _ in range(request.variants)]
         out = []
-        for n in range(1, request.variants + 1):
-            job_id, credits = self._client.submit("image", spec.get("job_type") or request.model, params)
-            job = self._client.wait(job_id, spec.get("job_type") or request.model, self._timeout_s)
+        for n, (job_id, credits) in enumerate(jobs, 1):
+            job = self._client.wait(job_id, job_type, self._timeout_s)
             path = self._downloader.save(job["result_url"], f"{request.out_stem}-{n}", "", ".png")
             out.append(
                 GeneratedMedia(

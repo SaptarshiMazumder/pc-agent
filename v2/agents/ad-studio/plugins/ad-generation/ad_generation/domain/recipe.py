@@ -1,13 +1,19 @@
-"""A recipe: the fixed way an ad is made for a kind of product.
+"""A recipe: the default way an ad is made for a kind of product — DATA, a JSON file.
 
-A handbag and a purse run the same recipe, shot for shot — nothing is rediscovered per product.
-What varies is the product, the cast member and the scene the brief writes into each fixed shot.
+Two things, both plain lists:
+  scenes (`shots`)  what the brief writes a prompt for: framing, who appears, the product shown
+  steps             the default checklist: which actions, in which order
+
+A campaign starts with a copy of the steps and owns it from then on — the user adds, skips and
+re-runs steps freely (CampaignChecklist). Nothing here runs anything.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ad_generation.domain.campaign_checklist import CampaignChecklist
+from ad_generation.domain.campaign_step import CampaignStep
 from ad_generation.domain.creative_brief import CreativeBrief
 from ad_generation.domain.shot import Shot
 from ad_generation.domain.shot_template import ShotTemplate
@@ -20,29 +26,38 @@ class Recipe:
     covers: str  # the kinds of product it is for, in words — what the product reader matches
     formats: tuple[str, ...]  # the playbooks a scene may follow; the brief picks the best fit
     aspect_ratio: str
-    shots: tuple[ShotTemplate, ...]
-    variants: int  # stills per attempt
-    max_still_attempts: int
-    max_clip_attempts: int
-    resolution: str
-    budget_usd: float  # a campaign stops before spending past this
-    # Where the campaign stops for the user to approve: any of "brief", "stills", "clips".
-    gates: tuple[str, ...] = ("brief", "stills", "clips")
-    # Make a shoot sheet (the cast member in the brief's wardrobe and light, six views) before
-    # the stills, and reference it from every still and clip.
-    shoot_sheet: bool = False
+    shots: tuple[ShotTemplate, ...]  # the scenes the brief writes
+    steps: tuple[CampaignStep, ...]  # the default checklist
+    variants: int  # images per run of an images step (3 unless the recipe says)
+    resolution: str  # clips' default resolution
+    budget_usd: float  # a campaign stops before spending past this (the user can raise it)
+    # Matched to a product by the product reader; False = only when the user chooses it.
+    auto: bool = True
+    # Scenes the window offers when the recipe is chosen ("In an open gift box, from above").
+    scene_options: tuple[str, ...] = ()
+    # What its brief writes: "scene" (a photo ad's look and shots) or "poster" (a text ad's copy
+    # and design).
+    brief: str = "scene"
+    # Added to the window's start sentence — blanks for what the user should say (a text ad's copy).
+    start_text: str = ""
 
     @classmethod
     def from_dict(cls, key: str, data: dict) -> "Recipe":
         shots = tuple(ShotTemplate.from_dict(s) for s in data.get("shots") or [])
         if not shots:
-            raise ValueError(f"recipe {key} has no shots")
+            raise ValueError(f"recipe {key} has no scenes (shots)")
         if not data.get("formats"):
             raise ValueError(f"recipe {key} names no formats")
-        gates = tuple(str(g) for g in data.get("gates", ("brief", "stills", "clips")))
-        unknown = [g for g in gates if g not in ("brief", "sheet", "stills", "clips")]
-        if unknown:
-            raise ValueError(f"recipe {key} names unknown gate(s): {', '.join(unknown)}")
+        steps = tuple(CampaignStep.from_dict(s) for s in data.get("steps") or [])
+        if not steps:
+            raise ValueError(f"recipe {key} has no steps")
+        scenes = {s.id for s in shots}
+        stray = [s.id for s in steps if s.scene and s.scene not in scenes]
+        if stray:
+            raise ValueError(f"recipe {key}: step(s) {', '.join(stray)} name a scene it does not have")
+        brief = str(data.get("brief") or "scene")
+        if brief not in ("scene", "poster"):
+            raise ValueError(f"recipe {key}: brief is 'scene' or 'poster', not '{brief}'")
         return cls(
             key=key,
             title=str(data.get("title") or key),
@@ -50,25 +65,48 @@ class Recipe:
             formats=tuple(str(f) for f in data["formats"]),
             aspect_ratio=str(data.get("aspect_ratio") or "9:16"),
             shots=shots,
-            variants=int(data.get("variants", 2)),
-            max_still_attempts=int(data.get("max_still_attempts", 3)),
-            max_clip_attempts=int(data.get("max_clip_attempts", 2)),
+            steps=steps,
+            variants=int(data.get("variants", 3)),
             resolution=str(data.get("resolution") or "720p"),
             budget_usd=float(data.get("budget_usd", 15)),
-            gates=gates,
-            shoot_sheet=bool(data.get("shoot_sheet", False)),
+            auto=bool(data.get("auto", True)),
+            scene_options=tuple(str(o) for o in data.get("scene_options") or ()),
+            brief=brief,
+            start_text=str(data.get("start_text") or ""),
         )
 
     def needs_cast(self) -> bool:
         return any(s.cast for s in self.shots)
 
+    def new_checklist(self, cast_name: str, direction: dict, session: str, approval: str = "ask") -> CampaignChecklist:
+        """A campaign's own copy of the steps, each image step making the recipe's count."""
+        return CampaignChecklist(
+            recipe_key=self.key,
+            cast_name=cast_name,
+            direction=dict(direction),
+            session=session,
+            budget_usd=self.budget_usd,
+            steps=[self._defaulted(s) for s in self.steps],
+            approval=approval,
+        )
+
+    def _defaulted(self, step: CampaignStep) -> CampaignStep:
+        """The recipe's defaults filled into a step: the image count, the clip resolution."""
+        if step.action == "images":
+            return step.with_(count=step.count or self.variants)
+        if step.action == "video":
+            return step.with_(resolution=step.resolution or self.resolution)
+        return step
+
     def template(self, shot_id: str) -> ShotTemplate:
         for s in self.shots:
             if s.id == shot_id:
                 return s
-        raise KeyError(f"recipe {self.key} has no shot '{shot_id}'")
+        raise KeyError(f"recipe {self.key} has no scene '{shot_id}'")
 
-    def build_brief(self, header: dict, look: dict, composed: dict, cast_member: str) -> CreativeBrief:
+    def build_brief(
+        self, header: dict, look: dict, composed: dict, cast_member: str, copy: dict | None = None
+    ) -> CreativeBrief:
         """The brief, with the recipe's structure enforced: the writer supplies only the scene of
         each fixed shot (composed into `composed[id]` = keyframe_prompt, motion_prompt, spec),
         the look, and the format, concept, hook and caption. Shot ids, purposes, casting and
@@ -91,6 +129,7 @@ class Recipe:
                     "cast": [cast_member] if t.cast else [],
                     "shows_product": t.shows_product,
                     "spec": composed[t.id]["spec"],
+                    "overlay_prompt": composed[t.id].get("overlay_prompt", ""),
                 }
             )
             for t in self.shots
@@ -103,4 +142,5 @@ class Recipe:
             shots=shots,
             caption=str(header.get("caption") or ""),
             look=dict(look),
+            copy=dict(copy or {}),
         )

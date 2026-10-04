@@ -12,13 +12,14 @@ class MediaVerdict:
     product_exact: bool  # every must-keep detail present and right
     identity_kept: bool  # the cast member is recognisably the same person
     problems: tuple[str, ...]  # what to fix, concretely — becomes the next prompt's correction
+    text_exact: bool = True  # a text ad: every word of its copy rendered exactly (else True)
 
     @property
     def passed(self) -> bool:
         """The product is exact and the person is the same — the two things a viewer would call
-        wrong. The score is never a bar: the user judges taste at the gate, with the score beside
+        wrong. The score is never a bar: the user judges taste, with the score beside
         each still, and decides what is good enough."""
-        return self.product_exact and self.identity_kept
+        return self.product_exact and self.identity_kept and self.text_exact
 
     @classmethod
     def from_dict(cls, data: dict, path: str) -> "MediaVerdict":
@@ -32,6 +33,7 @@ class MediaVerdict:
             product_exact=bool(data["product_exact"]),
             identity_kept=bool(data["identity_kept"]),
             problems=tuple(str(p).strip() for p in data.get("problems") or [] if str(p).strip()),
+            text_exact=bool(data.get("text_exact", True)),
         )
 
     @classmethod

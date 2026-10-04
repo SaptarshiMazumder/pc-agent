@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronRight,
   MessageSquareText,
+  RefreshCw,
   Settings2,
 
   SquarePen,
@@ -49,6 +50,7 @@ export function Sidebar({
   view,
   onView,
   onNewChat,
+  onRefreshChats,
   account,
   client,
   status,
@@ -67,6 +69,8 @@ export function Sidebar({
   view: View
   onView: (v: View) => void
   onNewChat: () => void
+  /** Reload the Recent list — a chat started in another window, a title the daemon set. */
+  onRefreshChats?: () => Promise<void>
   /** The window's one auth state — owned by App, so the menu and the card cannot disagree. */
   account: Auth
   /** The daemon connection — the run-mode badge reads/sets the mode through it. */
@@ -137,6 +141,13 @@ export function Sidebar({
 
   /* Open by default: it is why most people look here. */
   const [recentOpen, setRecentOpen] = useState(true)
+  /* A manual refresh leaves the rows where they are and spins its own icon — never a blank list. */
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = (): void => {
+    if (refreshing || !onRefreshChats) return
+    setRefreshing(true)
+    void onRefreshChats().finally(() => setRefreshing(false))
+  }
 
   return (
     <aside className="rail sidebar">
@@ -229,6 +240,22 @@ export function Sidebar({
                 title={`${recentOpen ? 'collapse' : 'expand'} recent conversations`}
               >
                 <span className="section-title">Recent</span>
+                {onRefreshChats && (
+                  <button
+                    type="button"
+                    className="section-add"
+                    onClick={(e) => {
+                      // The head toggles; this must not, or reloading would also fold the list away.
+                      e.stopPropagation()
+                      refresh()
+                    }}
+                    disabled={refreshing}
+                    title="Reload the conversation list"
+                    aria-label="Reload the conversation list"
+                  >
+                    <RefreshCw size={13} strokeWidth={2} className={refreshing ? 'ld-spin' : undefined} />
+                  </button>
+                )}
                 <span className="section-caret">
                   {recentOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>

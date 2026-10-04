@@ -6,8 +6,10 @@ import asyncio
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
+from ad_generation.application.cast_approvals import CastApprovals
 from ad_generation.application.cast_service import CastService
-from ad_generation.presentation.generation_backend_resolver import GenerationBackendResolver
+from ad_generation.application.run_approvals import NeedsApproval
+from ad_generation.presentation.generation_backend_resolver import GenerationBackendResolver, plugin_setting
 
 
 class CastCreateTool(Tool):
@@ -37,26 +39,39 @@ class CastCreateTool(Tool):
             },
             "provider": {"type": "string", "description": "Override the configured image provider."},
             "model": {"type": "string", "description": "Override the configured image model."},
+            "approval": {"type": "string", "description": "The studio's approval for this run — copy it exactly from the user's message; never invent one."},
         },
     }
 
-    def __init__(self, config, service: CastService) -> None:
+    def __init__(self, config, service: CastService, approvals: CastApprovals) -> None:
         self.config = config
         self._service = service
+        self._approvals = approvals
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             provider, model = GenerationBackendResolver(self.config).resolve(
                 self.name, str(params.get("provider") or ""), str(params.get("model") or "")
             )
-            member, sheet = await asyncio.to_thread(
-                self._service.create,
-                str(params.get("name") or "").strip(),
-                str(params.get("description") or "").strip(),
-                [str(r) for r in params.get("references") or []],
-                provider,
-                model,
-            )
+            name = str(params.get("name") or "").strip()
+            description = str(params.get("description") or "").strip()
+            references = [str(r) for r in params.get("references") or []]
+            if not name or not description:
+                raise ValueError("give the cast member's name and description")
+            try:
+                self._approvals.admit(
+                    name, f"{provider}/{model}", str(params.get("approval") or ""),
+                    str(plugin_setting(self.config, "generation_approval", "ask")),
+                )
+            except NeedsApproval:
+                self._approvals.propose(name, description, references, f"{provider}/{model}")
+                return ToolResult.text(
+                    f"Nothing was generated. Cast member '{name}' is proposed in the studio, where the user "
+                    "chooses the model and presses Generate, or dismisses it. Tell them in one line that it is "
+                    "ready for their go, then end your turn. Do not call this again for it.",
+                    details={"proposed": {"name": name, "model": f"{provider}/{model}"}},
+                )
+            member, sheet = await asyncio.to_thread(self._service.create, name, description, references, provider, model)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"cast_create: {type(e).__name__}: {e}", is_error=True)
         return ToolResult.text(

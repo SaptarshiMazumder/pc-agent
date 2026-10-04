@@ -1,6 +1,6 @@
 /* Which campaign this chat is on, and its state — re-read whenever the studio's tick moves.
  *
- * A chat's campaign is the newest one `campaign_run` started in it (campaign_list marks them
+ * A chat's campaign is the newest one `campaign_start` started in it (campaign_list marks them
  * `mine` by the chat's session key). A chat that only CONTINUES a campaign started elsewhere has
  * none of its own; the user can open one from the Campaigns page, which pins it here.
  */

@@ -1,14 +1,15 @@
 """A campaign as a folder in the workspace:
 
-    campaigns/<id>/product/        copies of the product photos
-    campaigns/<id>/profile.json    what the product is
-    campaigns/<id>/brief.json      the ad's plan
-    campaigns/<id>/progress.json   which gate a campaign_run waits at, and each shot so far
-    campaigns/<id>/sheet/          take-01-1.png — the shoot sheet (recipes with shoot_sheet)
-    campaigns/<id>/stills/<shot>/  take-01-1.jpg, take-01-2.jpg, take-02-1.jpg, ...
-    campaigns/<id>/clips/<shot>/   take-01.mp4 (+ take-01-last.png)
-    campaigns/<id>/ledger.jsonl    one line per paid result
-    campaigns/<id>/verdicts.jsonl  one line per check
+    campaigns/<id>/product/          copies of the product photos
+    campaigns/<id>/profile.json      what the product is
+    campaigns/<id>/brief.json        the look and each scene's prompts
+    campaigns/<id>/steps.json        the campaign's checklist (its steps, picks, last settings)
+    campaigns/<id>/steps/<step>/     take-01-1.png, take-02.mp4 (+ take-02-last.png), ...
+    campaigns/<id>/ledger.jsonl      one line per paid result, tagged with its step
+    campaigns/<id>/verdicts.jsonl    one line per check
+
+Campaigns from before checklists keep their files where they were (stills/<shot>/,
+clips/<shot>/, sheet/) and their gate-era progress.json, read once into a checklist.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import json
 import re
 import shutil
 
-from ad_generation.domain.campaign_progress import CampaignProgress
+from ad_generation.domain.campaign_checklist import CampaignChecklist
 from ad_generation.domain.creative_brief import CreativeBrief
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.media_verdict import MediaVerdict
@@ -26,8 +27,6 @@ from ad_generation.domain.product_profile import ProductProfile
 from ad_generation.infrastructure.run_workspace import RunWorkspace
 
 ROOT = "campaigns"
-_TAKE = re.compile(r"^take-(\d+)")
-_CLIP_SUFFIXES = (".mp4", ".mov", ".webm")
 
 
 def _slug(text: str) -> str:
@@ -67,44 +66,53 @@ class CampaignFileStore:
         self._write(campaign_id, "profile.json", profile.to_dict())
 
     def profile(self, campaign_id: str) -> ProductProfile:
-        return ProductProfile.load(self._read(campaign_id, "profile.json", "a product profile (run product_analyze)"))
+        return ProductProfile.load(self._read(campaign_id, "profile.json", "a product profile"))
 
     def save_brief(self, campaign_id: str, brief: CreativeBrief) -> None:
         self._write(campaign_id, "brief.json", brief.to_dict())
 
     def brief(self, campaign_id: str) -> CreativeBrief:
-        return CreativeBrief.from_dict(self._read(campaign_id, "brief.json", "a brief (run campaign_brief)"))
+        return CreativeBrief.from_dict(self._read(campaign_id, "brief.json", "a brief (run its brief step)"))
 
-    def save_progress(self, campaign_id: str, progress: CampaignProgress) -> None:
-        self._write(campaign_id, "progress.json", progress.to_dict())
+    def save_checklist(self, campaign_id: str, checklist: CampaignChecklist) -> None:
+        self._write(campaign_id, "steps.json", checklist.to_dict())
+
+    def checklist(self, campaign_id: str) -> CampaignChecklist | None:
+        path = self._dir(campaign_id) / "steps.json"
+        if not path.is_file():
+            return None
+        return CampaignChecklist.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    def legacy_progress(self, campaign_id: str) -> dict | None:
+        path = self._dir(campaign_id) / "progress.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
     def campaign_ids(self) -> list[str]:
         root = self._ws.path(ROOT)
         if not root.is_dir():
             return []
-        return sorted(p.parent.name for p in root.glob("*/progress.json"))
+        return sorted(
+            p.name for p in root.iterdir() if (p / "steps.json").is_file() or (p / "progress.json").is_file()
+        )
 
     def updated(self, campaign_id: str) -> float:
         return max(p.stat().st_mtime for p in self._dir(campaign_id).iterdir())
 
-    def progress(self, campaign_id: str) -> CampaignProgress:
-        return CampaignProgress.from_dict(
-            self._read(campaign_id, "progress.json", "recipe progress (start it with campaign_run)")
-        )
-
-    def sheet_stem(self, campaign_id: str) -> str:
-        folder = self._dir(campaign_id) / "sheet"
+    def take_stem(self, campaign_id: str, step_id: str) -> str:
+        folder = self._dir(campaign_id) / "steps" / step_id
         folder.mkdir(parents=True, exist_ok=True)
         n = 1
         while any(folder.glob(f"take-{n:02d}*")):
             n += 1
-        return f"{ROOT}/{campaign_id}/sheet/take-{n:02d}"
+        return f"{ROOT}/{campaign_id}/steps/{step_id}/take-{n:02d}"
 
-    def still_stem(self, campaign_id: str, shot_id: str) -> str:
-        return self._next_take(campaign_id, "stills", shot_id)
-
-    def clip_path(self, campaign_id: str, shot_id: str) -> str:
-        return self._next_take(campaign_id, "clips", shot_id) + ".mp4"
+    def import_file(self, campaign_id: str, step_id: str, src: str) -> str:
+        source = self._ws.path(src)
+        if not source.is_file():
+            raise FileNotFoundError(f"no file at {src}")
+        rel = f"{self.take_stem(campaign_id, step_id)}-1{source.suffix.lower()}"
+        shutil.copyfile(source, self._ws.path(rel))
+        return rel
 
     def record(self, campaign_id: str, media: GeneratedMedia) -> None:
         self._append(campaign_id, "ledger.jsonl", media.to_dict())
@@ -123,24 +131,22 @@ class CampaignFileStore:
                 out[v.path] = v
         return out
 
-    def stills_made(self, campaign_id: str, shot_id: str) -> list[list[str]]:
-        return [[self._ws.rel(p) for p in take] for take in self._takes(campaign_id, "stills", shot_id)]
-
-    def clips_made(self, campaign_id: str, shot_id: str) -> list[tuple[str, str]]:
-        out = []
-        for take in self._takes(campaign_id, "clips", shot_id):
-            clip = next((p for p in take if p.suffix.lower() in _CLIP_SUFFIXES), None)
-            if clip is None:
-                continue
-            last = next((p for p in take if p.stem.endswith("-last")), None)
-            out.append((self._ws.rel(clip), self._ws.rel(last) if last else ""))
-        return out
-
-    def spent(self, campaign_id: str) -> float:
+    def ledger(self, campaign_id: str) -> list[GeneratedMedia]:
         path = self._dir(campaign_id) / "ledger.jsonl"
         if not path.is_file():
-            return 0.0
-        return sum(json.loads(line)["cost_usd"] for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+            return []
+        return [
+            GeneratedMedia.from_dict(json.loads(line))
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def made_at(self, path: str) -> float:
+        p = self._ws.path(path)
+        return p.stat().st_mtime if p.is_file() else 0.0
+
+    def spent(self, campaign_id: str) -> float:
+        return sum(m.cost_usd for m in self.ledger(campaign_id))
 
     # --- files ---------------------------------------------------------------------------------
 
@@ -149,28 +155,6 @@ class CampaignFileStore:
         if not path.is_dir():
             raise KeyError(f"no campaign '{campaign_id}'")
         return path
-
-    def _takes(self, campaign_id: str, kind: str, shot_id: str) -> list[list]:
-        """The takes on disk, grouped by number, oldest first — skipping files older than the
-        current brief: they were made for another brief and must not stand in for this one."""
-        folder = self._dir(campaign_id) / kind / shot_id
-        if not folder.is_dir():
-            return []
-        since = (self._dir(campaign_id) / "brief.json").stat().st_mtime
-        takes: dict[int, list] = {}
-        for p in sorted(folder.iterdir()):
-            m = _TAKE.match(p.name)
-            if m and p.is_file() and p.stat().st_mtime >= since:
-                takes.setdefault(int(m.group(1)), []).append(p)
-        return [takes[n] for n in sorted(takes)]
-
-    def _next_take(self, campaign_id: str, kind: str, shot_id: str) -> str:
-        folder = self._dir(campaign_id) / kind / shot_id
-        folder.mkdir(parents=True, exist_ok=True)
-        n = 1
-        while any(folder.glob(f"take-{n:02d}*")):
-            n += 1
-        return f"{ROOT}/{campaign_id}/{kind}/{shot_id}/take-{n:02d}"
 
     def _write(self, campaign_id: str, name: str, data: dict) -> None:
         (self._dir(campaign_id) / name).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

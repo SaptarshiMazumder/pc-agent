@@ -25,7 +25,7 @@ Answer with ONE JSON object and nothing else:
     "location": "one specific, attractive, believable place, e.g. 'a cobblestone street in Lisbon's Alfama, pastel facades and tram lines'",
     "time_of_day": "e.g. 'golden hour, late afternoon'",
     "weather": "e.g. 'clear and warm, light breeze'",
-    "mood": "e.g. 'carefree, confident, sunlit'"
+    "mood": "how it FEELS, e.g. 'carefree, confident, unhurried' — never 'polished', 'glossy' or 'glamorous'"
   },
   "shots": [
     {
@@ -33,14 +33,14 @@ Answer with ONE JSON object and nothing else:
       "pose": "what the person does with their body and the product in the still (for a product-only shot: how the product is placed or held)",
       "background": "what is behind them in this shot, within the location",
       "framing": "shot size, angle and where the product sits in the 9:16 frame, true to the shot's direction",
-      "lighting": "light direction and quality in this shot, true to the time of day and weather",
+      "lighting": "REAL, motivated light true to the time of day and weather: where it comes from (a window, open shade, overcast sky, low sun, a practical lamp), its direction and softness, and the natural shadow it leaves — never studio glamour, beauty or fill lighting, glow or sheen",
       "action": "what happens over the clip's seconds, in time order — one clear action",
       "camera_move": "one camera move at most: slow push-in, gentle orbit, handheld follow, or static"
     }
   ]
 }
 
-One entry in "shots" per fixed shot, with exactly its id, and EVERY field filled. All shots share
-the one look — the same outfit, place, time and weather — so the clips cut together as one ad.
+One entry in "shots" per fixed shot, with exactly its id, and EVERY field filled. Usually there is
+one: the ad is ONE scene, made as several images the user chooses from and one clip.
 The product must be clearly visible and large enough to read its details in every shot that
 shows it. Nothing in action covers the product. No text, logos or extra people.

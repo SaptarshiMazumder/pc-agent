@@ -35,7 +35,10 @@ export function Composer({
   onCredits,
   placeholder = 'Send a message…',
   maxFiles,
+  above,
 }: {
+  /** Drawn at the top of the box, above the attachments — what the next message is about. */
+  above?: React.ReactNode
   running: boolean
   pending: Attachment[]
   onSend: (text: string) => void
@@ -89,7 +92,8 @@ export function Composer({
   const seed = useApp((s) => s.composerSeed)
   useEffect(() => {
     if (!seed) return
-    setText(seed.text)
+    // APPEND keeps what is there (a start choice after the first, or text the user typed).
+    setText((cur) => (seed.append && cur.trim() ? `${cur.trimEnd()} ${seed.text}` : seed.text))
     const el = areaRef.current
     if (!el) return
     el.focus()
@@ -184,6 +188,7 @@ export function Composer({
         </div>
       )}
       <div className="composer">
+        {above}
         {pending.length > 0 && (
           <div className="attachments">
             {pending.map((a, i) => (

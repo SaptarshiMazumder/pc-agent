@@ -1,0 +1,56 @@
+{
+  "title": "Handheld — beauty, fragrance, small gadgets, held or used in the hand",
+  "covers": "products held in one hand or used on the body: perfume and fragrance, skincare (serums, creams, cleansers), hand and body lotion, cosmetics and makeup (lipstick, compacts, palettes), haircare bottles, bottles, jars and tubes, headphones and earbuds, phones and phone cases, small gadgets and devices",
+  "formats": [
+    "in-hand-closeup",
+    "in-use",
+    "everyday-carry"
+  ],
+  "aspect_ratio": "9:16",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "scene",
+      "direction": "The model holding or using the product, framed medium-close so the product reads clearly at its real size against her hand and face. One hand holds it naturally, the fingers wrapped around its sides or base, never covering the label; the label faces the camera. Over the clip only a small, slow motion: a turn of the wrist, bringing it toward the camera, one press of the pump or nozzle, a hand settling on an earcup — never a spin or a fast move.",
+      "cast": true,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 3,
+  "resolution": "720p",
+  "budget_usd": 15,
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief"
+    },
+    {
+      "id": "product-sheet",
+      "title": "Product sheet",
+      "action": "product_sheet",
+      "cast": false,
+      "shows_product": true,
+      "model": "higgsfield/gpt_image_2_5"
+    },
+    {
+      "id": "stills",
+      "title": "Stills",
+      "action": "images",
+      "scene": "s1",
+      "cast": true,
+      "shows_product": true,
+      "model": "higgsfield/gpt_image_2_5"
+    },
+    {
+      "id": "clip",
+      "title": "Clip",
+      "action": "video",
+      "scene": "s1",
+      "source": "stills",
+      "cast": true,
+      "shows_product": true
+    }
+  ]
+}

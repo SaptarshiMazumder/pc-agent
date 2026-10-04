@@ -8,13 +8,17 @@ dropped, not sent to a field that does not exist.
 
 from __future__ import annotations
 
+from PIL import Image
+
 from ad_generation.application.interfaces.budget_exceeded import BudgetExceeded
+from ad_generation.domain.aspect_ratio import nearest_ratio
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.video_request import VideoRequest
 from ad_generation.infrastructure.higgsfield_api_client import HiggsfieldApiClient
 from ad_generation.infrastructure.higgsfield_session import HiggsfieldSession
 from ad_generation.infrastructure.media_downloader import MediaDownloader
 from ad_generation.infrastructure.model_spec_book import ModelSpecBook
+from ad_generation.infrastructure.run_workspace import RunWorkspace
 
 PROVIDER = "higgsfield"
 
@@ -26,9 +30,11 @@ class HiggsfieldVideoGenerator:
         session: HiggsfieldSession,
         specs: ModelSpecBook,
         downloader: MediaDownloader,
+        workspace: RunWorkspace,
         timeout_s: float,
     ) -> None:
         self._client = client
+        self._ws = workspace
         self._session = session
         self._specs = specs
         self._downloader = downloader
@@ -48,7 +54,8 @@ class HiggsfieldVideoGenerator:
         if "resolution" in fields:
             params[fields["resolution"]] = request.resolution
         if "aspect_ratio" in fields:
-            params[fields["aspect_ratio"]] = _aspect_of(request.first_frame)
+            with Image.open(self._ws.path(request.first_frame)) as im:
+                params[fields["aspect_ratio"]] = nearest_ratio(im.width, im.height, spec.get("aspect_ratios") or [])
         if "audio" in fields:
             values = spec.get("audio_values") or {"true": True, "false": False}
             params[fields["audio"]] = values["true" if request.audio else "false"]
@@ -71,16 +78,3 @@ class HiggsfieldVideoGenerator:
             cost_basis="exact",
             detail={"job_id": job_id, "credits": credits},
         )
-
-
-def _aspect_of(image_path: str) -> str:
-    """The still's own ratio, as the models name them; the clip keeps the still's frame."""
-    from PIL import Image
-
-    from ad_generation.infrastructure.run_workspace import RunWorkspace
-
-    with Image.open(RunWorkspace().path(image_path)) as im:
-        w, h = im.size
-    ratio = w / h
-    named = {"9:16": 9 / 16, "16:9": 16 / 9, "1:1": 1.0, "3:4": 3 / 4, "4:3": 4 / 3}
-    return min(named, key=lambda k: abs(named[k] - ratio))

@@ -7,7 +7,9 @@ defaulted in code: a tool with no provider or model configured says exactly wher
 from __future__ import annotations
 
 from agent_runtime.application.run_context import current_plugins
-from agent_runtime.application.tool_models import resolve_tool_model, resolve_tool_provider
+from agent_runtime.application.tool_models import resolve_tool_model, resolve_tool_provider, tool_config
+
+from ad_generation.domain.generation_backends import GenerationBackends
 
 PLUGIN = "ad-generation"
 
@@ -25,9 +27,34 @@ def provider_settings(config, provider: str) -> dict:
     return out
 
 
+# The config sections naming the default image and clip backends (agent.toml
+# [plugins.ad-generation.tools.images] / [...tools.video]): roles, not tool names — every step,
+# fix and extension reads its default from them.
+IMAGES = "images"
+VIDEO = "video"
+
+
+def plugin_setting(config, key: str, default):
+    """A plugin-wide setting: agent.toml [plugins.ad-generation] <key> over the machine config's."""
+    value = default
+    for src in (getattr(config, "plugins", None) or {}, current_plugins()):
+        section = (src or {}).get(PLUGIN) or {}
+        if isinstance(section, dict) and key in section:
+            value = section[key]
+    return value
+
+
 class GenerationBackendResolver:
     def __init__(self, config) -> None:
         self._config = config
+
+    def backends(self) -> GenerationBackends:
+        """The configured defaults for images and clips, and whether clips carry sound."""
+        return GenerationBackends(
+            image=self.resolve(IMAGES, "", ""),
+            video=self.resolve(VIDEO, "", ""),
+            audio=bool(tool_config(self._config, PLUGIN, VIDEO, "audio", False)),
+        )
 
     def resolve(self, tool: str, provider: str, model: str) -> tuple[str, str]:
         chosen_provider = resolve_tool_provider(self._config, PLUGIN, tool, per_call=provider or None)

@@ -7,8 +7,8 @@ is taken verbatim. The checklist is then checked — an empty item goes back to 
 naming what is missing, and fails loudly if it is still missing — and only then are the prompts
 COMPOSED from the fields by the PromptComposer, so no prompt ever goes out with an item left out.
 
-Two ways: `write_for_recipe` fills a recipe's FIXED shots (the default); `write` plans freely,
-for what the recipe does not cover.
+It fills the recipe's scenes. A result the recipe has no scene for (a product-only tabletop
+image) is a step of its own with its own prompt — it never rewrites this brief.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from ad_generation.domain.creative_brief import CreativeBrief
 from ad_generation.domain.creative_direction import CreativeDirection
 from ad_generation.domain.product_profile import ProductProfile
 from ad_generation.domain.recipe import Recipe
-from ad_generation.domain.shot import Shot
 from ad_generation.domain.shot_checklist import SHOT, ShotChecklist
 
 
@@ -36,7 +35,6 @@ class BriefService:
         formats: FormatLibrary,
         cast: CastLibrary,
         composer: PromptComposer,
-        instructions: str,
         recipe_instructions: str,
     ) -> None:
         self._reasoner = reasoner
@@ -44,7 +42,6 @@ class BriefService:
         self._formats = formats
         self._cast = cast
         self._composer = composer
-        self._instructions = instructions
         self._recipe_instructions = recipe_instructions
 
     # ---- the recipe's fixed shots ------------------------------------------------------------
@@ -83,59 +80,6 @@ class BriefService:
             t.id: self._compose(look, specs[t.id], cast_member if t.cast else "", profile) for t in recipe.shots
         }
         brief = recipe.build_brief(answer, look, composed, cast_member)
-        self._store.save_brief(campaign_id, brief)
-        return brief
-
-    # ---- a free plan -------------------------------------------------------------------------
-
-    def write(
-        self, campaign_id: str, format_key: str, cast_names: list[str], shots: int, direction: CreativeDirection
-    ) -> CreativeBrief:
-        profile = self._store.profile(campaign_id)
-        # Named ones are fetched (an unknown name is an error); otherwise the writer may cast any.
-        cast = [self._cast.get(n) for n in cast_names] if cast_names else self._cast.all()
-        formats = [self._formats.get(format_key)] if format_key else self._formats.all()
-        facts = {
-            "product": profile.to_dict(),
-            "cast": [{"name": c.name, "description": c.description} for c in cast],
-            "formats": [{"key": f.key, "title": f.title, "guide": f.guide} for f in formats],
-            "shots_wanted": shots,
-            "direction": direction.given(),
-        }
-        answer, look = self._ask(self._instructions, facts, direction, None, None)
-        known = {c.name for c in cast}
-        written = [s for s in answer.get("shots") or [] if isinstance(s, dict)]
-        strangers = sorted({str(n) for s in written for n in s.get("cast") or []} - known)
-        if strangers:
-            raise ValueError("the brief casts people who are not in the cast: " + ", ".join(strangers))
-        specs = self._specs(answer)
-        built = []
-        for s in written:
-            names = [str(n) for n in s.get("cast") or []]
-            composed = self._compose(look, specs[str(s["id"])], names[0] if names else "", profile)
-            built.append(
-                Shot.from_dict(
-                    {
-                        "id": s["id"],
-                        "purpose": s.get("purpose"),
-                        "duration_s": s.get("duration_s"),
-                        "cast": names,
-                        "shows_product": s.get("shows_product", True),
-                        **composed,
-                    }
-                )
-            )
-        brief = CreativeBrief.from_dict(
-            {
-                "format_key": answer.get("format_key"),
-                "concept": answer.get("concept"),
-                "hook": answer.get("hook"),
-                "caption": answer.get("caption"),
-                "aspect_ratio": "9:16",
-                "look": look,
-                "shots": [b.to_dict() for b in built],
-            }
-        )
         self._store.save_brief(campaign_id, brief)
         return brief
 

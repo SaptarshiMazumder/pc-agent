@@ -14,7 +14,7 @@ class CampaignListTool(Tool):
     label = "List campaigns"
     plugin = PLUGIN
     description = (
-        "List every campaign: product, the gate it waits at, cast member, spend, and whether this "
+        "List every campaign: product, the step it is on, cast member, spend, and whether this "
         "chat started it. Read only."
     )
     parameters = {
@@ -33,7 +33,7 @@ class CampaignListTool(Tool):
             rows = self._views.campaigns(str(params.get("session") or ""))
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"campaign_list: {type(e).__name__}: {e}", is_error=True)
-        lines = [f"{r['id']} · {r['name']} · waits at {r['gate']} · ${r['spent_usd']:.2f}" for r in rows]
+        lines = [f"{r['id']} · {r['name']} · on {r['step']} · ${r['spent_usd']:.2f}" for r in rows]
         return ToolResult.text(
             "\n".join(lines) or "no campaigns yet",
             # `root` lets the window turn the workspace paths into files it can fetch.

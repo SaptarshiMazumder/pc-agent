@@ -46,7 +46,17 @@ class HiggsfieldApiClient:
             raise ValueError(f"{path}: not an image Higgsfield takes (png, jpg, webp)")
         created = self._json("POST", "/media", params={"type": "image"}, json={})
         signed = str(created.get("content_type") or "image/png")
-        source = self._as_png(path) if signed == "image/png" else path
+        return self._put(created, "image", self._as_png(path) if signed == "image/png" else path, signed, path)
+
+    def upload_video(self, path: str) -> str:
+        """A workspace .mp4 -> its media id, for `video_references` (a clip to edit or extend)."""
+        if Path(path).suffix.lower() != ".mp4":
+            raise ValueError(f"{path}: not a clip Higgsfield takes (mp4)")
+        created = self._json("POST", "/media", params={"type": "video"}, json={})
+        return self._put(created, "video", path, str(created.get("content_type") or "video/mp4"), path)
+
+    def _put(self, created: dict, kind: str, source: str, signed: str, original: str) -> str:
+        """Fill the presigned slot (signed for `signed`), then confirm it."""
         put = fetch(
             created["upload_url"],
             method="PUT",
@@ -56,8 +66,10 @@ class HiggsfieldApiClient:
             timeout_s=300,
         )
         if not put.ok:
-            raise RuntimeError(f"Higgsfield upload of {path} failed: {put.error or f'HTTP {put.status}: {put.text[:300]}'}")
-        self._json("POST", f"/media/{created['id']}/confirm", params={"type": "image"}, json={})
+            raise RuntimeError(
+                f"Higgsfield upload of {original} failed: {put.error or f'HTTP {put.status}: {put.text[:300]}'}"
+            )
+        self._json("POST", f"/media/{created['id']}/confirm", params={"type": kind}, json={})
         return str(created["id"])
 
     def quote(self, job_type: str, params: dict) -> float:

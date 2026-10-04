@@ -16,7 +16,10 @@
     "price": {
       "per_image": 0.15
     },
-    "source": "https://fal.ai/models/fal-ai/nano-banana-pro/edit/llms.txt"
+    "source": "https://fal.ai/models/fal-ai/nano-banana-pro/edit/llms.txt",
+    "label": "Nano Banana Pro (fal)",
+    "price_note": "$0.15",
+    "max_references": 14
   },
   "bytedance/seedream/v5/pro/edit": {
     "kind": "image",
@@ -54,7 +57,10 @@
       "per_image": 0.0675,
       "per_extra_reference": 0.0045
     },
-    "source": "https://fal.ai/models/bytedance/seedream/v5/pro/edit/llms.txt"
+    "source": "https://fal.ai/models/bytedance/seedream/v5/pro/edit/llms.txt",
+    "label": "Seedream 5 Pro (fal)",
+    "price_note": "$0.07",
+    "max_references": 10
   },
   "bytedance/seedance-2.5/image-to-video": {
     "kind": "video",
@@ -75,7 +81,16 @@
     },
     "source": "https://fal.ai/models/bytedance/seedance-2.5/image-to-video/api",
     "label": "Seedance 2.5 (fal) — refuses photoreal faces",
-    "price_note": "$0.22/s at 480p · $0.47/s at 720p"
+    "price_note": "$0.22/s at 480p · $0.47/s at 720p",
+    "durations": {
+      "min": 4,
+      "max": 30
+    },
+    "resolutions": {
+      "480p": "$0.22/s",
+      "720p": "$0.47/s",
+      "1080p": "$1.16/s"
+    }
   },
   "fal-ai/kling-video/v3/pro/image-to-video": {
     "kind": "video",
@@ -93,8 +108,15 @@
       "audio_factor": 1.5
     },
     "source": "https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video/llms.txt",
-    "label": "Kling 3 pro (fal)",
-    "price_note": "$0.112/s"
+    "label": "Kling 3 pro · 1080p (fal)",
+    "price_note": "$0.112/s",
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "resolutions": {
+      "1080p": "$0.112/s"
+    }
   },
   "fal-ai/kling-video/v3/standard/image-to-video": {
     "kind": "video",
@@ -112,7 +134,14 @@
       "audio_factor": 1.5
     },
     "source": "https://fal.ai/models/fal-ai/kling-video/v3/standard/image-to-video",
-    "label": "Kling 3 standard (fal)",
-    "price_note": "$0.084/s"
+    "label": "Kling 3 standard · 720p (fal)",
+    "price_note": "$0.084/s",
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "resolutions": {
+      "720p": "$0.084/s"
+    }
   }
 }
