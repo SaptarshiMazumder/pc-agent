@@ -82,7 +82,7 @@
       "sd3.5_large_controlnet_blur.safetensors"
     ],
     "packs": [],
-    "defaults_note": "1024x1024, 30 steps, cfg 4, euler/simple, strength 1.0 (template; publisher says start 0.7-0.8). License: Stability Community License.",
+    "defaults_note": "1024x1024, 30 steps, cfg 4, euler/simple, strength 1.0 (template; publisher says start 0.7-0.8).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

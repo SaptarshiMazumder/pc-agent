@@ -7,8 +7,8 @@ themselves:
     workflows   one row per stage: the agent's plain note on what it makes, and the model's short name
     references  the files the person adds (user slots), with what each must show
     questions   each stage's FULL prompt, so the person reads what will run and can edit it
-    title       the job, download size, and only the licence LIMITS (non-commercial, territory,
-                revenue caps) — a licence with none is not mentioned
+    title       the job, the size it delivers (or what that size follows, when no stage sets it),
+                and the download size
 
 The agent passes them to ask_user unchanged and ends its turn. Nothing is downloaded or rented
 before the answer: comfy_run refuses while the card is unanswered, and refuses a card that is not
@@ -25,6 +25,7 @@ from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
 import studio_state
+from output_size_estimator import OutputSizeEstimator
 from pipeline import Pipeline
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import PipelineReport, render_report
@@ -40,7 +41,7 @@ class PipelinePresentTool(Tool):
     default_retryable = True
     description = (
         "When the design holds and every ? is answered: builds the approval card — every stage with "
-        "its model, the files the person adds, each stage's full prompt, downloads and licence notes. "
+        "its model, the files the person adds, each stage's full prompt, what it delivers and downloads. "
         "Give `answers`: for each ? in the report (q1, q2, …) one line on why the design is right as it "
         "is — or fix the design instead and validate again. Call ask_user with EXACTLY the arguments "
         "it returns, then end your turn."
@@ -120,6 +121,22 @@ class PipelinePresentTool(Tool):
         return ". You get " + " and ".join(f"{n} separate {k}{'s' if n > 1 else ''}" for k, n in counts.items())
 
     @staticmethod
+    def _delivers(ctx: PipelineToolContext, pipeline: Pipeline) -> str:
+        """The size the card promises — only one the design sets. A last stage whose canvas follows
+        an input image (a reference editor with no size port) makes whatever that photo's shape is:
+        the card said "Delivers 1080x1350" and the result was 880x1184."""
+        if not pipeline.deliver_size or not pipeline.stages:
+            return ""
+        graphs = {s.name: ctx.store.graph(s) for s in pipeline.stages}
+        got = OutputSizeEstimator(ctx.builder).sizes(pipeline, graphs).get(pipeline.stages[-1].name)
+        if got is not None:
+            return f". Delivers {got[0]}x{got[1]}"
+        last = pipeline.stages[-1]
+        follows = next((i.role.replace("_", " ") for i in last.inputs if not i.producer), "")
+        return (f". Aims for {pipeline.deliver_size}, not guaranteed: the size follows "
+                + (f"your {follows} image" if follows else "its input image"))
+
+    @staticmethod
     def _download_text(report: PipelineReport) -> str:
         """The size the person reads. A file whose size the knowledge base does not know (a gated
         download) is said as such — '0 GB' for a 40 GB model is a number that is simply wrong."""
@@ -159,7 +176,7 @@ class PipelinePresentTool(Tool):
 
     @staticmethod
     def ask_arguments(ctx: PipelineToolContext, pipeline: Pipeline, report: PipelineReport, why: str) -> dict:
-        workflows, questions, restrictions = [], [], []
+        workflows, questions = [], []
         keys: list[tuple] = []  # per stage: what it runs, for grouping a long card
         for stage in pipeline.stages:
             keys.append((stage.family, stage.recipe) if not stage.custom else ("custom", stage.name))
@@ -172,9 +189,6 @@ class PipelinePresentTool(Tool):
                 fam = ctx.catalog.families[recipe.family]
                 model = fam.display_name(recipe.id)
                 does = f"{stage.note} — {model}"
-                limit = fam.restriction(recipe.id)
-                if limit and f"{model}: {limit}" not in restrictions:
-                    restrictions.append(f"{model}: {limit}")
                 spec = recipe.ports.get("prompt") or {}
                 nid = spec.get("node") or (spec.get("nodes") or [None])[0]
                 prompt = str(((graph.get(str(nid)) or {}).get("inputs") or {}).get(spec.get("input"), "")) if nid else ""
@@ -199,10 +213,9 @@ class PipelinePresentTool(Tool):
                       for role, what in sorted(report.user_inputs.items())]
         title = (f"{pipeline.name.replace('_', ' ')}: {len(pipeline.stages)} step(s)"
                  + (f" — {why}" if why else "")
-                 + (f". Delivers {pipeline.deliver_size}" if pipeline.deliver_size else "")
+                 + PipelinePresentTool._delivers(ctx, pipeline)
                  + PipelinePresentTool._what_you_get(ctx, pipeline)
-                 + f". Downloads {PipelinePresentTool._download_text(report)}, all free"
-                 + (f". Licence limits: {'; '.join(restrictions)}" if restrictions else "") + ".")
+                 + f". Downloads {PipelinePresentTool._download_text(report)}, all free.")
         if not questions:
             # A design with no prompt to read (an upscale, a restore) still needs one question: ask_user
             # refuses a card with nothing to answer, and the agent then rewrote the card to pass.

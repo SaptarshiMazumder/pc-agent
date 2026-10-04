@@ -17,21 +17,6 @@
       "S-DATES"
     ]
   },
-  "license": {
-    "name": "FLUX.1 [dev] Non-Commercial License v1.1.1 (dev, Krea [dev], Kontext [dev], Fill, Depth, Canny, Redux, Depth/Canny LoRAs, Turbo-Alpha); Apache-2.0 (schnell)",
-    "commercial": false,
-    "per_variant": {
-      "flux1-dev / krea / kontext / fill / depth / canny / redux / control LoRAs / Turbo-Alpha": "FLUX.1 [dev] Non-Commercial License v1.1.1 — model use 'freely available for your non-commercial and non-production use'; OUTPUTS: 'You may use Output for any purpose (including for commercial purposes)' but not to train a competing model; clause 2.e requires content filtering or output review; commercial model licence via bfl.ai",
-      "flux1-schnell": "Apache License 2.0 — 'can be used for personal, scientific, and commercial purposes'"
-    },
-    "notes": "Comfy-Org repackages inherit the original licences. Cost axis: free (open weights) — non-commercial is still free.",
-    "src": [
-      "S-BFL-LICENSE-DEV",
-      "S-BFL-LICENSE-SCHNELL",
-      "S-HF-BFL",
-      "S-README-COMFYORG"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image"
@@ -51,10 +36,6 @@
         "S-TPL-SCHNELL",
         "S-SRC"
       ]
-    },
-    {
-      "what": "commercial self-hosting of anything but schnell without a BFL licence (outputs are usable commercially)",
-      "src": "S-BFL-LICENSE-DEV"
     },
     {
       "what": "Kontext: non-English prompts; it is an editing model, not a from-scratch T2I replacement",
@@ -109,7 +90,6 @@
         "src": "S-README-COMFYORG"
       },
       "quality": "the template default; sha256 4610115bb0c8... identical to BFL's flux1-dev.safetensors",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG"
     },
     {
@@ -128,7 +108,6 @@
         "src": "S-README-COMFYORG"
       },
       "quality": "'fp8 degrades the quality a bit'; 'Use it with the Load Checkpoint node'; cfg must be 1.0. Name collision: BFL's FLUX.1-dev-FP8 repo has a transformer-only flux1-dev-fp8.safetensors (12.327 GB, diffusion_models) which is NOT this file. The depth-LoRA template loads this 17 GB file through UNETLoader from diffusion_models (works, confuses).",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": [
         "S-HF-COMFYORG",
         "S-README-COMFYORG",
@@ -152,7 +131,6 @@
         "src": "S-README-COMFYORG"
       },
       "quality": "inpaint/outpaint model (96 input channels: latent + masked image + mask); sha identical to BFL FLUX.1-Fill-dev",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -172,7 +150,6 @@
         "src": "S-README-COMFYORG"
       },
       "quality": "full Canny model; the LoRA route rides on flux1-dev instead",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -192,7 +169,6 @@
         "src": null
       },
       "quality": "Blackwell (RTX 50 / sm120) only for the fast path; Comfy-Org ships no full-precision Depth model (BFL has flux1-depth-dev.safetensors)",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -212,7 +188,6 @@
         "src": null
       },
       "quality": "Depth control as a LoRA on flux1-dev; BFL: 'require the base FLUX.1 [dev] model'; template strength 1",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -232,8 +207,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "Canny control as a LoRA on flux1-dev (BFL repo; gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen)",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "quality": "Canny control as a LoRA on flux1-dev",
       "src": "S-HF-BFL"
     },
     {
@@ -251,8 +225,7 @@
         "class": "official",
         "src": "S-README-COMFYORG"
       },
-      "quality": "1-4 step distilled; Apache-2.0; guidance embedding disabled; sha identical to BFL",
-      "license": "Apache-2.0",
+      "quality": "1-4 step distilled; guidance embedding disabled; sha identical to BFL",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -272,7 +245,6 @@
         "src": "S-README-COMFYORG"
       },
       "quality": "'weights in FP8, which makes running in ComfyUI much faster and use less memory'; Load Checkpoint node",
-      "license": "Apache-2.0",
       "src": [
         "S-HF-COMFYORG",
         "S-README-COMFYORG"
@@ -295,7 +267,6 @@
         "src": "S-VRAM-GUIDES"
       },
       "quality": "the only Comfy-Org Kontext file; template default",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -315,7 +286,6 @@
         "src": "S-DOCS-KREA"
       },
       "quality": "'fp8 scaled version of the official krea Flux finetune'; 'recommended for low VRAM users'",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -335,7 +305,6 @@
         "src": null
       },
       "quality": "image-variation / style adapter 'for all FLUX.1 base models'; StyleModelLoader; needs the SigLIP vision encoder",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-COMFYORG",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -355,8 +324,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "full-precision Kontext (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen); community: >30 GB VRAM",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "quality": "full-precision Kontext; community: >30 GB VRAM",
       "src": "S-HF-BFL"
     },
     {
@@ -375,8 +343,7 @@
         "class": "official",
         "src": "S-README-COMFYORG"
       },
-      "quality": "'if you have enough VRAM like 24GB you can use it for better quality' (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen)",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "quality": "'if you have enough VRAM like 24GB you can use it for better quality'",
       "src": [
         "S-HF-BFL",
         "S-DOCS-KREA"
@@ -398,8 +365,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "full Depth model (gated on HF: accept the FLUX.1 [dev] license on the repo first (401 otherwise); docs.comfy.org shows the agreement screen); use the Canny graph with a depth map as pixels",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
+      "quality": "full Depth model; use the Canny graph with a depth map as pixels",
       "src": "S-HF-BFL"
     },
     {
@@ -419,7 +385,6 @@
         "src": null
       },
       "quality": "official NVFP4 repackage (2026-01); Blackwell only for the fast path",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-BFL"
     },
     {
@@ -439,7 +404,6 @@
         "src": null
       },
       "quality": "official NVFP4 Kontext; Blackwell only",
-      "license": "FLUX.1 [dev] Non-Commercial License v1.1.1",
       "src": "S-HF-BFL"
     },
     {
@@ -584,7 +548,6 @@
       "quality": "8-step distilled LoRA for FLUX.1-dev (steps 8, guidance 3.5, scale 1; 'FLUX.1-dev only'); 643 likes",
       "source_name": "diffusion_pytorch_model.safetensors",
       "rename_note": "the repo file is named diffusion_pytorch_model.safetensors; save it to models/loras under this name",
-      "license": "FLUX.1 [dev] Non-Commercial License (inherited)",
       "src": "S-TURBO-ALPHA",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -705,7 +668,7 @@
       "vram_gb_min": 24,
       "speed": "fast",
       "recipe": "t2i-dev-turbo",
-      "tradeoff": "8 steps instead of 20 with the Turbo-Alpha LoRA; community-confirmed, dev only, non-commercial",
+      "tradeoff": "8 steps instead of 20 with the Turbo-Alpha LoRA; community-confirmed, dev only",
       "src": "S-TURBO-ALPHA"
     },
     {
@@ -713,9 +676,8 @@
       "vram_gb_min": 24,
       "speed": "fast",
       "recipe": "t2i-schnell",
-      "why": "4 steps, Apache-2.0 (the only commercially licensed FLUX.1 model); guidance has no effect; dev LoRAs transfer poorly",
+      "why": "4 steps, guidance has no effect; dev LoRAs transfer poorly",
       "src": [
-        "S-BFL-LICENSE-SCHNELL",
         "S-SRC",
         "S-OSTRIS"
       ]
@@ -725,7 +687,7 @@
       "vram_gb_min": 12,
       "speed": "fast",
       "recipe": "t2i-schnell-fp8",
-      "why": "'Ideal for low-end hardware, requires only 4 steps'; one 17 GB file; Apache-2.0",
+      "why": "'Ideal for low-end hardware, requires only 4 steps'; one 17 GB file",
       "src": "S-TPL-INDEX"
     },
     {
@@ -1894,12 +1856,6 @@
       "src": "S-NVFP4"
     },
     {
-      "symptom": "gated download fails (401)",
-      "cause": "BFL repos require accepting the license",
-      "fix": "accept on each repo (dev, Fill, Canny, Depth, Kontext, Krea, Redux) or use the Comfy-Org mirrors (not gated)",
-      "src": "S-DOCS-T2I"
-    },
-    {
       "symptom": "wrong DualCLIPLoader config",
       "cause": "both slots set to T5, or type not flux",
       "fix": "one slot clip_l.safetensors, one t5xxl_*.safetensors, type flux",
@@ -1941,6 +1897,12 @@
         "S-TPL-DEV-CKPT",
         "S-DOCS-T2I"
       ]
+    },
+    {
+      "symptom": "gated download fails (401)",
+      "cause": "the BFL repos are gated: the Hugging Face account must accept the terms on each repo page",
+      "fix": "accept on each repo (dev, Fill, Canny, Depth, Kontext, Krea, Redux) or use the Comfy-Org mirrors (not gated)",
+      "src": "S-DOCS-T2I"
     }
   ],
   "sources": {
@@ -2081,16 +2043,6 @@
     },
     "S-GGUF-NODE": {
       "url": "https://raw.githubusercontent.com/city96/ComfyUI-GGUF/main/README.md (+ nodes.py)",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-BFL-LICENSE-DEV": {
-      "url": "https://raw.githubusercontent.com/black-forest-labs/flux/main/model_licenses/LICENSE-FLUX1-dev",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-BFL-LICENSE-SCHNELL": {
-      "url": "https://raw.githubusercontent.com/black-forest-labs/flux/main/model_licenses/LICENSE-FLUX1-schnell",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -2237,12 +2189,10 @@
   },
   "card": {
     "short_name": "FLUX.1 dev",
-    "restriction": "non-commercial use only",
     "recipes": [
       {
         "match": "schnell",
-        "short_name": "FLUX.1 schnell",
-        "restriction": ""
+        "short_name": "FLUX.1 schnell"
       },
       {
         "match": "krea",

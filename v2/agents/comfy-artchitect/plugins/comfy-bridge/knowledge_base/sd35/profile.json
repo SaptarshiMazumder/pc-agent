@@ -3,16 +3,6 @@
   "id": "sd35",
   "name": "Stable Diffusion 3.5",
   "publisher": "Stability AI (Large, Large Turbo, Medium, Large ControlNets); Comfy-Org repacks the ungated all-in-one fp8 checkpoints and ControlNets",
-  "license": {
-    "name": "Stability AI Community License Agreement",
-    "commercial": "conditional: free for persons/organizations with less than USD $1,000,000 annual revenue (must register at stability.ai/community-license); above that the license terminates and an enterprise license is required",
-    "notes": "'Last Updated: July 5, 2024'. Free for 'Research & Non-Commercial' use. Attribution: retain 'This Stability AI Model is licensed under the Stability AI Community License, Copyright (c) Stability AI Ltd. All Rights Reserved' and 'prominently display \"Powered by Stability AI\"'. 'You own any outputs generated from the Models or Derivative Works'. May not use the models/outputs 'to create or improve any foundational generative AI model'. HF cardData: license: other, license_name: stabilityai-ai-community, gated: auto. The ControlNets and the Comfy-Org repacks carry the same license; Lotus depth (Comfy-Org/lotus) and the SD1.5 VAE used by the depth template are separate third-party files.",
-    "src": [
-      "S-SAI-LICENSE",
-      "S-SAI-BLOG",
-      "S-HF-SD35-LARGE"
-    ]
-  },
   "cost": "free",
   "gated_downloads": {
     "note": "stabilityai/stable-diffusion-3.5-* (originals and ControlNet originals) are gated: 'Access to model ... is restricted. You must have access to it and be authenticated'. The Comfy-Org repacks (stable-diffusion-3.5-fp8, stable-diffusion-3.5-controlnets_ComfyUI_repackaged) are ungated and are what every official template loads.",
@@ -413,7 +403,7 @@
         "class": "official",
         "src": "S-TPL-DEPTH"
       },
-      "quality": "Lotus depth estimator run by the depth template's subgraph (UNETLoader, 1-step SamplerCustomAdvanced, sigma 10000, inverted); separate license (jingheya/lotus-depth-d-v1-1 base)",
+      "quality": "Lotus depth estimator run by the depth template's subgraph (UNETLoader, 1-step SamplerCustomAdvanced, sigma 10000, inverted)",
       "used_by": [
         "control-depth"
       ],
@@ -526,7 +516,7 @@
       "recipe": "t2i-large-triple-clip",
       "vram_gb_min": null,
       "vram_note": "NOT FOUND (16.46 GB fp16 + 0.25 + 1.39 + 5.16 GB encoders)",
-      "why": "the fp16 original for maximum fidelity, encoders loaded separately (TripleCLIPLoader); gated: needs the user's HF login and license acceptance",
+      "why": "the fp16 original for maximum fidelity, encoders loaded separately (TripleCLIPLoader)",
       "status": "available, gated download",
       "src": [
         "S-HF-COMFYORG-FP8",
@@ -1234,7 +1224,7 @@
   "pitfalls": [
     {
       "symptom": "download of sd3.5_large / turbo / medium / the original ControlNets fails with 'Access to model ... is restricted'",
-      "cause": "stabilityai/stable-diffusion-3.5-* are gated (HF login + license acceptance)",
+      "cause": "stabilityai/stable-diffusion-3.5-* are gated",
       "fix": "use the ungated Comfy-Org repacks: sd3.5_large_fp8_scaled, sd3.5_medium_incl_clips_t5xxlfp8scaled, the text_encoders folder, and stable-diffusion-3.5-controlnets_ComfyUI_repackaged",
       "src": [
         "S-HF-SD35-LARGE",
@@ -1307,12 +1297,6 @@
       "src": "S-EXAMPLES"
     },
     {
-      "symptom": "commercial use question",
-      "cause": "Stability AI Community License: free under US$1M annual revenue with registration; above it the license terminates",
-      "fix": "register at stability.ai/community-license, keep the notice and 'Powered by Stability AI'; enterprise license above US$1M",
-      "src": "S-SAI-LICENSE"
-    },
-    {
       "symptom": "old workflow says models/clip, files are in models/text_encoders",
       "cause": "folder renamed; both paths are scanned",
       "fix": "put the encoders in models/text_encoders",
@@ -1334,11 +1318,6 @@
   "sources": {
     "S-SAI-BLOG": {
       "url": "http://stability.ai/news-updates/introducing-stable-diffusion-3-5",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-SAI-LICENSE": {
-      "url": "https://stability.ai/community-license-agreement (identical text shipped as https://huggingface.co/stabilityai/sdxl-turbo/raw/main/LICENSE.md)",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1470,7 +1449,6 @@
   },
   "card": {
     "short_name": "SD3.5 Large",
-    "restriction": "free under $1M annual revenue",
     "recipes": [
       {
         "match": "medium",

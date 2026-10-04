@@ -1,9 +1,8 @@
 """PipelineCard — the approval card pipeline_present built, and whether the person saw THAT card.
 
 pipeline_present builds the card from the design that was checked; the agent passes it to
-`ask_user`. The agent once rewrote it on the way — a new title that dropped the download size and
-the licence limit (the model was not licensed where the person might be), and a question renamed —
-and the person approved a card that did not say what mattered. So the card is kept, the daemon keeps
+`ask_user`. The agent once rewrote it on the way — a new title that dropped the download size, and
+a question renamed — and the person approved a card that did not say what mattered. So the card is kept, the daemon keeps
 what `ask_user` actually showed (checkpoint `presented.ask`), and nothing installs or runs for the
 pipeline's stages unless the two say the same thing. Pure: no files, no clock.
 """
@@ -27,7 +26,7 @@ class PipelineCard:
         shown = shown or {}
         out = []
         if _t(shown.get("title")) != _t(self._card.get("title")):
-            out.append("its title (which carries the download size and the licence limits)")
+            out.append("its title (which carries what it delivers and the download size)")
         if _rows(shown.get("workflows"), "name", "does") != _rows(self._card.get("workflows"), "name", "does"):
             out.append("its steps")
         if _rows(shown.get("questions"), "question", "default") != _rows(self._card.get("questions"), "question", "default"):

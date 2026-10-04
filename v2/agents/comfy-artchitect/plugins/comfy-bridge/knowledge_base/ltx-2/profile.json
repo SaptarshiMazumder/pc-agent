@@ -3,21 +3,9 @@
   "id": "ltx-2",
   "name": "LTX-2 family (LTX-2.5 / LTX-2.3; LTX-2 19B legacy)",
   "publisher": "Lightricks Ltd. (ltx.io; github.com/Lightricks/LTX-2). ID-LoRAs by AviadDahan (mirrored by Comfy-Org); style-transition LoRA by valiantcat (community)",
-  "license": {
-    "name": "LTX-2.x Community License Agreement (LTX-2.5, dated 2026-08-11); LTX-2 Community License Agreement (LTX-2.3 / LTX-2, dated 2026-01-05)",
-    "commercial": true,
-    "revenue_cap_usd": 10000000,
-    "notes": "Free 'Commercial and production use at no cost' for entities UNDER $10,000,000 annual revenue. Commercial Entities 'with annual revenues of at least $10,000,000' need a paid Commercial Use Agreement (ltxv-licensing@lightricks.com) except for a Non-Commercial Purpose (individual / testing / evaluation / non-commercial R&D). 'Revenue is measured across the whole entity, including subsidiaries and affiliates under common control.' Transfer of fine-tunes to a Commercial Entity requires that entity to license separately; derivatives are distributed under the same agreement with notices; 'Licensor claims no rights in the Output you generate.' Aggregator claims of 'Apache 2.0' for LTX-2.3 are contradicted by the HF card and GitHub LICENSE. Comfy-Org/gemma-4 (prompt enhancer) is Apache-2.0.",
-    "src": [
-      "S-LICENSE-2X",
-      "S-LICENSE-2",
-      "S-HF25",
-      "S-GH"
-    ]
-  },
   "cost": "free",
   "gated_downloads": {
-    "note": "Lightricks/LTX-2.5 is gated ('accept the model license, and wait for your access request to be approved before downloading the models. Model downloads will fail without access'); so are the 2.5 IC-LoRA repos, LTX-2.3-22b-IC-LoRA-Ingredients and LTX-2.5-Pre-Trained. Lightricks/LTX-2.3, LTX-2.3-fp8, LTX-2.3-nvfp4, Comfy-Org/ltx-2.3 and Comfy-Org/ltx-2 are not gated. 401/403 = accept the terms on HF and use a Read token with 'read gated repos' enabled.",
+    "note": "Lightricks/LTX-2.5 is gated; so are the 2.5 IC-LoRA repos, LTX-2.3-22b-IC-LoRA-Ingredients and LTX-2.5-Pre-Trained. Lightricks/LTX-2.3, LTX-2.3-fp8, LTX-2.3-nvfp4, Comfy-Org/ltx-2.3 and Comfy-Org/ltx-2 are not gated. 401/403 = accept the terms on HF and use a Read token with 'read gated repos' enabled.",
     "src": [
       "S-HF25",
       "S-DOCS-25",
@@ -376,7 +364,7 @@
         "class": "official",
         "src": "S-TPL-25-T2V"
       },
-      "quality": "optional prompt enhancer LLM (CLIPLoader ltxv -> TextGenerateLTX2Prompt); 'only needed when prompt_enhance is enabled'; Apache-2.0 repo; not in the recipes",
+      "quality": "optional prompt enhancer LLM (CLIPLoader ltxv -> TextGenerateLTX2Prompt); 'only needed when prompt_enhance is enabled'; not in the recipes",
       "used_by": [],
       "src": [
         "S-CO-GEMMA4",
@@ -2046,7 +2034,7 @@
       "class": "official"
     },
     "S-CO-GEMMA4": {
-      "url": "https://huggingface.co/Comfy-Org/gemma-4 (Apache-2.0; gemma4_e2b_it_int8_convrot)",
+      "url": "https://huggingface.co/Comfy-Org/gemma-4",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -2057,16 +2045,6 @@
     },
     "S-GH": {
       "url": "https://github.com/Lightricks/LTX-2 README (quick start, DFR, model list, 'Prompting for LTX-2', legacy 2.3 section), MODELS-LTX-2.3.md",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-LICENSE-2X": {
-      "url": "https://raw.githubusercontent.com/Lightricks/LTX-2/main/LICENSE-2_x (LTX-2.x Community License Agreement, dated August 11, 2026)",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-LICENSE-2": {
-      "url": "https://raw.githubusercontent.com/Lightricks/LTX-2/main/LICENSE-2 (LTX-2 Community License Agreement, dated January 5, 2026, 'including LTX-2.3 until August 11, 2026')",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -2253,7 +2231,6 @@
   },
   "card": {
     "short_name": "LTX-2.5",
-    "restriction": "free under $10M annual revenue",
     "recipes": [
       {
         "match": "2\\.3",

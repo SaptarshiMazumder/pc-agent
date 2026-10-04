@@ -1,25 +1,13 @@
 # Classic upscale models + hires fix — the agent's guide
 
-Pixel-space super-resolution networks (ESRGAN / Real-ESRGAN, SwinIR, DAT, SPAN, HAT, RCAN ...) that ComfyUI
-loads through spandrel with two core nodes: `UpscaleModelLoader` → `ImageUpscaleWithModel`. Free; licence per
-model (Real-ESRGAN BSD-3, BSRGAN/SwinIR/DAT/HAT Apache-2.0, Phhofm CC-BY-4.0, Kim2091's UltraSharp/AnimeSharp
-and Remacri **non-commercial** CC-BY-NC-SA). They are **enhancement stages**: another stage's image or video goes
-in through `@image` / `@video`, a 2×/4× version comes out in seconds with no VRAM to speak of. Plus the two
-**hires-fix fragments** that add a second sampler pass to an image model's stage. No prompt. Read from the
-ComfyUI source, the Comfy templates and OpenModelDB on 2026-10-01; `profile.json` has the catalogue with exact
-bytes, URLs, sha256 prefixes and licences.
+Pixel-space super-resolution networks (ESRGAN / Real-ESRGAN, SwinIR, DAT, SPAN, HAT, RCAN...) that ComfyUI loads through spandrel with two core nodes: `UpscaleModelLoader` → `ImageUpscaleWithModel`. They are **enhancement stages**: another stage's image or video goes in through `@image` / `@video`, a 2×/4× version comes out in seconds with no VRAM to speak of. Plus the two **hires-fix fragments** that add a second sampler pass to an image model's stage. No prompt. Read from the ComfyUI source, the Comfy templates and OpenModelDB on 2026-10-01; `profile.json` has the catalogue with exact bytes, URLs
 
 ## When to pick it, and which recipe
 
 - **Fast, deterministic enlargement** of a finished still — the default "make it bigger" step. It cannot invent
   detail ("It can't create new detail like diffusion can, but it's much faster"); for restoration or invented
   texture use SeedVR2 (or a diffusion hires fix).
-- **Which model:** photo/realistic → `upscale-image-photo` (RealESRGAN_x4plus, the template default); AI render
-  that should look crisp → `upscale-image-photo-ultrasharp` (UltraSharp; NC); anime/cartoon/mixed →
-  `upscale-image-anime` (UltraSharpV2, DAT2 — slow transformer, NC); anime/line art fast →
-  `upscale-image-anime-animesharp` (NC; `RealESRGAN_x4plus_anime_6B.pth` via the port for commercial work).
-  The `upscale_model` port swaps any catalogue file; `.pth` files load fine on the box (the offline validator only
-  names `.safetensors`).
+- **Which model:** photo/realistic → `upscale-image-photo` (RealESRGAN_x4plus, the template default); AI render that should look crisp → `upscale-image-photo-ultrasharp` (UltraSharp; NC); anime/cartoon/mixed → `upscale-image-anime` (UltraSharpV2, DAT2 — slow transformer, NC); anime/line art fast → `upscale-image-anime-animesharp`. The `upscale_model` port swaps any catalogue file; `.pth` files load fine on the box (the offline validator only names `.safetensors`).
 - **2× or an exact size:** `upscale-image-2x` — 4× model then `ImageScaleBy 0.5` (template tip: "Upscale 4x
   first, then use a resize node"); the supersample also averages GAN noise.
 - **Video:** `upscale-video-frames` is the official Real-ESRGAN video template (per frame, fps/audio preserved);
@@ -39,7 +27,6 @@ fragment → 1.5× refined still.
 
 | recipe | model | does | cost |
 |---|---|---|---|
-| `upscale-image-photo` | RealESRGAN_x4plus (BSD-3) | ×4 photo | seconds; tiles internally, any GPU |
 | `upscale-image-photo-ultrasharp` | 4x-UltraSharp (NC) | ×4 crisp detail for renders | seconds |
 | `upscale-image-anime` | 4x-UltraSharpV2 DAT2 (NC) | ×4 anime/cartoon/realistic | slower (transformer) |
 | `upscale-image-anime-animesharp` | 4x-AnimeSharp (NC) | ×4 anime, text | seconds |
@@ -62,7 +49,7 @@ examples); the "different prompt" example swaps checkpoint and prompt (8 steps, 
   `LatentUpscale` width/height in steps of 8. ESRGAN output must go through `VAEEncode` before the second sampler.
 - **Model vs source:** classicalSR SwinIR, DAT/HAT pretrains, 4xLSDIR are clean-input-only; UltraSharp-class
   halos already-sharp renders; realSR/Nomos/RealESRGAN for degraded sources.
-- **Licence:** UltraSharp, UltraSharpV2, AnimeSharp(V4), ClearReality, Remacri, Fatal_Anime are CC-BY-NC-SA.
+- UltraSharpV2, AnimeSharp(V4), ClearReality, Remacri
 - **fps** wired through from GetVideoComponents on video.
 - Several OMDB downloads live on Mega/Icedrive/Drive and some filenames are inferred (marked VERIFY in
   `profile.files`): prefer the authors' HF repos and check sha256.

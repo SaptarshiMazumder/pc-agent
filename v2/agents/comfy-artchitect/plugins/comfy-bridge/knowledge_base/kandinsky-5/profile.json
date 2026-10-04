@@ -3,16 +3,6 @@
   "id": "kandinsky-5",
   "name": "Kandinsky 5.0 Video (Lite / Pro)",
   "publisher": "Kandinsky Lab (github.com/kandinskylab/kandinsky-5; HF kandinskylab; '(c) 2025 Kandinsky Lab'; Habr posts under the Sberbank account). ComfyUI native support contributed by Kijai (PR merged); companion files from Comfy-Org (Qwen2.5-VL), comfyanonymous (clip_l) and Kijai (HunyuanVideo VAE)",
-  "license": {
-    "name": "MIT",
-    "commercial": true,
-    "notes": "GitHub LICENSE: 'The MIT License (MIT) Copyright (c) 2025 Kandinsky Lab'; every kandinskylab HF repo checked reports license: mit (Lite, Pro, LoRAs, WM). Commercial use unrestricted under MIT. Several web articles say 'Apache 2.0' - the repositories say MIT; use MIT. Third-party components in the Comfy graph carry their own licences: the HunyuanVideo 1.0 VAE (tencent-hunyuan-community), Qwen2.5-VL, CLIP-L.",
-    "src": [
-      "S-LICENSE",
-      "S-HF-LITE",
-      "S-SEARCH"
-    ]
-  },
   "cost": "free",
   "kind": [
     "video"
@@ -554,7 +544,7 @@
       ]
     },
     {
-      "what": "Kandinsky WM 1.0 (2026-08-04): three 2B I2V 'Physical AI' checkpoints (AV / RO / PH; 5 s, 121 frames at 768x512; MIT) with a GitHub-code DiT file model/av_rl.safetensors 4.016 GB - ComfyUI loadability NOT FOUND",
+      "what": "Kandinsky WM 1.0 (2026-08-04): three 2B I2V 'Physical AI' checkpoints with a GitHub-code DiT file model/av_rl.safetensors 4.016 GB - ComfyUI loadability NOT FOUND",
       "src": [
         "S-HF-WM",
         "S-NEWS"
@@ -1530,15 +1520,6 @@
       "cause": "ComfyUI compatibility of the kandinskylab lora.safetensors files is NOT FOUND",
       "fix": "no recipe; prompt the move in prose",
       "src": "S-HF-LORA"
-    },
-    {
-      "symptom": "licence confusion",
-      "cause": "aggregators say Apache-2.0",
-      "fix": "the repositories say MIT - use MIT",
-      "src": [
-        "S-LICENSE",
-        "S-SEARCH"
-      ]
     }
   ],
   "sources": {
@@ -1549,11 +1530,6 @@
     },
     "S-GH-COMFY": {
       "url": "https://github.com/kandinskylab/kandinsky-5/blob/main/comfyui/README.md (parameter table: 'Steps: 50, 16 for distilled version'; 'CFG Scale: 1.0 for distilled16steps and nocfg, 5.0 for sft and pretrain models'; 'Scheduler Scale: 5.0 for 5s, 10.0 for 10s and image 2 video'; size rules; 'Image2video checkpoint can work in text2video mode too'; the publisher's custom-node layout)",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-LICENSE": {
-      "url": "https://github.com/kandinskylab/kandinsky-5/blob/main/LICENSE ('The MIT License (MIT) Copyright (c) 2025 Kandinsky Lab')",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1568,12 +1544,12 @@
       "class": "official"
     },
     "S-HF-LITE": {
-      "url": "https://huggingface.co/kandinskylab (HF API: Kandinsky-5.0-T2V-Lite-{sft,nocfg,distilled16steps,pretrain}-{5s,10s}, Kandinsky-5.0-I2V-Lite-5s - files model/*.safetensors 4.573 GB, license mit, createdAt)",
+      "url": "https://huggingface.co/kandinskylab",
       "accessed": "2026-10-01",
       "class": "official"
     },
     "S-HF-PRO": {
-      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s, -10s, Kandinsky-5.0-I2V-Pro-sft-5s (HF API: 43.386 GB bf16 single files, license mit)",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s, -10s, Kandinsky-5.0-I2V-Pro-sft-5s",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1583,7 +1559,7 @@
       "class": "official"
     },
     "S-HF-WM": {
-      "url": "https://huggingface.co/kandinskylab/Kandinsky-WM-1.0-I2V-5s-AV (README + files: model/av_rl.safetensors 4.016 GB; MIT; 2026-08-04)",
+      "url": "https://huggingface.co/kandinskylab/Kandinsky-WM-1.0-I2V-5s-AV",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1653,13 +1629,11 @@
       "class": "community"
     },
     "S-SEARCH": {
-      "url": "web search summaries (studio.aifilms.ai, bonega.ai, musubi-tuner docs): 'Apache 2.0' claims (rejected in favour of the repositories' MIT); Pro 'exceeds 32GB VRAM and requires CPU offload, making it impractically slow'",
       "accessed": "2026-10-01",
       "class": "single-source"
     }
   },
   "card": {
-    "short_name": "Kandinsky 5",
-    "restriction": ""
+    "short_name": "Kandinsky 5"
   }
 }

@@ -8,7 +8,7 @@
       {
         "family": "qwen-image",
         "recipe_hint": "qwen-image t2i-2512",
-        "why": "Top in-scope arena Portraits score, #2 Photoreal, Apache-2.0",
+        "why": "Top in-scope arena Portraits score, #2 Photoreal",
         "evidence": [
           {
             "src": "https://arena.ai/leaderboard/text-to-image/portraits",
@@ -27,7 +27,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "20B; fp8 20.4 GB",
           "slow (~20 steps)"
         ],
@@ -50,7 +49,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "6B; <16 GB",
           "narrow style range"
         ],
@@ -59,7 +57,7 @@
       {
         "family": "flux-2",
         "recipe_hint": "flux-2 dev",
-        "why": "Best in-scope Photoreal score (1143) but non-commercial and heavy",
+        "why": "Best in-scope Photoreal score (1143) but",
         "evidence": [
           {
             "src": "https://arena.ai/leaderboard/text-to-image/photorealistic",
@@ -68,7 +66,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "~35 GB fp8 + ~18 GB text encoder on disk; offload on 32 GB"
         ],
@@ -86,7 +83,6 @@
           }
         ],
         "constraints": [
-          "non-commercial (Qwen Research License)",
           "~33 GB package"
         ],
         "recipe": "t2i-2-1"
@@ -103,7 +99,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "~29 GB bf16"
         ],
@@ -120,15 +115,13 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-klein-4b-base"
       },
       {
         "family": "chroma",
         "recipe_hint": "chroma 1-HD",
-        "why": "Uncensored Apache-2.0 FLUX-schnell derivative; no leaderboard data",
+        "why": "no leaderboard data",
         "evidence": [
           {
             "src": "https://localaimaster.com/blog/chroma-local-guide",
@@ -137,7 +130,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "8.9B"
         ],
         "recipe": "t2i-hd"
@@ -159,7 +151,6 @@
           }
         ],
         "constraints": [
-          "MIT",
           "17B"
         ],
         "recipe": "t2i-i1-full"
@@ -176,7 +167,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-krea-dev"
@@ -228,7 +218,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "~33 GB package"
         ],
         "recipe": "t2i-2-1"
@@ -250,7 +239,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "~53 GB disk incl. text encoder"
         ],
@@ -273,7 +261,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "fp8 20.4 GB"
         ],
         "recipe": "t2i-2512"
@@ -290,7 +277,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "limited style range"
         ],
         "recipe": "t2i-turbo"
@@ -307,7 +293,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-klein-9b-base"
@@ -328,9 +313,7 @@
             "class": "COMMUNITY"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-base"
       },
       {
@@ -345,7 +328,6 @@
           }
         ],
         "constraints": [
-          "MIT",
           "17B"
         ],
         "recipe": "t2i-i1-dev"
@@ -361,9 +343,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-klein-4b-base"
       },
       {
@@ -378,7 +358,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-krea-dev"
@@ -395,7 +374,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-dev"
@@ -427,9 +405,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-schnell"
       },
       {
@@ -443,9 +419,7 @@
             "class": "COMMUNITY"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-hd"
       },
       {
@@ -479,7 +453,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "heavy"
         ],
@@ -488,7 +461,7 @@
       {
         "family": "qwen-image",
         "recipe_hint": "qwen-image t2i-2512",
-        "why": "Text Rendering 1123; best commercial-safe text model",
+        "why": "Text Rendering 1123",
         "evidence": [
           {
             "src": "https://arena.ai/leaderboard/text-to-image/text-rendering",
@@ -496,9 +469,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-2512"
       },
       {
@@ -512,9 +483,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-turbo"
       },
       {
@@ -529,7 +498,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-klein-9b-base"
@@ -545,9 +513,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2i-klein-4b-base"
       },
       {
@@ -562,7 +528,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "t2i-dev"
@@ -597,7 +562,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "~33 GB package"
         ],
         "recipe": "edit-2-1"
@@ -605,7 +569,7 @@
       {
         "family": "qwen-image",
         "recipe_hint": "qwen-image edit-2511",
-        "why": "AA 1021; arena 1234; best commercial-safe editor",
+        "why": "AA 1021; arena 1234",
         "evidence": [
           {
             "src": "https://artificialanalysis.ai/image/leaderboard/editing/open-weights",
@@ -619,7 +583,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "20B"
         ],
         "recipe": "edit-2511"
@@ -636,7 +599,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "edit-klein-9b-base"
@@ -653,7 +615,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "heavy"
         ],
@@ -670,9 +631,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-2509"
       },
       {
@@ -686,9 +645,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-klein-4b-base"
       },
       {
@@ -703,7 +660,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "kontext-edit"
@@ -719,9 +675,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "MIT"
-        ],
+        "constraints": [],
         "recipe": "edit-e1-1"
       }
     ],
@@ -742,9 +696,7 @@
             "class": "OFFICIAL-CLAIM"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-2511"
       },
       {
@@ -758,9 +710,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "non-commercial"
-        ],
+        "constraints": [],
         "recipe": "edit-2-1"
       },
       {
@@ -775,7 +725,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "edit-klein-9b-base"
@@ -792,7 +741,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "heavy"
         ],
@@ -809,9 +757,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-klein-4b-base"
       },
       {
@@ -826,7 +772,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "kontext-edit"
@@ -845,7 +790,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "edit-klein-9b-base-multi"
@@ -867,7 +811,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated",
           "heavy"
         ],
@@ -876,7 +819,7 @@
       {
         "family": "qwen-image",
         "recipe_hint": "qwen-image edit-2511",
-        "why": "Arena Multi 1173; official multi-person fusion; best commercial-safe",
+        "why": "Arena Multi 1173; official multi-person fusion",
         "evidence": [
           {
             "src": "https://arena.ai/leaderboard/image-edit/multi-image-edit",
@@ -889,9 +832,7 @@
             "class": "OFFICIAL-CLAIM"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-2511-multi-image"
       },
       {
@@ -905,9 +846,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "edit-klein-4b-base-multi"
       },
       {
@@ -922,7 +861,6 @@
           }
         ],
         "constraints": [
-          "non-commercial",
           "gated"
         ],
         "recipe": "kontext-edit-multi-ref"
@@ -946,7 +884,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk (pruned int8)",
           "768p local cap"
         ],
@@ -965,7 +902,6 @@
         ],
         "constraints": [
           "gated",
-          "community licence <$10M revenue",
           "22B; int8/NVFP4 builds; from 16 GB"
         ],
         "recipe": "t2v-2.5"
@@ -987,7 +923,6 @@
           }
         ],
         "constraints": [
-          "MIT",
           "19B; 24 GB with offload",
           "Pro has no Comfy template (pending)"
         ],
@@ -1005,7 +940,6 @@
           }
         ],
         "constraints": [
-          "licence excludes EU/UK/South Korea",
           "8.3B; 14 GB with offload"
         ],
         "recipe": "t2v-720p"
@@ -1021,15 +955,13 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "community licence <$10M revenue"
-        ],
+        "constraints": [],
         "recipe": "t2v-2.3"
       },
       {
         "family": "wan-2.2",
         "recipe_hint": "wan-2.2 t2v-a14b",
-        "why": "Arena T2V 1132±15; safest licence",
+        "why": "Arena T2V 1132±15",
         "evidence": [
           {
             "src": "https://arena.ai/leaderboard/text-to-video",
@@ -1038,7 +970,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "two 14B experts, fp8"
         ],
         "recipe": "t2v-14b"
@@ -1055,7 +986,6 @@
           }
         ],
         "constraints": [
-          "MIT",
           "small"
         ],
         "recipe": "t2v-lite-5s"
@@ -1071,9 +1001,7 @@
             "class": "COMFY"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "t2v-5b"
       }
     ],
@@ -1095,7 +1023,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk",
           "768p local cap"
         ],
@@ -1130,7 +1057,6 @@
           }
         ],
         "constraints": [
-          "licence excludes EU/UK/South Korea",
           "14 GB with offload"
         ],
         "recipe": "i2v-720p"
@@ -1146,9 +1072,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "i2v-14b"
       },
       {
@@ -1179,7 +1103,6 @@
           }
         ],
         "constraints": [
-          "MIT",
           "24 GB with offload",
           "Pro has no Comfy template (pending)"
         ],
@@ -1204,7 +1127,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk"
         ],
         "recipe": "flf2v-fl2va"
@@ -1237,9 +1159,7 @@
             "class": "COMFY"
           }
         ],
-        "constraints": [
-          "Apache-2.0"
-        ],
+        "constraints": [],
         "recipe": "flf2v-14b"
       }
     ],
@@ -1256,7 +1176,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk"
         ],
         "recipe": "r2v-ref2va"
@@ -1273,7 +1192,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "needs three node packs (pending)"
         ],
         "recipe": ""
@@ -1309,7 +1227,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk"
         ],
         "recipe": "r2v-ref2va"
@@ -1326,7 +1243,6 @@
           }
         ],
         "constraints": [
-          "Apache-2.0",
           "slow (~9 min / 5 s 720p on 80 GB GPU)",
           "no recipe yet (pending)"
         ],
@@ -1368,7 +1284,6 @@
           }
         ],
         "constraints": [
-          "licence excludes USA/EU/UK/Korea",
           "~40 GB disk"
         ],
         "recipe": "t2v-fl2va"
@@ -1444,6 +1359,22 @@
           "tiny VRAM"
         ],
         "recipe": "upscale-image-photo-ultrasharp"
+      },
+      {
+        "family": "upscale-models",
+        "recipe": "resize-exact",
+        "recipe_hint": "core ImageScale, exact size",
+        "why": "not an upscaler: lands an image on an EXACT width x height (scale + centre crop), the last step when the delivery size is set and no earlier stage sets it",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/hidream_e1_full.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "more than ~1.5x enlargement softens: upscale with a model first"
+        ]
       }
     ],
     "upscale-video": [
@@ -1678,6 +1609,195 @@
             "src": "comfy_extras/nodes_video.py + nodes_images.py (core)",
             "date": "2026-10-02",
             "class": "OFFICIAL"
+          }
+        ],
+        "constraints": []
+      }
+    ],
+    "product-on-model": [
+      {
+        "family": "z-image",
+        "recipe": "t2i-turbo",
+        "recipe_hint": "route: Z-Image Turbo scene -> FLUX.2 klein 2-reference edits",
+        "why": "the only way here to get an EXACT size with the person's identity AND the exact product: render the ad scene at the delivery size, then edit the person and the product into it (a reference edit keeps its first image's shape). Each stage is an official template; the chain is assembled from them.",
+        "route": [
+          {
+            "family": "z-image",
+            "recipe": "t2i-turbo",
+            "does": "the ad scene at the exact delivery width/height: setting, light, framing, and a stand-in model in the same pose wearing a plain item of the product's kind (a jacket, a watch, headphones)"
+          },
+          {
+            "family": "flux-2",
+            "recipe": "edit-klein-9b-base-multi",
+            "does": "reference_image_1 = the scene (sets the shape), reference_image_2 = the person's photo: the person from image 2 takes the stand-in's place, same pose, framing and light"
+          },
+          {
+            "family": "flux-2",
+            "recipe": "edit-klein-9b-base-multi",
+            "does": "reference_image_1 = that result, reference_image_2 = the product photo: the person in image 1 wears or holds the exact product from image 2 (colour, print, logo, hardware)"
+          },
+          {
+            "family": "upscale-models",
+            "recipe": "resize-exact",
+            "does": "the exact delivery width x height (the edits keep the scene's shape at about 1 MP)"
+          }
+        ],
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_klein_image_edit_9b_base.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          },
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_z_image_turbo.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          },
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_klein_image_edit_9b_distilled.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "three stages; set the scene's width/height to the delivery size"
+        ]
+      },
+      {
+        "family": "flux-2",
+        "recipe": "edit-klein-9b-base-multi",
+        "recipe_hint": "flux-2 klein 9B, two references",
+        "why": "one stage, the official template's own default (a woman + a handbag: 'Let this character hold the bag with both hands'); the result has the PERSON PHOTO's shape, so it fits only when that is the shape wanted",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_klein_image_edit_9b_base.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          },
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_klein_image_edit_9b_distilled.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "size follows the person photo (aspect ratio), about 1 MP"
+        ]
+      },
+      {
+        "family": "qwen-image",
+        "recipe": "edit-2511-multi-image",
+        "recipe_hint": "Qwen-Image-Edit-2511, two images",
+        "why": "one stage multi-image edit (image 1 = the person, image 2 = the product); output follows image 1",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_edit_2511.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "size follows image 1"
+        ]
+      },
+      {
+        "family": "qwen-image",
+        "recipe": "edit-2-1",
+        "recipe_hint": "Qwen-Image 2.1 edit (custom size)",
+        "why": "the only official open template that takes a person + a garment AND an exact width/height ('Replace costumes for the character'); its note warns sizes far from image 1's can shift the edit",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "needs ComfyUI 0.37.0"
+        ]
+      }
+    ],
+    "inpaint": [
+      {
+        "family": "qwen-image",
+        "recipe": "inpaint-instantx",
+        "recipe_hint": "Qwen-Image + InstantX inpainting ControlNet",
+        "why": "official inpainting template on Qwen-Image; repaints the masked area from the prompt",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_instantx_inpainting_controlnet.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "the mask is the image's transparent area (painted in ComfyUI's mask editor, or a PNG with alpha)",
+          "repaints from TEXT: it cannot copy a specific product from a reference photo"
+        ]
+      },
+      {
+        "family": "flux-1",
+        "recipe": "fill-inpaint",
+        "recipe_hint": "FLUX.1 Fill dev",
+        "why": "official FLUX.1 Fill inpaint template",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/flux_fill_inpaint_example.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "gated",
+          "mask = the image's transparent area",
+          "repaints from text, not from a reference"
+        ]
+      },
+      {
+        "family": "sdxl",
+        "recipe": "inpaint-base",
+        "recipe_hint": "SDXL base inpaint",
+        "why": "light and fast; lower quality than the two above",
+        "evidence": [
+          {
+            "src": "https://docs.comfy.org/tutorials/basic/inpaint",
+            "date": "2026-10-04",
+            "class": "DOCS"
+          }
+        ],
+        "constraints": [
+          "mask = the image's transparent area"
+        ]
+      }
+    ],
+    "outpaint": [
+      {
+        "family": "flux-1",
+        "recipe": "fill-outpaint",
+        "recipe_hint": "FLUX.1 Fill dev outpaint",
+        "why": "official FLUX.1 Fill outpaint template: pad the sides, fill them from the prompt",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/flux_fill_outpaint_example.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
+          }
+        ],
+        "constraints": [
+          "gated"
+        ]
+      },
+      {
+        "family": "qwen-image",
+        "recipe": "outpaint-instantx-lightning-4step",
+        "recipe_hint": "Qwen-Image InstantX outpaint (Lightning)",
+        "why": "official Qwen-Image InstantX outpaint, 4 steps",
+        "evidence": [
+          {
+            "src": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_instantx_inpainting_controlnet.json",
+            "date": "2026-10-04",
+            "class": "COMFY"
           }
         ],
         "constraints": []

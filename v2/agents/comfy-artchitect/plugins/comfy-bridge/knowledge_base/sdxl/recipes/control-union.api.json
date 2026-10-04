@@ -93,7 +93,7 @@
       "diffusion_pytorch_model_promax.safetensors"
     ],
     "packs": [],
-    "defaults_note": "One network for Openpose, Depth, Canny, Lineart, AnimeLineart, Mlsd, Scribble, Hed, Pidi/Softedge, Teed, Segment, Normal + ProMax Tile/Inpaint/Outpaint (Apache-2.0). Set control_type to the map you feed, or leave 'auto'. Preprocessors other than Canny need comfyui_controlnet_aux (a pack).",
+    "defaults_note": "One network for Openpose, Depth, Canny, Lineart, AnimeLineart, Mlsd, Scribble, Hed, Pidi/Softedge, Teed, Segment, Normal + ProMax Tile/Inpaint/Outpaint. Set control_type to the map you feed, or leave 'auto'. Preprocessors other than Canny need comfyui_controlnet_aux (a pack).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

@@ -3,7 +3,7 @@
     "id": "t2i-klein-9b-base",
     "family": "flux-2",
     "task": "t2i",
-    "variant": "FLUX.2 [klein] 9B Base fp8 (gated, non-commercial): CFGGuider cfg 5 + negative, 20 steps, Qwen3-8B fp8mixed encoder, small-decoder VAE",
+    "variant": "FLUX.2 [klein] 9B Base fp8: CFGGuider cfg 5 + negative, 20 steps, Qwen3-8B fp8mixed encoder, small-decoder VAE",
     "from_template": "image_flux2_text_to_image_9b",
     "min_comfyui": "0.19.0",
     "confidence": "official",

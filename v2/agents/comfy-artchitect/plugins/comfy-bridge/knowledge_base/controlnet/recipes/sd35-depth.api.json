@@ -97,7 +97,7 @@
       "vae-ft-mse-840000-ema-pruned.safetensors"
     ],
     "packs": [],
-    "defaults_note": "20 steps, cfg 8, euler/normal, strength 0.7 (publisher 0.7-0.8), control image 1 MP. ComfyUI inverts depth internally for the SD3.5 depth net (1.0 - a); the Lotus chain already outputs the inverted map the template expects. License: Stability Community License.",
+    "defaults_note": "20 steps, cfg 8, euler/normal, strength 0.7 (publisher 0.7-0.8), control image 1 MP. ComfyUI inverts depth internally for the SD3.5 depth net (1.0 - a); the Lotus chain already outputs the inverted map the template expects.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

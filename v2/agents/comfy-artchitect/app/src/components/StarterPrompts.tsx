@@ -3,7 +3,7 @@
  * WHAT THESE REPLACED, and why. The opening used to be four big cards in a grid: "Check the
  * connection", "See what is installed", "Build a workflow", "Make one faster". Every one of them
  * was written when the user brought their own ComfyUI box and the first job was finding out what
- * it had. That world is gone — the instance is provisioned by `gpu_ensure`, there is no URL to
+ * it had. That world is gone — every workflow runs on Comfy Cloud, there is no URL to
  * check and no inventory worth reciting before a design exists (AGENTS.md rule 16 forbids
  * shaping a job around what happens to be installed). So the cards offered four openings, three
  * of which asked the agent to do something it is now told not to do.

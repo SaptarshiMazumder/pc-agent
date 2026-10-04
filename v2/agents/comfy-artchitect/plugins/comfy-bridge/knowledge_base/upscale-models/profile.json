@@ -3,16 +3,6 @@
   "id": "upscale-models",
   "name": "Classic upscale models (ESRGAN family, SwinIR, DAT, SPAN, HAT, RCAN ...) + hires-fix patterns",
   "publisher": "many (xinntao, Kim2091, Phhofm, nmkd, cszn, jingyunliang, zheng-chen, xpixelgroup ...); loaded by ComfyUI core through spandrel (chaiNNer-org); catalogued by OpenModelDB",
-  "license": {
-    "name": "per model",
-    "commercial": "per model",
-    "notes": "Real-ESRGAN BSD-3-Clause; ESRGAN / BSRGAN / SwinIR / DAT / HAT Apache-2.0; Phhofm models CC-BY-4.0; NMKD WTFPL; 1xSkinContrast and 4x-SwinIR-M_Pretrain CC0-1.0; Kim2091's UltraSharp / UltraSharpV2 / AnimeSharp / AnimeSharpV4 / ClearReality, Remacri and Fatal_Anime are CC-BY-NC-SA-4.0 (non-commercial - still free). spandrel itself is MIT; 'spandrel_extra_arches' covers 'non commercial upscale models'.",
-    "src": [
-      "S-OMDB",
-      "S-SPANDREL",
-      "S-NODES-UPSCALE"
-    ]
-  },
   "cost": "free",
   "kind": [
     "enhance"
@@ -55,7 +45,7 @@
       "src": "S-NODES-UPSCALE"
     },
     {
-      "what": "architectures spandrel does not know (and restrictively-licensed ones without 'pip install spandrel_extra_arches')",
+      "what": "architectures spandrel does not know",
       "src": [
         "S-SPANDREL",
         "S-NODES-UPSCALE"
@@ -81,7 +71,6 @@
       "arch": "ESRGAN 64nf23nb",
       "scale": 4,
       "author": "xinntao (Comfy-Org repack)",
-      "license": "BSD-3-Clause",
       "released": "2021-07-22",
       "url": "https://huggingface.co/Comfy-Org/Real-ESRGAN_repackaged/resolve/main/RealESRGAN_x4plus.safetensors",
       "use": "general photo / video frames; the Comfy template default",
@@ -107,7 +96,6 @@
       "arch": "ESRGAN 64nf23nb",
       "scale": 4,
       "author": "xinntao",
-      "license": "BSD-3-Clause",
       "released": "2021-07-22",
       "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
       "use": "same model, original release",
@@ -129,10 +117,9 @@
       "arch": "ESRGAN 64nf 6nb",
       "scale": 4,
       "author": "xinntao",
-      "license": "BSD-3-Clause",
       "released": "2021-12-12",
       "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
-      "use": "anime / cartoon; tiny, fast; the commercial-safe anime pick",
+      "use": "anime / cartoon; tiny, fast",
       "sha256_prefix": "f872d837",
       "omdb": "https://openmodeldb.info/models/4x-realesrgan-x4plus-anime-6b",
       "vram": {
@@ -151,7 +138,6 @@
       "arch": "ESRGAN",
       "scale": 2,
       "author": "xinntao",
-      "license": "BSD-3-Clause",
       "released": "2021-07-22",
       "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
       "use": "2x photo",
@@ -173,7 +159,6 @@
       "arch": "Compact (SRVGG) 64nf 32nc",
       "scale": 4,
       "author": "xinntao",
-      "license": "BSD-3-Clause",
       "released": "2022-09-30",
       "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
       "use": "very fast general / video frames",
@@ -195,7 +180,6 @@
       "arch": "ESRGAN 64nf23nb",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2021-10-27",
       "url": "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.safetensors",
       "use": "AI renders / photos: 'lots and lots of detail', 'works best on JPEG compression'",
@@ -220,7 +204,6 @@
       "arch": "ESRGAN 64nf23nb",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2021-10-27",
       "url": "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth",
       "use": "same model, .pth (OMDB resource is a Mega folder: https://mega.nz/folder/qZRBmaIY#nIG8KyWFcGNTuMX_XNbJ_g)",
@@ -245,7 +228,6 @@
       "arch": "DAT2",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2025-05-23",
       "url": "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors",
       "use": "'can handle realistic images, anime, cartoons'; transformer, slower",
@@ -270,7 +252,6 @@
       "arch": "DAT2 (lite)",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2025-05-23",
       "url": "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2_Lite.safetensors",
       "use": "lighter/faster UltraSharpV2",
@@ -292,7 +273,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2021-12-28",
       "url": "https://huggingface.co/Kim2091/AnimeSharp/resolve/main/4x-AnimeSharp.safetensors",
       "use": "anime, text",
@@ -317,7 +297,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2021-12-28",
       "url": "https://huggingface.co/Kim2091/AnimeSharp/resolve/main/4x-AnimeSharp.pth",
       "use": "same model, .pth",
@@ -342,7 +321,6 @@
       "arch": "RCAN",
       "scale": 2,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2025-01-07",
       "url": "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-AnimeSharpV4/2x-AnimeSharpV4_RCAN.safetensors",
       "use": "anime 2x: 'extremely faithful', very few artifacts",
@@ -364,7 +342,6 @@
       "arch": "SPAN",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2023-12-12",
       "url": "https://mega.nz/folder/Xc4wnC7T#yUS5-9-AbRxLhpdPW_8f2w",
       "use": "clean photos, faces / hair; very fast",
@@ -387,7 +364,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "nmkd",
-      "license": "WTFPL",
       "released": "2020-11-06",
       "url": "https://icedrive.net/1/43GNBihZyi",
       "use": "'Universal upscaler for clean and slightly compressed images (JPEG quality 75 or better)'",
@@ -410,7 +386,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "nmkd",
-      "license": "WTFPL",
       "released": "2020-07-22",
       "url": "https://icedrive.net/1/43GNBihZyi",
       "use": "'realistic images/photos with noise and compression artifacts'",
@@ -433,7 +408,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "foolhardy",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2021-04-09",
       "url": "https://huggingface.co/FacehugmanIII/4x_foolhardy_Remacri/resolve/main/4x_foolhardy_Remacri.pth?download=true",
       "use": "photos: 'more details and less smoothing' than BSRGAN",
@@ -455,7 +429,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "cszn",
-      "license": "Apache-2.0",
       "released": "2021-08-24",
       "url": "https://github.com/cszn/KAIR/releases/download/v1.0/BSRGAN.pth",
       "use": "photos / faces; docs.comfy.org: 'excels with text and sharp edges'",
@@ -480,7 +453,6 @@
       "arch": "ESRGAN (RRDB_ESRGAN_x4 pretrain)",
       "scale": 4,
       "author": "xinntao",
-      "license": "Apache-2.0",
       "released": "2019-07-06",
       "url": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/4x-ESRGAN.pth",
       "use": "the docs.comfy.org basic tutorial's model",
@@ -505,7 +477,6 @@
       "arch": "SwinIR-M",
       "scale": 4,
       "author": "jingyunliang",
-      "license": "Apache-2.0",
       "released": "2021-08-26",
       "url": "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth",
       "use": "real-world photos; docs.comfy.org: SwinIR 'preserves natural textures, ideal for landscapes'",
@@ -530,7 +501,6 @@
       "arch": "SwinIR-L",
       "scale": 4,
       "author": "jingyunliang",
-      "license": "Apache-2.0",
       "released": "2021-08-26",
       "url": "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFOWMFC_s64w8_SwinIR-L_x4_GAN.pth",
       "use": "photos, slower / better",
@@ -552,7 +522,6 @@
       "arch": "SwinIR-M (classical)",
       "scale": 4,
       "author": "jingyunliang",
-      "license": "Apache-2.0",
       "released": null,
       "url": "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth",
       "use": "CLEAN (bicubic-downscaled) inputs only",
@@ -574,7 +543,6 @@
       "arch": "SwinIR-M",
       "scale": 2,
       "author": "jingyunliang",
-      "license": "Apache-2.0",
       "released": null,
       "url": "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x2_GAN.pth",
       "use": "2x photos",
@@ -596,7 +564,6 @@
       "arch": "DAT2",
       "scale": 4,
       "author": "zheng-chen",
-      "license": "Apache-2.0",
       "released": "2023-07-17",
       "url": "https://drive.google.com/file/d/1sfB15jklXRjGiZZWgYXZAYc2Ut4TuKOz/view?usp=drive_link",
       "use": "research pretrain (clean inputs)",
@@ -619,7 +586,6 @@
       "arch": "DAT",
       "scale": 4,
       "author": "zheng-chen",
-      "license": "Apache-2.0",
       "released": null,
       "url": "https://drive.google.com/file/d/1pEhXmg--IWHaZOwHUFdh7TEJqt2qeuYg",
       "use": "research pretrain",
@@ -642,7 +608,6 @@
       "arch": "DAT",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-08-13",
       "url": "https://drive.google.com/file/d/1JRwXYeuMBIsyeNfsTfeSs7gsHqCZD7xn",
       "use": "photo + jpg/blur degradations",
@@ -664,7 +629,6 @@
       "arch": "DAT2",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2024-08-29",
       "url": "https://github.com/Phhofm/models/releases/download/4xNomos2_hq_dat2/4xNomos2_hq_dat2.pth",
       "use": "high-quality photos",
@@ -686,7 +650,6 @@
       "arch": "DAT2",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2024-04-30",
       "url": "https://github.com/Phhofm/models/releases/download/4xRealWebPhoto_v4_dat2/4xRealWebPhoto_v4_dat2.safetensors",
       "use": "web photos (JPEG/WEBP, deblur, denoise); .pth 140,299,118 B",
@@ -708,7 +671,6 @@
       "arch": "ATD",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2024-03-22",
       "url": "https://github.com/Phhofm/models/releases/download/4xRealWebPhoto_v3_atd/4xRealWebPhoto_v3_atd.safetensors",
       "use": "web photos",
@@ -730,7 +692,6 @@
       "arch": "RealPLKSR",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2024-05-28",
       "url": "https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_RealPLKSR/4xNomosWebPhoto_RealPLKSR.pth",
       "use": "photos, fast",
@@ -752,7 +713,6 @@
       "arch": "SPAN",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-12-15",
       "url": "https://drive.google.com/file/d/1FXxLeajpbUIWw0vkjzz5jMNNyr0AC6vA/view?usp=drive_link",
       "use": "universal, very fast (anime + photo, jpg)",
@@ -775,7 +735,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-05-10",
       "url": "https://github.com/Phhofm/models/raw/main/4xNomos8kSC/4xNomos8kSC.pth",
       "use": "photos",
@@ -797,7 +756,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-07-06",
       "url": "https://github.com/Phhofm/models/raw/main/4xLSDIR/4xLSDIR.pth",
       "use": "CLEAN photos only (no degradations)",
@@ -819,7 +777,6 @@
       "arch": "HAT-L",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-06-30",
       "url": "https://drive.google.com/file/d/1gh7HDKzf9aZw-rA8WYQy1ZZ8D0MAIHxR",
       "use": "photos (slow, big)",
@@ -841,7 +798,6 @@
       "arch": "HAT-S",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-06-30",
       "url": "https://github.com/Phhofm/models/raw/main/4xNomos8kSCHAT-S/4xNomos8kSCHAT-S.pth",
       "use": "photos",
@@ -863,7 +819,6 @@
       "arch": "HAT-L",
       "scale": 4,
       "author": "xpixelgroup",
-      "license": "Apache-2.0",
       "released": "2023-03-02",
       "url": "https://drive.google.com/file/d/1uefIctjoNE3Tg6GTzelesTTshVogQdUf/view?usp=drive_link",
       "use": "research",
@@ -885,7 +840,6 @@
       "arch": "DAT",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-09-02",
       "url": "https://drive.google.com/file/d/1d3wPbtjFcgCkWAMVFQalOuQHdiNmfc5i/view?usp=drive_link",
       "use": "faces (good-quality input)",
@@ -907,7 +861,6 @@
       "arch": "SwinIR light",
       "scale": 4,
       "author": "Phhofm",
-      "license": "CC-BY-4.0",
       "released": "2023-06-10",
       "url": "https://github.com/Phhofm/models/raw/main/4xHFA2kLUDVAESwinIR_light/4xHFA2kLUDVAESwinIR_light.pth",
       "use": "anime video frames ('realistic degradations')",
@@ -929,7 +882,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "twittman",
-      "license": "CC-BY-NC-SA-4.0 (non-commercial)",
       "released": "2020-06-17",
       "url": "https://f002.backblazeb2.com/file/ESRGAN/_RELEASE/4x_fatal_Anime_500000_G.pth",
       "use": "anime / manga",
@@ -951,7 +903,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "nmkd",
-      "license": "WTFPL",
       "released": "2021-01-26",
       "url": "https://icedrive.net/1/f0UAiRqz3N",
       "use": "anime",
@@ -974,7 +925,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "nmkd",
-      "license": "WTFPL",
       "released": "2020-10-08",
       "url": "https://icedrive.net/1/43GNBihZyi",
       "use": "'Highly flexible 2D Art upscaling'",
@@ -997,7 +947,6 @@
       "arch": "ESRGAN",
       "scale": 4,
       "author": "mutin-choler",
-      "license": "WTFPL",
       "released": "2023-01-01",
       "url": "https://drive.google.com/file/d/1RcqRuygqR5AwMLCT0olLIqLobs4mBkIi/view?usp=drive_link",
       "use": "realistic textures, JPEG/BC1",
@@ -1020,7 +969,6 @@
       "arch": "Compact 24nf 8nc",
       "scale": 1,
       "author": "brigadeiro",
-      "license": "CC0-1.0",
       "released": "2024-06-04",
       "url": "https://www.mediafire.com/file/py46fnq12hhs5sz/1xSkinContrast-High-SuperUltraCompact.pth/file",
       "use": "1x skin-contrast pass (no enlargement)",
@@ -1042,7 +990,6 @@
       "arch": "SwinIR-M",
       "scale": 4,
       "author": "Kim2091",
-      "license": "CC0-1.0",
       "released": "2024-05-15",
       "url": "https://github.com/Kim2091/Kim2091-Models/releases/download/4x-SwinIR-M_Pretrain/4x-SwinIR-M_Pretrain.pth",
       "use": "'ethical' CC0 pretrain",
@@ -1062,7 +1009,6 @@
       "folder": "checkpoints",
       "bytes": 2132625894,
       "url": "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors",
-      "license": "NOT FOUND",
       "use": "the SD1.5 checkpoint the archived hires-fix templates run; a placeholder for the upstream stage's checkpoint",
       "vram": {
         "fits_gb": null,
@@ -1096,7 +1042,7 @@
       "task": "upscale-image",
       "content": "photo / realistic",
       "recipe": "upscale-image-photo",
-      "why": "RealESRGAN_x4plus: the official template default, BSD-3 (commercial OK), 64 MB, fast; swap the port for Remacri / Nomos DAT / SwinIR-realSR when fidelity matters more than speed",
+      "why": "RealESRGAN_x4plus: the official template default, 64 MB, fast; swap the port for Remacri / Nomos DAT / SwinIR-realSR when fidelity matters more than speed",
       "src": [
         "S-TPL-GAN",
         "S-OMDB",
@@ -1108,7 +1054,7 @@
       "content": "AI render / crisp detail",
       "recipe": "upscale-image-photo-ultrasharp",
       "why": "docs.comfy.org: UltraSharp for AI-generated renders; 'lots and lots of detail'",
-      "tradeoff": "non-commercial licence; can halo already-sharp renders",
+      "tradeoff": "can halo already-sharp renders",
       "src": [
         "S-DOCS-BASIC-UPSCALE",
         "S-OMDB",
@@ -1120,7 +1066,7 @@
       "content": "anime / cartoon / mixed",
       "recipe": "upscale-image-anime",
       "why": "UltraSharpV2 (DAT2): 'realistic images, anime, cartoons' in one model",
-      "tradeoff": "transformer = several times slower than ESRGAN; non-commercial",
+      "tradeoff": "transformer = several times slower than ESRGAN",
       "src": [
         "S-OMDB",
         "S-HF-KIM-ULTRASHARP2"
@@ -1131,8 +1077,7 @@
       "content": "anime / line art / text",
       "speed": "fast",
       "recipe": "upscale-image-anime-animesharp",
-      "why": "AnimeSharp (ESRGAN): the fast anime pick; RealESRGAN_x4plus_anime_6B.pth via the port for commercial work",
-      "tradeoff": "non-commercial",
+      "why": "AnimeSharp (ESRGAN): the fast anime pick",
       "src": [
         "S-OMDB",
         "S-HF-KIM-ANIMESHARP"
@@ -1180,6 +1125,16 @@
       "recipe": "hires-fix-pixel",
       "why": "the official non-latent upscaling: ESRGAN 4x -> resize to target -> VAEEncode -> KSampler denoise 0.5; sharper base, so lower denoise is plausible",
       "src": "S-TPL-HIRES-ESRGAN"
+    },
+    {
+      "task": "upscale-image",
+      "content": "exact size",
+      "recipe": "resize-exact",
+      "why": "an exact width x height with no model (scale + centre crop): the last step when no earlier stage sets the delivery size",
+      "src": [
+        "S-TPL-IMAGESCALE",
+        "S-NODES-CORE"
+      ]
     }
   ],
   "params": [
@@ -1354,23 +1309,6 @@
       ]
     },
     {
-      "id": "non-commercial-model",
-      "severity": "warn",
-      "kind": "pair",
-      "when": {
-        "node": "UpscaleModelLoader",
-        "input": "model_name",
-        "matches": "UltraSharp|AnimeSharp|Remacri|fatal_Anime|ClearReality"
-      },
-      "require": {
-        "node": "UpscaleModelLoader",
-        "input": "model_name",
-        "equals": "__never__"
-      },
-      "message": "this model is CC-BY-NC-SA-4.0 (non-commercial): Kim2091's UltraSharp / UltraSharpV2 / AnimeSharp / AnimeSharpV4 / ClearReality, Remacri, Fatal_Anime. Free to use, not for commercial output - RealESRGAN_x4plus / _anime_6B (BSD-3), BSRGAN / SwinIR (Apache-2.0) or Phhofm's Nomos models (CC-BY-4.0) are the commercial-safe swaps",
-      "src": "S-OMDB"
-    },
-    {
       "id": "clean-input-model-on-degraded-source",
       "severity": "warn",
       "kind": "pair",
@@ -1528,7 +1466,6 @@
     {
       "symptom": "unsupported architecture / no loader",
       "cause": "spandrel does not know the arch, or it needs the extra package",
-      "fix": "pip install spandrel_extra_arches ('support for non commercial upscale models') for restrictive-licence arches",
       "src": [
         "S-NODES-UPSCALE",
         "S-SPANDREL"
@@ -1587,12 +1524,6 @@
       "cause": "huge input",
       "fix": "nothing to set: the node halves its 512-px tile down to 128 px on OOM; below that it raises - pre-shrink with ImageScaleToTotalPixels",
       "src": "S-NODES-UPSCALE"
-    },
-    {
-      "symptom": "commercial use of UltraSharp / AnimeSharp / Remacri",
-      "cause": "CC-BY-NC-SA-4.0",
-      "fix": "Real-ESRGAN (BSD-3), BSRGAN / SwinIR / DAT / HAT (Apache-2.0), Phhofm (CC-BY-4.0)",
-      "src": "S-OMDB"
     }
   ],
   "sources": {
@@ -1700,26 +1631,27 @@
       "url": "https://artokun.mintlify.app/blog/video-upscale-comfyui ; https://comfyui.org/en/ai-powered-video-upscaling-techniques ; https://comfyui.nomadoor.net/en/basic-workflows/esrgan/ (via search summaries)",
       "accessed": "2026-10-01",
       "class": "community"
+    },
+    "S-TPL-IMAGESCALE": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/hidream_e1_full.json ; https://github.com/Comfy-Org/workflow_templates/blob/main/templates/sd3.5_large_canny_controlnet_example.json",
+      "accessed": "2026-10-04",
+      "class": "official"
     }
   },
   "card": {
     "short_name": "Real-ESRGAN",
-    "restriction": "",
     "recipes": [
       {
         "match": "animesharp",
-        "short_name": "4x-AnimeSharp",
-        "restriction": "non-commercial use only"
+        "short_name": "4x-AnimeSharp"
       },
       {
         "match": "ultrasharp",
-        "short_name": "4x-UltraSharp",
-        "restriction": "non-commercial use only"
+        "short_name": "4x-UltraSharp"
       },
       {
         "match": "anime$",
-        "short_name": "4x-UltraSharp V2",
-        "restriction": "non-commercial use only"
+        "short_name": "4x-UltraSharp V2"
       },
       {
         "match": "hires-fix-latent",

@@ -89,7 +89,15 @@ class PipelineDesignChecks:
             return []
         need = max(int(m.group(1)), int(m.group(2)))
         got = self._sizes.sizes(pipeline, graphs).get(pipeline.stages[-1].name)
-        if got is None or max(got) >= need * 0.95:
+        if got is None:
+            # NOTHING SETS THE SIZE: the last stage's canvas follows an input image (a reference
+            # editor without a size port), so the named size is a hope. Said at design time, where
+            # it can still be fixed, rather than discovered in the result.
+            return [f"the person needs {pipeline.deliver_size}, but no stage sets the size: the last stage "
+                    f"({pipeline.stages[-1].name}) takes its canvas from its input image, so the result has that "
+                    "image's shape. Start from a stage that renders at the exact size (a text-to-image stage "
+                    "with width/height) and edit into it, or end with a stage that sets the size."]
+        if max(got) >= need * 0.95:
             return []
         return [f"the last stage ({pipeline.stages[-1].name}) makes about {got[0]}x{got[1]}, but the person needs "
                 f"{pipeline.deliver_size}. End with an upscale stage that reaches it (kb_lookup task upscale-image or "

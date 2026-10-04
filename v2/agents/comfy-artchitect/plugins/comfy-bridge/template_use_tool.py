@@ -141,7 +141,7 @@ class TemplateUseTool(Tool):
             "out ONLY the gaps template_setup names — never a link, a model or a node it already set up."
             if guide is not None else
             "ON GO: this template has no setup guide, so for each step in order: comfy_validate, "
-            "comfy_install / comfy_node_install exactly what it names (no ask), comfy_run."
+            "comfy_install exactly what it names (no ask), comfy_run."
         )
 
         # THE ABOUT, for the agent to answer "can it do three characters?" from — not to recite:

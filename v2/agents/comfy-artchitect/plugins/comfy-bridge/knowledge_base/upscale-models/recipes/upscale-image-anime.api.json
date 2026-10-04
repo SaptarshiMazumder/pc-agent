@@ -3,7 +3,7 @@
     "id": "upscale-image-anime",
     "family": "upscale-models",
     "task": "upscale-image",
-    "variant": "4x-UltraSharpV2 (Kim2091, DAT2 transformer, 4x, CC-BY-NC-SA-4.0, 2025-05-23): author: 'can handle realistic images, anime, cartoons' - the one model for mixed anime/cartoon/realistic; slower than ESRGAN",
+    "variant": "4x-UltraSharpV2: author: 'can handle realistic images, anime, cartoons' - the one model for mixed anime/cartoon/realistic; slower than ESRGAN",
     "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass. Model swapped to the OpenModelDB record 4x-UltraSharpV2 (4x-UltraSharpV2.safetensors 139,792,588 B; Lite build 29,590,776 B).",
     "min_comfyui": "0.3.31",
     "confidence": "official",
@@ -12,7 +12,7 @@
       "upscale_model": {
         "node": "1",
         "input": "model_name",
-        "note": "4x-UltraSharpV2_Lite.safetensors (29.6 MB, faster); anime-only alternatives: 4x-AnimeSharp.safetensors (upscale-image-anime-animesharp), RealESRGAN_x4plus_anime_6B.pth (BSD-3, tiny/fast), 2x-AnimeSharpV4_RCAN.safetensors (2x, 'extremely faithful'), 4x_fatal_Anime_500000_G.pth, 4xHFA2kLUDVAESwinIR_light.pth (anime video frames)"
+        "note": "4x-UltraSharpV2_Lite.safetensors (29.6 MB, faster); anime-only alternatives: 4x-AnimeSharp.safetensors (upscale-image-anime-animesharp), RealESRGAN_x4plus_anime_6B.pth, 2x-AnimeSharpV4_RCAN.safetensors (2x, 'extremely faithful'), 4x_fatal_Anime_500000_G.pth, 4xHFA2kLUDVAESwinIR_light.pth (anime video frames)"
       }
     },
     "inputs": {
@@ -33,7 +33,7 @@
       "4x-UltraSharpV2.safetensors"
     ],
     "packs": [],
-    "defaults_note": "4x. DAT2 is a transformer: many times slower than an ESRGAN model of the same scale (tiled internally, so it runs anywhere). NON-COMMERCIAL licence (CC-BY-NC-SA-4.0): swap to RealESRGAN_x4plus_anime_6B.pth for commercial anime work.",
+    "defaults_note": "4x. DAT2 is a transformer: many times slower than an ESRGAN model of the same scale (tiled internally, so it runs anywhere).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

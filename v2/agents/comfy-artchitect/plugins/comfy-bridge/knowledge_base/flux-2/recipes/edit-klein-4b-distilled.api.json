@@ -3,7 +3,7 @@
     "id": "edit-klein-4b-distilled",
     "family": "flux-2",
     "task": "edit",
-    "variant": "FLUX.2 [klein] 4B distilled fp8 (Apache-2.0) single-reference edit: 4 steps, cfg 1, ConditioningZeroOut negative, flux2-vae — the fastest edit route",
+    "variant": "FLUX.2 [klein] 4B distilled fp8 single-reference edit: 4 steps, cfg 1, ConditioningZeroOut negative, flux2-vae — the fastest edit route",
     "from_template": "image_flux2_klein_image_edit_4b_distilled ('Image Edit (Flux.2 Klein 4B Distilled)' subgraph, active)",
     "min_comfyui": "0.3.72",
     "confidence": "official",

@@ -3,7 +3,7 @@
     "id": "upscale-image-photo",
     "family": "upscale-models",
     "task": "upscale-image",
-    "variant": "RealESRGAN_x4plus (ESRGAN 64nf23nb, 4x, BSD-3-Clause, Comfy-Org repack): the official template default for photos / realistic frames",
+    "variant": "RealESRGAN_x4plus: the official template default for photos / realistic frames",
     "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass.",
     "min_comfyui": "0.3.31",
     "confidence": "official",

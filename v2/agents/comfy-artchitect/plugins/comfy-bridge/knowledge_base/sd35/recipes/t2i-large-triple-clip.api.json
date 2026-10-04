@@ -74,7 +74,7 @@
       "t5xxl_fp8_e4m3fn_scaled.safetensors"
     ],
     "packs": [],
-    "defaults_note": "Use when the fp16 original is wanted (quality) or when the agent must load encoders separately (GGUF path needs a pack). The checkpoint is gated on HF: the user must accept Stability's license and authenticate; the Comfy-Org fp8 all-in-one is the ungated route.",
+    "defaults_note": "Use when the fp16 original is wanted (quality) or when the agent must load encoders separately (GGUF path needs a pack). the Comfy-Org fp8 all-in-one is the ungated route.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

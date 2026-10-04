@@ -96,7 +96,6 @@
       {
         "name": "ComfyUI_IPAdapter_plus",
         "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
-        "license": "GPL-3.0",
         "status": "maintenance only since 2025-04-14",
         "pip": [],
         "nodes_used": [

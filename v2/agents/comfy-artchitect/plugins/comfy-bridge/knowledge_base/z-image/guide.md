@@ -1,9 +1,6 @@
 # Z-Image / Z-Image-Turbo — the agent's guide
 
-Open-weights 6B single-stream DiT from Alibaba Tongyi Lab, Apache 2.0, free. The fastest good
-photoreal text-to-image on the box: **Turbo** does 8 steps with no CFG and renders Chinese and English
-text accurately. Everything below was read from the official templates, model cards and ComfyUI source
-on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+Open-weights 6B single-stream DiT from Alibaba Tongyi Lab, free. The fastest good photoreal text-to-image on the box: **Turbo** does 8 steps with no CFG and renders Chinese and English text accurately. Everything below was read from the official templates, model cards and ComfyUI source on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 

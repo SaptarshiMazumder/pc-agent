@@ -1,13 +1,6 @@
 # Qwen-Image family — the agent's guide
 
-Alibaba Qwen's 20B MMDiT image family, Apache 2.0, free: **Qwen-Image** (Aug 2025) and **2512** (Dec 2025)
-for text-to-image, **Qwen-Image-Edit / 2509 / 2511** for instruction editing with up to three input images,
-**Layered** for RGBA layer decomposition, and a ControlNet ecosystem (InstantX, DiffSynth, Alibaba PAI).
-**Qwen-Image-2.1** (7B, native 2K, RGBA, up to 10 references) is a different story: **Qwen Research License,
-NON-COMMERCIAL only**, and it needs ComfyUI ≥ 0.37 — above the pinned 0.35.0 image, so its recipes are
-written but pending. The family's headline is **text rendering** (English, Chinese, Korean, Japanese; posters,
-slides, signs) plus editing that preserves "font, size, and style". Everything below was read from the
-official templates, docs and cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+Alibaba Qwen's 20B MMDiT image family, free: **Qwen-Image** (Aug 2025) and **2512** (Dec 2025) for text-to-image, **Qwen-Image-Edit / 2509 / 2511** for instruction editing with up to three input images, **Layered** for RGBA layer decomposition, and a ControlNet ecosystem (InstantX, DiffSynth, Alibaba PAI). The family's headline is **text rendering** (English, Chinese, Korean, Japanese; posters, slides, signs) plus editing that preserves "font, size, and style". Everything below was read from the official templates, docs and cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 
@@ -28,8 +21,8 @@ image (Qwen-Image fp8, 20 steps), ~55 s → ~34 s with an 8-step LoRA.
 - **Inpaint / outpaint:** `inpaint-instantx` (painted mask, original pixels composited back) and
   `outpaint-instantx-lightning-4step` (ImagePadForOutpaint canvas).
 - **Layer decomposition:** `layered` — RGBA layers from one image (40.9 GB bf16 file; shift 1; slow).
-- **Pending (ComfyUI ≥ 0.37, non-commercial):** `t2i-2-1`, `edit-2-1`, `background-removal-2-1`.
-- **Not this family** for IP-Adapter (NOT FOUND); 2.1 commercially; 4K on 2.1; >3 inputs on 2509.
+- **Pending:** `t2i-2-1`, `edit-2-1`, `background-removal-2-1`.
+- **Not this family** for IP-Adapter (NOT FOUND); 4K on 2.1; >3 inputs on 2509.
 
 Stage composition: a Qwen T2I still → wan-2.2 `i2v-14b`; a Z-Image / Chroma still → `edit-2511` for text
 fixes; a depth/pose map from any preprocessor → `control-instantx-union`.
@@ -106,4 +99,3 @@ negatives at cfg 1; square canvases on 2511 (community); 4K on 2.1.
 | control file not listed | wrong folder (controlnet vs model_patches vs loras) |
 | oversaturated skin (8-step) | Lightning V2.0 LoRA |
 | distill model + LoRA broken | use one or the other |
-| 2.1 node missing | ComfyUI ≥ 0.37 — pending on this image; also non-commercial |

@@ -15,22 +15,6 @@
       "S-NEWS"
     ]
   },
-  "license": {
-    "name": "FLUX [dev] Non-Commercial License v2.0 (dev); FLUX Non-Commercial License v2.1 (klein 9B, 9B Base, 9B KV); Apache-2.0 (klein 4B, 4B Base, Small Decoder)",
-    "commercial": false,
-    "per_variant": {
-      "flux2-dev / fp8mixed / nvfp4 / Turbo LoRAs": "FLUX [dev] Non-Commercial License v2.0 — model use only for a 'Non-Commercial Purpose'; OUTPUTS usable 'for any purpose (including for commercial purposes)' but not to train a competing model; 'Filters or manual review must be used'; commercial self-hosting licence via bfl.ai",
-      "klein 9B / 9B Base / 9B KV (+ fp8, nvfp4)": "FLUX Non-Commercial License v2.1, gated repos",
-      "klein 4B / 4B Base (+ fp8, nvfp4), Small Decoder": "Apache-2.0 — 'Open weights available for commercial use'; BFL 'encourage[s]' (does not require) content mitigations"
-    },
-    "notes": "Comfy-Org/flux2-dev's README metadata says flux-1-dev-non-commercial-license (a copy); the files are FLUX.2 [dev] derivatives, so the FLUX [dev] NC v2.0 governs. Cost axis: free (open weights).",
-    "src": [
-      "S-BFL2-LICENSE",
-      "S-HF-BFL2",
-      "S-HF-KLEIN-CARDS",
-      "S-HF-COMFYORG2"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image"
@@ -53,10 +37,6 @@
         "S-BFL-BLOG-FLUX2",
         "S-TPL-K9-EXTEND"
       ]
-    },
-    {
-      "what": "commercial self-hosting of dev or klein 9B without a BFL licence (outputs are usable commercially); klein 4B is the Apache-2.0 route",
-      "src": "S-BFL2-LICENSE"
     },
     {
       "what": "guaranteed text: 'While the model can output text, text rendered may be inaccurate or subject to distortion'",
@@ -101,7 +81,6 @@
         ]
       },
       "quality": "default in all three Comfy-Org dev templates; 'reduces requirements by 40%'",
-      "license": "FLUX [dev] Non-Commercial License v2.0",
       "src": "S-HF-COMFYORG2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -122,7 +101,6 @@
         "src": "S-BFL2-GH"
       },
       "quality": "full model (gated); 'Even an H100 can't hold the text-encoder, transformer and VAE at the same time' without offload; 80 GB+ class GPU or 4-bit on 24-32 GB",
-      "license": "FLUX [dev] Non-Commercial License v2.0",
       "src": "S-HF-BFL2"
     },
     {
@@ -141,7 +119,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "FLUX [dev] Non-Commercial License v2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -161,7 +138,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "FLUX [dev] Non-Commercial License v2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -184,7 +160,6 @@
         ]
       },
       "quality": "4-step distilled; byte-identical to BFL (sha ec3d4e73...); templates link Comfy-Org/flux2-klein which redirects here",
-      "license": "Apache-2.0",
       "src": "S-HF-COMFYORG2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -207,7 +182,6 @@
         ]
       },
       "quality": "undistilled ('Trained without step or guidance distillation'); 4B T2I template default",
-      "license": "Apache-2.0",
       "src": "S-HF-COMFYORG2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -230,7 +204,6 @@
         ]
       },
       "quality": "template default for the 4B distilled edit; docs.comfy.org: ~1.2 s / 8.4 GB on a 5090",
-      "license": "Apache-2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -253,7 +226,6 @@
         ]
       },
       "quality": "template default for the 4B base edit; docs.comfy.org: ~17 s / 9.2 GB on a 5090",
-      "license": "Apache-2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -273,7 +245,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "Apache-2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -293,7 +264,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "Apache-2.0",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -318,7 +288,6 @@
         ]
       },
       "quality": "gated; Comfy-Org hosts no 9B diffusion model ('Please visit BFL's repo, accept the agreement in the repo, and then download')",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -342,7 +311,6 @@
         ]
       },
       "quality": "gated; used by the klein 9B outpainting template (needs DrawMaskOnImage/ColorMatch, not on v0.35.0)",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -366,7 +334,6 @@
         ]
       },
       "quality": "template default (9B distilled edit); gated",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -390,7 +357,6 @@
         ]
       },
       "quality": "template default (9B base edit, 9B T2I); gated",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -410,7 +376,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -430,7 +395,6 @@
         "src": null
       },
       "quality": "NVFP4: Blackwell (RTX 50 / sm120) only for the fast path; BFL: 'Up to 2.7x faster, up to 55% less VRAM'",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -454,7 +418,6 @@
         ]
       },
       "quality": "'optimized for fast image editing. It uses KV caching to avoid redundantly recomputing attention over reference image tokens'; needs FluxKVCache (ComfyUI >= 0.17.0)",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2"
     },
     {
@@ -477,7 +440,6 @@
         ]
       },
       "quality": "KV template default (9.14 GB in the template note); needs FluxKVCache",
-      "license": "FLUX Non-Commercial License v2.1 (gated: accept the agreement on the BFL repo)",
       "src": "S-HF-BFL2",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -666,8 +628,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "FLUX.2 Small Decoder (Apache-2.0): 'drop-in replacement for the standard FLUX.2 decoder', '~1.4x faster decoding', '~1.4x less VRAM at decode time', '~28M decoder parameters (vs ~50M)'; needs ComfyUI >= 0.19.0; default in the newest templates",
-      "license": "Apache-2.0",
+      "quality": "FLUX.2 Small Decoder: 'drop-in replacement for the standard FLUX.2 decoder', '~1.4x faster decoding', '~1.4x less VRAM at decode time', '~28M decoder parameters (vs ~50M)'; needs ComfyUI >= 0.19.0; default in the newest templates",
       "src": "S-HF-SMALL-DECODER",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -687,7 +648,6 @@
         "src": null
       },
       "quality": "decoder-only file: cannot VAEEncode references; use full_encoder_small_decoder for edit graphs",
-      "license": "Apache-2.0",
       "src": "S-HF-SMALL-DECODER",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
@@ -707,7 +667,6 @@
         "src": null
       },
       "quality": "fal FLUX.2-dev-Turbo: 'high-quality image generation in just 8 inference steps'; identical sha at ByteZSzn/Flux.2-Turbo-ComfyUI (the templates' URL) and fal/FLUX.2-dev-Turbo/comfy/; fal's raw flux.2-turbo-lora.safetensors is 'not suitable for ComfyUI'",
-      "license": "FLUX [dev] Non-Commercial (inherited from dev)",
       "src": [
         "S-HF-COMFYORG2",
         "S-FAL-TURBO",
@@ -731,7 +690,6 @@
         "src": null
       },
       "quality": "Turbo LoRA v2; used by image_flux2_fp8",
-      "license": "FLUX [dev] Non-Commercial (inherited from dev)",
       "src": [
         "S-HF-COMFYORG2",
         "S-BYTEZSZN"
@@ -794,7 +752,7 @@
       "vram_gb_min": 24,
       "speed": "fast",
       "recipe": "t2i-dev-turbo",
-      "tradeoff": "8 steps instead of 20 with the fal Turbo LoRA (ComfyUI conversion); non-commercial",
+      "tradeoff": "8 steps instead of 20 with the fal Turbo LoRA (ComfyUI conversion)",
       "src": [
         "S-TPL-F2-T2I",
         "S-FAL-TURBO"
@@ -804,7 +762,7 @@
       "task": "t2i",
       "vram_gb_min": 16,
       "recipe": "t2i-klein-9b-base",
-      "why": "undistilled 9B with real CFG and a negative prompt; fp8 9.6 GB + Qwen3-8B fp8 8.7 GB; gated, non-commercial",
+      "why": "undistilled 9B with real CFG and a negative prompt; fp8 9.6 GB + Qwen3-8B fp8 8.7 GB; gated",
       "src": [
         "S-TPL-K9-T2I",
         "S-HF-KLEIN-CARDS"
@@ -825,7 +783,7 @@
       "task": "t2i",
       "vram_gb_min": 12,
       "recipe": "t2i-klein-4b-base",
-      "why": "Apache-2.0 (commercial self-hosting allowed), ~13 GB bf16 pipeline, real CFG + negative, 'Higher output diversity'; the T2I template's active graph",
+      "why": "~13 GB bf16 pipeline, real CFG + negative, 'Higher output diversity'; the T2I template's active graph",
       "src": [
         "S-TPL-K4-T2I",
         "S-HF-KLEIN-CARDS",
@@ -837,7 +795,7 @@
       "vram_gb_min": 8,
       "speed": "fast",
       "recipe": "t2i-klein-4b-distilled",
-      "why": "Apache-2.0, 4 steps, 'under a second'; 8.4 GB on a 5090 with the fp8 file; community: 'fits on 8GB cards'",
+      "why": "4 steps, 'under a second'; 8.4 GB on a 5090 with the fp8 file; community: 'fits on 8GB cards'",
       "src": [
         "S-TPL-K4-T2I",
         "S-DOCS-KLEIN",
@@ -886,7 +844,7 @@
       "task": "edit",
       "vram_gb_min": 16,
       "recipe": "edit-klein-9b-base",
-      "why": "undistilled 9B edit with CFG 5 and a negative; gated, non-commercial",
+      "why": "undistilled 9B edit with CFG 5 and a negative; gated",
       "src": "S-TPL-K9B-EDIT"
     },
     {
@@ -938,7 +896,7 @@
       "task": "edit",
       "vram_gb_min": 12,
       "recipe": "edit-klein-4b-base",
-      "why": "Apache-2.0 edit with CFG + negative; 9.2 GB on a 5090 with the fp8 file",
+      "why": "9.2 GB on a 5090 with the fp8 file",
       "src": [
         "S-TPL-K4B-EDIT",
         "S-DOCS-KLEIN"
@@ -949,7 +907,7 @@
       "vram_gb_min": 8,
       "speed": "fast",
       "recipe": "edit-klein-4b-distilled",
-      "why": "Apache-2.0, 4 steps, 'interactive applications, real-time previews'",
+      "why": "4 steps, 'interactive applications, real-time previews'",
       "src": [
         "S-TPL-K4D-EDIT",
         "S-TPL-INDEX"
@@ -960,8 +918,8 @@
       "references": "2-4",
       "vram_gb_min": 12,
       "recipe": "edit-klein-4b-base-multi",
-      "why": "two references on the Apache-2.0 base",
-      "src": "S-TPL-K4B-EDIT"
+      "src": "S-TPL-K4B-EDIT",
+      "why": "two to four references on the 4B base"
     },
     {
       "task": "edit",
@@ -969,7 +927,7 @@
       "vram_gb_min": 8,
       "speed": "fast",
       "recipe": "edit-klein-4b-distilled-multi",
-      "why": "two references, 4 steps, Apache-2.0",
+      "why": "two references, 4 steps",
       "src": "S-TPL-K4D-EDIT"
     },
     {
@@ -1904,7 +1862,7 @@
     },
     {
       "symptom": "9B downloads 401",
-      "cause": "gated BFL repos (non-commercial licence)",
+      "cause": "gated BFL repos",
       "fix": "accept the agreement on each black-forest-labs/FLUX.2-klein-*9b* repo; Comfy-Org hosts only the 9B encoder + VAE",
       "src": [
         "S-TPL-K9B-EDIT",
@@ -1969,12 +1927,6 @@
       ]
     },
     {
-      "symptom": "licence surprise",
-      "cause": "FLUX.2 [dev] and klein 9B outputs are usable commercially, but running the models for paid work needs a commercial licence plus content filters / manual review",
-      "fix": "klein 4B / 4B Base / Small Decoder (Apache-2.0) for unrestricted commercial self-hosting",
-      "src": "S-BFL2-LICENSE"
-    },
-    {
       "symptom": "two different files both named flux2-vae.safetensors",
       "cause": "Comfy-Org/flux2-dev (sha d64f3a68...) vs the klein repos (sha 868fe7b3...)",
       "fix": "both are FLUX.2 VAEs; prefer the file the template links; quality difference NOT FOUND",
@@ -2015,11 +1967,6 @@
     },
     "S-BFL2-GH": {
       "url": "https://github.com/black-forest-labs/flux2 (README, model_cards/FLUX.2-dev.md, docs/flux2_dev_hf.md, docs/flux2_klein_kv_cache.md, docs/flux2_with_prompt_upsampling.md)",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-BFL2-LICENSE": {
-      "url": "https://github.com/black-forest-labs/flux2/tree/main/model_licenses (LICENSE-FLUX-DEV v2.0, LICENSE-FLUX-NON-COMMERICAL v2.1)",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -2206,12 +2153,10 @@
   },
   "card": {
     "short_name": "FLUX.2 dev",
-    "restriction": "non-commercial use only",
     "recipes": [
       {
         "match": "klein-4b",
-        "short_name": "FLUX.2 klein 4B",
-        "restriction": ""
+        "short_name": "FLUX.2 klein 4B"
       },
       {
         "match": "klein-9b",

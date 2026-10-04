@@ -3,7 +3,7 @@
     "id": "t2i-schnell",
     "family": "flux-1",
     "task": "t2i",
-    "variant": "FLUX.1 [schnell] bf16 (Apache-2.0) via UNETLoader + DualCLIPLoader(flux) + VAELoader; CLIPTextEncodeFlux with separate CLIP-L / T5 prompts; 4 steps, cfg 1",
+    "variant": "FLUX.1 [schnell] bf16 via UNETLoader + DualCLIPLoader(flux) + VAELoader; CLIPTextEncodeFlux with separate CLIP-L / T5 prompts; 4 steps, cfg 1",
     "from_template": "flux_schnell_full_text_to_image",
     "min_comfyui": "0.0.4",
     "confidence": "official",

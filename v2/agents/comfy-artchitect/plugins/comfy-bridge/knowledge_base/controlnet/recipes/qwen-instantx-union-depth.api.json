@@ -108,7 +108,7 @@
       "vae-ft-mse-840000-ema-pruned.safetensors"
     ],
     "packs": [],
-    "defaults_note": "Lightning: 4 steps, cfg 1, euler/simple, shift 3.1. Without the LoRA (remove node 20, wire 1 -> 4): 20 steps, cfg 2.5 (template table; 'official 50 steps ... even 10 works'). Strength 1.0 (InstantX recommends 0.8-1.0). Empty negative. Apache-2.0.",
+    "defaults_note": "Lightning: 4 steps, cfg 1, euler/simple, shift 3.1. Without the LoRA (remove node 20, wire 1 -> 4): 20 steps, cfg 2.5 (template table; 'official 50 steps... even 10 works'). Strength 1.0 (InstantX recommends 0.8-1.0). Empty negative.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

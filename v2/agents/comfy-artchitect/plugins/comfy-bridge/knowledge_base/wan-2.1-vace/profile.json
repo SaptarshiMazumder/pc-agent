@@ -3,16 +3,6 @@
   "id": "wan-2.1-vace",
   "name": "Wan 2.1 VACE 14B (video editing)",
   "publisher": "Wan-AI (Alibaba)",
-  "license": {
-    "name": "Apache-2.0 (Wan 2.1 VACE weights); SAM 3 under Meta's SAM 3 licence",
-    "commercial": true,
-    "notes": "the masking model (SAM 3) carries its own licence",
-    "src": [
-      "S-TPL-SHANE",
-      "S-TPL-INDEX",
-      "S-GH-WVW"
-    ]
-  },
   "cost": "free",
   "kind": [
     "video"
@@ -42,7 +32,6 @@
       "bytes": 34675323640,
       "precision": "fp16 (loaded as bf16, quantization disabled)",
       "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_vace_14B_fp16.safetensors",
-      "license": "apache-2.0 (Comfy-Org/Wan_2.1_ComfyUI_repackaged card; Wan-AI/Wan2.1-VACE-14B card apache-2.0)",
       "recipes": [
         "object-replace-sam3-vace-14b"
       ],
@@ -58,7 +47,6 @@
       "bytes": 11361845464,
       "precision": "bf16",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/umt5-xxl-enc-bf16.safetensors",
-      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
       "recipes": [
         "object-replace-sam3-vace-14b"
       ],
@@ -73,7 +61,6 @@
       "bytes": 253806278,
       "precision": "bf16",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_bf16.safetensors",
-      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
       "recipes": [
         "object-replace-sam3-vace-14b"
       ],
@@ -87,7 +74,6 @@
       "bytes": 204551064,
       "precision": "rank32",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_14B_T2V_lora_rank32_v2.safetensors",
-      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
       "recipes": [
         "object-replace-sam3-vace-14b"
       ],
@@ -102,7 +88,6 @@
       "bytes": 3450062241,
       "precision": "fp32 checkpoint",
       "url": "https://huggingface.co/1038lab/sam3/resolve/main/sam3.pt",
-      "license": "other - Meta SAM 3 license (1038lab/sam3 mirrors the official weights; its card carries Meta's gated license form, the mirror itself is not gated)",
       "recipes": [
         "object-replace-sam3-vace-14b"
       ],
@@ -120,7 +105,6 @@
       "bytes": 3449860632,
       "precision": "safetensors",
       "url": "https://huggingface.co/apozz/sam3-safetensors/resolve/main/sam3.safetensors",
-      "license": "other - Meta SAM 3 license (mirror)",
       "recipes": [],
       "bytes_src": "S-HF-HEAD",
       "note": "ONLY if ComfyUI-SAM3 is installed at main instead of the pinned commit: main's LoadSAM3Model auto-downloads this fixed file from apozz/sam3-safetensors.",
@@ -205,7 +189,6 @@
     }
   },
   "card": {
-    "short_name": "Wan 2.1 VACE",
-    "restriction": ""
+    "short_name": "Wan 2.1 VACE"
   }
 }

@@ -44,27 +44,6 @@ function patch(
 
 /** Fold one frame into the conversation it names. Wire it with
  *  `client.on('chat.event', (p) => handleRunEvent(p))`. */
-/** What gpu_ensure's result starts with when the machine is usable. MIRRORS
- *  plugins/vast-bridge/vast_bridge.py — the tool's own text, which this repo writes. The
- *  tool-end event carries a result's text and error flag but not its `details`, so the text is
- *  what there is to read here; a prefix on our own sentence is the least fragile form of that. */
-const GPU_READY_PREFIX = 'GPU ready at '
-/** …and when the account runs its own ComfyUI: nothing to wait for either. */
-const OWN_COMFY_PREFIX = 'This account uses its own ComfyUI'
-
-/** Did this turn's LAST gpu_ensure end without a usable machine? False when the turn never
- *  asked for one — a turn that did not want a GPU has nothing to resume for. */
-function endedWaitingForGpu(items: ThreadItem[]): boolean {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i]
-    if (it.kind === 'tool' && it.name === 'gpu_ensure' && it.done) {
-      const said = String(it.result || '')
-      return !it.isError && !said.startsWith(GPU_READY_PREFIX) && !said.startsWith(OWN_COMFY_PREFIX)
-    }
-  }
-  return false
-}
-
 /** One job as the daemon describes it (a job_start event, or a chat.status snapshot) -> ours.
  *  The daemon's `startedAt` is epoch SECONDS, like every timestamp it sends. */
 export function jobFromWire(j: any, fallbackMs: number): BackgroundJob {
@@ -428,10 +407,6 @@ function fold(
           running: false,
           items: attachArtifacts(items, s.pendingArtifacts, ts),
           pendingArtifacts: [],
-          // A turn that ended cleanly with the GPU still coming up is one the window will
-          // resume by itself once its own poll sees the machine answer. A turn that ended in
-          // an error is not: resuming it would resend into whatever went wrong.
-          awaitingGpu: !ev.error && endedWaitingForGpu(items),
         }
       })
       return
@@ -440,7 +415,6 @@ function fold(
     case 'error': {
       on((s) => ({
         running: false,
-        awaitingGpu: false,
         items: [
           ...s.items,
           { kind: 'system', tone: 'error', text: String(ev.message || 'the run failed'), ts },

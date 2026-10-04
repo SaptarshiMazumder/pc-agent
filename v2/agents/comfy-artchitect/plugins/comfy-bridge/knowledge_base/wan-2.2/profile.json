@@ -3,16 +3,6 @@
   "id": "wan-2.2",
   "name": "Wan 2.2",
   "publisher": "Alibaba Wan Team (Wan-AI); Fun/VACE-Fun variants by Alibaba PAI; Lightning LoRAs by lightx2v",
-  "license": {
-    "name": "Apache-2.0",
-    "commercial": true,
-    "notes": "All Wan 2.2 weights, the Fun/VACE-Fun variants and the Lightning LoRAs are Apache 2.0; free for commercial use with the license notice kept.",
-    "src": [
-      "S-WAN-README",
-      "S-DOCS-WAN22",
-      "S-LIGHTNING-HF"
-    ]
-  },
   "cost": "free",
   "kind": [
     "video"
@@ -696,7 +686,6 @@
       "bytes": 18401760586,
       "precision": "fp8_e4m3fn_scaled",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy_fp8_scaled/resolve/main/Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors",
-      "license": "apache-2.0 (Kijai/WanVideo_comfy_fp8_scaled card)",
       "recipes": [
         "animate-replace-14b",
         "animate-move-14b"
@@ -723,7 +712,6 @@
       "bytes": 738005744,
       "precision": "bf16",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
-      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
       "recipes": [
         "animate-replace-14b",
         "animate-move-14b"
@@ -742,7 +730,6 @@
       "bytes": 1436672440,
       "precision": "fp16",
       "url": "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors",
-      "license": "NOT FOUND (Kijai/WanVideo_comfy card has no license field)",
       "recipes": [
         "animate-replace-14b",
         "animate-move-14b"
@@ -761,7 +748,6 @@
       "bytes": 1234579166,
       "precision": "fp32 onnx",
       "url": "https://huggingface.co/JunkyByte/easy_ViTPose/resolve/main/onnx/wholebody/vitpose-l-wholebody.onnx",
-      "license": "NOT FOUND (JunkyByte/easy_ViTPose card has no license field)",
       "recipes": [
         "animate-replace-14b",
         "animate-move-14b"
@@ -780,7 +766,6 @@
       "bytes": 61659339,
       "precision": "onnx",
       "url": "https://huggingface.co/Wan-AI/Wan2.2-Animate-14B/resolve/main/process_checkpoint/det/yolov10m.onnx",
-      "license": "apache-2.0 (Wan-AI/Wan2.2-Animate-14B card)",
       "recipes": [
         "animate-replace-14b",
         "animate-move-14b"
@@ -799,7 +784,6 @@
       "bytes": 161773292,
       "precision": "fp16",
       "url": "https://huggingface.co/Kijai/sam2-safetensors/resolve/main/sam2.1_hiera_base_plus-fp16.safetensors",
-      "license": "apache-2.0 (Kijai/sam2-safetensors card)",
       "recipes": [
         "animate-replace-14b"
       ],
@@ -818,7 +802,6 @@
       "bytes": 161773292,
       "precision": "fp16",
       "url": "https://huggingface.co/Kijai/sam2-safetensors/resolve/main/sam2.1_hiera_base_plus-fp16.safetensors",
-      "license": "apache-2.0 (Kijai/sam2-safetensors card)",
       "recipes": [
         "animate-replace-14b"
       ],
@@ -2111,7 +2094,6 @@
     }
   },
   "card": {
-    "short_name": "Wan 2.2",
-    "restriction": ""
+    "short_name": "Wan 2.2"
   }
 }

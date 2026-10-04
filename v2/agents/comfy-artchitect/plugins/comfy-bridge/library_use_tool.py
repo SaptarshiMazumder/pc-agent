@@ -20,9 +20,8 @@ one; any other file has nothing to bring — it is read with library_read.
 
 AN EDITOR-ONLY WORKFLOW IS CONVERTED BY THE MACHINE'S OWN COMFYUI (EditorGraphConverter) — what
 most tutorials ship is the editor save, and a run needs the API format. The machine can only
-convert nodes it has, so a workflow needing custom node packs first names them (recorded as a
-validation would, so comfy_node_install may install them once the ask is answered); after the
-packs are in, library_use again converts it.
+convert nodes it has, so a workflow needing node packs Comfy Cloud lacks names them — Comfy
+Cloud runs only its preinstalled packs, so such a workflow cannot run there as it is.
 """
 
 from __future__ import annotations
@@ -63,8 +62,8 @@ class LibraryUseTool(Tool):
         "the slot you name in `as` (the window copies the file); it then counts as filled. "
         "A file that is a ComfyUI graph is treated as a workflow; other files are only read "
         "(library_read). A workflow saved only in EDITOR format is converted by the machine's "
-        "ComfyUI; if it needs custom node packs the machine lacks, this names them — install "
-        "them (comfy_node_install, after the ask), then call library_use again."
+        "ComfyUI; if it needs node packs Comfy Cloud lacks, this names them — Comfy Cloud runs "
+        "only its preinstalled packs, so it cannot run there as it is."
     )
     parameters = {
         "type": "object",
@@ -156,10 +155,9 @@ class LibraryUseTool(Tool):
                 studio_state.mark_validated(name, [], missing)
                 return ToolResult.text(
                     f"library_use: {item.name} is saved in EDITOR format and uses node types this "
-                    "ComfyUI does not have: " + ", ".join(missing) + ". Find the pack for each (its "
-                    "Manager name or GitHub repository — the workflow's notes and the user's setup "
-                    "files usually say), install them with comfy_node_install once the ask is "
-                    "answered, then call library_use again: the machine converts it then.",
+                    "ComfyUI does not have: " + ", ".join(missing) + ". Comfy Cloud runs only its "
+                    "preinstalled node packs, so this workflow cannot run there as it is — tell the "
+                    "user which nodes are missing.",
                     is_error=True,
                 )
             api, dropped = converter.convert(ui)

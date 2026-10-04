@@ -3,15 +3,6 @@
   "id": "chroma",
   "name": "Chroma (Chroma1-HD / Base / Flash / Radiance)",
   "publisher": "Lodestone Rock (lodestones); Comfy-Org repacks",
-  "license": {
-    "name": "Apache-2.0",
-    "commercial": true,
-    "notes": "Every lodestones repo (HD, Base, Flash, Radiance, legacy) and the Comfy-Org repacks are Apache-2.0 ('fully Apache 2.0 licensed, ensuring that anyone can use, modify, and build upon it'). Unaligned/uncensored by design: 'Users are responsible for their own use of this model'.",
-    "src": [
-      "S-HF-HD",
-      "S-HF-COMFY-TREE"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image"
@@ -36,7 +27,7 @@
       "src": "S-HF-RAD"
     },
     {
-      "what": "Flash has no documentation (README is only the license header); its settings are community",
+      "what": "Flash has no documentation; its settings are community",
       "src": [
         "S-HF-FLASH",
         "S-FLASH-GUIDES"
@@ -263,7 +254,7 @@
   ],
   "community_alternatives": [
     {
-      "what": "GGUF Chroma1-HD (silveroxides, Apache-2.0): Q2_K 3.41 .. Q4_K_M 5.57 .. Q8_0 9.74 GB, BF16 17.80 GB; the legacy README lists it as an official alternative",
+      "what": "GGUF Chroma1-HD: Q2_K 3.41.. Q4_K_M 5.57.. Q8_0 9.74 GB, BF16 17.80 GB; the legacy README lists it as an official alternative",
       "needs_pack": "city96/ComfyUI-GGUF",
       "folder": "unet",
       "node": "UnetLoaderGGUF",
@@ -969,7 +960,7 @@
       "class": "official"
     },
     "S-HF-FLASH": {
-      "url": "https://huggingface.co/lodestones/Chroma1-Flash (README is only the license header; tree)",
+      "url": "https://huggingface.co/lodestones/Chroma1-Flash",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1051,7 +1042,6 @@
   },
   "card": {
     "short_name": "Chroma1-HD",
-    "restriction": "",
     "recipes": [
       {
         "match": "radiance",

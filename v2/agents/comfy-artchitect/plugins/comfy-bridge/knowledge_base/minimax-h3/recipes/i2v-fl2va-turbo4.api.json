@@ -87,7 +87,7 @@
       "No negative prompt, no CFG: the checkpoints are CFG-distilled and the graph uses BasicGuider. Write bans as positives.",
       "first_frame is a 'geometry anchor: plain stretch to canvas' (node source), so the canvas MUST have the image's aspect: this recipe derives width/height from the start image (ImageScaleToTotalPixels at `megapixels`, steps of 32 -> GetImageSize), the wiring of the FastH3 i2v template and of the 'Use Image Size' group the base i2v template ships unwired. To force a size, replace the width/height links on node 5 with ints (multiples of 32). last_frame is an 'aspect-preserving cover-crop'.",
       "The connected first frame is <Picture 1> to the text encoder (the template prompt refers to it that way); with a last frame too, the base guide's FL2VA instruction line names Picture 1 and Picture 2.",
-      "Turbo LoRA (lightx2v, Apache-2.0). 'At 4 steps a reference can end up barely applied, and a subject's pose or face angle can drift' (docs): render the final at 20 steps."
+      "Turbo LoRA. 'At 4 steps a reference can end up barely applied, and a subject's pose or face angle can drift' (docs): render the final at 20 steps."
     ],
     "verify": [
       "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos and autogrow slots, links/types, enums, ranges, output node). Not yet run on a box."

@@ -86,7 +86,7 @@
       "uso-flux1-dit-lora-v1.safetensors"
     ],
     "packs": [],
-    "defaults_note": "1024x1024, 20 steps, cfg 1, euler/simple, FluxGuidance 3.5, LoRA 1.0. flux1-dev-fp8.safetensors is the Comfy-Org all-in-one checkpoint (models/checkpoints: MODEL+CLIP+VAE). USO weights Apache-2.0; the FLUX.1-dev base is Non-Commercial.",
+    "defaults_note": "1024x1024, 20 steps, cfg 1, euler/simple, FluxGuidance 3.5, LoRA 1.0. flux1-dev-fp8.safetensors is the Comfy-Org all-in-one checkpoint (models/checkpoints: MODEL+CLIP+VAE).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

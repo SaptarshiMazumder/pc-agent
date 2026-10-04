@@ -3,17 +3,6 @@
   "id": "z-image",
   "name": "Z-Image / Z-Image-Turbo",
   "publisher": "Alibaba Tongyi Lab (Tongyi-MAI); Fun ControlNet-Union patches by Alibaba PAI; Comfy-Org repacks",
-  "license": {
-    "name": "Apache-2.0",
-    "commercial": true,
-    "notes": "Tongyi-MAI/Z-Image-Turbo and Tongyi-MAI/Z-Image are apache-2.0 (HF cardData); the Comfy-Org repacks and the alibaba-pai ControlNet-Union patches are Apache-2.0 too. Free for commercial use.",
-    "src": [
-      "S-HF-ZIT",
-      "S-HF-ZI",
-      "S-PAI-CN1",
-      "S-PAI-CN2"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image",
@@ -313,7 +302,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "alibaba-pai Fun ControlNet-Union v1 (Apache-2.0): Canny, HED, Depth, Pose, MLSD; 6 blocks, trained at 1328; recommended control_context_scale 0.65-0.80. Folder models/model_patches (ModelPatchLoader), template note says 2.89 GB",
+      "quality": "alibaba-pai Fun ControlNet-Union v1: Canny, HED, Depth, Pose, MLSD; 6 blocks, trained at 1328; recommended control_context_scale 0.65-0.80. Folder models/model_patches (ModelPatchLoader), template note says 2.89 GB",
       "src": [
         "S-PAI-CN1",
         "S-TPL-FUNCN"
@@ -1298,7 +1287,6 @@
   },
   "card": {
     "short_name": "Z-Image Turbo",
-    "restriction": "",
     "recipes": [
       {
         "match": "base",

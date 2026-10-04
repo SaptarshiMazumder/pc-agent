@@ -94,7 +94,7 @@
       "qwen_image_union_diffsynth_lora.safetensors"
     ],
     "packs": [],
-    "defaults_note": "20 steps, cfg 2.5 ('Try 50 steps' per template note), euler/simple, shift 3.1, LoRA 1.0. Turbo variant: add Qwen-Image-Lightning-4steps-V1.0 after node 20, 4 steps, cfg 1. Apache-2.0 (repack).",
+    "defaults_note": "20 steps, cfg 2.5 ('Try 50 steps' per template note), euler/simple, shift 3.1, LoRA 1.0. Turbo variant: add Qwen-Image-Lightning-4steps-V1.0 after node 20, 4 steps, cfg 1.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

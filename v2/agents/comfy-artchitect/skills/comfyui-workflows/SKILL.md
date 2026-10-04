@@ -84,7 +84,7 @@ A run that fails comes back with `node_errors` keyed by node id:
 | type | what it means | the fix |
 |---|---|---|
 | `value_not_in_list` | that name is not on this machine | a model the design needs is a missing file → `pipeline_provision`; otherwise the error lists the valid values |
-| `missing_node_type` | that node's pack is not on this machine | first check the class NAME; a genuinely missing pack → `pipeline_provision` (or `comfy_node_install`) |
+| `missing_node_type` | that node's pack is not on Comfy Cloud | first check the class NAME; a genuinely missing pack → a different recipe (Comfy Cloud runs only its preinstalled packs) |
 | `required_input_missing` | an input was left out | `comfy_node_spec` shows what is required |
 | `return_type_mismatch` | a link joins incompatible outputs | check which output slot is linked |
 | `bad_linked_input` | a link is not `[id, slot]` | fix the shape |

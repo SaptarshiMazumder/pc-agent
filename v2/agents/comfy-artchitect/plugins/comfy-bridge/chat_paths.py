@@ -29,6 +29,9 @@ from agent_runtime.application.run_context import current_run_context
 REFERENCES = "references"
 WORKFLOWS = "workflows"
 OUTPUTS = "outputs"
+#: Inside a chat's workflows folder: a pipeline's per-stage workflows (the ONE combined workflow
+#: sits in the folder itself — see pipeline_store).
+STAGES = "stages"
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 

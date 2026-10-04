@@ -99,7 +99,7 @@
       "sd3.5_large_controlnet_canny.safetensors"
     ],
     "packs": [],
-    "defaults_note": "1024x1024, 32 steps, cfg 4.5, euler/simple, strength 0.66 (publisher: start at 0.7-0.8), Canny 0.3/0.6. Negative = ConditioningZeroOut. ComfyUI applies the SD3.5 file-specific canny rescale itself (load_controlnet_sd35). License: Stability Community License (free under US$1M revenue).",
+    "defaults_note": "1024x1024, 32 steps, cfg 4.5, euler/simple, strength 0.66 (publisher: start at 0.7-0.8), Canny 0.3/0.6. Negative = ConditioningZeroOut. ComfyUI applies the SD3.5 file-specific canny rescale itself (load_controlnet_sd35).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

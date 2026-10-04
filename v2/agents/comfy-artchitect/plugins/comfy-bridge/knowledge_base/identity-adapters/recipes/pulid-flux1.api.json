@@ -113,7 +113,6 @@
       {
         "name": "ComfyUI_PuLID_Flux_ll",
         "git": "https://github.com/lldacing/ComfyUI_PuLID_Flux_ll",
-        "license": "Apache-2.0",
         "status": "active 2025 (fixes balazik's model pollution + attn_mask); SAME node ids as balazik/ComfyUI-PuLID-Flux - install only one",
         "pip": [
           "insightface",
@@ -128,7 +127,7 @@
         ]
       }
     ],
-    "defaults_note": "weight 1.0, start 0 / end 1, FluxGuidance 3.5 ('fake CFG' ~4 upstream; true CFG 'performs worse for photorealistic'), 10 steps euler/simple, 768x1024. Upstream: later start_at = more editability, less ID fidelity; 'ID fidelity may not be high for some male inputs'. Needs CUDA compute >= 8.0; fp8 e5m2 gives blurry backgrounds - use bf16/fp16 or e4m3fn. PuLID weights Apache-2.0 but 'must comply with the FLUX.1-dev model license' (non-commercial); insightface models non-commercial (lldacing offers FaceNet instead).",
+    "defaults_note": "weight 1.0, start 0 / end 1, FluxGuidance 3.5 ('fake CFG' ~4 upstream; true CFG 'performs worse for photorealistic'), 10 steps euler/simple, 768x1024. Upstream: later start_at = more editability, less ID fidelity; 'ID fidelity may not be high for some male inputs'. Needs CUDA compute >= 8.0; fp8 e5m2 gives blurry backgrounds - use bf16/fp16 or e4m3fn.",
     "vram_evidence": {
       "gpu": null,
       "at": "768x1024",

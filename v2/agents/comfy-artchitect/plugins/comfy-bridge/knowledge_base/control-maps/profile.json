@@ -3,15 +3,6 @@
   "id": "control-maps",
   "name": "Control maps (ComfyUI core: Canny, Lotus depth)",
   "publisher": "Comfy-Org (ComfyUI core)",
-  "license": {
-    "name": "GPL-3.0 (ComfyUI core); Lotus depth weights per their own licence (see controlnet)",
-    "commercial": true,
-    "notes": "a preprocessing stage: it makes the control signal another stage reads",
-    "src": [
-      "S-NODES-CANNY",
-      "S-LOTUS-TPL"
-    ]
-  },
   "cost": "free",
   "kind": [
     "preprocess"
@@ -141,7 +132,6 @@
   },
   "card": {
     "short_name": "ComfyUI control map",
-    "restriction": "",
     "recipes": [
       {
         "match": "^depth",

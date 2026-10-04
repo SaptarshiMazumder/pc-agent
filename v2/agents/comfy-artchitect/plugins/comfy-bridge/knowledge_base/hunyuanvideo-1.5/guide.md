@@ -1,15 +1,8 @@
 # HunyuanVideo 1.5 — the agent's guide
 
-Tencent's 8.3B open-weights video DiT (2025-11-20), free under the Tencent Hunyuan Community
-License. Text-to-video and image-to-video at native 480p / 720p, 5 s @24 fps, with an optional
-super-resolution stage to 1080p. Silent (no audio). Everything below was read from the official
-templates, the Tencent repo and the Comfy-Org repack on 2026-10-01; `profile.json` has the exact
-files, numbers and sources.
+Tencent's 8.3B open-weights video DiT (2025-11-20) Text-to-video and image-to-video at native 480p / 720p, 5 s @24 fps, with an optional super-resolution stage to 1080p. Silent (no audio). Everything below was read from the official templates, the Tencent repo and the Comfy-Org repack on 2026-10-01; `profile.json` has the exact files, numbers and sources.
 
-**Licence gate first:** the licence "DOES NOT APPLY IN THE EUROPEAN UNION, UNITED KINGDOM AND SOUTH
-KOREA" — the weights *and the outputs* may not be used there — and a product above 100 million
-monthly active users must request a licence from Tencent. Do not offer this family to EU/UK/Korean
-users; offer Wan 2.2 or LTX-2 instead.
+*UNITED KINGDOM AND SOUTH KOREA" — the weights *and the outputs* may not be used there offer Wan 2.2 or LTX-2 instead.
 
 ## When to pick it, and which recipe
 
@@ -95,4 +88,3 @@ What hurts: short prompts; re-describing the start image in I2V; counting on a n
 | I2V ignores the image | wire `start_image` **and** `clip_vision_output` (SigLIP, crop center); use the `_i2v_` file |
 | "Attempting to generate {n} frames" | length 121 |
 | faster but worse | EasyCache on — leave it bypassed for finals |
-| EU/UK/Korea user, or 100M MAU | licence excludes them — another family |

@@ -45,7 +45,15 @@ class OutputSizeEstimator:
         if fed is None:
             return None
         scale = value("scale")
-        return (int(fed[0] * scale), int(fed[1] * scale)) if scale else fed
+        if scale:
+            return int(fed[0] * scale), int(fed[1] * scale)
+        # A REFERENCE EDIT keeps its first image's SHAPE at a pixel budget (FLUX.2's megapixels):
+        # 1080x1350 in at 1 MP comes out about 894x1118.
+        mp = value("megapixels")
+        if mp:
+            k = (mp * 1_000_000 / (fed[0] * fed[1])) ** 0.5
+            return int(fed[0] * k), int(fed[1] * k)
+        return fed
 
 
 __all__ = ["OutputSizeEstimator"]

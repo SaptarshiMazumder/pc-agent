@@ -3,7 +3,7 @@
 Phase 1 of the protocol: the design, with no GPU. Each stage is a knowledge-base recipe (family +
 recipe + the port values to change + where each media input comes from) or, when no recipe covers
 the model, a graph written node by node (`nodes` + `outputs`). This writes every stage as an
-ordinary workflow beside `pipeline.json`, then validates the whole pipeline and returns the report.
+ordinary workflow (stages/ in the chat's folder), then validates the whole pipeline and returns the report.
 Replaces the chat's pipeline when one exists.
 """
 

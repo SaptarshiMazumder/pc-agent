@@ -83,7 +83,7 @@ function rows<T>(v: unknown, pick: (r: Record<string, unknown>) => T | null): T[
    price invited the question "so which am I being charged?". One unit, the one they actually
    have. */
 const price = (s: Service): string =>
-  s.credits > 0 ? `${s.credits.toLocaleString()} credits` : 'free — runs on the rented GPU'
+  s.credits > 0 ? `${s.credits.toLocaleString()} credits` : 'no credits — runs on your Comfy plan'
 
 export function AskPanel({
   item,

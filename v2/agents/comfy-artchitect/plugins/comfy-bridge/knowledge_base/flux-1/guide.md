@@ -1,20 +1,13 @@
 # FLUX.1 — the agent's guide
 
-Black Forest Labs' 12B rectified-flow image family (2024-08), free open weights. The default pick for
-a high-quality still from text, for instruction editing (Kontext), for inpaint/outpaint (Fill), for
-edge/depth-guided generation (Canny/Depth) and for image-style reference (Redux). Licence: everything
-but schnell is **FLUX.1 [dev] Non-Commercial v1.1.1** (model use non-commercial, outputs usable
-commercially, content filtering or output review required); **schnell is Apache-2.0**. Everything below
-was read from the official Comfy-Org templates, docs and BFL cards on 2026-10-01; `profile.json` holds
-the exact files, numbers and sources.
+Black Forest Labs' 12B rectified-flow image family (2024-08), free open weights. The default pick for a high-quality still from text, for instruction editing (Kontext), for inpaint/outpaint (Fill), for edge/depth-guided generation (Canny/Depth) and for image-style reference (Redux). Everything below was read from the official Comfy-Org templates, docs and BFL cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 
 - **Quality still, 24 GB card:** `t2i-dev` (bf16 dev, 20 steps). Best prompt following and quality in
   the family; needs the 9.8 GB `t5xxl_fp16` only with >32 GB system RAM — swap to `t5xxl_fp8_e4m3fn`.
 - **Under 24 GB, one file:** `t2i-dev-fp8` (17 GB all-in-one checkpoint, "quality slightly lower").
-- **Fast:** `t2i-schnell` / `t2i-schnell-fp8` (4 steps, Apache-2.0 — the only commercially licensed
-  FLUX.1) or `t2i-dev-turbo` (dev + Turbo-Alpha LoRA, 8 steps, community-confirmed, dev only).
+- **Fast:** `t2i-schnell` / `t2i-schnell-fp8` or `t2i-dev-turbo` (dev + Turbo-Alpha LoRA, 8 steps, community-confirmed, dev only).
 - **Photoreal people/scenes:** `t2i-krea-dev` — the Krea finetune was trained against the oversaturated
   "AI look"; drop-in for dev, 11.9 GB fp8_scaled.
 - **Edit an existing image by instruction:** `kontext-edit` (one image), `kontext-edit-multi` (two images
@@ -27,8 +20,7 @@ the exact files, numbers and sources.
   depth map estimated in-graph from an RGB image).
 - **"Make it look like this image":** `redux-dev` / `redux-dev-multi` (style/variation from 1-2 references;
   a prompt is optional).
-- **Not this family** for: negative prompts or real CFG (none — cfg is always 1), commercial self-hosting
-  of the dev line without a BFL licence, non-English Kontext prompts, FLUX.2-class text rendering.
+- **Not this family** for: negative prompts or real CFG (none — cfg is always 1), non-English Kontext prompts, FLUX.2-class text rendering.
 
 Stage composition the user usually wants: `t2i-dev` → `kontext-edit` for a tweak; a depth/canny map from
 a reference → `depth-lora-dev` / `canny-lora-dev`; a still → Wan/LTX for motion.
@@ -39,7 +31,6 @@ a reference → `depth-lora-dev` / `canny-lora-dev`; a still → Wan/LTX for mot
 |---|---|---|
 | `t2i-dev` / `t2i-dev-fp8` | prompt | 1024² still; UNET+DualCLIP+VAE path vs one fp8 checkpoint |
 | `t2i-dev-turbo` | prompt | dev at 8 steps with the Turbo-Alpha LoRA |
-| `t2i-schnell` / `t2i-schnell-fp8` | prompt (+ a CLIP-L keyword line on the full one) | 4-step still, Apache-2.0 |
 | `t2i-krea-dev` | prompt | photographic finetune, same graph as dev |
 | `kontext-edit` / `-multi` / `-multi-ref` | 1-2 images | instruction edit keeping identity/style |
 | `fill-inpaint` / `fill-outpaint` | image (+ alpha mask) / image + pad sizes | Fill model, guidance 30 |
@@ -102,4 +93,3 @@ tokens; non-English Kontext prompts; "Put him on a beach" without saying what st
 | LoRA weak on schnell | use dev/Krea |
 | fp8 no faster on a 30-series | expected; GGUF Q8_0 instead |
 | NVFP4 file slow / fails to load | Blackwell only; use fp8_scaled |
-| 401 on download | gated BFL repo — accept the licence, or use the Comfy-Org mirror |

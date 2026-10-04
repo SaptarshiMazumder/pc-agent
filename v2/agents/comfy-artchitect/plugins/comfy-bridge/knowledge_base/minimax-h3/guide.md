@@ -1,11 +1,6 @@
 # MiniMax H3 — the agent's guide
 
-> **LICENSE WARNING.** The open weights are under the *MiniMax H3 Community License*: **not licensed in the
-> USA, EU, UK or Korea** (outputs may not be used there either); products over **$20M yearly revenue** need
-> MiniMax's written authorization; commercial UIs must display **"Powered by MiniMax H3"**; and **commercial
-> use of locally generated outputs requires MiniMax's commercial license, sold only through Comfy** (Comfy
-> Cloud generations include it). Say this to the user before the first H3 render. The weights themselves are
-> free to download; `cost` is `free`.
+> EU, UK or Korea** (outputs may not be used there either); products over **$20M yearly revenue** need > MiniMax's written authorization; sold only through Comfy** (Comfy > Cloud generations include it). Say this to the user before the first H3 render. The weights themselves are > free to download; `cost` is `free`.
 
 Open-weights omni-modal video model (MiniMax, open since 2026-08-03): one pass produces 24 fps video **with
 native stereo audio** — dialogue, SFX and music together. Two checkpoints: **FL2VA** (text, first frame,
@@ -19,9 +14,7 @@ numbers and sources.
 - **Pick H3** when the clip needs **sound** (speech in 11 languages, lip-sync, SFX, score), **on-screen
   text that must read cleanly**, **multi-shot timed cuts** in one clip, or **identity/voice lock from several
   references**. Wan 2.2 cannot do any of these.
-- **Do not pick H3** when the user is in an excluded territory or needs commercial rights without buying the
-  license; when they want 2K native (API only — generate 768p and upscale separately); when they need a
-  negative prompt or CFG steering (none exists); or when the box cannot spare ~40 GB of disk.
+- when they want 2K native (API only — generate 768p and upscale separately); when they need a negative prompt or CFG steering (none exists); or when the box cannot spare ~40 GB of disk.
 - **Our box (60 GB disk; 32 GB RTX 5090 or 96 GB RTX PRO 6000):** every recipe uses the **pruned
   int8_convrot** checkpoint (21.0 GB) + NVFP4 encoder (15.7 GB) + two VAEs (3.4 GB) = **40.1 GB** — so only
   **one** of FL2VA / Ref2VA fits at a time (both = 61 GB). The 32 GB card holds 10 s at 864×480 (28.6 GB

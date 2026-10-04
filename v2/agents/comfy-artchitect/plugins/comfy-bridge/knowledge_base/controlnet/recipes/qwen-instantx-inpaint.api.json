@@ -105,7 +105,7 @@
       "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
     ],
     "packs": [],
-    "defaults_note": "20 steps, cfg 2.5 (Qwen team 50 / 4.0; Lightning 4 / 1.0), euler/simple, shift 3.1, strength 1, mask blur 31. Negative ' '. Apache-2.0.",
+    "defaults_note": "20 steps, cfg 2.5 (Qwen team 50 / 4.0; Lightning 4 / 1.0), euler/simple, shift 3.1, strength 1, mask blur 31. Negative ' '.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

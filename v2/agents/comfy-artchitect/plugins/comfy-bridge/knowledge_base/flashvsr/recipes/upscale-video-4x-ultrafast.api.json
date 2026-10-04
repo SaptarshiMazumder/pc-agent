@@ -3,7 +3,7 @@
     "id": "upscale-video-4x-ultrafast",
     "family": "flashvsr",
     "task": "upscale-video",
-    "variant": "lihaoyun6 ComfyUI-FlashVSR_Ultra_Fast (GPL-3.0, the original wrapper; RTX 50 support via Sparse_Sage since 2025-10-22), v1.1 weights, 4x, mode tiny, bf16, tiled VAE + tiled DiT (the node defaults)",
+    "variant": "lihaoyun6 ComfyUI-FlashVSR_Ultra_Fast, v1.1 weights, 4x, mode tiny, bf16, tiled VAE + tiled DiT (the node defaults)",
     "from_template": "No Comfy-Org local template. Graph as the pack README documents (dossier 4a): FlashVSRInitPipe -> FlashVSRNodeAdv with the nodes.py defaults; scale raised from the node default 2 to 4 per the README ('4 is always better, unless you are low on VRAM then use 2').",
     "min_comfyui": null,
     "min_comfyui_note": "NOT FOUND (neither pack states a ComfyUI minimum); the native spine nodes exist in v0.35.0",

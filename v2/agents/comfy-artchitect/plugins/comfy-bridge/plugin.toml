@@ -1,40 +1,24 @@
-# comfy-bridge — every call this agent makes to a ComfyUI instance.
+# comfy-bridge — every call this agent makes to ComfyUI, which is Comfy Cloud (cloud.comfy.org).
 #
-# THE HOST IS A FILE, NOT A SETTING. It used to be `${COMFYUI_URL}`, filled in by whoever ran the
-# agent. The instance is now PROVISIONED — vast-bridge rents one per user and writes its address
-# to .studio/connection.json — so this plugin reads that file and reaches whatever it names. A
-# fixed allowlist could never have expressed it either way: the address is a rented box that did
-# not exist when this file was written.
-#
-# WHICH IS WHY `net` IS EMPTY. There is no placeholder host left to declare.
-#
-# THE RESEARCH CREDENTIALS ARE STILL NAMES. `[sandbox] secrets` lists what may ride along; the
-# host substitutes each `${…}` at the last moment. This code cannot read any of their values,
-# cannot keep one, and cannot post one to a host it was not granted.
+# THE CREDENTIALS ARE NAMES. `[sandbox] secrets` lists what may ride along; the host substitutes
+# each `${…}` at the last moment. This code cannot read any of their values, cannot keep one, and
+# cannot post one to a host it was not granted.
 
 id          = "comfy-bridge"
 name        = "ComfyUI Bridge"
 kind        = "native"
 entry       = "comfy_bridge:register"
-description = "Probe a ComfyUI instance, read what it has installed, research what a model needs, emit workflows, submit them and report what came back."
+description = "Design ComfyUI workflows, check them against Comfy Cloud, run them there and bring the results back."
 
 [sandbox]
-# The instance address is no setting: the rented GPU's arrives in .studio/connection.json from
-# vast-bridge, a chat's own in .studio/connections/<chat>.json from comfy_connect.
-# The platform's address, as a NAME the host folds in — for the lease a render or a model
-# download takes against the GPU's idle timer (see comfy_bridge._lease).
-net     = ["${AGENTD_ACCOUNTS_URL}"]
-# COMFY_API_KEY rides in the /prompt BODY (extra_data.api_key_comfy_org) rather than a
-# header — the host substitutes it there now, so this plugin names it and never holds it.
-# AGENTD_PLATFORM_TOKEN authorises the lease, the credit gate and the debit — the host resolves
-# it to the internal service key (hosted) or the signed-in person's own token (desktop). It has
-# to be DECLARED even though the value never arrives here: the broker refuses a ${NAME} a
-# plugin did not list, so an undeclared one fails as "undeclared secret" rather than as the
-# 401 you would expect, which reads like a credential problem and is not one.
-# USER_* are the person's own keys, used only on the ComfyUI they connected themselves — the
-# platform's three never go to a machine the platform does not run (comfy_bridge.comfy_run/install).
-secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "COMFY_API_KEY", "AGENTD_PLATFORM_TOKEN",
-           "USER_COMFY_API_KEY", "USER_HF_TOKEN", "USER_CIVITAI_TOKEN", "USER_VAST_API_KEY"]
+# Comfy Cloud, and the platform's address as a NAME the host folds in (comfy_price reads the
+# credit rate there).
+net     = ["https://cloud.comfy.org", "${AGENTD_ACCOUNTS_URL}"]
+# USER_COMFY_API_KEY: the person's Comfy key — every Comfy Cloud call carries it (X-API-Key), and a
+# paid partner node in a run is paid with it. HF_TOKEN / CIVITAI_TOKEN: comfy_research reads a gated
+# model page with the platform's token, only ever on that site's own host.
+# USER_CIVITAI_TOKEN: the person's Civitai key — only ever inside a civitai.com download link.
+secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "USER_COMFY_API_KEY", "USER_CIVITAI_TOKEN"]
 # WHAT ITS TOOLS READ FROM THE WORKSPACE — and so what a microVM is shipped per call. The
 # workspace is the account's: every chat's reference photos and every render ever downloaded
 # live in it, and shipping all of it (140 MB, four calls at once) is what OOM-killed the hosted

@@ -3,7 +3,7 @@
     "id": "t2i-klein-4b-base",
     "family": "flux-2",
     "task": "t2i",
-    "variant": "FLUX.2 [klein] 4B Base (undistilled, Apache-2.0) bf16: CFGGuider cfg 5 with a real negative prompt, Flux2Scheduler 20 steps, flux2-vae — the template's active subgraph",
+    "variant": "FLUX.2 [klein] 4B Base bf16: CFGGuider cfg 5 with a real negative prompt, Flux2Scheduler 20 steps, flux2-vae — the template's active subgraph",
     "from_template": "image_flux2_klein_text_to_image ('Text to Image (Flux.2 Klein 4B)' subgraph, active)",
     "min_comfyui": "0.3.72",
     "confidence": "official",

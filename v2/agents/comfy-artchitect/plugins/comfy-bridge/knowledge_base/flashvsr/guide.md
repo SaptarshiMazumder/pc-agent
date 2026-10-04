@@ -1,11 +1,6 @@
 # FlashVSR — the agent's guide
 
-OpenImagingLab's streaming 4× video super-resolution (a DMD-distilled Wan 2.1 1.3B DiT with locality-constrained
-sparse attention and a tiny conditional decoder), Apache 2.0 weights, free. **No core nodes**: every local
-recipe needs a community pack, and Phase 2 must install it before the graph can run. It is an **enhancement
-stage** for video only: another stage's clip comes in through `@video`, a 4× clip comes out. It takes no prompt.
-Read from the official repo, the v1.1 model card and the packs' sources on 2026-10-01; `profile.json` holds the
-exact files, numbers and sources.
+OpenImagingLab's streaming 4× video super-resolution (a DMD-distilled Wan 2.1 1.3B DiT with locality-constrained sparse attention and a tiny conditional decoder), free. **No core nodes**: every local recipe needs a community pack, and Phase 2 must install it before the graph can run. It is an **enhancement stage** for video only: another stage's clip comes in through `@video`, a 4× clip comes out. It takes no prompt. Read from the official repo, the v1.1 model card and the packs' sources on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and when not
 
@@ -24,9 +19,7 @@ deliverable is 1080p.
 
 | recipe | pack | does | VRAM |
 |---|---|---|---|
-| `upscale-video-4x` | LacklusterOpsec/ComfyUI-Lackluster-FlashVSR (MIT, registry ComfyUI-FlashVSR_Stable) | v1.1, full mode (Wan 2.1 VAE decode), bf16, Sparse_Sage, no tiling/chunking | the pack's 24 GB+ row |
 | `upscale-video-4x-16gb` | same pack | tiny mode (TCDecoder), tiled VAE+DiT, unload_dit, 50-frame chunks; ports carry the 12 GB (fp16, LightVAE) and 8 GB (tiny-long, LightTAE, 16–32-frame chunks) rows | 16 GB row |
-| `upscale-video-4x-ultrafast` | lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast (GPL-3.0, the original) | node defaults at scale 4: tiny, tiled, bf16; no chunking, no alt-VAE catalogue | NOT FOUND |
 
 Install exactly one of the two packs: they register the same class ids (FlashVSRNode / FlashVSRNodeAdv /
 FlashVSRInitPipe). 1038lab/ComfyUI-FlashVSR (presets, independent ids, own repack) is documented under

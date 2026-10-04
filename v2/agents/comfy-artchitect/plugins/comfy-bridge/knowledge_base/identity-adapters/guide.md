@@ -19,15 +19,12 @@ Facts, files, bytes and sources are in `profile.json` (read 2026-10-01).
 
 | want | host | recipe | needs | why / cost |
 |---|---|---|---|---|
-| keep a character, no extra packs | FLUX.1 | `uso-subject-flux1` | flux1-dev-fp8 checkpoint + 0.48 GB LoRA | the default identity route on this image; Apache-2.0 weights (FLUX.1-dev host is non-commercial) |
 | same character in a reference style | FLUX.1 | `uso-subject-style-flux1` | + SigLIP 0.86 GB + 20 MB projector | "keep your character's face while changing artistic style" |
 | copy a look, no face | FLUX.1 | `uso-style-flux1` | SigLIP + projector | style only; chain more style images for more strength |
 | image prompting / variations | FLUX.1 | `redux-style-flux1` | 129 MB Redux + SigLIP; flux1-dev bf16 (fp8 via weight_dtype) | works with no prompt at all; not a face method |
 | strongest face likeness on FLUX | FLUX.1 | `pulid-flux1` | lldacing pack, pulid_flux_v0.9.1, EVA-CLIP, antelopev2 | ~22 GB fp16 / ~12 GB fp8; weaker on some male faces |
-| ControlNet-style face control | FLUX.1 | `infiniteyou-flux1` | ByteDance pack, InfuseNet fp8 2.95 GB, antelopev2 | ~24 GB fp8; CC-BY-NC (non-commercial) |
 | face + exact pose on SDXL | SDXL | `instantid-sdxl`, `instantid-sdxl-depth` | cubiq pack, ip-adapter.bin 1.69 GB + IdentityNet 2.5 GB, antelopev2 | keypoint lock; 1016x1016, CFG 4-5 |
 | tuning-free face on SDXL | SDXL | `pulid-sdxl` | cubiq pack, 0.79 GB, EVA-CLIP, antelopev2 | fidelity / style modes |
-| face through IP-Adapter | SDXL | `ipadapter-faceid-sdxl` | IP-Adapter pack, FaceID Plus V2 1.49 GB + LoRA, ViT-H, buffalo_l | no HF license field on FaceID |
 | style / composition prompting | SDXL, SD1.5 | `ipadapter-sdxl`, `ipadapter-sd15` | IP-Adapter pack, PLUS adapter, ViT-H 2.5 GB | the classic; weight <= 0.8 for prompt adherence |
 
 Pending / elsewhere: PuLID-Flux2 (FLUX.2 only, single-source project); XLabs / InstantX FLUX
@@ -86,4 +83,3 @@ with no reference images is a plain subject-driven FLUX graph.
 | weak likeness on a male face (PuLID) | raise weight / earlier start; or InstantID (SDXL) / InfiniteYou (FLUX) |
 | InstantID burn / watermark / copied pose | CFG 4-5, 1016x1016, Advanced node noise ~0.35, image_kps |
 | USO character fills the frame / loses features | 512 px reference (1024 for head-only) |
-| commercial job | InfiniteYou is CC-BY-NC; FLUX.1-dev adapters are non-commercial; insightface is non-commercial — lldacing's FaceNet option is the only commercial-friendly embedder here |

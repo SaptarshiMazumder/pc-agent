@@ -1,10 +1,6 @@
 # Kandinsky 5.0 Video — the agent's guide
 
-Kandinsky Lab's (Sber) open-weights video family, **MIT** licence, free for anything. Video **Lite** is
-a 2B DiT (4.6 GB) that does text-to-video and image-to-video at 768×512, 5 s or 10 s @24 fps, from
-**English or Russian** prompts; Video **Pro** is a 19B DiT (43 GB bf16) with no ComfyUI template yet.
-Silent (no audio). Everything below was read from the official templates, the kandinskylab repo and
-configs on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+Kandinsky Lab's (Sber) open-weights video family, free for anything. Video **Lite** is a 2B DiT (4.6 GB) that does text-to-video and image-to-video at 768×512, 5 s or 10 s @24 fps, from **English or Russian** prompts; Video **Pro** is a 19B DiT (43 GB bf16) with no ComfyUI template yet. Silent (no audio). Everything below was read from the official templates, the kandinskylab repo and configs on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 
@@ -86,4 +82,3 @@ implying stillness or backwards motion (both in the publisher's own negative).
 | Pro will not fit | use Lite; Pro recipe pending |
 | wrong folders / missing nodes | the publisher's old custom-node layout mixed with the native templates — use the native layout only |
 | camera LoRA will not load | Comfy compatibility NOT FOUND; describe the move in prose |
-| "it's Apache 2.0" | the repositories say MIT |

@@ -58,7 +58,7 @@
       "mistral_3_small_flux2_bf16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "8 steps, LoRA strength 1, FluxGuidance kept at the template's 4 (fal recommends 2.5 with its custom sigmas; the template uses Flux2Scheduler). 'Remember to set the steps to 8'. Licence: inherits FLUX [dev] Non-Commercial.",
+    "defaults_note": "8 steps, LoRA strength 1, FluxGuidance kept at the template's 4 (fal recommends 2.5 with its custom sigmas; the template uses Flux2Scheduler). 'Remember to set the steps to 8'.",
     "vram_evidence": {
       "gpu": "24 GB with offload (fp8); 15 GB per ComfyUI",
       "note": "ComfyUI (X, 2025-11-25): 'FLUX.2 Dev FP8 from NVIDIA ... reducing the VRAM requirements by 50% down to 15GB'; blog: FP8 'reduces requirements by 40%'; community: fits a 24 GB card with offload, '24GB+ strongly recommended for high-resolution work', 64-96 GB system RAM reported. The 35.6 GB bf16 Mistral encoder is the other half of the budget: CLIPLoader.device = cpu or the fp8/fp4 encoder.",

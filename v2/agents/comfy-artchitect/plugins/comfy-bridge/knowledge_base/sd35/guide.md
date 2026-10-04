@@ -1,19 +1,12 @@
 # Stable Diffusion 3.5 — the agent's guide
 
-Stability AI's 2024 MMDiT image family: **Large** (8B, 1 MP, the quality model), **Large Turbo** (4-step
-distillation), **Medium** (2.5B, 0.25–2 MP, consumer cards) and three **Large-only ControlNets** (canny,
-depth, blur). Free weights under the **Stability AI Community License**: free for research and for
-commercial use under US$1M annual revenue (register, keep the notice, show "Powered by Stability AI");
-above US$1M the license terminates. Everything below was read from the official Comfy-Org templates,
-Stability's reference code and the Comfy-Org repack on 2026-10-01; `profile.json` holds files, numbers, sources.
+Stability AI's 2024 MMDiT image family: **Large** (8B, 1 MP, the quality model), **Large Turbo** (4-step distillation), **Medium** (2.5B, 0.25–2 MP, consumer cards) and three **Large-only ControlNets** (canny, depth, blur). Everything below was read from the official Comfy-Org templates, Stability's reference code and the Comfy-Org repack on 2026-10-01; `profile.json` holds files, numbers, sources.
 
 ## When to pick it, and which recipe
 
 - **Text-to-image with strong prompt adherence and typography, no gating hassle:** `t2i-large` — the
   ungated Comfy-Org fp8 all-in-one (encoders inside), one checkpoint loader, 20 steps, cfg 4.01, 1024².
-- **Maximum fidelity, user has an HF account:** `t2i-large-triple-clip` — the original fp16 weights plus
-  `TripleCLIPLoader(clip_l, clip_g, t5xxl)`. The original checkpoints carry **no text encoders**; the
-  all-in-one is the only file that does. The originals are **gated** (HF login + license acceptance).
+- **Maximum fidelity, user has an HF account:** `t2i-large-triple-clip` — the original fp16 weights plus `TripleCLIPLoader(clip_l, clip_g, t5xxl)`. The original checkpoints carry **no text encoders**; the all-in-one is the only file that does. The originals are **gated**.
 - **Speed:** `t2i-large-turbo` — 4 steps, cfg 1.2, nothing else changes. Gated like the original; the
   ungated route is city96's GGUF (needs the ComfyUI-GGUF pack, pending).
 - **Small card / fast drafts:** `t2i-medium`; for people, hands and busy compositions `t2i-medium-slg`
@@ -91,4 +84,3 @@ a ControlNet on Medium.
 | colour banding | empty the negative |
 | T5 eats the RAM | fp8-scaled T5 |
 | blur recipe repaints instead of refining | the input must be pre-blurred (GaussianBlur kernel 50) |
-| "is this commercial-OK?" | yes under US$1M revenue with registration + "Powered by Stability AI"; enterprise license above |

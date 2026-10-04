@@ -3,19 +3,6 @@
   "id": "controlnet",
   "name": "ControlNet and structural control adapters (SD1.5 / SDXL / FLUX.1 / SD3.5 / Qwen-Image / Z-Image)",
   "publisher": "lllyasviel (SD1.5 v1.1); xinsir (SDXL union); Stability AI (SD3.5 nets, Control-LoRA); Black Forest Labs (FLUX.1 Canny/Depth); InstantX / Shakker-Labs / XLabs (FLUX unions); InstantX + DiffSynth-Studio + alibaba-pai (Qwen-Image); alibaba-pai (Z-Image Fun)",
-  "license": {
-    "name": "per model (see files[].license)",
-    "commercial": "depends on the net: Apache-2.0 (xinsir, Qwen InstantX/DiffSynth/2512 Fun, Z-Image Fun); Stability Community License (SD3.5, free under US$1M revenue); FLUX.1 [dev] Non-Commercial (every FLUX ControlNet: BFL, InstantX, Shakker, XLabs); openrail (SD1.5 v1.1); Qwen Research License (Qwen-2.1 Fun, not Apache)",
-    "notes": "a control adapter inherits nothing from its host but runs with it: a FLUX.1 ControlNet on FLUX.1-dev is non-commercial twice over",
-    "src": [
-      "S-HF-BFL-CANNY",
-      "S-HF-SD35-CN",
-      "S-HF-XINSIR",
-      "S-HF-QWEN-INSTANTX-REPACK",
-      "S-HF-QWEN21-FUN",
-      "S-HF-CN11"
-    ]
-  },
   "cost": "free",
   "kind": [
     "control"
@@ -53,7 +40,7 @@
       "src": "S-EXAMPLES-CN"
     },
     {
-      "what": "commercial use with any FLUX.1 ControlNet (BFL, InstantX, Shakker, XLabs): FLUX.1 [dev] Non-Commercial License",
+      "what": "InstantX, Shakker",
       "src": [
         "S-HF-BFL-CANNY",
         "S-HF-INSTANTX-FLUX-UNION",
@@ -78,7 +65,7 @@
       "src": "S-EXAMPLES-CN"
     },
     {
-      "what": "Anima ControlNet-LLLite: license NOT FOUND, not profiled here (template image_anima_lllite_depth_control_to_image, AnimaLLLiteApply)",
+      "what": "not profiled here (template image_anima_lllite_depth_control_to_image, AnimaLLLiteApply)",
       "src": "S-TPL-ANIMA-LLLITE"
     }
   ],
@@ -98,7 +85,6 @@
       "host": "flux-1",
       "control": "canny",
       "precision": "bf16",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [
         "flux1-canny-full"
       ],
@@ -117,7 +103,6 @@
       "host": "flux-1",
       "control": "depth",
       "precision": "bf16",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "full Depth model; the same graph as flux1-canny-full with a depth map in place of Canny (no template; the depth LoRA recipe is the official one). Comfy-Org also hosts flux1-depth-dev-nvfp4.safetensors (8,853,755,624 B)",
       "src": "S-HF-BFL-DEPTH"
@@ -130,7 +115,6 @@
       "url": "https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev-lora/resolve/main/flux1-canny-dev-lora.safetensors",
       "host": "flux-1",
       "control": "canny",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "LoraLoaderModelOnly on flux1-dev + InstructPixToPixConditioning, exactly like flux1-depth-lora with Canny in place of the Lotus chain",
       "src": "S-HF-BFL-CANNY-LORA"
@@ -143,7 +127,6 @@
       "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/loras/flux1-depth-dev-lora.safetensors",
       "host": "flux-1",
       "control": "depth",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [
         "flux1-depth-lora"
       ],
@@ -160,7 +143,6 @@
       "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors",
       "host": "flux-1",
       "precision": "fp8 (all-in-one checkpoint: transformer + both text encoders + VAE)",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [
         "flux1-depth-lora"
       ],
@@ -226,7 +208,6 @@
       "url": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Union/resolve/main/diffusion_pytorch_model.safetensors",
       "host": "flux-1",
       "control": "union (canny, tile, depth, blur, pose, gray, low quality)",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "no Comfy-Org template (NOT FOUND); ControlNetLoader -> SetUnionControlNetType (index-by-position, see rules) -> ControlNetApplyAdvanced with vae. Rename on disk (generic filename).",
       "src": "S-HF-INSTANTX-FLUX-UNION"
@@ -239,7 +220,6 @@
       "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro/resolve/main/diffusion_pytorch_model.safetensors",
       "host": "flux-1",
       "control": "union",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "same 7 modes 'trained with more steps and datasets'; recommended conditioning scale 0.3-0.8; fp8: Kijai/flux-fp8 flux_shakker_labs_union_pro-fp8_e4m3fn.safetensors 3,301,998,248 B",
       "src": "S-HF-SHAKKER-PRO"
@@ -252,7 +232,6 @@
       "url": "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/main/diffusion_pytorch_model.safetensors",
       "host": "flux-1",
       "control": "canny, soft edge, depth, pose, gray (no tile)",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "'Mode embedding removed' - SetUnionControlNetType is a no-op; per-mode strength canny 0.7 / soft edge 0.7 / depth 0.8 / pose 0.9 / gray 0.9, end_percent 0.8 (0.65 pose)",
       "src": [
@@ -268,7 +247,6 @@
       "url": "https://huggingface.co/XLabs-AI/flux-controlnet-collections/resolve/main/flux-canny-controlnet-v3.safetensors",
       "host": "flux-1",
       "control": "canny",
-      "license": "FLUX.1 [dev] Non-Commercial License",
       "recipes": [],
       "note": "native ControlNetLoader loads XLabs nets (load_controlnet_flux_xlabs_mistoline); depth (midas) and hed v3 are the same size",
       "src": "S-HF-XLABS-CN"
@@ -281,7 +259,6 @@
       "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-fp8/resolve/main/sd3.5_large_fp8_scaled.safetensors",
       "host": "sd35",
       "precision": "fp8_scaled",
-      "license": "Stability Community License",
       "recipes": [
         "sd35-canny",
         "sd35-depth",
@@ -297,7 +274,6 @@
       "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_canny.safetensors",
       "host": "sd35",
       "control": "canny",
-      "license": "Stability Community License (free; commercial up to US$1M annual revenue)",
       "recipes": [
         "sd35-canny"
       ],
@@ -315,7 +291,6 @@
       "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_depth.safetensors",
       "host": "sd35",
       "control": "depth",
-      "license": "Stability Community License",
       "recipes": [
         "sd35-depth"
       ],
@@ -333,7 +308,6 @@
       "url": "https://huggingface.co/Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged/resolve/main/split_files/controlnet/sd3.5_large_controlnet_blur.safetensors",
       "host": "sd35",
       "control": "blur",
-      "license": "Stability Community License",
       "recipes": [
         "sd35-blur"
       ],
@@ -351,7 +325,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors",
       "host": "qwen-image",
       "precision": "fp8_e4m3fn",
-      "license": "Apache-2.0",
       "recipes": [
         "qwen-instantx-union-depth",
         "qwen-instantx-inpaint",
@@ -368,7 +341,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
       "host": "qwen-image",
       "precision": "fp8_e4m3fn",
-      "license": "Apache-2.0",
       "recipes": [
         "qwen2512-fun-union-canny"
       ],
@@ -429,7 +401,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors",
       "host": "qwen-image",
       "control": "union (canny, soft edge, depth, pose)",
-      "license": "Apache-2.0",
       "recipes": [
         "qwen-instantx-union-depth"
       ],
@@ -447,7 +418,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
       "host": "qwen-image",
       "control": "inpaint / outpaint",
-      "license": "Apache-2.0",
       "recipes": [
         "qwen-instantx-inpaint"
       ],
@@ -462,7 +432,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_canny_diffsynth_controlnet.safetensors",
       "host": "qwen-image",
       "control": "canny",
-      "license": "Apache-2.0 (repack)",
       "recipes": [
         "qwen-diffsynth-canny"
       ],
@@ -477,7 +446,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_depth_diffsynth_controlnet.safetensors",
       "host": "qwen-image",
       "control": "depth",
-      "license": "Apache-2.0 (repack)",
       "recipes": [],
       "note": "swap into qwen-diffsynth-canny with a depth map (Lotus chain or aux pack) in place of Canny",
       "src": "S-HF-QWEN-DIFFSYNTH"
@@ -490,7 +458,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/model_patches/qwen_image_inpaint_diffsynth_controlnet.safetensors",
       "host": "qwen-image",
       "control": "inpaint",
-      "license": "Apache-2.0 (repack)",
       "recipes": [],
       "note": "QwenImageDiffsynthControlnet with its optional mask input",
       "src": "S-HF-QWEN-DIFFSYNTH"
@@ -503,7 +470,6 @@
       "url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/resolve/main/split_files/loras/qwen_image_union_diffsynth_lora.safetensors",
       "host": "qwen-image",
       "control": "union LoRA (canny, depth, lineart, softedge, normal, openpose)",
-      "license": "Apache-2.0 (repack)",
       "recipes": [
         "qwen-union-lora-canny"
       ],
@@ -518,7 +484,6 @@
       "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2512-Fun-Controlnet-Union/resolve/main/Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
       "host": "qwen-image",
       "control": "union (Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale)",
-      "license": "Apache-2.0",
       "recipes": [
         "qwen2512-fun-union-canny"
       ],
@@ -533,7 +498,6 @@
       "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union/resolve/main/Qwen-Image-2.1-Fun-Controlnet-Union.safetensors",
       "host": "qwen-image 2.1",
       "control": "union (8 conditions + inpaint)",
-      "license": "Qwen Research License (NOT Apache)",
       "recipes": [],
       "note": "native loading needs ComfyUI >= v0.38.0 (above the 0.35.0 image); no Comfy-Org template (NOT FOUND)",
       "src": [
@@ -549,7 +513,6 @@
       "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
       "host": "z-image",
       "precision": "bf16",
-      "license": "Apache-2.0",
       "recipes": [
         "zimage-fun-union-canny"
       ],
@@ -576,7 +539,6 @@
       "url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors",
       "host": "z-image",
       "control": "union 1.0 (Canny, HED, Depth, Pose, MLSD)",
-      "license": "Apache-2.0",
       "recipes": [
         "zimage-fun-union-canny"
       ],
@@ -605,7 +567,6 @@
       "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors",
       "host": "sdxl",
       "control": "union ProMax (openpose, depth, hed/pidi/scribble/ted, canny/lineart/anime_lineart/mlsd, normal, segment, tile, repaint)",
-      "license": "Apache-2.0",
       "recipes": [
         "sdxl-union-xinsir"
       ],
@@ -623,7 +584,6 @@
       "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors",
       "host": "sdxl",
       "control": "union (6 types, no tile/repaint)",
-      "license": "Apache-2.0",
       "recipes": [],
       "note": "rename on disk (e.g. controlnet-union-sdxl-1.0.safetensors); picking tile/repaint raises 'Control type ... is out of range ... Please consider using the ProMax ControlNet Union model'",
       "src": "S-HF-XINSIR"
@@ -636,7 +596,6 @@
       "url": "https://huggingface.co/stabilityai/control-lora/resolve/main/control-LoRAs-rank256/control-lora-canny-rank256.safetensors",
       "host": "sdxl",
       "control": "canny",
-      "license": "other (Stability)",
       "recipes": [],
       "note": "'used exactly the same way as the regular ControlNet model files'; depth 774,445,779 / recolor 774,446,618 / sketch 774,454,911 B in the same folder",
       "src": "S-HF-CONTROL-LORA"
@@ -649,7 +608,6 @@
       "url": "https://huggingface.co/TheMistoAI/MistoLine/resolve/main/mistoLine_rank256.safetensors",
       "host": "sdxl",
       "control": "lineart (anyline)",
-      "license": "openrail++",
       "recipes": [],
       "note": "pairs with AnyLineArtPreprocessor_aux; mistoLine_fp16.safetensors 2,502,139,104 B",
       "src": "S-HF-MISTOLINE"
@@ -662,7 +620,6 @@
       "url": "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0/resolve/main/diffusion_pytorch_model.fp16.safetensors",
       "host": "sdxl",
       "control": "canny",
-      "license": "openrail++",
       "recipes": [],
       "note": "classic single-type SDXL net; depth twin 2,502,139,134 B; rename on disk",
       "src": "S-HF-DIFFUSERS-XL"
@@ -705,7 +662,6 @@
       "url": "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_scribble_fp16.safetensors",
       "host": "sd15",
       "control": "scribble",
-      "license": "openrail (lllyasviel originals); the fp16 repack has no license field",
       "recipes": [
         "sd15-scribble-canny"
       ],
@@ -757,7 +713,6 @@
       "url": "https://huggingface.co/TencentARC/T2I-Adapter/resolve/main/models/t2iadapter_depth_sd14v1.pth",
       "host": "sd15",
       "control": "depth (T2I-Adapter)",
-      "license": "NOT FOUND (no license field)",
       "recipes": [],
       "note": "same ControlNetLoader/apply nodes; 'runs once in total' vs ControlNet every step; ComfyUI_examples depth_t2i_adapter graph",
       "src": [
@@ -984,7 +939,7 @@
       "host": "flux-1",
       "control": "pose / tile / blur / gray (union)",
       "recipe": null,
-      "status": "pending: no Comfy-Org template for the InstantX / Shakker FLUX unions (NOT FOUND); graph = ControlNetLoader -> SetUnionControlNetType (index-by-position) -> ControlNetApplyAdvanced with vae; files listed, non-commercial",
+      "status": "pending: no Comfy-Org template for the InstantX / Shakker FLUX unions (NOT FOUND); graph = ControlNetLoader -> SetUnionControlNetType (index-by-position) -> ControlNetApplyAdvanced with vae; files listed",
       "src": [
         "S-DOCS-FLUX-CN",
         "S-GH-4823"
@@ -1065,7 +1020,7 @@
       "host": "qwen-image 2.1",
       "control": "union",
       "recipe": null,
-      "status": "needs ComfyUI >= 0.38.0, above the pinned image (Qwen-Image-2.1-Fun-Controlnet-Union; Qwen Research License)",
+      "status": "needs ComfyUI >= 0.38.0, above the pinned image",
       "src": [
         "S-CN-REL",
         "S-HF-QWEN21-FUN"
@@ -1119,7 +1074,7 @@
       "host": "sd15",
       "control": "depth (T2I-Adapter)",
       "recipe": null,
-      "status": "pending: ComfyUI_examples depth_t2i_adapter graph (ControlNetLoader t2iadapter_depth_sd14v1.pth, raw depth map, 832x384, 20 steps cfg 8 uni_pc_bh2) - archived example only, license NOT FOUND",
+      "status": "pending: ComfyUI_examples depth_t2i_adapter graph (ControlNetLoader t2iadapter_depth_sd14v1.pth, raw depth map, 832x384, 20 steps cfg 8 uni_pc_bh2) - archived example only",
       "src": "S-EXAMPLES-CN"
     },
     {
@@ -2072,16 +2027,6 @@
       "cause": "needs ComfyUI >= 0.38.0 (third-party packs >= 0.37.0)",
       "fix": "not available on the 0.35.0 image; use the 2512 Fun union or InstantX union",
       "src": "S-CN-REL"
-    },
-    {
-      "symptom": "license surprise",
-      "cause": "FLUX ControlNets inherit FLUX.1-dev Non-Commercial; Qwen-2.1 Fun is Qwen Research License; SD3.5 is Community License",
-      "fix": "for commercial work prefer xinsir (SDXL), Qwen InstantX / DiffSynth / 2512 Fun, Z-Image Fun (Apache-2.0)",
-      "src": [
-        "S-HF-BFL-CANNY",
-        "S-HF-QWEN21-FUN",
-        "S-HF-SD35-CN"
-      ]
     }
   ],
   "sources": {
@@ -2458,17 +2403,14 @@
   },
   "card": {
     "short_name": "ControlNet",
-    "restriction": "",
     "recipes": [
       {
         "match": "^flux1",
-        "short_name": "FLUX.1 + control",
-        "restriction": "non-commercial use only"
+        "short_name": "FLUX.1 + control"
       },
       {
         "match": "^sd35",
-        "short_name": "SD3.5 + ControlNet",
-        "restriction": "free under $1M annual revenue"
+        "short_name": "SD3.5 + ControlNet"
       },
       {
         "match": "^qwen",

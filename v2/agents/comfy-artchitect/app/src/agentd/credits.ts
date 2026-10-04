@@ -22,17 +22,7 @@ import { AGENT_ID } from './client'
 /** How long after a run to re-read, covering the proxy's late debit. */
 const SETTLE_MS = 1500
 
-/** How often the balance is re-read while a GPU is running for this account: the meter
- *  charges every minute, and a number that only moved when a message ended would sit still
- *  through an hour of rental. */
-const GPU_TICK_MS = 60_000
-
-export function useCredits(
-  client: AgentdClient,
-  running: boolean,
-  /** A machine is being paid for right now, so the balance is moving with nothing said. */
-  metering = false,
-): number | null {
+export function useCredits(client: AgentdClient, running: boolean): number | null {
   const [credits, setCredits] = useState<number | null>(null)
 
   useEffect(() => {
@@ -53,17 +43,15 @@ export function useCredits(
     // A run that just ENDED spent something. `running` flipping false is the trigger; the timer
     // covers a debit that settles after it.
     const timer = running ? null : setTimeout(read, SETTLE_MS)
-    const tick = metering ? setInterval(read, GPU_TICK_MS) : null
     // A top-up happens in the credits panel, outside this component — without this the strip would
     // keep showing the pre-purchase balance until the next message.
     const off = onCreditsChanged(read)
     return () => {
       alive = false
       if (timer) clearTimeout(timer)
-      if (tick) clearInterval(tick)
       off()
     }
-  }, [client, running, metering])
+  }, [client, running])
 
   return credits
 }

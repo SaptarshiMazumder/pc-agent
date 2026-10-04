@@ -1,20 +1,19 @@
 # Comfy Penguin 窶・builds ComfyUI workflows, runs them on YOUR instance, iterates with you.
 #
-# WHERE COMFYUI RUNS IS THE USER'S BUSINESS. A workstation on localhost, a rented GPU on vast or
-# RunPod, a Modal endpoint 窶・the agent is told a URL and a credential and works against whatever
-# is there. What it knows about MODELS comes from its knowledge base
+# WHERE COMFYUI RUNS: COMFY CLOUD. Every workflow runs on Comfy Cloud (cloud.comfy.org) with the
+# person's own Comfy API key and plan — serverless, billed per GPU second, nothing to rent, start
+# or stop. What it knows about MODELS comes from its knowledge base
 # (plugins/comfy-bridge/knowledge_base: every family's files, recipes and rules, each fact sourced);
-# what it knows about the MACHINE is read from the machine. An agent that recites what it saw
-# during training writes workflows for last year's models.
+# what Comfy Cloud has is read from Comfy Cloud. An agent that recites what it saw during training
+# writes workflows for last year's models.
 #
 # NO SHELL, ON PURPOSE. Everything happens over ComfyUI's HTTP API, so this agent is
 # web-deliverable 窶・`exec` would refuse itself on a hosted daemon and would force
-# `requires_local`. The cost is that installing a missing custom node depends on ComfyUI-Manager
-# being present and permitting it; the agent reports precisely when it is not, rather than
-# pretending it can fix it.
+# `requires_local`. Comfy Cloud runs only its preinstalled node packs; a design that needs
+# another one is changed, never worked around.
 
 name = "Comfy Penguin"
-version = "1.76.0"
+version = "1.77.0"
 # No project manager: this agent's own ask_user card already holds the user's approval, and its
 # own rules stop its loops. The manager's plan points in that card read as a second approval.
 managed = false
@@ -72,46 +71,23 @@ allow = [
 # tenant clamp already confines every write to the caller's own slice, whatever the agent asked
 # for. Only the two builders declare roots, because they legitimately write into OTHER agents.
 
-# WHERE COMFYUI RUNS — THE ACCOUNT'S CHOICE, AND NOTHING IS RENTED WITHOUT IT. The window asks
-# once (every chat uses the answer; Workspace -> Connection changes it): a GPU the platform rents
-# (plugins/vast-bridge -> the accounts service, address handed over in .studio/connection.json;
-# credits while it runs), the person's own Vast machine (its Instance Portal link — works exactly
-# like the rented GPU, installs included, models on its volume if it has one), or any ComfyUI
-# address (models install only through Manager or by hand). comfy-bridge/comfy_connect_tool.py
-# records it; a hosted daemon dials only public addresses for it (fetch_broker._public_only).
-#
-# THE PLATFORM'S KEYS NEVER GO TO A MACHINE IT DOES NOT RUN. Its Comfy account key pays partner
-# nodes on the rented GPU only; its Hugging Face / Civitai tokens resolve downloads for the rented
-# GPU only. On the person's own machine the three settings below are used instead — optional,
-# stored per account, substituted by the host so the plugin never holds a value. Unset, a paid
-# partner node on their ComfyUI answers 401 and a gated download says the token is missing.
-# HF_TOKEN / CIVITAI_TOKEN / COMFY_API_KEY stay undeclared on purpose: an undeclared name falls
-# through to the daemon's own environment, where the platform's live.
-
-[[settings]]
-key      = "USER_VAST_API_KEY"
-label    = "Your Vast API key"
-kind     = "secret"
-required = false
-help     = "Connects your own Vast machines: paste it once (Vast → Account → Keys), then pick a machine. Used only to find your machines."
+# THE PERSON'S COMFY API KEY runs everything: every call to Comfy Cloud carries it (as a name the
+# host substitutes — the plugin never holds the value). Unset or on a plan without API access, the
+# first call that needs Comfy Cloud says so in Comfy Cloud's words.
 
 [[settings]]
 key      = "USER_COMFY_API_KEY"
 label    = "Your Comfy API key"
 kind     = "secret"
 required = false
-help     = "Only for your own ComfyUI: pays for paid models (Kling, Seedance, …) from your Comfy account. Get it at platform.comfy.org."
+help     = "Runs every workflow on Comfy Cloud with your Comfy plan (Standard or above; importing models needs Creator). Get it at platform.comfy.org → API keys."
 
-[[settings]]
-key      = "USER_HF_TOKEN"
-label    = "Your Hugging Face token"
-kind     = "secret"
-required = false
-help     = "Only for your own ComfyUI: downloads gated Hugging Face models with your account."
+# THE PERSON'S CIVITAI KEY, optional: many Civitai files (most LoRAs) download only with a login. It
+# goes into the civitai.com download link Comfy Cloud imports from, as a name the host substitutes.
 
 [[settings]]
 key      = "USER_CIVITAI_TOKEN"
-label    = "Your Civitai token"
+label    = "Your Civitai API key"
 kind     = "secret"
 required = false
-help     = "Only for your own ComfyUI: downloads Civitai models that need a login."
+help     = "Lets Comfy Penguin import Civitai models and LoRAs that need a login. Civitai → Account settings → API keys."

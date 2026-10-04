@@ -1,0 +1,95 @@
+{
+  "recipe": {
+    "id": "resize-exact",
+    "family": "upscale-models",
+    "task": "upscale-image",
+    "variant": "an image at an EXACT width x height, no model: ImageScale (lanczos) with crop 'center' — scales to cover the target, then trims the overflow from the middle. For the last step of a design whose earlier stage cannot set the size (a reference edit keeps its input's shape at about 1 MP)",
+    "from_template": "the core ImageScale node as the official templates use it (hidream_e1_full, sd3.5_large_canny_controlnet_example: ImageScale [method, width, height, 'center'])",
+    "min_comfyui": "0.3.0",
+    "confidence": "official",
+    "ports": {
+      "width": {
+        "node": "2",
+        "input": "width",
+        "note": "the delivery width"
+      },
+      "height": {
+        "node": "2",
+        "input": "height",
+        "note": "the delivery height"
+      },
+      "method": {
+        "node": "2",
+        "input": "upscale_method",
+        "options": [
+          "lanczos",
+          "bicubic",
+          "bilinear",
+          "area",
+          "nearest-exact"
+        ],
+        "note": "lanczos for photos; area when shrinking a lot"
+      },
+      "crop": {
+        "node": "2",
+        "input": "crop",
+        "options": [
+          "center",
+          "disabled"
+        ],
+        "note": "center keeps the proportions and trims the overflow; disabled stretches to fit"
+      }
+    },
+    "inputs": {
+      "image": {
+        "node": "1",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the image to bring to the exact size (usually an earlier stage's result)"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "3",
+        "type": "IMAGE"
+      }
+    },
+    "files": [],
+    "packs": [],
+    "defaults_note": "No model and no GPU work to speak of. Enlarging more than ~1.5x softens the image: for a big enlargement use an upscale model first (upscale-image-photo), then this to land on the exact size.",
+    "verify": [
+      "core nodes only (LoadImage, ImageScale, SaveImage) present in the v0.35.0 registry; built 2026-10-04"
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@image"
+      }
+    },
+    "2": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "image": [
+          "1",
+          0
+        ],
+        "upscale_method": "lanczos",
+        "width": 1080,
+        "height": 1350,
+        "crop": "center"
+      }
+    },
+    "3": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "2",
+          0
+        ],
+        "filename_prefix": "resized/ComfyUI"
+      }
+    }
+  }
+}

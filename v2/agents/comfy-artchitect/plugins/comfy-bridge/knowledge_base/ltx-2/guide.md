@@ -1,19 +1,8 @@
 # LTX-2 family (LTX-2.5 / LTX-2.3) — the agent's guide
 
-Lightricks' open-weights **audio-video** DiT: every clip comes with synchronized sound (dialogue,
-lip-sync, SFX, music) from the same model. LTX-2.5 (22B, 2026-08-11) is the current generation;
-LTX-2.3 (22B, 2026-03) is "Previous Generation" and still carries the only official templates for
-lip-sync-to-supplied-audio, ID-LoRA voice cloning, IC-LoRA control and reference sheets; the 19B LTX-2
-is legacy and not converted. Free under the LTX-2.x Community License: "Commercial and production use
-at no cost" for entities **under $10,000,000 annual revenue** (measured across the whole entity incl.
-subsidiaries); at or above that a paid Commercial Use Agreement is needed. Everything below was read
-from the official templates, model cards and ComfyUI source on 2026-10-01; `profile.json` holds the
-exact files, numbers and sources.
+Lightricks' open-weights **audio-video** DiT: every clip comes with synchronized sound (dialogue, lip-sync, SFX, music) from the same model. LTX-2.5 (22B, 2026-08-11) is the current generation; LTX-2.3 (22B, 2026-03) is "Previous Generation" and still carries the only official templates for lip-sync-to-supplied-audio, ID-LoRA voice cloning, IC-LoRA control and reference sheets; the 19B LTX-2 is legacy and not converted. Everything below was read from the official templates, model cards and ComfyUI source on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
-**Download gate:** `Lightricks/LTX-2.5` (and the 2.5 IC-LoRA, 2.3 Ingredients and Pre-Trained repos)
-are gated on Hugging Face — accept the licence and use a Read token with "read gated repos", or the
-download fails with 401/403. `Lightricks/LTX-2.3`, `LTX-2.3-fp8`, `Comfy-Org/ltx-2.3`, `Comfy-Org/ltx-2`
-and `Comfy-Org/gemma-4` are open.
+**Download gate:** `Lightricks/LTX-2.5` (and the 2.5 IC-LoRA, 2.3 Ingredients and Pre-Trained repos) are gated on Hugging Face — or the download fails with 401/403. `Lightricks/LTX-2.3`, `LTX-2.3-fp8`, `Comfy-Org/ltx-2.3`, `Comfy-Org/ltx-2` and `Comfy-Org/gemma-4` are open.
 
 ## When to pick it, and which recipe
 
@@ -109,7 +98,6 @@ prompts without the enhancer; relying on the negative.
 
 | symptom | fix |
 |---|---|
-| 401/403 downloading 2.5 | accept the HF licence; Read token with "read gated repos" |
 | 10 s clip hangs in VAE decode on 24 GB | `VAEDecodeTiled` tile 512 (recipes); temporal 64/16; or the conv VAE |
 | prompt enhancer gives unrelated video / empty text | keep it off and write the long prompt yourself (recipes do) |
 | "Input and weight inner dimensions must match" | keep sizes 32-aligned (single report, unresolved) |

@@ -1,10 +1,6 @@
 # Chroma — the agent's guide
 
-Lodestone Rock's 8.9B text-to-image model rebuilt from FLUX.1-schnell, Apache 2.0, free, deliberately
-unaligned ("fully uncensored, reintroducing missing anatomical concepts"). A **full-CFG** model: unlike
-Flux dev/schnell the negative prompt works. Text encoder is **T5-XXL only** — there is no CLIP-L.
-Everything below was read from the official templates, model cards and ComfyUI source on 2026-10-01;
-`profile.json` holds the exact files, numbers and sources.
+Lodestone Rock's 8.9B text-to-image model rebuilt from FLUX.1-schnell, free, deliberately unaligned ("fully uncensored, reintroducing missing anatomical concepts"). A **full-CFG** model: unlike Flux dev/schnell the negative prompt works. Text encoder is **T5-XXL only** — there is no CLIP-L. Everything below was read from the official templates, model cards and ComfyUI source on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 

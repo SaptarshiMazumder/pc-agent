@@ -376,9 +376,11 @@ def forget_validated(name: str) -> None:
 
 
 def _workflow_exists(name: str) -> bool:
-    """Is `<name>.api.json` still in this chat's workflows folder?"""
+    """Is `<name>.api.json` still in this chat's workflows folder — or its stages folder, where a
+    pipeline's stages live?"""
     try:
-        return (chat_paths.chat_dir(Path(current_workspace(".") or "."), chat_paths.WORKFLOWS) / f"{name}.api.json").is_file()
+        folder = chat_paths.chat_dir(Path(current_workspace(".") or "."), chat_paths.WORKFLOWS)
+        return any((d / f"{name}.api.json").is_file() for d in (folder, folder / chat_paths.STAGES))
     except OSError:
         return False
 

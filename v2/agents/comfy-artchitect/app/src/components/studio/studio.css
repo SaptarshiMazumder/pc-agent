@@ -227,7 +227,7 @@
 .st-view { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 
 /* ── the top bar ──────────────────────────────────────────────────────────────────────────── */
-/* The studio's ONLY chrome: where you are, what you are looking at, and whether the box answers. */
+/* The studio's ONLY chrome: where you are, what you are looking at, and where it runs. */
 .sb {
   flex: none; display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; border-bottom: 1px solid var(--border);
@@ -236,24 +236,12 @@
 .sb-name { font-weight: var(--fw-semi); font-size: var(--fs-meta); color: var(--text); }
 .sb-spacer { flex: 1; }
 
-/* COLOUR IS THE STATUS, so a glance answers "is my box up" without reading a word. */
-.sb-inst { position: relative; }
-.sb-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+/* WHERE THE WORK RUNS — a plain label, not a status: nothing here checks it. */
+.sb-engine {
+  flex: none; white-space: nowrap; padding: 4px 10px;
   border: 1px solid var(--border2); border-radius: var(--r-pill);
-  background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-tiny);
-  cursor: pointer; transition: all .12s; white-space: nowrap;
+  font-size: var(--fs-tiny); color: var(--dim);
 }
-.sb-chip:hover { border-color: var(--accent); color: var(--text); }
-.sb-chip:disabled { cursor: default; opacity: .7; }
-/* the open-ComfyUI button and its one-line reason when there is nothing to open */
-.sb-open { display: inline-flex; align-items: center; gap: 8px; }
-.sb-open-note { font-size: var(--fs-tiny); color: var(--faint); white-space: nowrap; }
-.sb-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--border2); }
-.sb-chip.is-live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
-.sb-chip.is-live .sb-dot { background: var(--ok); animation: st-pulse 1.8s var(--ease-smooth) infinite; }
-.sb-chip.is-down { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
-.sb-chip.is-down .sb-dot { background: var(--danger); }
 .sb-credits {
   flex: none; white-space: nowrap;
   border: 1px solid var(--border2); border-radius: var(--r-pill); background: transparent;
@@ -261,32 +249,6 @@
   color: var(--dim); cursor: pointer;
 }
 .sb-credits:hover { color: var(--text); border-color: var(--accent); }
-
-.sb-pop {
-  position: absolute; right: 0; top: calc(100% + 7px); z-index: 40; width: 300px;
-  display: flex; flex-direction: column; gap: 7px; padding: 12px;
-  background: var(--pop); border: 1px solid var(--border2); border-radius: var(--r-panel);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
-}
-.sb-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.sb-pop-title { font-weight: var(--fw-semi); font-size: var(--fs-meta); color: var(--text); }
-.sb-test {
-  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
-  border: 1px solid var(--border2); border-radius: var(--r-pill); background: transparent;
-  color: var(--dim); font: inherit; font-size: 11px; cursor: pointer; transition: all .12s;
-}
-.sb-test:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
-.sb-test:disabled { cursor: default; opacity: .8; }
-.sb-test .spin { animation: st-spin 1s linear infinite; }
-@keyframes st-spin { to { transform: rotate(360deg); } }
-.sb-line { margin: 0; font-size: 11.5px; color: var(--dim); overflow-wrap: anywhere; }
-.sb-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--faint); text-wrap: pretty; }
-.sb-err { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--danger); word-break: break-word; }
-.sb-models { display: flex; flex-wrap: wrap; gap: 4px; }
-.sb-model {
-  font-size: 10.5px; padding: 2px 6px; border-radius: var(--r-sm, 6px);
-  background: var(--bg3); color: var(--dim); max-width: 100%; overflow-wrap: anywhere;
-}
 
 /* ── the active-run strip ─────────────────────────────────────────────────────────────────── */
 /* Present ONLY while something runs. An always-there box saying "idle" is the clutter this
@@ -478,7 +440,7 @@
    252px reference rail left the file view about 150px to live in. */
 @media (max-width: 820px) {
   /* WRAPS INSTEAD OF OVERFLOWING. `.sb` is a flex row with a 12px gap and no wrap, so five
-     children -- title, ComfyUI link, GPU status, instance chip, credits -- were laid out on one
+     children -- tabs, the Comfy Cloud label, credits -- were laid out on one
      line whatever the width and simply ran off the end. */
   .sb { flex-wrap: wrap; gap: 8px; padding: 10px 12px; row-gap: 6px; }
 
@@ -512,33 +474,6 @@
   content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--warn);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
 }
-
-/* ── the engine control: Open in ComfyUI + its details ────────────────────────────────────── */
-/* A split button. Live, the left half is the accent fill — the loudest thing in the bar, because
-   there is somewhere to go. Not live, the same shape greyed with the reason in it, so nothing
-   moves when the engine comes up. The caret half opens the details popover either way. */
-.eng { display: inline-flex; align-items: stretch; border: 1px solid var(--border2); border-radius: 11px; overflow: hidden; background: var(--bg2); }
-.eng.is-live { border-color: var(--prim-bg); }
-.eng-open {
-  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
-  border: 0; background: transparent; color: var(--faint);
-  font: inherit; font-size: var(--fs-small); font-weight: var(--fw-semi); white-space: nowrap;
-}
-.eng-open:disabled { cursor: default; }
-.eng-open.is-live { background: var(--prim-bg); color: var(--prim-ink); font-weight: var(--fw-on-accent); cursor: pointer; }
-.eng-open.is-live:hover:not(:disabled) { background: var(--prim-bg-h); }
-.eng-open:focus-visible, .eng-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.eng-open .spin { animation: st-spin 1s linear infinite; }
-.eng-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--prim-ink); box-shadow: 0 0 0 3px rgba(20, 26, 4, .18); }
-.eng-dot.is-off { background: var(--border-strong); box-shadow: none; }
-.eng-more {
-  display: grid; place-items: center; width: 30px; padding: 0;
-  border: 0; border-left: 1px solid var(--border2); background: transparent; color: var(--dim); cursor: pointer;
-}
-.eng.is-live .eng-more { border-left-color: color-mix(in srgb, var(--prim-ink) 25%, var(--prim-bg)); background: var(--prim-bg); color: var(--prim-ink); }
-.eng-more:hover { color: var(--text); background: var(--bg3); }
-.eng.is-live .eng-more:hover { background: var(--prim-bg-h); color: var(--prim-ink); }
-@media (prefers-reduced-motion: reduce) { .eng-open .spin { animation: none; } }
 
 /* ── the Workspace: one scroll of sections ────────────────────────────────────────────────── */
 /* Full width with nothing open; a column beside the viewer when a file is — the old rail's job. */
@@ -627,73 +562,17 @@
 
 .refs-role { text-transform: capitalize; }
 
-/* THE CONNECTION SECTION — where this chat's ComfyUI runs (ConnectionSection.tsx). Three
-   choices as one quiet list; the picked one tints, like a picked file row. */
-.cn { display: flex; flex-direction: column; gap: 10px; }
-.cn-options { display: flex; flex-direction: column; gap: 4px; }
-.cn-option { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border-radius: var(--r-control);
-  border: 1px solid transparent; cursor: pointer; }
-.cn-option:hover { background: var(--bg3); }
-.cn-option.is-on { background: var(--accent-soft); border-color: var(--border2); }
-.cn-option input { margin: 3px 0 0; accent-color: var(--accent); }
-.cn-option b { display: block; font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); }
-.cn-note { display: block; font-size: var(--fs-tiny); line-height: 1.45; color: var(--faint); text-wrap: pretty; }
-.cn-link, .cn-keys { display: flex; flex-direction: column; gap: 7px; }
-.cn-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.cn-input { flex: 1; min-width: 0; padding: 8px 10px; background: var(--bg2); color: var(--text);
+/* THE COMFY API KEY SECTION (ComfyApiKeySection.tsx): saved, or a field to save it. */
+.ck { display: flex; flex-direction: column; gap: 7px; }
+.ck-note { display: block; margin: 0; font-size: var(--fs-tiny); line-height: 1.45; color: var(--faint); text-wrap: pretty; }
+.ck-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ck-key { display: flex; flex-direction: column; gap: 4px; }
+.ck-key + .ck-key { padding-top: 8px; border-top: 1px solid var(--border); }
+.ck-input { flex: 1; min-width: 0; padding: 8px 10px; background: var(--bg2); color: var(--text);
   border: 1px solid var(--border2); border-radius: var(--r-control); font-size: var(--fs-small); }
-.cn-input:focus { outline: none; border-color: var(--accent); }
-.cn-on { margin: 0; font-size: var(--fs-small); color: var(--dim); overflow-wrap: anywhere; }
-.cn-err { margin: 0; font-size: var(--fs-tiny); line-height: 1.5; color: var(--danger); overflow-wrap: anywhere; }
-.cn-key { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-tiny); color: var(--dim); }
-.cn-set { color: var(--ok); }
-
-/* THE QUESTION ABOVE THE MESSAGE BOX while nothing is chosen (ConnectionPrompt). */
-.cn-prompt { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; padding: 12px 14px;
-  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-control); }
-.cn-prompt-title { font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); }
-
-/* THE VAST MACHINE LIST (ConnectionSection's VastPicker). */
-.cn-machines { display: flex; flex-direction: column; gap: 6px; }
-.cn-machine { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
-  border: 1px solid var(--border2); border-radius: var(--r-control); }
-.cn-machine.is-off { opacity: .6; }
-.cn-machine-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.cn-machine.is-on { background: var(--accent-soft); }
-.cn-machine b { display: block; font-size: var(--fs-small); color: var(--text); }
-.cn-refresh { margin-left: auto; padding: 2px 8px; background: none; border: 1px solid var(--border2);
-  border-radius: var(--r-control); color: var(--dim); font: inherit; font-size: var(--fs-tiny); cursor: pointer; }
-.cn-refresh:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
-
-/* THE SETTLED STATE (Summary): one card — machine, status dot, storage — and Change. */
-.cn-sum { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg2);
-  border: 1px solid var(--border2); border-radius: var(--r-control); }
-.cn-sum-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.cn-sum-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.cn-sum-text b { font-size: var(--fs-control); font-weight: var(--fw-semi); color: var(--text); overflow-wrap: anywhere; }
-.cn-sum-storage { padding-left: 17px; }
-.cn-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.cn-dot.is-ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
-.cn-dot.is-warn { background: var(--warn); }
-.cn-link-btn { flex: none; padding: 3px 8px; background: none; border: 0; border-radius: var(--r-control);
+.ck-input:focus { outline: none; border-color: var(--accent); }
+.ck-err { margin: 0; font-size: var(--fs-tiny); line-height: 1.5; color: var(--danger); overflow-wrap: anywhere; }
+.ck-set { color: var(--ok); }
+.ck-link-btn { flex: none; padding: 3px 8px; background: none; border: 0; border-radius: var(--r-control);
   color: var(--accent-text, var(--accent)); font: inherit; font-size: var(--fs-tiny); cursor: pointer; }
-.cn-link-btn:hover:not(:disabled) { background: var(--bg3); }
-.cn-link-btn:disabled { opacity: .5; cursor: default; }
-.cn-done { align-self: flex-end; }
-
-/* THE CHOOSER: a three-way switch, then only the picked option's controls. */
-.cn-choose { display: flex; flex-direction: column; gap: 8px; }
-.cn-seg { display: flex; gap: 2px; padding: 3px; background: var(--bg2); border: 1px solid var(--border2);
-  border-radius: var(--r-control); }
-.cn-seg-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px;
-  background: none; border: 0; border-radius: var(--r-control); color: var(--dim); font: inherit;
-  font-size: var(--fs-small); font-weight: var(--fw-semi); cursor: pointer; white-space: nowrap; }
-.cn-seg-btn:hover:not(:disabled) { color: var(--text); }
-.cn-seg-btn.is-on { background: var(--accent-soft); color: var(--text); }
-.cn-seg-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
-
-/* THE OPTIONAL KEYS, folded. */
-.cn-fold { align-self: flex-start; padding: 2px 0; background: none; border: 0; color: var(--dim); font: inherit;
-  font-size: var(--fs-small); cursor: pointer; text-align: left; }
-.cn-fold:hover { color: var(--text); }
-.cn-sum.is-gone { border-color: var(--warn); }
+.ck-link-btn:hover:not(:disabled) { background: var(--bg3); }

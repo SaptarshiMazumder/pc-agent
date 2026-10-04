@@ -3,7 +3,7 @@
     "id": "edit-klein-4b-base",
     "family": "flux-2",
     "task": "edit",
-    "variant": "FLUX.2 [klein] 4B Base fp8 (Apache-2.0) single-reference edit: CFGGuider cfg 5 + real negative, 20 steps, reference on both branches, small-decoder VAE",
+    "variant": "FLUX.2 [klein] 4B Base fp8 single-reference edit: CFGGuider cfg 5 + real negative, 20 steps, reference on both branches, small-decoder VAE",
     "from_template": "image_flux2_klein_image_edit_4b_base ('Image Edit (Flux.2 Klein 4B)' subgraph, active)",
     "min_comfyui": "0.19.0",
     "confidence": "official",

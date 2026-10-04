@@ -212,7 +212,8 @@ def fetch(
             params = None
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
         deadline = time.monotonic() + timeout_s
-        hooks = {"request": [_public_only_hook()]} if public_only else {}
+        hooks = {"request": [_same_host_headers_hook(_resolved(url), req_headers)]
+                 + ([_public_only_hook()] if public_only else [])}
         with httpx.Client(timeout=timeout_s, follow_redirects=True, event_hooks=hooks) as client:
             if save_path:
                 return _download(client, method, _resolved(url), req_headers, save_path, max_bytes)
@@ -242,6 +243,26 @@ def fetch(
                     upload.close()
     except Exception as e:  # noqa: BLE001 — a transport failure is the tool's error, not a crash
         return Response(error=f"{type(e).__name__}: {e}", url=url)
+
+
+def _same_host_headers_hook(url: str, caller_headers: dict):
+    """A CALLER'S HEADERS GO ONLY TO THE HOST IT NAMED. httpx drops `Authorization` when a
+    redirect leaves the origin, but carries every other header along — so a key sent as
+    `X-API-Key` (Comfy Cloud's /api/view answers with a redirect to a signed storage URL) went
+    on to the storage host. On any hop to another host, every header the caller set is removed."""
+    from urllib.parse import urlsplit
+
+    origin = (urlsplit(url).hostname or "").lower()
+    names = {k.lower() for k in caller_headers}
+
+    def strip(request) -> None:
+        if (request.url.host or "").lower() == origin:
+            return
+        for name in list(request.headers):
+            if name.lower() in names:
+                del request.headers[name]
+
+    return strip
 
 
 def _public_only_hook():

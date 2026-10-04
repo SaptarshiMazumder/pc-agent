@@ -3,16 +3,6 @@
   "id": "seedvr2",
   "name": "SeedVR2",
   "publisher": "ByteDance Seed (ByteDance-Seed/SeedVR); ComfyUI repack by Comfy-Org; native nodes in ComfyUI core (PR #14424, pollockjj; optimised by kijai in v0.38.0)",
-  "license": {
-    "name": "Apache-2.0",
-    "commercial": true,
-    "notes": "HF cardData license apache-2.0 on ByteDance-Seed/SeedVR2-3B and -7B; README: 'SeedVR and SeedVR2 are licensed under the Apache 2.0.'; the Comfy-Org/SeedVR2 repack is also apache-2.0. The optional numz node pack is Apache-2.0 as well.",
-    "src": [
-      "S-HF-SEEDVR2-7B",
-      "S-HF-COMFYORG-SEEDVR2",
-      "S-NUMZ-GH"
-    ]
-  },
   "cost": "free",
   "kind": [
     "enhance"
@@ -386,7 +376,7 @@
   ],
   "community_alternatives": [
     {
-      "what": "numz/ComfyUI-SeedVR2_VideoUpscaler: the community pack (v2.5.24, 2025-12-24, Apache-2.0) with GGUF, BlockSwap, attention backends (sdpa/flash_attn_2/3/sageattn_2/3), batch controls, torch.compile; registry id seedvr2_videoupscaler",
+      "what": "numz/ComfyUI-SeedVR2_VideoUpscaler: the community pack with GGUF, BlockSwap, attention backends (sdpa/flash_attn_2/3/sageattn_2/3), batch controls, torch.compile; registry id seedvr2_videoupscaler",
       "needs_pack": "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler",
       "folder": "SEEDVR2",
       "nodes": [
@@ -1172,7 +1162,6 @@
     }
   },
   "card": {
-    "short_name": "SeedVR2",
-    "restriction": ""
+    "short_name": "SeedVR2"
   }
 }

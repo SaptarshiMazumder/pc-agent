@@ -3,17 +3,6 @@
   "id": "qwen-image",
   "name": "Qwen-Image / Qwen-Image-Edit (2509, 2511) / Qwen-Image-2512 / Layered / Qwen-Image-2.1",
   "publisher": "Alibaba Qwen team; Lightning LoRAs by lightx2v/ModelTC; ControlNets by InstantX, DiffSynth-Studio and Alibaba PAI; Comfy-Org repacks",
-  "license": {
-    "name": "Apache-2.0 (Qwen-Image, Edit, Edit-2509, Edit-2511, 2512, Layered, Lightning LoRAs, Fun-2512 union); Qwen Research License - NON-COMMERCIAL (Qwen-Image-2.1 and its Fun ControlNet)",
-    "commercial": true,
-    "notes": "Everything except 2.1 is Apache-2.0 ('Qwen-Image is licensed under Apache 2.0'). Qwen-Image-2.1 (Hangzhou Tongyi Laboratory Technology Co., Ltd., licence dated 2026-09-20) is under the Qwen RESEARCH LICENSE AGREEMENT: 'You are granted a ... license ... FOR NON-COMMERCIAL PURPOSES ONLY.' 'You shall not use the Materials for any commercial purpose without obtaining a separate commercial license from us... model-business@notice.qwencloud.com'; derivative AI models must display 'Built with Qwen' or 'Improved using Qwen'; governing law China, Hangzhou courts. The 2.1 recipes are free (cost) but not commercial. DiffSynth distill: licence NOT FOUND.",
-    "src": [
-      "S-HF-QI",
-      "S-HF-QWEN-REPOS",
-      "S-LIGHTX2V",
-      "S-DIFFSYNTH-PAI"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image",
@@ -42,7 +31,7 @@
       "src": "S-INSTANTX"
     },
     {
-      "what": "2.1 above its 2K training size ('Targets well above the model's 2K trained size, such as 4K, lose prompt adherence'); 2.1 commercially (Research licence)",
+      "what": "2.1 above its 2K training size ('Targets well above the model's 2K trained size, such as 4K, lose prompt adherence')",
       "src": [
         "S-DOCS-Q21",
         "S-HF-QWEN-REPOS"
@@ -137,7 +126,7 @@
         "class": "official",
         "src": "S-TPL-T2I"
       },
-      "quality": "DiffSynth-Studio distill (non_official/): 15 steps cfg 1 per its author (Comfy tested 10); 'do not seem to be compatible' with Lightning LoRAs at the same time; licence NOT FOUND; no recipe",
+      "quality": "DiffSynth-Studio distill (non_official/): 15 steps cfg 1 per its author (Comfy tested 10); 'do not seem to be compatible' with Lightning LoRAs at the same time; no recipe",
       "src": [
         "S-HF-COMFY-TREES",
         "S-DOCS-QI"
@@ -301,14 +290,13 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "'loaded by the templates, lower memory'; 7B single-stream DiT, native 2K, RGBA; template note '6.76 GB'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "quality": "'loaded by the templates, lower memory'; 7B single-stream DiT, native 2K, RGBA; template note '6.76 GB'.",
       "src": [
         "S-HF-COMFY-TREES",
         "S-TPL-21",
         "S-HF-QWEN-REPOS"
       ],
       "pairs_with_vae": "qwen_image_2.1_vae_bf16.safetensors",
-      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
     {
@@ -326,13 +314,12 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "'full precision, needs more memory'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "quality": "'full precision, needs more memory'.",
       "src": [
         "S-HF-COMFY-TREES",
         "S-TPL-21"
       ],
       "pairs_with_vae": "qwen_image_2.1_vae_bf16.safetensors",
-      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
     {
@@ -434,12 +421,11 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "Qwen3-VL-8B for 2.1 ('loaded by the templates'); bf16 17.534 GB and w4a8 6.312 GB exist; CLIPLoader type 'qwen_image'. Qwen Research License - NON-COMMERCIAL ONLY",
+      "quality": "Qwen3-VL-8B for 2.1 ('loaded by the templates'); bf16 17.534 GB and w4a8 6.312 GB exist; CLIPLoader type 'qwen_image'.",
       "src": [
         "S-HF-COMFY-TREES",
         "S-TPL-21"
       ],
-      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
     {
@@ -479,12 +465,11 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "RGBA 4-channel VAE; 2.1 latent is 64-channel, /16 spatial. Qwen Research License - NON-COMMERCIAL ONLY",
+      "quality": "RGBA 4-channel VAE; 2.1 latent is 64-channel, /16 spatial.",
       "src": [
         "S-HF-COMFY-TREES",
         "S-NODES"
       ],
-      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
     {
@@ -830,7 +815,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "alibaba-pai Fun Union for 2512 (Apache-2.0): Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale; a ControlNet in models/controlnet (template note '3.27 GB'); a non-2602 build also exists",
+      "quality": "alibaba-pai Fun Union for 2512: Canny, HED, Depth, Pose, MLSD, Scribble, Grayscale; a ControlNet in models/controlnet (template note '3.27 GB'); a non-2602 build also exists",
       "src": [
         "S-DIFFSYNTH-PAI",
         "S-TPL-2512-CN"
@@ -852,13 +837,12 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "alibaba-pai Fun Union for 2.1 (8 conditions + inpaint) -> ModelPatchLoader + ZImageFunControlnet; int8 twin 3.779 GB; NO template; Qwen Research License - NON-COMMERCIAL ONLY",
+      "quality": "alibaba-pai Fun Union for 2.1 (8 conditions + inpaint) -> ModelPatchLoader + ZImageFunControlnet; int8 twin 3.779 GB; NO template",
       "src": [
         "S-HF-COMFY-TREES",
         "S-DIFFSYNTH-PAI",
         "S-NODES"
       ],
-      "license": "Qwen Research License - NON-COMMERCIAL ONLY",
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     },
     {
@@ -877,7 +861,6 @@
         "src": null
       },
       "quality": "96 camera poses (8 azimuths x 4 elevations x 3 distances), trained on 3000+ Gaussian Splatting renders",
-      "license": "Apache-2.0",
       "src": [
         "S-HF-ANGLES",
         "S-TPL-ANGLES"
@@ -900,7 +883,6 @@
         "src": null
       },
       "quality": "rank-128 LoRA, 35k equirectangular images, trained on Qwen-Image-2512: 360 degree equirectangular panoramas",
-      "license": "MIT",
       "src": [
         "S-HF-360",
         "S-TPL-360"
@@ -910,7 +892,7 @@
   ],
   "community_alternatives": [
     {
-      "what": "GGUF: city96/Qwen-Image-gguf (Apache-2.0) Q2_K 7.06 .. Q4_K_M 13.07 .. Q8_0 21.76 GB; QuantStack/Qwen-Image-Edit-2509-GGUF; unsloth/Qwen-Image-Edit-2511-GGUF (Q4_K_M 13.24, Q8_0 21.76 GB)",
+      "what": "GGUF: city96/Qwen-Image-gguf Q2_K 7.06.. Q4_K_M 13.07.. Q8_0 21.76 GB; QuantStack/Qwen-Image-Edit-2509-GGUF; unsloth/Qwen-Image-Edit-2511-GGUF (Q4_K_M 13.24, Q8_0 21.76 GB)",
       "needs_pack": "city96/ComfyUI-GGUF",
       "folder": "unet",
       "node": "UnetLoaderGGUF",
@@ -1150,7 +1132,7 @@
       "task": "t2i",
       "quality": "2.1 (2K, RGBA)",
       "recipe": "t2i-2-1",
-      "status": "needs ComfyUI >= 0.37.2, above the pinned image (TextEncodeQwenImage21, QwenImage21Cache); also Qwen Research License - NON-COMMERCIAL ONLY",
+      "status": "needs ComfyUI >= 0.37.2, above the pinned image (TextEncodeQwenImage21, QwenImage21Cache)",
       "src": [
         "S-TPL-21",
         "S-REGISTRY",
@@ -1161,7 +1143,7 @@
       "task": "edit",
       "quality": "2.1 (up to 10 references)",
       "recipe": "edit-2-1",
-      "status": "needs ComfyUI >= 0.37.0, above the pinned image; NON-COMMERCIAL licence",
+      "status": "needs ComfyUI >= 0.37.0, above the pinned image",
       "src": [
         "S-TPL-21",
         "S-REGISTRY"
@@ -1170,7 +1152,7 @@
     {
       "task": "background-removal",
       "recipe": "background-removal-2-1",
-      "status": "needs ComfyUI >= 0.37.0, above the pinned image; NON-COMMERCIAL licence",
+      "status": "needs ComfyUI >= 0.37.0, above the pinned image",
       "src": [
         "S-TPL-21",
         "S-REGISTRY"
@@ -1180,7 +1162,7 @@
       "task": "control",
       "quality": "2.1",
       "recipe": null,
-      "status": "pending: alibaba-pai Fun ControlNet-Union for 2.1 (ModelPatchLoader + ZImageFunControlnet) has no template; also 0.37+ and non-commercial",
+      "status": "pending: alibaba-pai Fun ControlNet-Union for 2.1 (ModelPatchLoader + ZImageFunControlnet) has no template",
       "src": [
         "S-DIFFSYNTH-PAI",
         "S-NODES"
@@ -2244,12 +2226,6 @@
       "src": "S-TPL-2511"
     },
     {
-      "symptom": "licence surprise",
-      "cause": "Qwen-Image-2.1 is NOT Apache-2.0",
-      "fix": "Qwen Research License, non-commercial only (and its Fun ControlNet inherits it); Qwen-Image / Edit / 2509 / 2511 / 2512 / Layered are Apache-2.0",
-      "src": "S-HF-QWEN-REPOS"
-    },
-    {
       "symptom": "negative prompt does nothing",
       "cause": "cfg 1 (Lightning branches, 2.1 default)",
       "fix": "raise cfg only if the negative is needed",
@@ -2301,7 +2277,7 @@
       "class": "official"
     },
     "S-HF-QWEN-REPOS": {
-      "url": "https://huggingface.co/Qwen/Qwen-Image-Edit-2509 , Qwen-Image-Edit-2511 , Qwen-Image-2512 , Qwen-Image-2.1 (+ LICENSE) , Qwen-Image-Layered (API + READMEs)",
+      "url": "https://huggingface.co/Qwen/Qwen-Image-Edit-2509, Qwen-Image-Edit-2511, Qwen-Image-2512, Qwen-Image-2.1, Qwen-Image-Layered (API + READMEs)",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -2503,12 +2479,10 @@
   },
   "card": {
     "short_name": "Qwen-Image",
-    "restriction": "",
     "recipes": [
       {
         "match": "2-1",
-        "short_name": "Qwen-Image 2.1",
-        "restriction": "non-commercial use only"
+        "short_name": "Qwen-Image 2.1"
       },
       {
         "match": "2512",

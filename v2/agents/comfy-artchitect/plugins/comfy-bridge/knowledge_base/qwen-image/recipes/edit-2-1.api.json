@@ -2,7 +2,7 @@
   "recipe": {
     "id": "edit-2-1",
     "task": "edit",
-    "variant": "Qwen-Image-2.1 int8 edit: TextEncodeQwenImage21 with images.image_1 (resolution 0 = native size, multiple of 32), latent from the encoder's own output (sized to image_1), 25 steps, cfg 1 - PENDING (ComfyUI >= 0.37.0) and NON-COMMERCIAL",
+    "variant": "Qwen-Image-2.1 int8 edit: TextEncodeQwenImage21 with images.image_1 (resolution 0 = native size, multiple of 32), latent from the encoder's own output (sized to image_1), 25 steps",
     "from_template": "image_qwen_image_2_1_image_edit (subgraph 'Image Edit (Qwen Image 2.1)' flattened: custom_size switch false -> latent = TextEncodeQwenImage21 output 2; PE branch (BatchImagesNode + TextGenerate) elided; the template's second reference image_2 omitted - add more LoadImage nodes on images.image_2..images.image_10 and name them <image2>.. in the prompt)",
     "min_comfyui": "0.37.0",
     "confidence": "official",
@@ -74,7 +74,7 @@
       "qwen_image_2.1_vae_bf16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "25 steps, cfg 1, euler/simple, resolution 0. Prompt pattern: 'Keep the character and pose in <image1> unchanged, put this light blue denim shirt from <image2> on the character, preserve the original facial features, hair, body shape and pose'. Up to 10 references. 'Simple localized edits hold up at 4 to 8 steps'. LICENCE: Qwen Research License - NON-COMMERCIAL ONLY.",
+    "defaults_note": "25 steps, cfg 1, euler/simple, resolution 0. Prompt pattern: 'Keep the character and pose in <image1> unchanged, put this light blue denim shirt from <image2> on the character, preserve the original facial features, hair, body shape and pose'. Up to 10 references. 'Simple localized edits hold up at 4 to 8 steps'.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

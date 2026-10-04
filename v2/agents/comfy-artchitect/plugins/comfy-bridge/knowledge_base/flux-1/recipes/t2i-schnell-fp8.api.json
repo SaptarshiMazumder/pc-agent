@@ -3,7 +3,7 @@
     "id": "t2i-schnell-fp8",
     "family": "flux-1",
     "task": "t2i",
-    "variant": "FLUX.1 [schnell] fp8 all-in-one checkpoint via CheckpointLoaderSimple; 4 steps, cfg 1 — the fastest, smallest FLUX.1 route (Apache-2.0)",
+    "variant": "FLUX.1 [schnell] fp8 all-in-one checkpoint via CheckpointLoaderSimple; 4 steps, cfg 1 — the fastest, smallest FLUX.1 route",
     "from_template": "flux_schnell",
     "min_comfyui": "0.0.4",
     "confidence": "official",

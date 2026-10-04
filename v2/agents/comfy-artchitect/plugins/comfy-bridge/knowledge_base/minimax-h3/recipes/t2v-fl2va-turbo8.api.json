@@ -83,7 +83,7 @@
       "Canvas: 768 px short edge, capped at the 768x1344 pixel area, multiples of 32. Template default 0.4 MP 16:9 = 864x480 (fast preview); 0.98 MP = 1344x768 is the official 768p and holds faces/detail; never 1.0 MP (1376x768 is above the cap).",
       "No negative prompt, no CFG: the checkpoints are CFG-distilled and the graph uses BasicGuider. Write bans as positives.",
       "MiniMaxH3ImageToVideo with no image connected is the t2va task (template note). The template prompt is a free-form storyboard; MiniMax's Context-IR format (see guide.md) is what the model was trained on.",
-      "Turbo LoRA from lightx2v, Apache-2.0; distilled on the pruned build; carries no adaln tensors so it loads on either build. 4-step turbo weakens references; for t2v it mostly costs detail ('scarce video quality', template note)."
+      "Turbo LoRA from lightx2v, distilled on the pruned build; carries no adaln tensors so it loads on either build. 4-step turbo weakens references; for t2v it mostly costs detail ('scarce video quality', template note)."
     ],
     "verify": [
       "PASSED offline structural check against the v0.35.0 registry on 2026-10-01 (classes, input keys incl. dynamic combos and autogrow slots, links/types, enums, ranges, output node). Not yet run on a box."

@@ -64,7 +64,7 @@ export function useRun(client: AgentdClient | null) {
       // MARKED BEFORE THE AWAIT, not after. Everything up to the await runs synchronously, so a
       // flag set afterwards is still false for anything that reaches here in the same tick — and
       // the message goes out twice.
-      patch(key, { pending: [], running: true, awaitingGpu: false })
+      patch(key, { pending: [], running: true })
       append(key, [{ kind: 'user', text: body, files: displayAttachments, ts: Date.now() }])
 
       try {

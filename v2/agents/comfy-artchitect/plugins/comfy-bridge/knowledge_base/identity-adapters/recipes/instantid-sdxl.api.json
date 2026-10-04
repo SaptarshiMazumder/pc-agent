@@ -100,7 +100,6 @@
       {
         "name": "ComfyUI_InstantID",
         "git": "https://github.com/cubiq/ComfyUI_InstantID",
-        "license": "Apache-2.0",
         "status": "maintenance only since 2025-04-14",
         "pip": [
           "insightface",
@@ -113,7 +112,7 @@
         ]
       }
     ],
-    "defaults_note": "weight 0.8, cfg 4.5 (README: CFG '4-5 minimum' or RescaleCFG), 1016x1016 ('Avoid 1024x1024 to prevent training watermarks'), 30 steps ddpm/karras. antelopev2 (NOT buffalo_l) in models/insightface/models/antelopev2/. Works with SDXL Turbo/Lightning too. Apache-2.0 (HF + pack).",
+    "defaults_note": "weight 0.8, cfg 4.5 (README: CFG '4-5 minimum' or RescaleCFG), 1016x1016 ('Avoid 1024x1024 to prevent training watermarks'), 30 steps ddpm/karras. antelopev2 (NOT buffalo_l) in models/insightface/models/antelopev2/. Works with SDXL Turbo/Lightning too.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

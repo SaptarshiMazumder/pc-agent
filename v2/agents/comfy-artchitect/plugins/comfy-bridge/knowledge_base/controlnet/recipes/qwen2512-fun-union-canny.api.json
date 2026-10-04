@@ -102,7 +102,7 @@
       "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors"
     ],
     "packs": [],
-    "defaults_note": "50 steps, cfg 4, euler/simple, shift 3.1, strength 1 (Fun nets are soft-scaled by sqrt(strength) in ComfyUI: stay at 1.0). Turbo variant: Qwen-Image-Lightning-4steps-V1.0 between 1 and 4, 4 steps, cfg 1. Chinese negative is the template's. Apache-2.0. The template resizes with ResizeImageMaskNode('scale total pixels', 1.6, area); this recipe uses ImageScaleToTotalPixels(area, 1.6) - the same operation - because the offline validator cannot type ResizeImageMaskNode's match-type output.",
+    "defaults_note": "50 steps, cfg 4, euler/simple, shift 3.1, strength 1 (Fun nets are soft-scaled by sqrt(strength) in ComfyUI: stay at 1.0). Turbo variant: Qwen-Image-Lightning-4steps-V1.0 between 1 and 4, 4 steps, cfg 1. Chinese negative is the template's. The template resizes with ResizeImageMaskNode('scale total pixels', 1.6, area); this recipe uses ImageScaleToTotalPixels(area, 1.6) - the same operation - because the offline validator cannot type ResizeImageMaskNode's match-type output.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

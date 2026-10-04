@@ -3,7 +3,7 @@
     "id": "upscale-image-anime-animesharp",
     "family": "upscale-models",
     "task": "upscale-image",
-    "variant": "4x-AnimeSharp (Kim2091, ESRGAN, 4x, CC-BY-NC-SA-4.0, 2021-12-28) for anime, line art and text: the fast ESRGAN anime pick; the author's .safetensors build",
+    "variant": "4x-AnimeSharp for anime, line art and text: the fast ESRGAN anime pick; the author's.safetensors build",
     "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass. Model swapped to the OpenModelDB record 4x-AnimeSharp (author HF tree: 4x-AnimeSharp.safetensors 33,467,822 B; the OMDB resource points at the .pth 67,010,245 B).",
     "min_comfyui": "0.3.31",
     "confidence": "official",
@@ -12,7 +12,7 @@
       "upscale_model": {
         "node": "1",
         "input": "model_name",
-        "note": "commercial-safe anime alternative: RealESRGAN_x4plus_anime_6B.pth (xinntao, BSD-3, 17.9 MB); 2x: 2x-AnimeSharpV4_RCAN.safetensors"
+        "note": "2x: 2x-AnimeSharpV4_RCAN.safetensors"
       }
     },
     "inputs": {
@@ -33,7 +33,7 @@
       "4x-AnimeSharp.safetensors"
     ],
     "packs": [],
-    "defaults_note": "4x. NON-COMMERCIAL licence (CC-BY-NC-SA-4.0): the licence rule warns.",
+    "defaults_note": "4x.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

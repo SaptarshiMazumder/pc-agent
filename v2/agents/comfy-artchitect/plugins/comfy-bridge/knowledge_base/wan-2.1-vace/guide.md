@@ -6,7 +6,7 @@ The recipe `object-replace-sam3-vace-14b` runs **Wan 2.1 VACE 14B** (`wan2.1_vac
 
 Propose a new family profile `wan-2.1-vace`:
 
-- `kind: ["video"]`, `tasks: ["video-inpaint", "vace"]`, `cost: free`, license Apache-2.0 for the VACE weights (Comfy-Org repack and Wan-AI/Wan2.1-VACE-14B cards).
+- `kind: ["video"]`, `tasks: ["video-inpaint", "vace"]`, `cost: free`
 - First recipe: `object-replace-sam3-vace-14b` (this folder).
 - Natural later additions: the native Wan 2.1 VACE templates `video_wan_vace_14B_v2v` / `ref2v`, which the live profile already cites as S-TPL-VACE-*.
 

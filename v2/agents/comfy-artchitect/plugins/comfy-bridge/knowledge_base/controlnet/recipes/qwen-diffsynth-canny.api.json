@@ -93,7 +93,7 @@
       "qwen_image_canny_diffsynth_controlnet.safetensors"
     ],
     "packs": [],
-    "defaults_note": "20 steps, cfg 2.5, euler/simple, shift 3.1, strength 1. With Qwen-Image-Lightning-4steps-V1.0 (LoraLoaderModelOnly between 1 and 4): 4 steps, cfg 1. Apache-2.0 (repack).",
+    "defaults_note": "20 steps, cfg 2.5, euler/simple, shift 3.1, strength 1. With Qwen-Image-Lightning-4steps-V1.0 (LoraLoaderModelOnly between 1 and 4): 4 steps, cfg 1.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

@@ -3,15 +3,6 @@
   "id": "hidream",
   "name": "HiDream-I1 / HiDream-E1",
   "publisher": "HiDream.ai (HiDream-ai); Comfy-Org repack",
-  "license": {
-    "name": "MIT (transformer); Llama 3.1 Community License (Llama encoder); Apache-2.0 (VAE, T5)",
-    "commercial": true,
-    "notes": "'The Transformer models in this repository are licensed under the MIT License'. Components: 'The VAE is from FLUX.1 [schnell], licensed under Apache 2.0'; text encoders google/t5-v1_1-xxl (Apache 2.0) and meta-llama/Meta-Llama-3.1-8B-Instruct ('licensed under the Llama 3.1 Community License Agreement'). 'You own all content you create with this model'; commercial applications permitted; usage restrictions (no illegal/harmful content etc.). MIT covers the transformer only - the Llama-3.1 encoder's licence matters for redistribution.",
-    "src": [
-      "S-HF-I1",
-      "S-DOCS-I1"
-    ]
-  },
   "cost": "free",
   "kind": [
     "image"
@@ -324,7 +315,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "Llama-3.1-8B-Instruct (instruction understanding) - the 4th, mandatory encoder; avoids the gated meta-llama download; Llama 3.1 Community License; docs '8.46GB'",
+      "quality": "Llama-3.1-8B-Instruct (instruction understanding) - the 4th, mandatory encoder; avoids the gated meta-llama download; docs '8.46GB'",
       "src": [
         "S-HF-TREE",
         "S-DOCS-I1",
@@ -347,7 +338,7 @@
         "class": "not-found",
         "src": null
       },
-      "quality": "'This is Flux's VAE model' (FLUX.1 schnell autoencoder, Apache-2.0); HiDream latent_format = Flux",
+      "quality": "'This is Flux's VAE model'; HiDream latent_format = Flux",
       "src": [
         "S-HF-TREE",
         "S-DOCS-I1",
@@ -358,7 +349,7 @@
   ],
   "community_alternatives": [
     {
-      "what": "GGUF I1 (city96, MIT): Full/Dev/Fast Q2_K 6.56 .. Q4_K_M 11.48 .. Q8_0 18.69 GB, F16/BF16 34.2 GB; docs link the Full/Dev repos; community: 'GGUF Q8 works with 24GB'",
+      "what": "GGUF I1: Full/Dev/Fast Q2_K 6.56.. Q4_K_M 11.48.. Q8_0 18.69 GB, F16/BF16 34.2 GB; docs link the Full/Dev repos; community: 'GGUF Q8 works with 24GB'",
       "needs_pack": "city96/ComfyUI-GGUF",
       "folder": "unet",
       "node": "UnetLoaderGGUF",
@@ -1293,12 +1284,6 @@
       "cause": "need custom nodes",
       "fix": "ComfyUI-GGUF 'Unet Loader (GGUF)' / ComfyUI-HiDream-Sampler (Phase 2 installs)",
       "src": "S-DOCS-I1"
-    },
-    {
-      "symptom": "licence question when redistributing",
-      "cause": "MIT covers the transformer only",
-      "fix": "the Llama-3.1 encoder is under the Llama 3.1 Community License; VAE/T5 Apache-2.0",
-      "src": "S-HF-I1"
     }
   ],
   "sources": {
@@ -1395,7 +1380,6 @@
   },
   "card": {
     "short_name": "HiDream-I1",
-    "restriction": "",
     "recipes": [
       {
         "match": "^edit",

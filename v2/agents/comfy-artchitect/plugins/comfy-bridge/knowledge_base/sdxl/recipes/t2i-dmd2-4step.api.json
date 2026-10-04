@@ -3,7 +3,7 @@
     "id": "t2i-dmd2-4step",
     "family": "sdxl",
     "task": "t2i",
-    "variant": "DMD2 4-step LoRA (LoraLoaderModelOnly) on SDXL base, 4 steps, cfg 1, lcm sampler, sgm_uniform — CC BY-NC (non-commercial)",
+    "variant": "DMD2 4-step LoRA (LoraLoaderModelOnly) on SDXL base, 4 steps, cfg 1, lcm sampler, sgm_uniform",
     "from_template": "image_sdxl_simple spine + LoraLoaderModelOnly; settings from the DMD2 README (4 steps, guidance 0, LCMScheduler timesteps [999, 749, 499, 249]); the dossier: 'in ComfyUI this maps to the lcm sampler with 4 steps (exact ComfyUI graph from the author: NOT FOUND)'",
     "min_comfyui": "0.0.1",
     "confidence": "publisher settings (diffusers) mapped to ComfyUI by the dossier; the scheduler is inferred — not a shipped graph",
@@ -71,7 +71,7 @@
       "dmd2_sdxl_4step_lora_fp16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "4 steps, cfg 1 (guidance 0), lcm sampler. DMD2 is Creative Commons BY-NC(-SA) 4.0: NOT for commercial output. Prefer Lightning (openrail++) when the user sells the result.",
+    "defaults_note": "4 steps, cfg 1 (guidance 0), lcm sampler. Prefer Lightning when the user sells the result.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

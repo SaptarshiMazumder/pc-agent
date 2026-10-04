@@ -2,7 +2,7 @@
   "recipe": {
     "id": "background-removal-2-1",
     "task": "background-removal",
-    "variant": "Qwen-Image-2.1 int8 background removal to a transparent PNG (native RGBA VAE), 25 steps, cfg 1 - PENDING (ComfyUI >= 0.37.0) and NON-COMMERCIAL",
+    "variant": "Qwen-Image-2.1 int8 background removal to a transparent PNG (native RGBA VAE), 25 steps",
     "from_template": "image_qwen_image_2_1_background_removal (same 'Image Edit (Qwen Image 2.1)' subgraph, prompt 'Remove the background, and output a PNG image', no PE branch; ImageCompare dropped)",
     "min_comfyui": "0.37.0",
     "confidence": "official",
@@ -70,7 +70,7 @@
       "qwen_image_2.1_vae_bf16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "25 steps, cfg 1, euler/simple, resolution 0, PNG 8-bit sRGB. LICENCE: Qwen Research License - NON-COMMERCIAL ONLY.",
+    "defaults_note": "25 steps, cfg 1, euler/simple, resolution 0, PNG 8-bit sRGB.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

@@ -3,21 +3,6 @@
   "id": "identity-adapters",
   "name": "Identity and style reference adapters (IP-Adapter, FaceID, PuLID, InstantID, InfiniteYou, USO, Redux)",
   "publisher": "h94 / Tencent AI Lab (IP-Adapter, FaceID); ByteDance (PuLID, InfiniteYou, USO); InstantX (InstantID); Black Forest Labs (Redux); ComfyUI packs by cubiq, balazik, lldacing, bytedance; native nodes by Comfy-Org",
-  "license": {
-    "name": "per method (see files[].license)",
-    "commercial": "USO weights Apache-2.0 but on FLUX.1-dev (non-commercial host); Redux and every FLUX.1-dev adapter: FLUX.1 [dev] Non-Commercial; IP-Adapter models Apache-2.0 (pack GPL-3.0); IP-Adapter-FaceID: no license field (NOT FOUND) + insightface non-commercial; PuLID weights Apache-2.0 (+ FLUX license, + insightface); InstantID Apache-2.0 (+ insightface); InfiniteYou weights CC-BY-NC-4.0 (NON-COMMERCIAL)",
-    "notes": "insightface's antelopev2/buffalo_l models are non-commercial per every pack README that uses them; lldacing's FaceNet option is the only commercial-friendly face embedder here",
-    "src": [
-      "S-HF-USO",
-      "S-HF-REDUX",
-      "S-HF-IPA",
-      "S-HF-IPA-FACEID",
-      "S-HF-PULID",
-      "S-HF-INSTANTID",
-      "S-HF-INFU",
-      "S-GH-PULID-FLUX-LL"
-    ]
-  },
   "cost": "free",
   "kind": [
     "control"
@@ -59,7 +44,7 @@
       "src": "S-GH-PULID-UPSTREAM"
     },
     {
-      "what": "commercial use of InfiniteYou weights (CC-BY-NC-4.0), of any FLUX.1-dev-based adapter (Redux, PuLID-Flux, InfiniteYou, InstantX IP-Adapter), or of insightface-based pipelines (FaceID, PuLID, InstantID, InfiniteYou) without replacing the face embedder",
+      "what": "of any FLUX.1-dev-based adapter (Redux, PuLID-Flux, InfiniteYou, InstantX IP-Adapter), or of insightface-based pipelines (FaceID, PuLID, InstantID, InfiniteYou) without replacing the face embedder",
       "src": [
         "S-HF-INFU",
         "S-HF-REDUX",
@@ -101,7 +86,6 @@
       "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors",
       "host": "flux-1",
       "precision": "fp8 all-in-one (MODEL + CLIP + VAE)",
-      "license": "FLUX.1 [dev] Non-Commercial License (inherited by every FLUX.1-dev adapter)",
       "recipes": [
         "uso-subject-flux1",
         "uso-subject-style-flux1",
@@ -118,7 +102,6 @@
       "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev.safetensors",
       "host": "flux-1",
       "precision": "bf16",
-      "license": "FLUX.1 [dev] Non-Commercial License (inherited by every FLUX.1-dev adapter)",
       "recipes": [
         "redux-style-flux1",
         "pulid-flux1"
@@ -134,7 +117,6 @@
       "url": "https://huggingface.co/Kijai/flux-fp8/resolve/main/flux1-schnell-fp8-e4m3fn.safetensors",
       "host": "flux-1 (schnell)",
       "precision": "fp8_e4m3fn",
-      "license": "Apache-2.0 (schnell)",
       "recipes": [
         "infiniteyou-flux1"
       ],
@@ -244,7 +226,6 @@
       "url": "https://huggingface.co/Comfy-Org/USO_1.0_Repackaged/resolve/main/split_files/loras/uso-flux1-dit-lora-v1.safetensors",
       "host": "flux-1",
       "method": "uso",
-      "license": "Apache-2.0 (repack)",
       "recipes": [
         "uso-subject-flux1",
         "uso-subject-style-flux1",
@@ -260,7 +241,6 @@
       "url": "https://huggingface.co/Comfy-Org/USO_1.0_Repackaged/resolve/main/split_files/model_patches/uso-flux1-projector-v1.safetensors",
       "host": "flux-1",
       "method": "uso",
-      "license": "Apache-2.0 (repack)",
       "recipes": [
         "uso-subject-style-flux1",
         "uso-style-flux1"
@@ -292,7 +272,6 @@
       "url": "https://huggingface.co/Comfy-Org/Flux1-Redux-Dev/resolve/main/flux1-redux-dev.safetensors",
       "host": "flux-1",
       "method": "redux",
-      "license": "FLUX.1 [dev] Non-Commercial License (inherited by every FLUX.1-dev adapter)",
       "recipes": [
         "redux-style-flux1"
       ],
@@ -309,7 +288,6 @@
       "method": "ip-adapter",
       "preset": "PLUS (high strength)",
       "clip_vision": "ViT-H",
-      "license": "Apache-2.0",
       "recipes": [
         "ipadapter-sdxl"
       ],
@@ -326,7 +304,6 @@
       "method": "ip-adapter",
       "preset": "STANDARD (medium strength)",
       "clip_vision": "ViT-H",
-      "license": "Apache-2.0",
       "recipes": [],
       "src": "S-HF-IPA"
     },
@@ -340,7 +317,6 @@
       "method": "ip-adapter",
       "preset": "PLUS FACE (portraits)",
       "clip_vision": "ViT-H",
-      "license": "Apache-2.0",
       "recipes": [],
       "note": "portrait-tuned without insightface; weaker likeness than FaceID",
       "src": "S-HF-IPA"
@@ -355,7 +331,6 @@
       "method": "ip-adapter",
       "preset": "VIT-G (medium strength)",
       "clip_vision": "ViT-bigG",
-      "license": "Apache-2.0",
       "recipes": [],
       "note": "needs the bigG encoder, not ViT-H",
       "src": "S-HF-IPA"
@@ -370,7 +345,6 @@
       "method": "ip-adapter",
       "preset": "PLUS (high strength)",
       "clip_vision": "ViT-H",
-      "license": "Apache-2.0",
       "recipes": [
         "ipadapter-sd15"
       ],
@@ -387,7 +361,6 @@
       "method": "ip-adapter-faceid",
       "preset": "FACEID PLUS V2",
       "clip_vision": "ViT-H",
-      "license": "NOT FOUND (no license field on HF); README: insightface non-commercial",
       "recipes": [
         "ipadapter-faceid-sdxl"
       ],
@@ -416,7 +389,6 @@
       "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors",
       "host": "sd15 / sdxl",
       "method": "ip-adapter",
-      "license": "Apache-2.0",
       "recipes": [
         "ipadapter-sdxl",
         "ipadapter-sd15",
@@ -433,7 +405,6 @@
       "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors",
       "host": "sdxl / sd15 vit-G",
       "method": "ip-adapter",
-      "license": "Apache-2.0",
       "recipes": [],
       "note": "RENAME on download; only for ip-adapter_sdxl.safetensors and ip-adapter_sd15_vit-G.safetensors",
       "src": "S-HF-IPA"
@@ -446,7 +417,6 @@
       "url": "https://huggingface.co/guozinan/PuLID/resolve/main/pulid_flux_v0.9.1.safetensors",
       "host": "flux-1",
       "method": "pulid",
-      "license": "Apache-2.0 weights, 'must comply with the FLUX.1-dev model license'",
       "recipes": [
         "pulid-flux1"
       ],
@@ -461,7 +431,6 @@
       "url": "https://huggingface.co/huchenlei/ipadapter_pulid/resolve/main/ip-adapter_pulid_sdxl_fp16.safetensors",
       "host": "sdxl",
       "method": "pulid",
-      "license": "Apache-2.0",
       "recipes": [
         "pulid-sdxl"
       ],
@@ -476,7 +445,6 @@
       "url": "https://huggingface.co/QuanSun/EVA-CLIP/resolve/main/EVA02_CLIP_L_336_psz14_s6B.pt",
       "host": "flux-1 / sdxl",
       "method": "pulid",
-      "license": "MIT",
       "recipes": [
         "pulid-flux1",
         "pulid-sdxl"
@@ -530,7 +498,6 @@
       "bytes": 143607619,
       "url": "https://huggingface.co/ByteDance/InfiniteYou/resolve/main/supports/insightface/models/antelopev2/1k3d68.onnx",
       "method": "pulid / instantid / infiniteyou",
-      "license": "insightface models: non-commercial (README statements)",
       "recipes": [
         "pulid-flux1",
         "pulid-sdxl",
@@ -618,7 +585,6 @@
       "url": "https://huggingface.co/InstantX/InstantID/resolve/main/ip-adapter.bin",
       "host": "sdxl",
       "method": "instantid",
-      "license": "Apache-2.0",
       "recipes": [
         "instantid-sdxl",
         "instantid-sdxl-depth"
@@ -634,7 +600,6 @@
       "url": "https://huggingface.co/InstantX/InstantID/resolve/main/ControlNetModel/diffusion_pytorch_model.safetensors",
       "host": "sdxl",
       "method": "instantid",
-      "license": "Apache-2.0",
       "recipes": [
         "instantid-sdxl",
         "instantid-sdxl-depth"
@@ -650,7 +615,6 @@
       "url": "https://huggingface.co/stabilityai/control-lora/resolve/main/control-LoRAs-rank256/control-lora-depth-rank256.safetensors",
       "host": "sdxl",
       "method": "instantid (+depth)",
-      "license": "other (Stability)",
       "recipes": [
         "instantid-sdxl-depth"
       ],
@@ -666,7 +630,6 @@
       "host": "flux-1",
       "method": "infiniteyou",
       "stage": "aes_stage2 (better text-image alignment and aesthetics)",
-      "license": "CC-BY-NC-4.0 (NON-COMMERCIAL)",
       "recipes": [
         "infiniteyou-flux1"
       ],
@@ -681,7 +644,6 @@
       "url": "https://huggingface.co/ByteDance/InfiniteYou/resolve/main/infu_flux_v1.0/aes_stage2/image_proj_model.bin",
       "host": "flux-1",
       "method": "infiniteyou",
-      "license": "CC-BY-NC-4.0",
       "recipes": [
         "infiniteyou-flux1"
       ],
@@ -697,7 +659,6 @@
       "host": "flux-1",
       "method": "infiniteyou",
       "stage": "sim_stage1 (higher identity similarity)",
-      "license": "CC-BY-NC-4.0",
       "recipes": [],
       "note": "swap with sim_stage1/image_proj_model.bin into infiniteyou-flux1",
       "src": "S-HF-INFU"
@@ -710,7 +671,6 @@
       "url": "https://huggingface.co/XLabs-AI/flux-ip-adapter-v2/resolve/main/ip_adapter.safetensors",
       "host": "flux-1",
       "method": "xlabs-ip-adapter",
-      "license": "Apache-2.0 (v2 weights; v1 981,760,648 B is FLUX non-commercial)",
       "recipes": [],
       "note": "needs the x-flux-comfyui pack ('Currently in beta') + openai/clip-vit-large-patch14 model.safetensors 1,710,540,580 B in clip_vision; style/image prompting, not face ID",
       "src": "S-HF-XLABS-IPA"
@@ -723,7 +683,6 @@
       "url": "https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin",
       "host": "flux-1",
       "method": "instantx-ip-adapter",
-      "license": "FLUX.1 [dev] Non-Commercial License (inherited by every FLUX.1-dev adapter)",
       "recipes": [],
       "note": "'Not for fine-grained style transfer or character consistency'; encoder google/siglip-so400m-patch14-384; recommended scale 0.7",
       "src": "S-HF-INSTANTX-IPA"
@@ -736,7 +695,6 @@
       "url": "https://huggingface.co/Fayens/Pulid-Flux2/resolve/main/pulid_flux2_klein_v2.safetensors",
       "host": "flux-2 (Klein 4B/9B, dev)",
       "method": "pulid-flux2",
-      "license": "MIT",
       "recipes": [],
       "note": "SINGLE-SOURCE project (iFayens/ComfyUI-PuLID-Flux2: ApplyPuLIDFlux2 strength 0-2, README recommends 1.4); no FLUX.1 support; out of this profile's scope",
       "src": "S-HF-PULID-FLUX2"
@@ -747,7 +705,6 @@
       "name": "ComfyUI_IPAdapter_plus",
       "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
       "manager_name": "ComfyUI_IPAdapter_plus",
-      "license": "GPL-3.0",
       "status": "maintenance only (last push 2025-04-14); still loads on current ComfyUI (2026 templates list 'IP Adapter')",
       "base_models": "SD1.5, SDXL, Kolors - NOT FLUX/SD3/Qwen",
       "nodes": [
@@ -847,7 +804,6 @@
     {
       "name": "PuLID_ComfyUI",
       "git": "https://github.com/cubiq/PuLID_ComfyUI",
-      "license": "Apache-2.0",
       "status": "maintenance only (2025-04-14)",
       "base_models": "SDXL only",
       "nodes": [
@@ -867,7 +823,6 @@
     {
       "name": "ComfyUI_PuLID_Flux_ll",
       "git": "https://github.com/lldacing/ComfyUI_PuLID_Flux_ll",
-      "license": "Apache-2.0",
       "status": "updates 2025-01-27 .. 2025-02-19; requires ComfyUI >= 0.3.7",
       "base_models": "FLUX.1-dev (fp16 / fp8 / GGUF), FLUX.1-Krea-dev",
       "nodes": [
@@ -880,7 +835,6 @@
         "PulidFluxFaceDetector",
         "FixPulidFluxPatch (deprecated)"
       ],
-      "note": "same node ids as balazik/ComfyUI-PuLID-Flux (original, alpha: attn_mask not working, 'model pollution' after disconnecting) - install ONE of the two; lldacing fixes both and adds a commercial-friendly FaceNet option (20180402-114759-vggface2.pt, pip install facenet-pytorch --no-deps)",
       "folders": {
         "pulid": "models/pulid",
         "insightface": "models/insightface/models/antelopev2",
@@ -895,7 +849,6 @@
     {
       "name": "ComfyUI_InstantID",
       "git": "https://github.com/cubiq/ComfyUI_InstantID",
-      "license": "Apache-2.0",
       "status": "maintenance only (2025-04-14)",
       "base_models": "SDXL only (incl. Turbo / Lightning)",
       "nodes": [
@@ -923,7 +876,6 @@
       "name": "ComfyUI_InfiniteYou",
       "git": "https://github.com/bytedance/ComfyUI_InfiniteYou",
       "registry": "https://registry.comfy.org/publishers/yuminjia/nodes/infiniteyou",
-      "license": "Apache-2.0 (code); weights CC-BY-NC-4.0",
       "status": "official ByteDance pack (ICCV 2025 Highlight); HF lastModified 2025-07-25",
       "base_models": "FLUX.1-dev (bf16 ~43 GB / fp8 ~24 GB VRAM)",
       "nodes": [
@@ -954,7 +906,7 @@
       "task": "identity",
       "host": "flux-1",
       "recipe": "uso-subject-flux1",
-      "why": "NATIVE (no pack, no insightface): keeps a character from one reference; Apache-2.0 weights; the default FLUX identity route on this image",
+      "why": "NATIVE (no pack, no insightface): keeps a character from one reference; the default FLUX identity route on this image",
       "src": [
         "S-TPL-USO",
         "S-DOCS-USO"
@@ -979,7 +931,7 @@
       "task": "style-reference",
       "host": "flux-1",
       "recipe": "redux-style-flux1",
-      "why": "NATIVE 'prompt with images' (style, palette, subject variations); 129 MB; works with dev or schnell; not a face method; FLUX non-commercial",
+      "why": "NATIVE 'prompt with images' (style, palette, subject variations); 129 MB; works with dev or schnell; not a face method",
       "src": "S-TPL-REDUX"
     },
     {
@@ -999,7 +951,7 @@
       "host": "flux-1",
       "fidelity": "high",
       "recipe": "infiniteyou-flux1",
-      "why": "ByteDance's official pack; ControlNet-shaped so it composes like a ControlNet (strength / start / end); CC-BY-NC weights; ~24 GB fp8",
+      "why": "ByteDance's official pack; ControlNet-shaped so it composes like a ControlNet (strength / start / end); ~24 GB fp8",
       "confidence": "community-confirmed",
       "src": "S-GH-INFU"
     },
@@ -1008,7 +960,7 @@
       "host": "sdxl",
       "fidelity": "high",
       "recipe": "instantid-sdxl",
-      "why": "keypoint-locked likeness on SDXL (also Turbo/Lightning); Apache-2.0 + insightface",
+      "why": "keypoint-locked likeness on SDXL (also Turbo/Lightning)",
       "confidence": "community-confirmed",
       "src": "S-GH-INSTANTID"
     },
@@ -1025,7 +977,7 @@
       "task": "identity",
       "host": "sdxl",
       "recipe": "pulid-sdxl",
-      "why": "tuning-free face ID with fidelity/style modes; Apache-2.0",
+      "why": "tuning-free face ID with fidelity/style modes",
       "confidence": "community-confirmed",
       "src": "S-GH-PULID-SDXL"
     },
@@ -1033,7 +985,7 @@
       "task": "identity",
       "host": "sdxl",
       "recipe": "ipadapter-faceid-sdxl",
-      "why": "FaceID Plus V2: insightface likeness through the IP-Adapter pack (needs buffalo_l, auto-downloaded); no HF license field",
+      "why": "FaceID Plus V2: insightface likeness through the IP-Adapter pack (needs buffalo_l, auto-downloaded)",
       "confidence": "community-confirmed",
       "src": "S-GH-IPA"
     },
@@ -1041,7 +993,7 @@
       "task": "image-prompt",
       "host": "sdxl",
       "recipe": "ipadapter-sdxl",
-      "why": "style / composition / subject image prompting on SDXL (PLUS preset); Apache-2.0 models",
+      "why": "style / composition / subject image prompting on SDXL (PLUS preset)",
       "confidence": "community-confirmed",
       "src": "S-GH-IPA"
     },
@@ -1745,17 +1697,6 @@
       "src": "S-GH-IPA"
     },
     {
-      "symptom": "license surprise",
-      "cause": "InfiniteYou CC-BY-NC; FLUX-based adapters inherit FLUX.1-dev non-commercial (XLabs v2 weights are the Apache exception); insightface non-commercial; IP-Adapter-FaceID has no license field",
-      "fix": "for commercial work: USO's weights are Apache-2.0 but the FLUX.1-dev host is not; SDXL + InstantID/PuLID-SDXL need a non-insightface embedder (lldacing FaceNet is FLUX-only)",
-      "src": [
-        "S-HF-INFU",
-        "S-HF-REDUX",
-        "S-GH-PULID-FLUX-LL",
-        "S-HF-IPA-FACEID"
-      ]
-    },
-    {
       "symptom": "no new-model support from the IP-Adapter / PuLID-SDXL / InstantID packs",
       "cause": "cubiq packs 'maintenance only' since 2025-04-14",
       "fix": "they still load; for new models use the native nodes or the editing families",
@@ -1768,17 +1709,17 @@
   ],
   "sources": {
     "S-GH-IPA": {
-      "url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus (README, IPAdapterPlus.py, utils.py, examples/ipadapter_simple.json, ipadapter_advanced.json, ipadapter_faceid.json, ipadapter_style_composition.json; GitHub API: GPL-3.0, pushed 2025-04-14)",
+      "url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
       "accessed": "2026-10-01",
       "class": "official"
     },
     "S-HF-IPA": {
-      "url": "https://huggingface.co/h94/IP-Adapter (tree + metadata: Apache-2.0)",
+      "url": "https://huggingface.co/h94/IP-Adapter",
       "accessed": "2026-10-01",
       "class": "official"
     },
     "S-HF-IPA-FACEID": {
-      "url": "https://huggingface.co/h94/IP-Adapter-FaceID (tree; no license field)",
+      "url": "https://huggingface.co/h94/IP-Adapter-FaceID",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1803,7 +1744,7 @@
       "class": "official"
     },
     "S-HF-PULID": {
-      "url": "https://huggingface.co/guozinan/PuLID (tree, Apache-2.0)",
+      "url": "https://huggingface.co/guozinan/PuLID",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1813,7 +1754,7 @@
       "class": "official"
     },
     "S-HF-EVACLIP": {
-      "url": "https://huggingface.co/QuanSun/EVA-CLIP (tree, MIT)",
+      "url": "https://huggingface.co/QuanSun/EVA-CLIP",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1828,7 +1769,7 @@
       "class": "official"
     },
     "S-HF-INSTANTID": {
-      "url": "https://huggingface.co/InstantX/InstantID (tree, Apache-2.0)",
+      "url": "https://huggingface.co/InstantX/InstantID",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1838,7 +1779,7 @@
       "class": "official"
     },
     "S-HF-INFU": {
-      "url": "https://huggingface.co/ByteDance/InfiniteYou (tree incl. supports/insightface/models/antelopev2; cc-by-nc-4.0)",
+      "url": "https://huggingface.co/ByteDance/InfiniteYou",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1878,7 +1819,7 @@
       "class": "official"
     },
     "S-HF-USO": {
-      "url": "https://huggingface.co/Comfy-Org/USO_1.0_Repackaged (tree, Apache-2.0)",
+      "url": "https://huggingface.co/Comfy-Org/USO_1.0_Repackaged",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1963,12 +1904,12 @@
       "class": "official"
     },
     "S-GH-PULID-FLUX2": {
-      "url": "https://github.com/iFayens/ComfyUI-PuLID-Flux2 (README, pulid_flux2.py; MIT)",
+      "url": "https://github.com/iFayens/ComfyUI-PuLID-Flux2",
       "accessed": "2026-10-01",
       "class": "single-source"
     },
     "S-HF-PULID-FLUX2": {
-      "url": "https://huggingface.co/Fayens/Pulid-Flux2 (tree, MIT)",
+      "url": "https://huggingface.co/Fayens/Pulid-Flux2",
       "accessed": "2026-10-01",
       "class": "single-source"
     },
@@ -2005,12 +1946,10 @@
   },
   "card": {
     "short_name": "identity adapter",
-    "restriction": "",
     "recipes": [
       {
         "match": "faceid",
-        "short_name": "IP-Adapter FaceID",
-        "restriction": "non-commercial (insightface face models)"
+        "short_name": "IP-Adapter FaceID"
       },
       {
         "match": "^ipadapter",
@@ -2018,33 +1957,27 @@
       },
       {
         "match": "pulid-flux",
-        "short_name": "PuLID (FLUX.1)",
-        "restriction": "non-commercial use only"
+        "short_name": "PuLID (FLUX.1)"
       },
       {
         "match": "pulid",
-        "short_name": "PuLID",
-        "restriction": "non-commercial (insightface face models)"
+        "short_name": "PuLID"
       },
       {
         "match": "instantid",
-        "short_name": "InstantID",
-        "restriction": "non-commercial (insightface face models)"
+        "short_name": "InstantID"
       },
       {
         "match": "infiniteyou",
-        "short_name": "InfiniteYou",
-        "restriction": "non-commercial use only"
+        "short_name": "InfiniteYou"
       },
       {
         "match": "^uso",
-        "short_name": "USO (FLUX.1)",
-        "restriction": "non-commercial use only"
+        "short_name": "USO (FLUX.1)"
       },
       {
         "match": "redux",
-        "short_name": "FLUX.1 Redux",
-        "restriction": "non-commercial use only"
+        "short_name": "FLUX.1 Redux"
       }
     ]
   }

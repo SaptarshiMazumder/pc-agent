@@ -1,11 +1,6 @@
 # HiDream-I1 / HiDream-E1 — the agent's guide
 
-HiDream.ai's 17B sparse-DiT (MoE) image family: **I1** text-to-image in Full / Dev / Fast variants and
-**E1 / E1.1** instruction-based editing. Transformer weights MIT; the mandatory Llama-3.1-8B encoder is
-under the Llama 3.1 Community License. Free, commercial use permitted. Big: every variant drives **four
-text encoders** (CLIP-L, CLIP-G, T5-XXL, Llama-3.1-8B — ~16 GB of files) and the fp8 diffusion files
-"require more than 16GB of VRAM" (bf16 "more than 27GB"). Everything below was read from the official
-templates, docs and model cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+HiDream.ai's 17B sparse-DiT (MoE) image family: **I1** text-to-image in Full / Dev / Fast variants and **E1 / E1.1** instruction-based editing. Big: every variant drives **four text encoders** (CLIP-L, CLIP-G, T5-XXL, Llama-3.1-8B — ~16 GB of files) and the fp8 diffusion files "require more than 16GB of VRAM" (bf16 "more than 27GB"). Everything below was read from the official templates, docs and model cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 
@@ -80,4 +75,3 @@ E1-Full, vague instructions, negatives / cfg > 1 on Dev and Fast.
 | E1.1 aspect changed | crop/resize before the stage |
 | E1.1 differs from the demo | official pipeline adds a refine_strength 0.3 I1-Full pass; template 20 vs 28 steps |
 | E1.1 negative seems ignored | template wiring; rewire DualCFGGuider.negative to the Negative encode |
-| redistribution licence | MIT transformer, Llama 3.1 Community License encoder |

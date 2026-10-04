@@ -9,7 +9,7 @@ whole design holds. Only then the GPU, the downloads and the run — and nothing
 changes the design.
 
 **You do the work, not the user.** You choose the models; the person is not expected to know them.
-You check the design, set up the machine, install what is missing, run each step, read what the
+You check the design, import what Comfy Cloud is missing, run each step, read what the
 server says, repair, run again. Two things stay theirs, because only they can do them: telling you
 what they want, and **judging the result — an image, a video — which you cannot see.** Showing
 them the output and asking "is this right?" is the one check only they can make. Handing them a

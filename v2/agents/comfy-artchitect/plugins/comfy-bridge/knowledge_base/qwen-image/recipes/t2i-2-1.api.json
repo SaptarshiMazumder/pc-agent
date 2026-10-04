@@ -2,7 +2,7 @@
   "recipe": {
     "id": "t2i-2-1",
     "task": "t2i",
-    "variant": "Qwen-Image-2.1 int8 ConvRot (7.3 GB, 7B single-stream DiT, native 2K, RGBA): TextEncodeQwenImage21 + QwenImage21Cache, 25 steps, cfg 1, euler/simple - PENDING (ComfyUI >= 0.37.2) and NON-COMMERCIAL licence",
+    "variant": "Qwen-Image-2.1 int8 ConvRot (7.3 GB, 7B single-stream DiT, native 2K, RGBA): TextEncodeQwenImage21 + QwenImage21Cache, 25 steps, cfg 1",
     "from_template": "image_qwen_image_2_1_t2i (subgraph 'Text to Image (Qwen Image 2.1)' flattened; the prompt-enhancer branch - CLIPLoader qwen3.5_9b_qwen_image_2.1_pe_t2i + TextGenerate + ComfySwitchNode, off by default - elided; ResolutionSelector 1:1 / 1 MP inlined as 1024x1024)",
     "min_comfyui": "0.37.2",
     "confidence": "official",
@@ -75,7 +75,7 @@
       "qwen_image_2.1_vae_bf16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "1024x1024, 25 steps, cfg 1, euler/simple, no ModelSampling node (QwenImage21 config shift 0.69 internal), PNG output. Transparent output: wrap the prompt as 'This is an RGBA format image with transparency. [your description]. The image has an alpha channel and a transparent background.' and keep PNG. 'Targets well above the model's 2K trained size, such as 4K, lose prompt adherence'. LICENCE: Qwen Research License - NON-COMMERCIAL ONLY.",
+    "defaults_note": "1024x1024, 25 steps, cfg 1, euler/simple, no ModelSampling node (QwenImage21 config shift 0.69 internal), PNG output. Transparent output: wrap the prompt as 'This is an RGBA format image with transparency. [your description]. The image has an alpha channel and a transparent background.' and keep PNG. 'Targets well above the model's 2K trained size, such as 4K, lose prompt adherence'.",
     "vram_evidence": {
       "gpu": "RTX 5090 (docs timing only)",
       "at": "1 MP",

@@ -1,0 +1,28 @@
+{
+  "id": "gym-full-run-cloud",
+  "agent_id": "comfy-artchitect",
+  "goal": "The gym design end to end on Comfy Cloud (the person's Comfy API key, serverless). The agent designs the multi-stage pipeline (an identity-locking stage before the video, earlier stages feeding later ones), gets the card approved, makes sure Comfy Cloud has every model (importing any it lacks), runs every stage with the hand-over between them, stops at the review point, and delivers the video into the chat plus ONE workflow file for the whole design. Judged by looking at the stills and the video against the reference photo, not by the checks alone.",
+  "turns": [
+    {
+      "text": "Make me a short video of a woman in a gym. It opens on an extreme close-up of her face — sweaty, focused — then the camera slowly pulls back to reveal her doing a heavy deadlift. It's for Instagram. She has to look exactly like the woman in the photo I added, the same person the whole way through.",
+      "reference_media": [
+        { "role": "", "path": "assets/influencer-reference.png" }
+      ]
+    },
+    "Looks good — go ahead and run it.",
+    "Yes, that's her. Keep going all the way to the video.",
+    "Keep going until the video is done."
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "no_punt_to_user" },
+    { "name": "tool_succeeded", "tool": "pipeline_present" },
+    { "name": "call_order", "first": "ask_user", "then": "pipeline_provision" },
+    { "name": "tool_succeeded", "tool": "pipeline_provision" },
+    { "name": "tool_succeeded", "tool": "pipeline_run" },
+    { "name": "produced_artifact", "kind": "image" },
+    { "name": "produced_artifact", "kind": "video" },
+    { "name": "max_turns", "n": 80 }
+  ],
+  "max_turns": 80
+}

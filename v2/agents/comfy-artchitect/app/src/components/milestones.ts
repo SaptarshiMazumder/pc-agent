@@ -2,7 +2,7 @@
  *
  * A transcript that says `comfy_emit`, `comfy_validate`, `comfy_run` is telling the user which
  * functions ran. What they actually want to know is what got DONE — "Workflow written · 16 nodes",
- * "Compiles against your instance", "Rendered 1 output". Same events, read as milestones.
+ * "Compiles on Comfy Cloud", "Rendered 1 output". Same events, read as milestones.
  *
  * WHY A TABLE AND NOT A RENAME. The rows still exist and still expand: a tool that failed, or that
  * somebody wants the arguments of, must stay inspectable — this is a headline, not a replacement.
@@ -17,8 +17,6 @@ export interface Milestone {
   label: string
   /** A short detail drawn from the call or its result: a count, a filename. */
   detail?: string
-  /** A place to go — the detail renders as a link that opens in a new tab. */
-  href?: string
 }
 
 /** `wrote 16 nodes — …` -> `16 nodes`; the first number and its unit, when the result leads with
@@ -38,20 +36,10 @@ type Read = (args: Record<string, unknown>, result: string, isError: boolean) =>
 
 /** The ComfyUI agent's own vocabulary. Keyed by tool name; null = render as a plain tool row. */
 export const MILESTONES: Record<string, Read> = {
-  /* THE MACHINE, AND THE DOOR TO IT. gpu_ensure's own text names the openable link ("Open it in
-     a browser: …"); the milestone makes it a click, here in the conversation where the person
-     is looking, rather than a URL to copy out of a tool row. */
-  gpu_ensure: (_a, result, isError) => {
-    if (isError || !/^GPU ready at /.test(result)) return null
-    const open = /Open it in a browser: (\S+)/.exec(result)
-    return open
-      ? { label: 'GPU ready', detail: 'open ComfyUI ↗', href: open[1] }
-      : { label: 'GPU ready' }
-  },
   comfy_probe: (_a, result, isError) =>
     isError
-      ? { label: 'Instance unreachable' }
-      : { label: 'Connected to your ComfyUI', detail: (result.split('\n')[0] || '').slice(0, 60) },
+      ? { label: 'Comfy Cloud unreachable' }
+      : { label: 'Connected to Comfy Cloud', detail: (result.split('\n')[0] || '').slice(0, 60) },
 
   comfy_emit: (a, result, isError) =>
     isError
@@ -61,19 +49,16 @@ export const MILESTONES: Record<string, Read> = {
   comfy_validate: (_a, result, isError) =>
     isError
       ? { label: 'Workflow does not compile yet', detail: 'repairing' }
-      : { label: 'Compiles against your instance', detail: leadCount(result, 'node') },
+      : { label: 'Compiles on Comfy Cloud', detail: leadCount(result, 'node') },
 
   comfy_install: (a, _r, isError) =>
     isError ? null : { label: 'Model installed', detail: fileName(a.filename) },
-
-  comfy_node_install: (a, _r, isError) =>
-    isError ? null : { label: 'Node pack installed', detail: String(a.pack || '').slice(0, 40) },
 
   comfy_run: (_a, result, isError) =>
     isError
       ? null
       : /still rendering/i.test(result)
-        ? { label: 'Rendering…', detail: 'continues on the instance' }
+        ? { label: 'Rendering…', detail: 'continues on Comfy Cloud' }
         : { label: 'Render complete', detail: leadCount(result, 'output') },
 
   comfy_run_status: (_a, result, isError) =>
@@ -83,7 +68,7 @@ export const MILESTONES: Record<string, Read> = {
 
   comfy_download: (_a, _r, isError) => (isError ? null : { label: 'Outputs pulled into the chat' }),
 
-  comfy_upload: (_a, _r, isError) => (isError ? null : { label: 'Reference sent to the instance' }),
+  comfy_upload: (_a, _r, isError) => (isError ? null : { label: 'Reference sent to Comfy Cloud' }),
 }
 
 /** The milestone for one finished tool call, or null to render it as an ordinary tool row. */

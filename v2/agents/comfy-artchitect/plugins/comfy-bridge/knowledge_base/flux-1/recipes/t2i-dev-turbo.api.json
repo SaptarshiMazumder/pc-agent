@@ -48,7 +48,7 @@
       "t5xxl_fp16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "8 steps, cfg 1.0, LoRA strength 1.0, model-default guidance 3.5 (the card's recommendation). The HF file is named diffusion_pytorch_model.safetensors; it is saved to models/loras as FLUX.1-Turbo-Alpha.safetensors (rename on download). License: inherits FLUX.1 [dev] Non-Commercial. Dev only: not for schnell.",
+    "defaults_note": "8 steps, cfg 1.0, LoRA strength 1.0, model-default guidance 3.5 (the card's recommendation). The HF file is named diffusion_pytorch_model.safetensors; it is saved to models/loras as FLUX.1-Turbo-Alpha.safetensors (rename on download). Dev only: not for schnell.",
     "vram_evidence": {
       "gpu": "NOT FOUND",
       "note": "as t2i-dev plus a 0.69 GB LoRA",

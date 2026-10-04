@@ -9,8 +9,7 @@ FamilyRuleValidator: is it right for its models). Then the pipeline as a whole:
   * a stage-fed input reads an output its producer HAS, of the TYPE it takes (an IMAGE stage cannot
     feed a VIDEO input)
   * the ComfyUI each recipe needs is not newer than the box's
-  * the model files, counted once across stages, against the rented box's DISK — a note for setup,
-    never a design error
+  * the model files, counted once across stages (their sizes, for the card)
   * node packs a stage needs are named — Phase 2 installs them
   * how the job is SPLIT (PipelineDesignChecks) — `?` findings about the design as a whole
 
@@ -30,10 +29,6 @@ from pipeline_design_checks import PipelineDesignChecks
 from recipe import version_tuple
 from stage_builder import StageBuildError, StageBuilder
 
-#: The rented box's disk (vast InstanceSettings.disk_gb) less room for ComfyUI's own files,
-#: outputs and temporary downloads.
-DISK_GB = 120.0
-DISK_HEADROOM_GB = 8.0
 
 
 @dataclass
@@ -138,19 +133,7 @@ class PipelineValidator:
                 warnings.append(f"stage {stage.name}: model files no knowledge-base family describes — "
                                 f"their wiring is unchecked by the family rules: {', '.join(unknown)}")
         warnings += self._design.check(pipeline, graphs)
-        total = sum(b or 0 for b in files.values()) / 1e9
-        budget = DISK_GB - DISK_HEADROOM_GB
-        setup_notes = []
-        if total > budget:
-            # NOT A DESIGN ERROR. The design is the best route for the job; the disk is the rented
-            # machine's, and Phase 2 deals with it. An error here made the agent drop the identity
-            # still that the job depended on, to fit 52 GB.
-            setup_notes.append(f"the models come to {total:.1f} GB, more than the {budget:.0f} GB the rented GPU "
-                               "keeps for models: setting up needs a bigger disk or the stages' models one "
-                               "at a time — a Phase 2 matter. Never change the design to fit it.")
-        unsized = [n for n, b in files.items() if b is None]
-        if unsized:
-            setup_notes.append(f"size unknown (not counted in the disk check): {', '.join(sorted(unsized))}")
+        setup_notes: list[str] = []
         return PipelineReport(verdicts, problems, warnings, user_inputs, files, sorted(set(packs)), self._source,
                               setup_notes)
 
@@ -251,4 +234,4 @@ def render_report(report: PipelineReport) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["DISK_GB", "DISK_HEADROOM_GB", "PipelineReport", "PipelineValidator", "StageVerdict", "render_report"]
+__all__ = ["PipelineReport", "PipelineValidator", "StageVerdict", "render_report"]

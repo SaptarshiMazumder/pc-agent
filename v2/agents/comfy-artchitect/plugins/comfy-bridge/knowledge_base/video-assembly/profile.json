@@ -3,14 +3,6 @@
   "id": "video-assembly",
   "name": "Clip assembly (ComfyUI core nodes)",
   "publisher": "Comfy-Org (ComfyUI core)",
-  "license": {
-    "name": "GPL-3.0 (ComfyUI core nodes; no model weights)",
-    "commercial": true,
-    "notes": "these graphs load no model: each clip keeps the licence of the model that made it",
-    "src": [
-      "S-NODES-VIDEO"
-    ]
-  },
   "cost": "free",
   "kind": [
     "assemble"
@@ -122,7 +114,6 @@
   },
   "card": {
     "short_name": "ComfyUI join",
-    "restriction": "",
     "recipes": [
       {
         "match": "^stack",

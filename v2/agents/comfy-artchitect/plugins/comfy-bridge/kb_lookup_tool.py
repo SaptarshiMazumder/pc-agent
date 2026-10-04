@@ -2,7 +2,7 @@
 
 THE AGENT PICKS, NOT THE USER. Asked by TASK it returns the families ranked for it across the
 knowledge base (TaskIndex: leaderboards, official claims, community evidence, each sourced), with
-each family's own recipes for the task, their constraints (licence, gated download, VRAM, disk) and
+each family's own recipes for the task, their constraints (gated download, VRAM, disk) and
 why. Asked for one RECIPE it returns what a stage built from it exposes — ports with their current
 values, the media it takes and makes, its files and sizes, the node packs and ComfyUI it needs — and
 the family's prompting guide. Free (open-weight) models only.
@@ -20,6 +20,7 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
+from model_readiness import ModelReadiness
 from pipeline_tool_context import PipelineToolContext
 
 #: Index task id -> the profile `selection` task names that serve it.
@@ -27,6 +28,7 @@ _TASK_FAMILY_TASKS = {
     "t2i-photoreal": ("t2i",), "t2i-general": ("t2i",), "t2i-text": ("t2i",),
     "edit": ("edit",), "edit-identity": ("edit", "reference", "style-ref"),
     "compose-multi-image": ("edit", "reference"),
+    "product-on-model": ("edit", "reference"),
     "t2v": ("t2v",), "i2v": ("i2v",), "flf2v": ("flf2v", "inpaint"),
     "reference-video": ("reference", "vace", "r2v"), "talking-head": ("ia2v", "s2v", "id-lora"),
     "video-with-audio": ("t2v", "i2v", "ia2v"), "upscale-image": ("upscale", "upscale-image"),
@@ -43,6 +45,7 @@ _TASK_GLOSS = {
     "t2i-360": "360 / equirectangular panorama, skybox, VR environment",
     "edit": "change an image by instruction", "edit-identity": "keep a person/character/product while changing the rest",
     "compose-multi-image": "combine several images (put X into scene Y, outfit onto person)",
+    "product-on-model": "a given person wearing or holding a given product (jacket, shirt, watch, headphones, bag): product ad, ad shot, lookbook, try-on, model with product, at an exact size or aspect ratio",
     "multi-angle": "the same subject or character from other camera angles: views, turnaround, angle sheet, front side back",
     "control": "image guided by edges/depth/pose of another image",
     "control-map": "make the edges/depth map a control input needs, from a raw photo or clip; keep a video's motion and layout while restyling it (watercolor, anime, clay, painting style)",
@@ -81,7 +84,7 @@ class KbLookupTool(Tool):
         "YOUR knowledge of the image and video models — use it instead of searching the web or "
         "recalling. Start with `query` (the job in plain words) to find the tasks and recipes that do it. "
         "Give `task` to get the free models ranked best-first for that kind of job, each "
-        "with its recipes, why, and what can rule it out (licence, gated download, VRAM, disk). "
+        "with its recipes, why, and what can rule it out (gated download, VRAM, disk). "
         "Give `family` and `recipe` to see what a stage built from it exposes (ports you can set, "
         "media it takes and makes, files, prompting guide). Pick the top option that fits the job "
         "yourself and say your pick in one line — the user should never have to name a model. "
@@ -156,10 +159,43 @@ class KbLookupTool(Tool):
 
     # ------------------------------------------------------------------ by task
 
+    @staticmethod
+    def _cloud_files(ctx: PipelineToolContext) -> set[str] | None:
+        """The model files Comfy Cloud lists in its loaders, by base name — from its node list as
+        captured (NodeRegistryCache); None when only the shipped list is at hand, which says nothing
+        about what Comfy Cloud has."""
+        if "captured" not in str(ctx.catalogue_source):
+            return None
+        names: set[str] = set()
+        for spec in (ctx.catalogue or {}).values():
+            inputs = (spec or {}).get("input") or {} if isinstance(spec, dict) else {}
+            for section in ("required", "optional"):
+                for entry in (inputs.get(section) or {}).values():
+                    values = entry[0] if isinstance(entry, list) and entry else None
+                    if isinstance(values, list):
+                        names.update(str(v).replace("\\", "/").rsplit("/", 1)[-1] for v in values
+                                     if isinstance(v, str) and v.lower().endswith(ModelReadiness.EXTENSIONS))
+        return names or None
+
+    @staticmethod
+    def _cloud_note(recipe, cloud: set[str] | None, constraints: list) -> list:
+        """A recipe's constraints as they stand ON COMFY CLOUD: 'gated' is a download hurdle, and
+        a model Comfy Cloud already has is not downloaded — the label had the agent pass over the
+        best model for a 'non-gated' one. A file Comfy Cloud lacks is said instead."""
+        if recipe is None or cloud is None:
+            return list(constraints)
+        missing = [f for f in recipe.files if f.replace("\\", "/").rsplit("/", 1)[-1] not in cloud]
+        kept = [c for c in constraints if not (str(c).strip().lower() == "gated" and not missing)]
+        if missing:
+            kept.append(f"Comfy Cloud lacks {len(missing)} of its files ({', '.join(missing[:3])}"
+                        f"{', …' if len(missing) > 3 else ''}): comfy_install imports them (Creator plan)")
+        return kept
+
     def _task(self, ctx: PipelineToolContext, task: str) -> str:
         wanted = _TASK_FAMILY_TASKS.get(task, (task,))
         lines = [f"best free models for {task}, best first:"]
         ranked = ctx.task_index.ranked(task) if ctx.task_index else []
+        cloud = self._cloud_files(ctx)
         listed = set()
         for choice in ranked:
             fam = ctx.catalog.families.get(choice.family)
@@ -177,11 +213,27 @@ class KbLookupTool(Tool):
                          f"the box runs {ctx.comfyui_version}]")
             else:
                 avail = ""
+            if choice.route:
+                lines.append(f"{choice.rank}. ROUTE ({len(choice.route)} stages) — {choice.why}")
+                notes: list = list(choice.constraints)
+                for n, step in enumerate(choice.route, start=1):
+                    r = ctx.catalog.recipe(str(step.get("family")), str(step.get("recipe")))
+                    gone = "" if r is not None and r.runs_on(ctx.comfyui_version) else "  [NOT AVAILABLE here]"
+                    lines.append(f"     stage {n}: family={step.get('family')} recipe={step.get('recipe')} — "
+                                 f"{step.get('does', '')}{gone}")
+                    notes += [c for c in self._cloud_note(r, cloud, []) if c not in notes]
+                if notes:
+                    lines.append("     watch: " + "; ".join(str(c) for c in notes))
+                if choice.evidence:
+                    ev = choice.evidence[0]
+                    lines.append(f"     evidence: {ev.get('class', '')} {ev.get('src', '')} {ev.get('date', '')}".rstrip())
+                continue
             lines.append(f"{choice.rank}. {fam.name} — {choice.why}{avail}")
             if recipe is not None:
                 lines.append(f"     start from: family={fam.id} recipe={recipe.id}")
-            if choice.constraints:
-                lines.append("     watch: " + "; ".join(str(c) for c in choice.constraints))
+            constraints = self._cloud_note(recipe, cloud, choice.constraints)
+            if constraints:
+                lines.append("     watch: " + "; ".join(str(c) for c in constraints))
             if choice.evidence:
                 ev = choice.evidence[0]
                 lines.append(f"     evidence: {ev.get('class', '')} {ev.get('src', '')} {ev.get('date', '')}".rstrip())
@@ -209,9 +261,7 @@ class KbLookupTool(Tool):
         fam = ctx.catalog.families.get(family)
         if fam is None:
             return f"no family '{family}'. Families: {', '.join(sorted(ctx.catalog.families))}"
-        lic = fam.license
-        lines = [f"{fam.name} ({fam.id}) — licence: {lic.get('name', '?')}"
-                 + (f" ({str(lic.get('notes'))[:200]})" if lic.get("notes") else "")]
+        lines = [f"{fam.name} ({fam.id})"]
         for s in fam.selection:
             if task and str(s.get("task")) not in _TASK_FAMILY_TASKS.get(task, (task,)):
                 continue

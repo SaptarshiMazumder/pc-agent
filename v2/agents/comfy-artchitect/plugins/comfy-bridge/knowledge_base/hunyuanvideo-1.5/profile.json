@@ -3,21 +3,6 @@
   "id": "hunyuanvideo-1.5",
   "name": "HunyuanVideo 1.5",
   "publisher": "Tencent Hunyuan (github.com/Tencent-Hunyuan/HunyuanVideo-1.5; HF tencent/HunyuanVideo-1.5); ComfyUI files repackaged by Comfy-Org; 4-step LoRA by lightx2v",
-  "license": {
-    "name": "Tencent Hunyuan Community License Agreement",
-    "commercial": true,
-    "territory_excluded": [
-      "European Union",
-      "United Kingdom",
-      "South Korea"
-    ],
-    "mau_cap": 100000000,
-    "notes": "'THIS LICENSE AGREEMENT DOES NOT APPLY IN THE EUROPEAN UNION, UNITED KINGDOM AND SOUTH KOREA AND IS EXPRESSLY LIMITED TO THE TERRITORY'; 'Territory' = 'worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea'; 'You must not use, reproduce, modify, distribute, or display the Tencent Hunyuan Works, Output or results of the Tencent Hunyuan Works outside the Territory'. Section 4: if monthly active users 'is greater than 100 million monthly active users in the preceding calendar month, You must request a license from Tencent'. Royalty-free otherwise, derivatives allowed with notices; a 'Tencent Hunyuan' mark licence only as required by the attribution clause 3(c). The repackaged companion files carry their own licences (Qwen2.5-VL, ByT5, SigLIP).",
-    "src": [
-      "S-LICENSE",
-      "S-GH"
-    ]
-  },
   "cost": "free",
   "kind": [
     "video"
@@ -782,7 +767,7 @@
       ]
     },
     {
-      "what": "HY-OmniWeaving (Tencent Hunyuan + ZJU, 2026-04-03): T2V, first-frame I2V, key-frame interpolation, up to 4 reference images, video-to-video editing on a 1.5 backbone; 33.4 GB transformer + 16.6 GB text encoder; same EU/UK/South-Korea licence exclusion; NOT in ComfyUI core v0.38.1; community plugin jaskirat05/ComfyUI-OmniWeaving (unverified)",
+      "what": "HY-OmniWeaving (Tencent Hunyuan + ZJU, 2026-04-03): T2V, first-frame I2V, key-frame interpolation, up to 4 reference images, video-to-video editing on a 1.5 backbone; 33.4 GB transformer + 16.6 GB text encoder; NOT in ComfyUI core v0.38.1; community plugin jaskirat05/ComfyUI-OmniWeaving (unverified)",
       "needs_pack": "ComfyUI-OmniWeaving (unverified)",
       "class": "official model / single-source plugin",
       "src": [
@@ -1872,12 +1857,6 @@
       ]
     },
     {
-      "symptom": "licence question from an EU/UK/Korean user or a 100M-MAU product",
-      "cause": "the Tencent Hunyuan Community License excludes the EU, UK and South Korea (works AND outputs) and caps MAU at 100 million without a Tencent licence",
-      "fix": "do not offer this family there; see profile.license",
-      "src": "S-LICENSE"
-    },
-    {
       "symptom": "Capybara templates behave differently",
       "cause": "capybara_v0.1 is a third-party 14B derivative, not Tencent's 1.5 (consistency complaints, HF #8)",
       "fix": "treat it as a separate model; not covered by these recipes",
@@ -1895,11 +1874,6 @@
     },
     "S-GH-COMFY": {
       "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/ComfyUI/README.md (Comfy checkpoint link, template links, 'set the temporal_size to the maximum value (4096)', recommended configurations incl. SR rows)",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-LICENSE": {
-      "url": "https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/LICENSE (Tencent Hunyuan Community License Agreement: Territory excludes EU/UK/South Korea; 100M MAU clause)",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1954,7 +1928,7 @@
       "class": "official"
     },
     "S-OMNI": {
-      "url": "https://github.com/Tencent-Hunyuan/OmniWeaving README + License.txt; https://huggingface.co/tencent/HY-OmniWeaving (README head, API files/sizes, createdAt 2026-03-31)",
+      "url": "https://huggingface.co/tencent/HY-OmniWeaving (README head, API files/sizes, createdAt 2026-03-31)",
       "accessed": "2026-10-01",
       "class": "official"
     },
@@ -1990,7 +1964,6 @@
     }
   },
   "card": {
-    "short_name": "HunyuanVideo 1.5",
-    "restriction": "not licensed in the EU, UK or South Korea"
+    "short_name": "HunyuanVideo 1.5"
   }
 }

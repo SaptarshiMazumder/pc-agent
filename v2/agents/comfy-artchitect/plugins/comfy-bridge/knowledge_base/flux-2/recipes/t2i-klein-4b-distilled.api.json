@@ -3,7 +3,7 @@
     "id": "t2i-klein-4b-distilled",
     "family": "flux-2",
     "task": "t2i",
-    "variant": "FLUX.2 [klein] 4B distilled (Apache-2.0) bf16: 4 steps, CFGGuider cfg 1 with ConditioningZeroOut as negative — the template's bypassed 'Distilled' subgraph",
+    "variant": "FLUX.2 [klein] 4B distilled bf16: 4 steps, CFGGuider cfg 1 with ConditioningZeroOut as negative — the template's bypassed 'Distilled' subgraph",
     "from_template": "image_flux2_klein_text_to_image ('Text to Image (Flux.2 Klein 4B Distilled)' subgraph, bypassed in the template)",
     "min_comfyui": "0.3.72",
     "confidence": "official",

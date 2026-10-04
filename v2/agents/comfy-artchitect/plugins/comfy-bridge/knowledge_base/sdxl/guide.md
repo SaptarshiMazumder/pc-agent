@@ -1,13 +1,6 @@
 # SDXL 1.0 and its ecosystem — the agent's guide
 
-Stability AI's 2023 1-megapixel image model: **base** (optionally + **refiner** for the last 20% of
-steps), the real-time **SDXL-Turbo**, and the largest third-party ecosystem of any image family —
-ByteDance **Lightning** and **Hyper-SD**, **DMD2**, **LCM-LoRA**, xinsir **ControlNet Union**, IP-Adapter,
-and the fine-tune lineages (Juggernaut, RealVisXL, Illustrious, Pony). Free weights; **the license is a
-spread**: base/refiner/Lightning/LCM are openrail++, Turbo is the Stability Community License (<US$1M,
-register), **DMD2 is non-commercial**, Juggernaut forbids paid-API use without a license, Pony and
-Illustrious are FAIPL-1.0-SD (derivatives stay open). Read from the official templates and publisher
-cards on 2026-10-01; `profile.json` holds files, numbers and sources.
+Stability AI's 2023 1-megapixel image model: **base** (optionally + **refiner** for the last 20% of steps), the real-time **SDXL-Turbo**, and the largest third-party ecosystem of any image family — ByteDance **Lightning** and **Hyper-SD**, **DMD2**, **LCM-LoRA**, xinsir **ControlNet Union**, IP-Adapter, and the fine-tune lineages (Juggernaut, RealVisXL, Illustrious, Pony). Read from the official templates and publisher cards on 2026-10-01; `profile.json` holds files, numbers and sources.
 
 ## When to pick it, and when not
 
@@ -25,10 +18,7 @@ cards on 2026-10-01; `profile.json` holds files, numbers and sources.
 - **Best quality from the Stability weights:** `t2i-base-refiner` (shared prompt) or
   `t2i-base-refiner-split-prompt` (refiner prompt = the *look*, not the scene). Two `KSamplerAdvanced`,
   base 0→20 of 25 with leftover noise, refiner 20→end without adding noise, refiner CLIP and VAE.
-- **Fast:** `t2i-turbo` (1 step, 512², cfg 1, `SDTurboScheduler` + `SamplerCustom`),
-  `t2i-lightning-4step` / `-8step` (euler + sgm_uniform, cfg 1, 1024px, openrail++),
-  `t2i-lightning-4step-lora` (the LoRA on a fine-tune — Lightning says use the LoRA only on non-base models),
-  `t2i-dmd2-4step` (lcm sampler, cfg 1 — **non-commercial**).
+- **Fast:** `t2i-turbo` (1 step, 512², cfg 1, `SDTurboScheduler` + `SamplerCustom`), `t2i-lightning-4step` / `-8step`, `t2i-lightning-4step-lora` (the LoRA on a fine-tune — Lightning says use the LoRA only on non-base models), `t2i-dmd2-4step`.
 - **From an image:** `img2img-base` (denoise 0.87), `inpaint-base` (alpha mask → `VAEEncodeForInpaint`).
 - **Structure:** `control-union-canny` (core Canny in-graph, no pack) or `control-union` with a map you
   preprocessed upstream (openpose / depth / lineart / scribble / segment / normal / tile / repaint).
@@ -42,7 +32,6 @@ cards on 2026-10-01; `profile.json` holds files, numbers and sources.
 | `t2i-turbo` | prompt | 1 step at 512² |
 | `t2i-lightning-4step` / `-8step` | prompt | 4 / 8 steps, cfg 1 |
 | `t2i-lightning-4step-lora` | prompt + a fine-tune | 4 steps on any SDXL checkpoint |
-| `t2i-dmd2-4step` | prompt | 4 steps, lcm; NC license |
 | `img2img-base` | image | denoise 0.87 repaint; output = input size |
 | `inpaint-base` | RGBA image (alpha = mask) | repaint inside the mask |
 | `control-union` | preprocessed map | Union ProMax, type `auto` |

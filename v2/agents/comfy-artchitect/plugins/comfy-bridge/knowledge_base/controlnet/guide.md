@@ -1,11 +1,6 @@
 # ControlNet and structural control — the agent's guide
 
-Not a model family: an **adapter stage** that attaches to another family's generation graph and
-forces its layout (edges, depth, pose, lines, blur, inpaint region). Every recipe here is a full
-minimal graph for ONE host (loader + text encode + adapter + sampler + decode + save); its
-`recipe.anchor` says which node ids are the host's and which are the adapter's, so a pipeline can
-splice the adapter nodes into that host's own recipe. All weights are free; the license is the
-net's (and the host's) — `profile.json` has the exact files, bytes, URLs and sources (read 2026-10-01).
+Not a model family: an **adapter stage** that attaches to another family's generation graph and forces its layout (edges, depth, pose, lines, blur, inpaint region). Every recipe here is a full minimal graph for ONE host (loader + text encode + adapter + sampler + decode + save); its `recipe.anchor` says which node ids are the host's and which are the adapter's, so a pipeline can splice the adapter nodes into that host's own recipe. All weights are free; `profile.json` has the exact files, bytes, URLs and sources (read 2026-10-01).
 
 ## When to pick it, and which recipe
 
@@ -15,7 +10,6 @@ Pick the host first (the image family the user wants), then the control kind:
 |---|---|---|---|
 | FLUX.1 | canny | `flux1-canny-full` | the official BFL Canny model: a 23.8 GB transformer that REPLACES flux1-dev; FluxGuidance 30, cfg 1 |
 | FLUX.1 | depth | `flux1-depth-lora` | 1.2 GB LoRA on flux1-dev-fp8 + native Lotus depth; FluxGuidance 10. The canny LoRA works the same way with native Canny |
-| FLUX.1 | pose / tile / blur (union) | — pending | InstantX / Shakker unions: no official template; index-by-position trap (below); non-commercial |
 | SD3.5 Large | canny / depth / blur | `sd35-canny` `sd35-depth` `sd35-blur` | 8.65 GB nets on the 14.9 GB fp8 checkpoint; strength 0.66-0.8; vae wired |
 | Qwen-Image | canny / soft edge / depth / pose | `qwen-instantx-union-depth` | 3.5 GB InstantX union, 4-step Lightning; swap the preprocessor for the other maps |
 | Qwen-Image | inpaint / outpaint | `qwen-instantx-inpaint` | the only inpainting ControlNet here; mask in the image alpha; pixels pasted back |
@@ -26,10 +20,7 @@ Pick the host first (the image family the user wants), then the control kind:
 | SDXL | any of 8 union types | `sdxl-union-xinsir` | one 2.5 GB ProMax net; COMMUNITY-CONFIRMED graph (no template) |
 | SD1.5 | scribble (any control_v11 net) | `sd15-scribble-canny` | archived official example; 0.72 GB nets, smallest footprint |
 
-Not covered on this image: Qwen-Image-2.1 Fun union (needs ComfyUI >= 0.38.0), Anima LLLite
-(license NOT FOUND), T2I-Adapter and SDXL single nets (files listed, no template). Video control
-lives in the video families (wan-2.2 `fun-control-14b` / `vace-14b`, MiniMax-H3 fun union, LTX-2
-canny/depth/pose).
+Not covered on this image: Qwen-Image-2.1 Fun union (needs ComfyUI >= 0.38.0), Anima LLLite, T2I-Adapter and SDXL single nets (files listed, no template). Video control lives in the video families (wan-2.2 `fun-control-14b` / `vace-14b`, MiniMax-H3 fun union, LTX-2 canny/depth/pose).
 
 **Three wiring patterns** — know which one the host uses:
 1. *ControlNetLoader → (SetUnionControlNetType) → ControlNetApplyAdvanced* on the conditioning:
@@ -101,4 +92,3 @@ for speed.
 | SD3.5 depth looks inverted | flip the map (the Lotus chain's ImageInvert output is what the template feeds) |
 | stretched structure | map and latent sizes differ |
 | Qwen-2.1 Fun will not load | needs ComfyUI >= 0.38.0 — use 2512 Fun or InstantX |
-| commercial job | avoid FLUX ControlNets (non-commercial) and Qwen-2.1 Fun (Qwen Research); SD3.5 is Community License; xinsir / Qwen InstantX-DiffSynth-2512 / Z-Image Fun are Apache-2.0 |

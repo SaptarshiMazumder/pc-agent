@@ -3,19 +3,6 @@
   "id": "minimax-h3",
   "name": "MiniMax H3",
   "publisher": "MiniMax (MiniMaxAI/MiniMax-H3); ComfyUI repack by Comfy-Org; turbo LoRAs by lightx2v; Fun ControlNet-Union by Alibaba PAI; FastH3 distill by FastVideo",
-  "license": {
-    "name": "MiniMax H3 Community License Agreement",
-    "commercial": "conditional",
-    "notes": "Open weights under the MiniMax H3 Community License. Applicable Territory = worldwide EXCLUDING the European Union, the United Kingdom, the Republic of Korea and the United States of America ('Excluded Territories'; an application form exists at platform.minimax.io/h3-license; MiniMax Q&A: 'not yet', not 'not ever'); outputs may not be used outside the territory. Section IV.1: separate, prior written authorization from MiniMax (api@minimax.io) is required if the commercial products and services generate more than 20 million US dollars in yearly revenue. Section IV.2 / III: the user interface of a commercial product or service must prominently display 'MiniMax H3' / 'Powered by MiniMax H3', the NOTICE file is kept and modified files carry notices. ComfyUI's own note: 'Commercial use of locally generated outputs requires a MiniMax commercial license, available through Comfy, the only official reseller. Generations on Comfy Cloud already include commercial rights.' The lightx2v turbo LoRAs are Apache-2.0; the Fun ControlNet-Union patch and FastH3 inherit the H3 license.",
-    "src": [
-      "S-H3-LICENSE",
-      "S-H3-LICENSE-QA",
-      "S-DOCS-H3",
-      "S-HF-LIGHTX2V",
-      "S-HF-PAI-CTRL",
-      "S-HF-FASTH3"
-    ]
-  },
   "cost": "free",
   "kind": [
     "video",
@@ -32,9 +19,8 @@
   ],
   "cannot": [
     {
-      "what": "LICENSE: the open weights are not licensed for use in the USA, EU, UK or Korea; commercial use of local outputs needs MiniMax's commercial license (Comfy is the sole reseller); >$20M yearly revenue needs MiniMax's written authorization; commercial UIs must display 'Powered by MiniMax H3'",
+      "what": "EU, UK or Korea; >$20M yearly revenue needs MiniMax's written authorization",
       "src": [
-        "S-H3-LICENSE",
         "S-DOCS-H3"
       ]
     },
@@ -512,7 +498,7 @@
         "class": "official",
         "src": "S-TPL-T2V"
       },
-      "quality": "T2V / I2V template 'Enable Lightning LoRA' at 8 steps; lightx2v, Apache-2.0; carries no adaln tensors, loads on pruned or full fl2va; for the FL2VA checkpoint only",
+      "quality": "T2V / I2V template 'Enable Lightning LoRA' at 8 steps; lightx2v, carries no adaln tensors, loads on pruned or full fl2va; for the FL2VA checkpoint only",
       "src": [
         "S-HF-COMFYORG",
         "S-TPL-I2V-CONT",
@@ -2149,16 +2135,6 @@
       "accessed": "2026-10-01",
       "class": "official"
     },
-    "S-H3-LICENSE": {
-      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
-    "S-H3-LICENSE-QA": {
-      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/QA-about-License.md",
-      "accessed": "2026-10-01",
-      "class": "official"
-    },
     "S-H3-GUIDE-BASE": {
       "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md",
       "accessed": "2026-10-01",
@@ -2347,7 +2323,6 @@
   },
   "card": {
     "short_name": "MiniMax H3",
-    "restriction": "not licensed in the USA, EU, UK or South Korea; over $20M revenue needs permission",
     "recipes": [
       {
         "match": "fasth3",

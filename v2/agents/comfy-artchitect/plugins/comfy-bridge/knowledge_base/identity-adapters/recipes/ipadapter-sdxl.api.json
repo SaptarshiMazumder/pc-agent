@@ -110,7 +110,6 @@
       {
         "name": "ComfyUI_IPAdapter_plus",
         "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
-        "license": "GPL-3.0",
         "status": "maintenance only since 2025-04-14",
         "pip": [],
         "nodes_used": [
@@ -119,7 +118,7 @@
         ]
       }
     ],
-    "defaults_note": "weight 0.8 (README: 'lower the weight to 0.8 minimum and increase step count' for prompt adherence), 30 steps, cfg 6.5, dpmpp_2m/karras. The unified loader finds the adapter and encoder BY FILENAME REGEX in models/ipadapter and models/clip_vision: keep h94's names and rename the encoder exactly to CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors. Models Apache-2.0; pack GPL-3.0.",
+    "defaults_note": "weight 0.8 (README: 'lower the weight to 0.8 minimum and increase step count' for prompt adherence), 30 steps, cfg 6.5, dpmpp_2m/karras. The unified loader finds the adapter and encoder BY FILENAME REGEX in models/ipadapter and models/clip_vision: keep h94's names and rename the encoder exactly to CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

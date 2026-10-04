@@ -1,12 +1,6 @@
 # FLUX.2 — the agent's guide
 
-Black Forest Labs' second image family (dev 2025-11, klein 2026-01): one architecture for generation
-and editing, so there is no Fill/Depth/Canny/Redux line — references replace them. **dev** is a 32B
-guidance-distilled model (non-commercial licence, outputs usable commercially); **klein** comes as 4B
-(Apache-2.0) and 9B (non-commercial, gated), each as a 4-step **distilled** model and an undistilled
-**base** with real CFG, plus a 9B **KV** model for fast multi-reference edits. Everything below was read
-from the official Comfy-Org templates, docs and BFL cards on 2026-10-01; `profile.json` holds the exact
-files, numbers and sources.
+Black Forest Labs' second image family (dev 2025-11, klein 2026-01): one architecture for generation and editing, so there is no Fill/Depth/Canny/Redux line — references replace them. **dev** is a 32B guidance-distilled model; **klein** comes as 4B and 9B, each as a 4-step **distilled** model and an undistilled **base** with real CFG, plus a 9B **KV** model for fast multi-reference edits. Everything below was read from the official Comfy-Org templates, docs and BFL cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 
@@ -16,11 +10,10 @@ files, numbers and sources.
   `t2i-dev-turbo` does it in 8 steps.
 - **Edit by instruction with the quality model:** `edit-dev` (one reference), `edit-dev-multi` (two or
   more, "up to 10 images", each named "Reference Image N"), `-turbo` variants at 8 steps.
-- **Commercial self-hosting / small cards:** the **klein 4B** line (Apache-2.0): `t2i-klein-4b-distilled`
-  (4 steps, "under a second", ~8 GB) or `t2i-klein-4b-base` (20 steps, real negative, more diversity);
-  `edit-klein-4b-distilled` / `-base` (+ `-multi`).
-- **Better klein, 16 GB+:** the **9B** line (gated, non-commercial): `t2i-klein-9b-base` /
-  `t2i-klein-9b-distilled`; `edit-klein-9b-base` / `-distilled` (+ `-multi`).
+- **Small cards:** the **klein 4B** line: `t2i-klein-4b-distilled` (4 steps, "under a second", ~8 GB)
+  or `t2i-klein-4b-base` (20 steps, real negative, more diversity); `edit-klein-4b-distilled` / `-base`
+  (+ `-multi`).
+- **Better klein, 16 GB+:** the **9B** line: `t2i-klein-9b-base` / `t2i-klein-9b-distilled`; `edit-klein-9b-base` / `-distilled` (+ `-multi`).
 - **Fast multi-reference edits:** `edit-klein-9b-kv` / `-multi` — FluxKVCache caches the reference tokens,
   1.4x faster at one reference, 2.2x at four.
 - **Not this family** for: masked inpaint (no Fill model — describe the change instead), outpainting on

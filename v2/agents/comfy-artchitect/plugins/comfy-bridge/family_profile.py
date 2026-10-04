@@ -26,12 +26,11 @@ class FamilyProfile:
     id: str
     name: str
     folder: Path
-    license: dict
     files: dict[str, dict]  # file name -> its record
     rules: list[dict]
     selection: list[dict]
     prompting: dict
-    card: dict  # {short_name, restriction, recipes: [{match, short_name?, restriction?}]}
+    card: dict  # {short_name, recipes: [{match, short_name?}]}
     raw: dict = field(repr=False)
 
     @classmethod
@@ -44,13 +43,12 @@ class FamilyProfile:
         if not data.get("id") or not isinstance(data.get("rules"), list):
             raise ValueError(f"{path}: a family profile needs `id` and `rules`")
         card = data.get("card")
-        if not isinstance(card, dict) or not card.get("short_name") or "restriction" not in card:
-            raise ValueError(f"{path}: a family profile needs `card` with `short_name` and `restriction`")
+        if not isinstance(card, dict) or not card.get("short_name"):
+            raise ValueError(f"{path}: a family profile needs `card` with `short_name`")
         return cls(
             id=str(data["id"]),
             name=str(data.get("name") or data["id"]),
             folder=Path(folder),
-            license=dict(data.get("license") or {}),
             files={str(f["name"]): f for f in data.get("files") or [] if isinstance(f, dict) and f.get("name")},
             rules=[r for r in data["rules"] if isinstance(r, dict)],
             selection=[s for s in data.get("selection") or [] if isinstance(s, dict)],
@@ -71,12 +69,6 @@ class FamilyProfile:
     def display_name(self, recipe_id: str) -> str:
         """The model's short name as a person knows it ("LTX-2.5", "FLUX.1 schnell")."""
         return str(self._card_entry(recipe_id).get("short_name") or self.card["short_name"])
-
-    def restriction(self, recipe_id: str) -> str:
-        """What the licence forbids or limits for this recipe in one line ("non-commercial use
-        only"); '' when it is free to use for anything."""
-        entry = self._card_entry(recipe_id)
-        return str(entry["restriction"] if "restriction" in entry else self.card["restriction"])
 
     def _card_entry(self, recipe_id: str) -> dict:
         """The first card.recipes entry whose `match` pattern finds the recipe id, else {}."""

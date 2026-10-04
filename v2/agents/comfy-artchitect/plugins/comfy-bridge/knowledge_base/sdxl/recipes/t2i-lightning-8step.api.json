@@ -66,7 +66,7 @@
       "sdxl_lightning_8step.safetensors"
     ],
     "packs": [],
-    "defaults_note": "8 steps exactly, cfg 1 (negative inert), euler/sgm_uniform, 1024px ('high-quality 1024px images'). openrail++ like the base.",
+    "defaults_note": "8 steps exactly, cfg 1 (negative inert), euler/sgm_uniform, 1024px ('high-quality 1024px images').",
     "vram_evidence": {
       "gpu": null,
       "at": null,

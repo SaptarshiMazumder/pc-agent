@@ -129,7 +129,6 @@
       {
         "name": "ComfyUI_IPAdapter_plus",
         "git": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
-        "license": "GPL-3.0",
         "status": "maintenance only since 2025-04-14",
         "pip": [
           "insightface",
@@ -141,7 +140,7 @@
         ]
       }
     ],
-    "defaults_note": "weight 1.0, weight_faceidv2 2.0 (pack example), LoRA 0.6, 30 steps cfg 6.5 dpmpp_2m/karras. insightface downloads buffalo_l into models/insightface itself. IP-Adapter-FaceID has NO license field on HF (NOT FOUND); its README states insightface is non-commercial.",
+    "defaults_note": "weight 1.0, weight_faceidv2 2.0 (pack example), LoRA 0.6, 30 steps cfg 6.5 dpmpp_2m/karras. insightface downloads buffalo_l into models/insightface itself.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

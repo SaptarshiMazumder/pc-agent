@@ -1,6 +1,6 @@
 """PipelineStore — a chat's pipeline on disk.
 
-    workflows/<chat>/pipeline.json            the design's DECISIONS (recipe, port values, wiring)
+    workflows/<chat>/stages/pipeline.json     the design's DECISIONS (recipe, port values, wiring)
     workflows/<chat>/<design>.json / .api.json ONE workflow with every stage in it, wired — the
                                                file a person downloads (PipelineWorkflowAssembler)
     workflows/<chat>/stages/<stage>.api.json   each stage alone: what the agent runs, one at a time
@@ -32,7 +32,7 @@ from stage_builder import StageBuilder
 from workflow_file_writer import WorkflowFileWriter, WrittenWorkflow
 
 PIPELINE_FILE = "pipeline.json"
-STAGES = "stages"
+STAGES = chat_paths.STAGES
 
 
 class PipelineStore:
@@ -59,7 +59,9 @@ class PipelineStore:
         return self.rel(f"{self.design_name(pipeline)}.api.json")
 
     def load(self) -> Pipeline | None:
-        p = self.folder / PIPELINE_FILE
+        p = self.folder / STAGES / PIPELINE_FILE
+        if not p.is_file():
+            p = self.folder / PIPELINE_FILE  # a chat from before it moved into stages/
         if not p.is_file():
             return None
         return Pipeline.from_dict(json.loads(p.read_text(encoding="utf-8")))
@@ -91,11 +93,15 @@ class PipelineStore:
             fed_by = {i.role: f"{i.producer[0]}.{i.producer[1]}" for i in stage.inputs if i.producer}
             written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by, subfolder=STAGES)
         self._write_design(old, pipeline)
-        self.folder.mkdir(parents=True, exist_ok=True)
+        # IN stages/, NOT BESIDE THE WORKFLOW: the window lists every .json in the chat's folder as
+        # a ComfyUI file, and the design's bookkeeping showed up as two extra "workflows".
+        stages = self.folder / STAGES
+        stages.mkdir(parents=True, exist_ok=True)
         # ATOMIC: a reader (or a parallel call) never sees half a file.
-        tmp = self.folder / f"{PIPELINE_FILE}.{os.getpid()}.tmp"
+        tmp = stages / f"{PIPELINE_FILE}.{os.getpid()}.tmp"
         tmp.write_text(json.dumps(pipeline.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.replace(tmp, self.folder / PIPELINE_FILE)
+        os.replace(tmp, stages / PIPELINE_FILE)
+        (self.folder / PIPELINE_FILE).unlink(missing_ok=True)  # where a chat from before kept it
         return written
 
     @staticmethod

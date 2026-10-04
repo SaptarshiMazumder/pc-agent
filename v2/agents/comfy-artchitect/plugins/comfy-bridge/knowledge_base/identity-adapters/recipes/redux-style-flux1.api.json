@@ -101,7 +101,7 @@
       "sigclip_vision_patch14_384.safetensors"
     ],
     "packs": [],
-    "defaults_note": "1024x1024, 20 steps euler/simple, FluxGuidance 3.5, strength 1.0 multiply, ModelSamplingFlux 1.15/0.5 (bypass it to disable resolution-dependent shift). flux1-dev.safetensors is the 23.8 GB bf16 transformer: 'set the weight_dtype above to one of the fp8 types if you have memory issues'. Not a face-ID method. FLUX.1-dev Non-Commercial (Redux inherits it).",
+    "defaults_note": "1024x1024, 20 steps euler/simple, FluxGuidance 3.5, strength 1.0 multiply, ModelSamplingFlux 1.15/0.5 (bypass it to disable resolution-dependent shift). flux1-dev.safetensors is the 23.8 GB bf16 transformer: 'set the weight_dtype above to one of the fp8 types if you have memory issues'. Not a face-ID method.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

@@ -3,7 +3,7 @@
     "id": "upscale-video-4x",
     "family": "flashvsr",
     "task": "upscale-video",
-    "variant": "LacklusterOpsec fork (registry ComfyUI-FlashVSR_Stable, MIT, v1.5.1), v1.1 weights, 4x, mode full (Wan 2.1 VAE decode), bf16, sparse_sage_attention, no tiling, no chunking: the 24 GB+ row of the pack's VRAM table",
+    "variant": "LacklusterOpsec fork, v1.1 weights, 4x, mode full (Wan 2.1 VAE decode), bf16, sparse_sage_attention, no tiling, no chunking: the 24 GB+ row of the pack's VRAM table",
     "from_template": "No Comfy-Org local template exists (the only one, api_wavespeed_flshvsr_video_upscale, is a paid API node and excluded). Graph as the pack README documents: LoadVideo -> GetVideoComponents -> FlashVSRInitPipe -> FlashVSRNodeAdv -> CreateVideo -> SaveVideo; values are the README's 24 GB+ VRAM row over the nodes.py defaults.",
     "min_comfyui": null,
     "min_comfyui_note": "NOT FOUND (neither pack states a ComfyUI minimum); the native spine nodes exist in v0.35.0",

@@ -85,7 +85,7 @@
       "Z-Image-Turbo-Fun-Controlnet-Union.safetensors"
     ],
     "packs": [],
-    "defaults_note": "8 steps, cfg 1, res_multistep/simple, shift 3, strength 1 (template) - the model author recommends control_context_scale 0.65-0.80, so lower `strength` if the control dominates. Negative = ConditioningZeroOut. Apache-2.0. Z-Image's ae.safetensors is the FLUX VAE (same bytes).",
+    "defaults_note": "8 steps, cfg 1, res_multistep/simple, shift 3, strength 1 (template) - the model author recommends control_context_scale 0.65-0.80, so lower `strength` if the control dominates. Negative = ConditioningZeroOut. Z-Image's ae.safetensors is the FLUX VAE (same bytes).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

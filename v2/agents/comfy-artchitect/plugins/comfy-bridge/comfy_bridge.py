@@ -3,15 +3,12 @@
 EVERY REQUEST GOES THROUGH THE HOST. `fetch` is the brokered call: this module never opens a
 socket, never reads an environment variable, never spawns anything.
 
-WHICH COMFYUI — THE ACCOUNT'S CHOICE. The person chooses once (comfy_connect, asked by the window):
-a GPU rented from the platform, their own Vast machine, or any ComfyUI address — and every chat
-uses it. Until they choose, nothing is rented. `gpu_ensure` (plugins/vast-bridge) writes the rented
-machine's address to `.studio/connection.json`; the choice itself lives in
-`.studio/comfy-connection.json` (ComfyConnectionResolver). On the person's own machine
-nothing is leased or billed, and paid partner nodes carry THEIR Comfy key, never the platform's.
-A hosted daemon dials only public addresses for a URL a person gave (fetch_broker._public_only).
-(`comfy_research`, in its own module, uses the same brokered `fetch` to reach Hugging Face and
-Civitai.)
+WHICH COMFYUI — COMFY CLOUD, ALWAYS. Every call goes to https://cloud.comfy.org with the person's
+Comfy API key (ComfyCloudConnection). It is serverless: nothing is rented, started, leased or
+stopped, and a job is billed to their Comfy plan for the GPU seconds it runs. Nothing checks the
+connection ahead of time — a missing key or plan fails the first call that needs it, in Comfy
+Cloud's own words. (`comfy_research`, in its own module, uses the same brokered `fetch` to reach
+Hugging Face and Civitai.)
 
 THE `/api` PREFIX IS DELIBERATE. ComfyUI registers every route twice — `/prompt` and
 `/api/prompt` — and hosted proxies (vast's portal, RunPod, Modal) route on `/api/*` while
@@ -36,7 +33,6 @@ from urllib.parse import urlencode
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import (
-    current_account_id,
     current_run_context,
     current_workspace,
 )
@@ -45,17 +41,9 @@ from agent_runtime.infrastructure.net.outbound import fetch
 import chat_paths
 import reference_slots
 import studio_state
-from account_connection_repository import USER_URL, USER_VAST, AccountConnectionRepository
-from comfy_connect_tool import ComfyConnectTool
-from comfy_connection_resolver import ComfyConnectionResolver
-from manual_model_downloader import ManualModelDownloader
-from gpu_model_download_client import GpuModelDownloadClient
-from gpu_node_pack_install_client import GpuNodePackInstallClient
+from comfy_cloud_connection import ComfyCloudConnection
+from comfy_cloud_model_importer import ComfyCloudModelImporter
 from editor_graph_converter import EditorGraphConverter
-import gpu_node_pack_worker
-from gpu_keepalive_unavailable import GpuKeepaliveUnavailable
-from model_installation_service import ModelInstallationService
-from model_download_source_resolver import ModelDownloadSourceResolver
 from model_readiness import ModelReadiness
 from workflow_link import WorkflowLink
 import node_input_schema
@@ -71,24 +59,11 @@ from node_registry_cache import NodeRegistryCache
 #: The model families the agent knows, and the node catalogue it ships for the pinned ComfyUI.
 _KNOWLEDGE_BASE = Path(__file__).parent / "knowledge_base"
 
-#: What a model file looks like in a loader's enum. The DETECTION is generic on purpose — the
-#: previous version of this tool was a hardcoded list of seven loaders, which made every model
-#: family that loads differently (Flux and friends live in unet/ behind UNETLoader, not
-#: CheckpointLoaderSimple) simply invisible: a Flux-only instance reported "no models
-#: installed". Matching by what the VALUES look like means a loader from a custom pack
-#: installed five minutes ago is found the same way the stock ones are.
-_MODEL_EXTS = ModelReadiness.EXTENSIONS
 
-#: HOW A WAITING TOOL WAITS. A model download is minutes of nothing to do; comfy_install and
-#: comfy_node_install hold their call open until the work is done, and these are the cadences
-#: of the hold. Module-level so a verifier can shrink them.
-_POLL_S = 5.0  # first Manager-queue poll; backs off to _POLL_MAX_S
-_POLL_MAX_S = 15.0
-_LEASE_EVERY_S = 90.0  # renew the GPU's idle lease (_WORK_LEASE_S) well inside its window
-_NOTICE_EVERY_S = 30.0  # a progress line to the window
-_LOADABLE_GRACE_S = 60.0  # Manager's rescan lag between "queue empty" and "a loader lists it"
-_REBOOT_WAIT_S = 240.0  # a restarted ComfyUI answering again
-_STATUS_FAILURES_MAX = 6  # consecutive unreadable queue statuses before "lost Manager"
+#: HOW A WAITING TOOL WAITS. A model import is minutes of nothing to do; comfy_install holds its
+#: call open until the files are loadable. Module-level so a verifier can shrink them.
+_POLL_S = 5.0
+_LOADABLE_GRACE_S = 60.0  # the lag between "imported" and "a loader lists it"
 #: ONE ATTEMPT of a waiting tool. Under the hosted executor's 900 s cap (infra
 #: `executor_timeout_seconds`, a Lambda) with room for its transfers. The engine's guard times
 #: an attempt out at exactly this and — because the tool declares retry_on_timeout — starts
@@ -98,8 +73,6 @@ _STATUS_FAILURES_MAX = 6  # consecutive unreadable queue statuses before "lost M
 #: paths behave identically.
 _WAIT_ATTEMPT_S = 840.0
 _WAIT_ATTEMPTS = 4
-#: A file queued this recently and still absent is waited on, never re-queued.
-_QUEUED_MEMORY_S = 3600.0
 
 
 def _looks_like_model_list(values) -> bool:
@@ -123,17 +96,6 @@ def _model_enums(catalogue: dict):
                 values = entry[0] if isinstance(entry, list) and entry else None
                 if _looks_like_model_list(values):
                     yield node_class, input_name, [v for v in values if isinstance(v, str)]
-
-
-# THE HANDOVER FILE. `gpu_ensure` writes {url, auth} here the moment the rented machine answers,
-# and every tool in this module reads it. It is the ONLY source of the instance's address: no
-# setting, no environment variable, no URL a user pasted. It outlives the machine: the idle
-# reaper reclaims the instance server-side and nothing here is told, so a tool called after
-# that dials a dead address and reports "could not reach the instance — call gpu_ensure",
-# which rents (or reuses) one and rewrites this file. That is the whole recovery path.
-# Same constant as vast_bridge._CONN_FILE, duplicated rather than imported so neither plugin
-# depends on the other's load order; the contract is the path and the {url, auth} shape.
-_CONN_FILE = ".studio/connection.json"
 
 
 # THIS CHAT'S REFERENCE MEDIA LIVES IN ITS OWN FOLDER: references/<chat-key>/ — named by
@@ -198,57 +160,18 @@ def _locate_reference(root: Path, chat_dir: Path, path: str) -> str | None:
     return None
 
 
-def _connection_resolver() -> ComfyConnectionResolver:
-    root = Path(current_workspace(".") or ".")
-    return ComfyConnectionResolver(root, AccountConnectionRepository(root))
-
-
-def _override() -> dict | None:
-    """The account's ComfyUI, or None: {kind, url, auth, portal_url?}. The person's own machine
-    if they connected one, else the rented GPU's handover file — if they approved renting."""
-    return _connection_resolver().current()
-
-
-def _own_connection() -> bool:
-    """The person's own machine: nothing is rented, leased or billed for it."""
-    return _connection_resolver().is_own()
-
-
-def _split_query(base: str) -> tuple[str, str]:
-    """(origin+path, query) from a stored base. A provider that hands out `?token=…` URLs has
-    the query folded into a `#q=` fragment so it survives storage and is re-attached at request
-    time; a plain `http://ip:port` — what the platform writes today — passes through untouched.
-    Kept for the day a rented box needs a token, not for anything a user types."""
-    if "#q=" in base:
-        b, q = base.split("#q=", 1)
-        return b, q
-    return base, ""
+def _override() -> dict:
+    """The ComfyUI every call goes to: Comfy Cloud ({kind, url})."""
+    return ComfyCloudConnection.record()
 
 
 def _headers() -> dict:
-    """The credential headers: whatever `auth` the handover file carries, or nothing. A rented
-    box has no auth today, so this is empty in practice; the seam stays so a provider that
-    fronts the instance with a header can be adopted in `gpu_ensure` without touching a tool."""
-    conn = _override()
-    auth = str((conn or {}).get("auth") or "")
-    return {"Authorization": auth} if auth else {}
+    """The person's Comfy API key, as a name the host fills in (ComfyCloudConnection)."""
+    return ComfyCloudConnection.headers()
 
 
 def _url(path: str) -> str:
-    """The URL for one API path, from the connection file. "" when there is no instance.
-
-    THERE IS NO FALLBACK. The address is provisioned — `gpu_ensure` rents the machine and writes
-    .studio/connection.json — and that file is the only place it comes from. A `${COMFYUI_URL}`
-    placeholder here would resolve to nothing and go out as a request to a garbage address,
-    reported as "could not reach the instance" — which reads as a broken GPU rather than as "no
-    GPU has been started yet".
-    """
-    conn = _override()
-    if conn is None:
-        return ""
-    base, query = _split_query(str(conn["url"]))
-    u = f"{base}{path}"
-    return f"{u}?{query}" if query else u
+    return ComfyCloudConnection.url(path)
 
 
 class _NoInstance:
@@ -269,13 +192,9 @@ class _NoInstance:
         return {}
 
 
-#: The platform, by NAME — the host substitutes both, as vast-bridge does: the address, and the
-#: credential (the internal key on a hosted daemon, the signed-in person's token on a desktop).
-#: Leases, the credit check and the debit all go here — NOT through `accounts.api_base()`, which
-#: is daemon-process state and reads as empty inside a sandbox: the debit that used it returned
-#: "charged" without charging anyone, on every paid run, on the web.
+#: The platform, by NAME — the host substitutes it: where comfy_price reads the credit rate. NOT
+#: `accounts.api_base()`, which is daemon-process state and reads as empty inside a sandbox.
 _ACCOUNTS = "${AGENTD_ACCOUNTS_URL}"
-_AUTH = {"Authorization": "Bearer ${AGENTD_PLATFORM_TOKEN}"}
 
 #: The platform's credits per DOLLAR OF PROVIDER COST — its ledger's default, used only when
 #: /pricing cannot be read. The number the plugin used to assume was 100 (Comfy's own credits),
@@ -304,70 +223,9 @@ def _platform_rate() -> float:
     return rate
 
 
-def _platform_credits(usd: float) -> int:
-    import math
-
-    return int(math.ceil(max(0.0, float(usd)) * _platform_rate()))
-
-
-def _lease(seconds: int) -> None:
-    """Confirm ownership before GPU work. A cleanup claim makes this fail, not falsely
-    acknowledge a lease on a machine already being destroyed. Existing GPU jobs remain
-    protected by the reaper's activity probes if the platform is temporarily unreachable."""
-    account_id = current_account_id()
-    if not account_id or _own_connection():
-        return  # the person's own machine: the platform has no lease on it
-    response = fetch(
-        f"{_ACCOUNTS}/vast/heartbeat",
-        method="POST",
-        json={"account_id": account_id, "lease_seconds": int(seconds)},
-        headers=_AUTH,
-        timeout_s=15.0,
-    )
-    if response.status in (0, 408, 429, 500, 502, 503, 504):
-        raise GpuKeepaliveUnavailable("GPU keepalive was not confirmed: platform temporarily unavailable")
-    if not response.ok or response.json().get("alive") is not True:
-        raise RuntimeError("GPU keepalive was not confirmed; call gpu_ensure before submitting more work")
-
-
-def _release_rented() -> None:
-    """Give this account's rented GPU back now (the platform's /vast/release) — when the account
-    switches to the person's own machine. ValueError when the platform did not confirm it."""
-    account_id = current_account_id()
-    if not account_id:
-        raise ValueError("no account on this run")
-    response = fetch(
-        f"{_ACCOUNTS}/vast/release",
-        method="POST",
-        json={"account_id": account_id},
-        headers=_AUTH,
-        timeout_s=30.0,
-    )
-    if not response.ok:
-        raise ValueError(f"the platform answered HTTP {response.status}")
-
-
-#: How long a render or a download may hold the machine without anyone talking to it. SHORT,
-#: because it is the weakest of the three witnesses: the daemon heartbeats while the run
-#: produces events, and the reaper asks the box itself whether a render or a download is in
-#: flight. Each poll renews it, so a long job is covered for as long as something is watching
-#: it — and a job nobody is watching is not something to keep paying for. The platform caps
-#: it (max_lease_seconds) regardless.
-_WORK_LEASE_S = 3 * 60
-
-
 def _no_instance_message() -> str:
-    """Why there is nothing to talk to: not chosen yet, or the approved GPU not started."""
-    if _connection_resolver().choice() is None:
-        return (
-            "the user has not chosen where ComfyUI runs yet, so nothing can be uploaded, "
-            "installed or run. " + 'Tell the user plainly, in these words or close to them: "Before I can run this, choose where it runs: rent a GPU on our servers (it uses credits while it runs), or — if you have your own ComfyUI — connect it in Workspace → Connection." Then stop; do not rent anything yourself.'
-        )
-    return (
-        "no GPU is running for this user yet. Call gpu_ensure first — it starts one (or reuses "
-        "the one this user already has) and points every comfy tool at it. Do NOT ask the user "
-        "for a URL."
-    )
+    return ("Comfy Cloud is not reachable from here. The person's Comfy API key (Settings) and a paid "
+            "Comfy Cloud plan are what it needs; say so in one line and stop.")
 
 
 def _no_instance() -> "ToolResult":
@@ -394,36 +252,15 @@ def _post(path: str, body, timeout_s: float = 60.0):
 
 
 def _failed(res, what: str) -> str:
-    """One sentence naming what went wrong, in the server's own words where there are any.
-
-    A transport failure and a 401 need different fixes, and "could not reach ComfyUI" hides
-    which one happened.
-    """
-    if res.error and _own_connection():
-        return (
-            f"{what}: could not reach the user's OWN machine ({res.error}) — it is not a rented GPU, "
-            "so nothing of ours can restart it. It may have been stopped or destroyed on Vast. "
-            "DESIGNING DOES NOT NEED IT: if the design is not finished, finish it (kb_lookup, "
-            "pipeline_plan, pipeline_present) — the node list shipped with the agent checks it. Only "
-            "when the work needs the machine (setup, a run), tell the user in those words, and that "
-            "they can start it again or pick another running machine (or rent a GPU) in Workspace → "
-            "Connection; then stop — do not retry, and do not call it the rented GPU."
-        )
-    if res.status in (401, 403) and _own_connection():
-        return (
-            f"{what}: the user's ComfyUI refused the login (HTTP {res.status}). Ask them to "
-            "reconnect it in Workspace → Connection with a link that carries its token."
-        )
+    """One sentence naming what went wrong, in Comfy Cloud's own words where there are any."""
     if res.error:
-        return (
-            f"{what}: could not reach the instance ({res.error}). If a GPU was running it may "
-            f"have been reclaimed for being idle — call gpu_ensure to start one again."
-        )
+        return f"{what}: could not reach Comfy Cloud ({res.error})."
     if res.status in (401, 403):
-        return (
-            f"{what}: the instance refused the credential (HTTP {res.status}). A provisioned "
-            f"GPU should never do this — call gpu_ensure to get a fresh one."
-        )
+        return (f"{what}: Comfy Cloud refused the key (HTTP {res.status}: {(res.text or '')[:200]}). "
+                "The person's Comfy API key (Settings, from platform.comfy.org) and a paid Comfy Cloud "
+                "plan are needed — tell them that in one line.")
+    if res.status == 402:
+        return f"{what}: Comfy Cloud says the plan has no credits left (HTTP 402) — tell the person."
     return f"{what}: HTTP {res.status} — {(res.text or '')[:300]}"
 
 
@@ -432,9 +269,9 @@ class ComfyProbeTool(Tool):
     label = "Probe ComfyUI"
     default_retryable = True
     description = (
-        "Check the configured ComfyUI instance: reachable, credential accepted, what version it "
-        "runs and how much VRAM it has. Call this FIRST in any session that will touch ComfyUI — "
-        "everything else assumes it answered."
+        "Ask Comfy Cloud what it runs (ComfyUI version) and keep its node list for checking designs. "
+        "Not required before anything else — every tool reports Comfy Cloud's own error if the key "
+        "or plan is missing."
     )
     parameters = {"type": "object", "properties": {}}
 
@@ -448,7 +285,7 @@ class ComfyProbeTool(Tool):
             devices = data.get("devices") or []
             lines = [
                 f"ComfyUI {system.get('comfyui_version') or 'unknown'} "
-                f"(python {system.get('python_version', '?').split()[0]}, "
+                f"(python {(str(system.get('python_version') or '?').split() or ['?'])[0]}, "
                 f"torch {system.get('pytorch_version') or '?'})"
             ]
             for d in devices:
@@ -509,8 +346,6 @@ _INVENTORY_TOO_EARLY = (
 class ComfyInventoryTool(Tool):
     name = "comfy_inventory"
     label = "ComfyUI inventory"
-    # The same declared wait as comfy_install: an inventory taken while Manager is downloading
-    # holds until the download lands (see _settle_downloads).
     default_timeout_sec = _WAIT_ATTEMPT_S
     default_retryable = True
     default_retry_on_timeout = True
@@ -547,9 +382,7 @@ class ComfyInventoryTool(Tool):
             if not studio_state.has_emitted():
                 return ToolResult.text(_INVENTORY_TOO_EARLY, is_error=True)
         try:
-            # THE MODEL WAITS HERE, NOT IN A LOOP OF ITS OWN. The window's dashboard read
-            # (direct_invoke) is a snapshot and must not hang on a download.
-            settled = "" if direct else await _settle_downloads(abort, on_update, "inventory")
+            settled = ""
             res = _get("/api/object_info", timeout_s=60.0)
             if not res.ok:
                 return ToolResult.text(_failed(res, "inventory"), is_error=True)
@@ -802,7 +635,7 @@ class ComfyNodeSearchTool(Tool):
             if not rows:
                 return ToolResult.text(
                     offline_note + f"no node matches '{query}' on this instance. Try a shorter word (a provider "
-                    "or model family), or the pack is not installed — comfy_node_install."
+                    "or model family) — Comfy Cloud runs only the node packs it has preinstalled."
                 )
             lines = [offline_note + f"{len(rows)} node(s) match '{query}' (partner nodes first; deprecated last):"]
             for _, _, cls, disp, cat, api, dep in rows[:30]:
@@ -1115,14 +948,6 @@ class ComfyDownloadTool(Tool):
             return ToolResult.text(f"comfy_download failed: {type(e).__name__}: {e}", is_error=True)
 
 
-def _is_api_link(value) -> bool:
-    """An API-format link: `[node_id, output_index]`."""
-    return (
-        isinstance(value, list) and len(value) == 2
-        and isinstance(value[0], str) and isinstance(value[1], int)
-    )
-
-
 def _execution_error_help(messages) -> str:
     """For an `execution_error`, the failing node's accepted inputs in API format — so the
     repair edits the right key instead of guessing. A TypeError at execute time is almost always
@@ -1163,16 +988,11 @@ async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None
     comfy_run_status instead of dying mid-wait."""
     import studio_state
 
-    _lease(_WORK_LEASE_S)  # a render in flight is work, however quiet the platform side is
     waited, step = 0.0, 1.0
     while waited < deadline:
         if abort.is_set():
             return None
-        hist = _get(f"/api/history/{prompt_id}")
-        try:
-            entry = hist.json().get(prompt_id) if hist.ok and hist.text.strip() else None
-        except ValueError:
-            entry = None
+        entry = _job_entry(prompt_id)
         if entry:
             status = (entry.get("status") or {}).get("status_str") or "unknown"
             outputs = entry.get("outputs") or {}
@@ -1222,6 +1042,27 @@ async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None
     return None
 
 
+def _job_entry(prompt_id: str) -> dict | None:
+    """A finished job as ComfyUI's history entry ({status: {status_str, messages}, outputs}); None
+    while it runs. Comfy Cloud answers at /api/jobs/{id} (its /history is deprecated): completed ->
+    success; failed / cancelled -> the error it recorded."""
+    res = _get(f"/api/jobs/{prompt_id}")
+    try:
+        job = res.json() if res.ok and res.text.strip() else None
+    except ValueError:
+        job = None
+    if not isinstance(job, dict):
+        return None
+    status = str(job.get("status") or "")
+    if status == "completed":
+        return {"status": {"status_str": "success", "messages": []}, "outputs": job.get("outputs") or {}}
+    if status in ("failed", "cancelled"):
+        error = job.get("execution_error") or {}
+        return {"status": {"status_str": status, "messages": [["execution_error", error]] if error else []},
+                "outputs": job.get("outputs") or {}}
+    return None
+
+
 def _still_rendering(prompt_id: str) -> ToolResult:
     """The NON-error handoff for a run that outlives a tool's wait window."""
     return ToolResult.text(
@@ -1252,22 +1093,9 @@ _RUN_WAIT_CAP_S = 100.0
 # URLs and HEADERS only, deliberately (a credential substituted into a BODY would land back in
 # something the plugin can read). This one has to go in the body, so the plugin holds it.
 
-#: The publisher's Comfy account key, AS A NAME. Declared in plugin.toml [sandbox] secrets and
-#: substituted by the host into the outgoing body — this code never holds the value.
-#:
-#: It used to be read from os.environ here, which works in-process and returns "" inside the
-#: sandbox: an installed agent's plugins are granted `secrets = {}` by design. The broker now
-#: substitutes declared names in JSON bodies as it always has in headers, so the key can reach
-#: `extra_data` without this plugin ever seeing it — and without the agent being made trusted.
-_COMFY_KEY_REF = "${COMFY_API_KEY}"
 #: THE PERSON'S OWN Comfy key — the only one a ComfyUI they run ever receives. Theirs to set on the
 #: Connection section; unset, the partner node answers 401 with the name visible.
 _USER_COMFY_KEY_REF = "${USER_COMFY_API_KEY}"
-
-#: Which stored key resolves a Hugging Face / Civitai link: the platform's for its rented GPU, the
-#: person's own for their machine. Neither ever reaches the machine (ModelDownloadSourceResolver).
-_PLATFORM_SOURCE_SECRETS = {"huggingface": "HF_TOKEN", "civitai": "CIVITAI_TOKEN"}
-_USER_SOURCE_SECRETS = {"huggingface": "USER_HF_TOKEN", "civitai": "USER_CIVITAI_TOKEN"}
 
 
 def _api_node_flags(prompt: dict) -> dict[str, bool]:
@@ -1302,113 +1130,6 @@ def _api_node_flags(prompt: dict) -> dict[str, bool]:
 
 def _free_classes(flags: dict[str, bool]) -> set[str]:
     return {cls for cls, paid in flags.items() if not paid}
-
-
-def _quote_for(prompt: dict, flags: dict[str, bool]):
-    """Price a graph, or None when pricing is unavailable.
-
-    A BROKEN TABLE MUST NOT BILL. If the file is missing or malformed this returns None, and the
-    caller refuses any graph containing partner nodes rather than running them unpriced.
-    """
-    try:
-        import partner_pricing
-
-        return partner_pricing.price_workflow(prompt, free_classes=_free_classes(flags))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _unpriced_partner_nodes(flags: dict[str, bool], quote) -> list[str]:
-    """Partner nodes the TABLE never heard of — the leak the table cannot close by itself.
-
-    A provider Comfy added last week (ByteDance, Gemini image, hosted Wan, for months) matched
-    no prefix, priced as a free local node, and ran on the platform's own Comfy balance while
-    the user was charged zero. The instance says which classes are partner nodes; any of those
-    the quote did not price is a refusal upstairs."""
-    priced = {i.class_type for i in getattr(quote, "items", [])} | set(getattr(quote, "unpriced", []))
-    return sorted(cls for cls, paid in flags.items() if paid and cls not in priced)
-
-
-def _charge(credits: int, note: str, usd: float = 0.0) -> tuple[bool, str]:
-    """Debit the caller's credits for a paid run. (ok, message).
-
-    CHARGED AFTER A SUCCESSFUL SUBMIT, gated BEFORE it. `/debit` drains a partial balance rather
-    than refusing, which is right for cheap model calls — the call already ran, so refusing only
-    leaves the balance untouched and the pre-call gate never engages. One video generation is
-    ~140 credits, two orders of magnitude larger, so the gate is what does the real work here and
-    this is only the settlement.
-    """
-    account_id = current_account_id()
-    if not account_id or credits <= 0:
-        return True, ""
-    res = fetch(
-        f"{_ACCOUNTS}/debit",
-        method="POST",
-        # DOLLARS, NOT CREDITS, when we have them: the platform converts at its own rate, so the
-        # charge is right even if the rate quoted a moment ago was the default.
-        json={
-            "account_id": account_id,
-            "agent_id": "comfy-artchitect",
-            **({"usd": round(float(usd), 6)} if usd > 0 else {"credits": int(credits)}),
-        },
-        headers=_AUTH,
-        timeout_s=30.0,
-    )
-    if res.ok:
-        return True, ""
-    return False, f"could not charge {credits} credits for {note}: {res.error or res.status}"
-
-
-def _affordable(credits: int) -> tuple[bool, str]:
-    """Does the caller have the credits this run will cost? (ok, why not).
-
-    THE GATE THAT ACTUALLY BITES. It reads CREDITS from /credits (the same view the proxy gates
-    on) — it read /budget until 2026-09-27, which reports dollars and has no credits in it: the
-    missing number was taken for 0 and every paid run on a desktop was refused, whatever the
-    account held.
-
-    A BLIP FAILS OPEN, A WRONG ANSWER DOES NOT. Accounts unreachable or erroring (no status, 5xx)
-    must not block a user who has paid — the settlement still records the spend. But a 4xx is
-    this call being wrong (a refused credential, a missing route), and an answer without a
-    credits number is not a balance: both refuse, saying so, instead of silently reading as
-    "fine" (the hosted 401s did that for weeks) or as "0" (the desktop did).
-    """
-    account_id = current_account_id()
-    if not account_id or credits <= 0:
-        return True, ""
-    res = fetch(
-        f"{_ACCOUNTS}/credits/{account_id}",
-        params={"agent_id": "comfy-artchitect"},
-        headers=_AUTH,
-        timeout_s=20.0,
-    )
-    if not res.status or res.status >= 500:
-        return True, ""
-    if not res.ok:
-        return False, (
-            f"could not read the account's balance (HTTP {res.status}) — a platform problem, not "
-            "the user's. Do NOT submit the paid run; tell the user the balance check failed."
-        )
-    try:
-        view = res.json() or {}
-    except ValueError:
-        view = {}
-    # An account never put on a credit plan is not gated, exactly as the proxy treats it.
-    if view.get("credits_enforced") is False:
-        return True, ""
-    have = view.get("credits_remaining")
-    if not isinstance(have, (int, float)):
-        return False, (
-            "the balance answer had no credits in it — a platform problem, not the user's. Do NOT "
-            "submit the paid run; tell the user the balance check failed."
-        )
-    have = int(have)
-    if have >= credits:
-        return True, ""
-    return False, (
-        f"this run needs {credits} credits and the account has {have}. Offer the user a "
-        "free/local alternative, or a cheaper paid model — do NOT submit it anyway."
-    )
 
 
 class ComfyRunTool(Tool):
@@ -1540,62 +1261,11 @@ class ComfyRunTool(Tool):
             # price, gate, then submit with the platform's key.
             flags = _api_node_flags(prompt)
             body: dict = {"prompt": prompt}
-            charge_credits = 0
-            charge_usd = 0.0
-            if _own_connection():
-                # THE PERSON'S OWN COMFYUI: their Comfy account pays its partner nodes, so there
-                # is nothing to price, gate or charge — and the platform's key must never be sent
-                # to a server the platform does not run.
-                if any(flags.values()):
-                    body["extra_data"] = {"api_key_comfy_org": _USER_COMFY_KEY_REF}
-            elif (quote := _quote_for(prompt, flags)) is None:
-                # Pricing is unavailable. Only a problem if the graph actually uses paid nodes —
-                # and we cannot tell which it is, so refuse only if the table is what failed.
-                import partner_pricing  # re-raised here so the message names the real fault
+            # PARTNER NODES: the person's Comfy account pays them, with their key — on Comfy Cloud
+            # there is nothing for the platform to price, gate or charge.
+            if any(flags.values()):
+                body["extra_data"] = {"api_key_comfy_org": _USER_COMFY_KEY_REF}
 
-                try:
-                    partner_pricing.load_table()
-                except Exception as e:  # noqa: BLE001
-                    return ToolResult.text(
-                        f"the partner-node price table could not be read ({e}). A workflow that "
-                        "uses paid nodes cannot be priced, so it will not be submitted. Fix "
-                        "partner-nodes.json.",
-                        is_error=True,
-                    )
-            elif (leak := _unpriced_partner_nodes(flags, quote)):
-                # THE SECOND LAYER — see _unpriced_partner_nodes. The instance says these are
-                # partner nodes; the table has no provider for them; so they would have run
-                # unpriced. Refused, naming them, exactly like an unpriced model.
-                return ToolResult.text(
-                    "this workflow uses partner node(s) the price table has no provider for, so "
-                    "it will not be submitted: " + ", ".join(leak)
-                    + ". comfy_price lists what is priced; the operator adds providers in "
-                    "partner-nodes.json.",
-                    is_error=True,
-                )
-            elif quote.paid or quote.unpriced:
-                if not quote.ok:
-                    return ToolResult.text(
-                        "this workflow uses paid node(s) with no price on record, so it will not "
-                        "be submitted:\n" + quote.as_text()
-                        + "\nEither use a model that is priced, or have the operator add these "
-                        "to partner-nodes.json.",
-                        is_error=True,
-                    )
-                # PLATFORM CREDITS, converted from the quote's dollars — the balance gate below
-                # compares them with a balance in the same unit.
-                charge_usd = quote.usd
-                charge_credits = _platform_credits(charge_usd)
-                affordable, why = _affordable(charge_credits)
-                if not affordable:
-                    return ToolResult.text(why, is_error=True)
-                # THE KEY GOES IN extra_data AS A PLACEHOLDER — see the note above. If the
-                # deployment holds no key the host leaves it literal and the partner node
-                # answers 401 with the name visible, which is a debuggable failure rather than
-                # a silent one.
-                body["extra_data"] = {"api_key_comfy_org": _COMFY_KEY_REF}
-
-            _lease(_WORK_LEASE_S)
             res = _post("/api/prompt", body)
             if res.status == 400:
                 try:
@@ -1637,17 +1307,6 @@ class ComfyRunTool(Tool):
                     if steps is None and field == "steps" and isinstance(value, (int, float)):
                         steps = int(value)
             studio_state.run_started(path.name, prompt_id, ckpt, steps)
-
-            if charge_credits:
-                # SETTLE ONLY ONCE THE INSTANCE HAS ACCEPTED IT. A graph rejected at submit never
-                # reached a provider and never cost anything, so charging before this line would
-                # bill for work that provably did not happen.
-                charged, problem = _charge(charge_credits, "this run", usd=charge_usd)
-                if not charged:
-                    # The job IS running and could not be billed. Surfaced rather than swallowed:
-                    # silently unbilled paid runs are exactly how a prepaid balance drains with
-                    # nobody noticing until the invoice.
-                    print(f"comfy_run: BILLING FAILED - {problem}")
 
             deadline = min(float(params.get("timeout_s") or 75.0), _RUN_WAIT_CAP_S)
             result = await _poll_run(prompt_id, deadline, abort)
@@ -1693,35 +1352,6 @@ class ComfyRunStatusTool(Tool):
             return ToolResult.text(
                 f"comfy_run_status failed: {type(e).__name__}: {e}", is_error=True
             )
-
-
-#: ComfyUI-Manager's model folders, keyed by the model KIND the agent already reasons in.
-#: Manager needs both a `save_path` (the folder under models/) and a `type` label; these are the
-#: stock ones every template ships. An unknown kind falls back to save_path == kind, which is
-#: what a custom folder would be called anyway.
-_MANAGER_DIRS = {
-    "checkpoint": ("checkpoints", "checkpoints"),
-    "checkpoints": ("checkpoints", "checkpoints"),
-    "unet": ("unet", "unet"),
-    "diffusion_model": ("diffusion_models", "diffusion_models"),
-    "diffusion_models": ("diffusion_models", "diffusion_models"),
-    "vae": ("vae", "VAE"),
-    "text_encoder": ("text_encoders", "text_encoders"),
-    "text_encoders": ("text_encoders", "text_encoders"),
-    "clip": ("clip", "clip"),
-    "lora": ("loras", "loras"),
-    "loras": ("loras", "loras"),
-    "controlnet": ("controlnet", "controlnet"),
-    "upscale": ("upscale_models", "upscale_models"),
-    "upscale_models": ("upscale_models", "upscale_models"),
-}
-
-
-def _manager_present() -> bool:
-    """Does this instance have ComfyUI-Manager? Its queue-status endpoint is the cheapest tell.
-    Present on almost every rented-GPU template (vast, RunPod); absent on a bare install."""
-    res = _get("/manager/queue/status", timeout_s=15.0)
-    return res.ok
 
 
 #: `${NAME}` as written into an emitted workflow where a credential belongs.
@@ -1789,133 +1419,9 @@ def _fill_secrets(graph: dict) -> tuple[dict, list]:
     return walk(graph), missing
 
 
-def _manager_catalog() -> list[dict]:
-    """Manager's own model catalog, straight from the instance. Its install endpoint WHITELISTS
-    against this list — an install request must match a catalog entry's save_path+base+filename
-    exactly (manager_server.check_whitelist_for_model), so inventing those fields guarantees a
-    400 on any default-security instance. The catalog also carries an `installed` flag."""
-    res = _get("/externalmodel/getlist?mode=cache", timeout_s=60.0)
-    if not res.ok:
-        return []
-    try:
-        return (res.json() or {}).get("models") or []
-    except ValueError:
-        return []
-
-
-async def _settle_downloads(abort, on_update, what: str) -> str:
-    """If ComfyUI-Manager is mid-download, hold until it is done; the note for the report.
-    '' when nothing was in flight.
-
-    THE ONE WAIT EVERY TOOL THAT READS THE INSTANCE'S FILES SHARES. This used to be a NOTE —
-    "Manager is STILL DOWNLOADING 1 file(s) — wait and re-check before concluding it failed" —
-    and a model has no way to wait except to call a tool again, so it called comfy_inventory
-    again, and again, with a different filter word each time (which is why the repeat-call
-    brake never tripped), at a 145k-token model call a time. A sentence asking the model to
-    wait is the same mistake comfy_install made before it held its own line; now inventory and
-    validate hold theirs, with the same declared timeouts, and answer once the queue is empty.
-    The guard's retry re-enters and waits again if an attempt runs out."""
-    info = _queue_info()
-    if not info or not _queue_busy(info):
-        return ""
-    total, done = info.get("total_count"), info.get("done_count")
-    state, waited = await _hold_until_manager_idle(
-        abort, on_update, f"{what}: waiting for ComfyUI-Manager to finish downloading ({done}/{total} done)"
-    )
-    if state == "idle":
-        return f"(waited {_clock(waited)} for ComfyUI-Manager to finish {total} download(s))"
-    if state == "aborted":
-        return f"(stopped after {_clock(waited)}; ComfyUI-Manager is still downloading)"
-    return (
-        f"(lost ComfyUI-Manager after {_clock(waited)} while it was downloading — a file missing "
-        "above may be that; gpu_ensure if the GPU was reclaimed, then check again)"
-    )
-
-
-def _catalog_near_matches(catalog: list[dict], filename: str, limit: int = 4) -> list[str]:
-    """Cataloged entries closest to a filename Manager refused — shared-token overlap, so the
-    model can pick a legal alternative stack instead of retrying a doomed request."""
-    want = {t for t in re.split(r"[^a-z0-9]+", filename.lower()) if t and t != "safetensors"}
-    scored = []
-    for m in catalog:
-        have = {t for t in re.split(r"[^a-z0-9]+", str(m.get("filename", "")).lower()) if t}
-        overlap = len(want & have)
-        if overlap:
-            scored.append((overlap, m))
-    scored.sort(key=lambda p: -p[0])
-    return [
-        f"{m.get('name')} (filename={m.get('filename')}, {m.get('size')}, type={m.get('type')})"
-        for _s, m in scored[:limit]
-    ]
-
-
-def _queue_info() -> dict:
-    st = _get("/manager/queue/status", timeout_s=15.0)
-    try:
-        return st.json() if st.ok and st.text.strip() else {}
-    except ValueError:
-        return {}
-
-
-def _queue_busy(info: dict) -> bool:
-    return bool(info.get("is_processing")) or int(info.get("in_progress_count") or 0) > 0
-
-
-def _manager_busy() -> bool | None:
-    info = _queue_info()
-    if not info or "is_processing" not in info or "in_progress_count" not in info:
-        return None
-    return _queue_busy(info)
-
-
 def _clock(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m}m{s:02d}s" if m else f"{s}s"
-
-
-async def _hold_until_manager_idle(abort, on_update, what: str) -> tuple[str, float]:
-    """Hold this call open until ComfyUI-Manager's queue is empty.
-    Returns ("idle" | "aborted" | "unreachable", seconds waited).
-
-    THE WAIT IS THE TOOL'S, NOT THE MODEL'S. This used to poll for 75 s and then return SUCCESS
-    saying "the download continues, do other work, confirm with comfy_inventory" — a sentence in
-    a prompt asked to do a tool's job, and the model did what any model does with a success
-    result: reported the install done and ended its turn, leaving the person to open vast.ai and
-    see whether a 4 GB file had actually landed. Now the call comes back when the queue is
-    empty. While it waits it keeps the GPU's idle lease alive (the reaper once destroyed a box
-    with four downloads in flight) and hands the window a progress line. A slice that runs out
-    is the guard's timeout, which retries into a fresh call — see _WAIT_ATTEMPT_S."""
-    started = time.monotonic()
-    last_lease = started
-    last_notice = 0.0
-    failures = 0
-    step = _POLL_S
-    # The first look comes AFTER a beat: Manager reports idle for an instant between
-    # /queue/start and its worker picking the job up, and that instant read as "done".
-    await asyncio.sleep(step)
-    while True:
-        if abort.is_set():
-            return "aborted", time.monotonic() - started
-        info = _queue_info()
-        if not info:
-            failures += 1
-            if failures >= _STATUS_FAILURES_MAX:
-                return "unreachable", time.monotonic() - started
-        else:
-            failures = 0
-            if not _queue_busy(info):
-                return "idle", time.monotonic() - started
-        now = time.monotonic()
-        if now - last_lease >= _LEASE_EVERY_S:
-            _lease(_WORK_LEASE_S)
-            last_lease = now
-        if on_update is not None and now - last_notice >= _NOTICE_EVERY_S:
-            total = info.get("total_count")
-            tally = f", Manager {info.get('done_count')}/{total} done" if total else ""
-            on_update(ToolResult.text(f"{what} — {_clock(now - started)}{tally}"))
-            last_notice = now
-        await asyncio.sleep(step)
-        step = min(step * 1.3, _POLL_MAX_S)
 
 
 def _loadable_names() -> dict[str, str]:
@@ -1927,13 +1433,6 @@ def _loadable_names() -> dict[str, str]:
     if not inv.ok:
         raise ValueError("ComfyUI loader inventory unavailable; installation cannot be verified")
     return ModelReadiness(inv.json()).names()
-
-
-def _download_ready(request) -> bool:
-    inv = _get("/api/object_info", timeout_s=60.0)
-    if not inv.ok:
-        return False
-    return ModelReadiness(inv.json()).contains(request)
 
 
 async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
@@ -1956,19 +1455,6 @@ async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
         await asyncio.sleep(_POLL_S)
 
 
-async def _await_instance(abort) -> float | None:
-    """Seconds until a restarting ComfyUI answers again, or None past _REBOOT_WAIT_S."""
-    started = time.monotonic()
-    await asyncio.sleep(_POLL_S * 2)  # it goes DOWN first; an immediate 200 is the old process
-    while time.monotonic() - started < _REBOOT_WAIT_S:
-        if abort.is_set():
-            return None
-        if _get("/api/system_stats", timeout_s=10.0).ok:
-            return time.monotonic() - started
-        await asyncio.sleep(_POLL_S)
-    return None
-
-
 def _install_requests(params: dict) -> list[dict]:
     """The files to install: `files` as declared, or the one-file triple older transcripts carry."""
     raw = params.get("files")
@@ -1989,35 +1475,23 @@ def _install_requests(params: dict) -> list[dict]:
 
 class ComfyInstallTool(Tool):
     name = "comfy_install"
-    label = "Install models on the instance"
+    label = "Import models into Comfy Cloud"
     # THE WAIT IS DECLARED, so both clocks that could cut it know. The engine's guard times ONE
-    # attempt out at _WAIT_ATTEMPT_S and retries into a fresh one (retryable + retry_on_timeout —
-    # the guard retries only its own timeouts and transient exceptions, never an error result,
-    # so "not in Manager's catalog" is still answered once), and the sandbox's clock follows the
-    # same declaration (capabilities._timeout_for) instead of killing the child at 120 s.
+    # attempt out at _WAIT_ATTEMPT_S and retries into a fresh one, which follows the same import
+    # tasks; the sandbox's clock follows the same declaration instead of killing the child at 120 s.
     default_timeout_sec = _WAIT_ATTEMPT_S
     default_retryable = True
     default_retry_on_timeout = True
     default_max_retries = _WAIT_ATTEMPTS
     description = (
-        "Download model files onto the user's ComfyUI instance — WITHOUT asking them to touch a "
-        "terminal — through Manager or the platform GPU downloader, chosen automatically. "
-        "Give EVERY file comfy_validate listed, in ONE call: filename, its download URL "
-        "(comfy_research finds these on Hugging Face/Civitai) and its kind (checkpoint, unet, "
-        "vae, text_encoder, lora, controlnet, upscale…). The call returns when the files are "
-        "LOADABLE: it holds the line while the GPU downloads (minutes for a multi-GB weight, "
-        "progress shown as it goes) and comes back with 'installed' — naming the exact loader "
-        "name to put in the workflow — or with the reason it could not. Nothing to poll, nothing "
-        "to re-check afterwards. This is how you FIX a missing-model workflow yourself instead "
-        "of handing the user a list. Hugging Face and Civitai files use the platform GPU downloader "
-        "with the stored provider key when needed. Other catalogued files can use Manager; otherwise download on the "
-        "GPU from any direct HTTPS link to the .safetensors file — Hugging Face /resolve/, a "
-        "Civitai download link, a "
-        "mirror, a publisher's CDN — and is verified as a real safetensors file before it counts "
-        "as installed. Never lower Manager security. "
-        "Other hosts are public-download only. A generic HTTP 403 does not prove a provider key "
-        "is missing or invalid; report the actual failing host and error. "
-        "Failures are reported immediately; success means the file is actually loadable."
+        "Import model files Comfy Cloud does not have into the person's Comfy Cloud account. Give "
+        "EVERY file comfy_validate listed, in ONE call: filename, its Hugging Face or Civitai "
+        "download link (the knowledge base has them; comfy_research finds others) and its kind "
+        "(checkpoint, diffusion_model, vae, text_encoder, lora, controlnet, upscale…). Comfy Cloud "
+        "downloads them itself; the call returns when ComfyUI lists them, naming the exact loader "
+        "name, or with the reason for each one that could not be imported (only Hugging Face and "
+        "Civitai links; importing needs a Creator plan or above). Comfy Cloud has 1,300+ models "
+        "preinstalled — prefer a design that uses those."
     )
     parameters = {
         "type": "object",
@@ -2037,11 +1511,8 @@ class ComfyInstallTool(Tool):
                         },
                         "url": {
                             "type": "string",
-                            "description": "Direct HTTPS download URL of the .safetensors file: a "
-                            "Hugging Face /resolve/ link, a Civitai download link "
-                            "(https://civitai.com/api/download/models/<version id>, from the "
-                            "model page's Download button), or any other host's direct link. "
-                            "filename is what to save as.",
+                            "description": "The file's Hugging Face /resolve/ link or Civitai "
+                            "download link (https://civitai.com/api/download/models/<version id>).",
                         },
                         "kind": {
                             "type": "string",
@@ -2068,55 +1539,9 @@ class ComfyInstallTool(Tool):
                 if on_update:
                     on_update(ToolResult.text(message))
 
-            conn = _override() or {}
-            own = conn.get("kind") in (USER_VAST, USER_URL)
-
-            def connection():
-                return _portal_connection(conn)
-
-            def submit(file, entry):
-                body = {"ui_id": f"agent-{file['filename']}",
-                        "filename": entry["filename"], "url": entry.get("url") or file["url"],
-                        "save_path": entry.get("save_path"), "type": entry.get("type"),
-                        "base": entry.get("base", ""), "name": entry.get("name", "")}
-                result = _post("/manager/queue/install_model", body, timeout_s=30)
-                if not result.ok:
-                    raise ValueError(_failed(result, f"install {file['filename']}"))
-
-            def start_manager():
-                result = _post("/manager/queue/start", None, timeout_s=15)
-                if not result.ok:
-                    raise ValueError(_failed(result, "start Manager downloads"))
-
-            async def wait_manager(abort, report):
-                state, _ = await _hold_until_manager_idle(
-                    abort, lambda value: report(value.content[0].text), "downloading models"
-                )
-                return state
-
-            direct = ManualModelDownloader() if conn.get("kind") == USER_URL else GpuModelDownloadClient(
-                fetch=fetch, connection=connection, current_connection=_override, get=_get,
-                lease=lambda: _lease(_WORK_LEASE_S), ready=_download_ready,
-                # The person's own Vast machine keeps models on its volume; the rented GPU
-                # downloads exactly as it always has.
-                use_volume=conn.get("kind") == USER_VAST,
-                # Each poll's per-file progress, for the window's install panel.
-                on_progress=lambda rows: studio_state.set_install_progress("models", rows),
-            )
-            selected_sources = {}
-            installer = ModelInstallationService(
-                catalog=_manager_catalog, loadable=_loadable_names, submit=submit,
-                start_manager=start_manager, manager_busy=_manager_busy,
-                queued_recently=lambda filename: time.time() - studio_state.queued_at(filename) < _QUEUED_MEMORY_S,
-                mark_queued=studio_state.mark_queued, wait_manager=wait_manager,
-                await_loadable=_await_loadable, lease=lambda: _lease(_WORK_LEASE_S), direct=direct,
-                # A Civitai link is resolved HERE, where the platform's key is substituted,
-                # into the signed storage URL the GPU fetches without any credential.
-                resolve_source=ModelDownloadSourceResolver(
-                    fetch=fetch, secrets=_USER_SOURCE_SECRETS if own else _PLATFORM_SOURCE_SECRETS,
-                ).resolve,
-                on_source=lambda file: selected_sources.update({file["filename"]: file}),
-            )
+            selected_sources = {f["filename"]: f for f in files}
+            installer = ComfyCloudModelImporter(post=_post, get=_get, await_loadable=_await_loadable,
+                                                wait_s=_WAIT_ATTEMPT_S - 60)
             installed = await installer.install(files, abort, report)
             export_warning = ""
             repository = WorkflowDependencyRepository(Path(current_workspace(".") or "."))
@@ -2134,331 +1559,12 @@ class ComfyInstallTool(Tool):
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
 
 
-def _portal_connection(conn: dict) -> dict:
-    """{portal_url, url, auth} for the machine's Instance Portal — the door our fixed programs go
-    through (model downloads, node packs). The person's Vast machine: as its connection recorded
-    it. The rented GPU: asked of the platform. A ComfyUI connected by address alone has none."""
-    if conn.get("kind") == USER_VAST:
-        return {"portal_url": conn["portal_url"], "url": conn["url"], "auth": conn["auth"]}
-    if conn.get("kind") == USER_URL:
-        raise ValueError("this ComfyUI was connected by its address alone, so nothing can be run on "
-                         "the machine itself")
-    response = fetch(
-        f"{_ACCOUNTS}/vast/download-connection", method="POST", headers=_AUTH,
-        json={"account_id": current_account_id()}, timeout_s=30,
-    )
-    if not response.ok:
-        raise ValueError(f"GPU download connection unavailable (HTTP {response.status}); "
-                         "accounts service must support /vast/download-connection")
-    return response.json()
-
-
-def _node_catalog() -> tuple[dict, str]:
-    """(ComfyUI-Manager's custom-NODE-PACK catalog keyed by pack id, why it could not be read).
-    The sibling of `_manager_catalog` (models): same Manager, different registry. Each entry
-    carries `title`, `repository`, `version`/`cnr_latest` and a `state` of installed /
-    not-installed / disabled. The reason is the real one — a guess ("an old build") sent the
-    agent after the wrong fix."""
-    res = _get("/customnode/getlist?mode=cache", timeout_s=90.0)
-    if not res.ok:
-        return {}, _failed(res, "read ComfyUI-Manager's node registry (/customnode/getlist)")
-    try:
-        packs = (res.json() or {}).get("node_packs")
-    except ValueError:
-        return {}, "ComfyUI-Manager's node registry answered, but not as JSON"
-    return (packs, "") if packs else ({}, "ComfyUI-Manager's node registry came back empty")
-
-
-def _resolve_pack(catalog: dict, query: str) -> tuple[str, dict] | None:
-    """A pack id, a title, or a GitHub URL -> (id, entry). Exact wins over fuzzy, so a query that
-    names a pack exactly never resolves to a lookalike."""
-    q = query.strip()
-    if q in catalog:
-        return q, catalog[q]
-    low = q.lower().rstrip("/")
-    for pid, entry in catalog.items():
-        if pid.lower() == low:
-            return pid, entry
-    # A GitHub URL — how a human names a pack, and what research returns.
-    if "github.com" in low:
-        for pid, entry in catalog.items():
-            if str(entry.get("repository", "")).lower().rstrip("/").rstrip(".git") == low.rstrip(".git"):
-                return pid, entry
-    for pid, entry in catalog.items():
-        if str(entry.get("title", "")).lower() == low:
-            return pid, entry
-    return None
-
-
-def _pack_candidates(catalog: dict, query: str, limit: int = 6) -> list[str]:
-    """Closest packs by shared word tokens — what to offer when a query names nothing exactly."""
-    want = {t for t in re.split(r"[^a-z0-9]+", query.lower()) if len(t) > 2}
-    scored = []
-    for pid, entry in catalog.items():
-        hay = f"{pid} {entry.get('title','')}".lower()
-        have = {t for t in re.split(r"[^a-z0-9]+", hay) if t}
-        overlap = len(want & have)
-        if overlap:
-            scored.append((overlap, pid, entry))
-    scored.sort(key=lambda p: -p[0])
-    return [
-        f"{pid}  ({e.get('title')}, {e.get('state')})" for _s, pid, e in scored[:limit]
-    ]
-
-
-class ComfyNodeInstallTool(Tool):
-    name = "comfy_node_install"
-    label = "Install a custom node pack"
-    # The same declared wait as comfy_install — see there.
-    default_timeout_sec = _WAIT_ATTEMPT_S
-    default_retryable = True
-    default_retry_on_timeout = True
-    default_max_retries = _WAIT_ATTEMPTS
-    description = (
-        "Install a ComfyUI CUSTOM NODE PACK on the user's instance — IPAdapter, PuLID, a LoRA "
-        "trainer, video helpers — WITHOUT asking the user to touch Manager themselves. Give the "
-        "pack's registry id, its title, or its GitHub URL (research and `comfy_validate`'s "
-        "missing-node report both give you these). A pack in ComfyUI-Manager's registry installs "
-        "through Manager; one that is NOT listed installs straight from its GitHub/GitLab/"
-        "Hugging Face repository URL, on the machine itself. Either way it restarts ComfyUI so "
-        "the new nodes load and returns once the instance answers again — then comfy_node_spec "
-        "the class to confirm. This is how you fix "
-        "a `missing_node_type` / unknown-node-class yourself. Node packs are code: say which one "
-        "you are installing and why before you call this."
-    )
-    parameters = {
-        "type": "object",
-        "required": ["pack"],
-        "properties": {
-            "pack": {
-                "type": "string",
-                "description": "Registry id ('comfyui_ipadapter_plus'), exact title, or GitHub "
-                "URL of the node pack to install.",
-            },
-            "restart": {
-                "type": "boolean",
-                "description": "Restart ComfyUI after installing so the nodes load. Default true "
-                "— a pack that is installed but not loaded still fails a workflow.",
-            },
-        },
-    }
-
-    async def execute(self, tool_call_id, params, abort, on_update=None):
-        # THE INSTALL PANEL shows each pack while it installs and how it ended. A git install
-        # reports no percentage, so a pack has a state only.
-        query = str(params.get("pack") or "").strip()
-        if query:
-            studio_state.set_install_progress("node_packs", [{"name": query, "state": "installing"}])
-        result = await self._execute(params, abort, on_update)
-        if query:
-            studio_state.set_install_progress(
-                "node_packs", [{"name": query, "state": "failed" if result.is_error else "done"}])
-        return result
-
-    async def _execute(self, params, abort, on_update):
-        try:
-            query = str(params.get("pack") or "").strip()
-            if not query:
-                return ToolResult.text("pack is required", is_error=True)
-            # A PACK IS INSTALLED BECAUSE A VALIDATION ASKED FOR ONE — see
-            # studio_state.node_install_allowed. Also what stops "install a fake pack to force
-            # a restart".
-            import studio_state
-
-            allowed, why = studio_state.node_install_allowed()
-            if not allowed:
-                return ToolResult.text(why, is_error=True)
-            # A REPOSITORY LINK INSTALLS FROM THE REPOSITORY, on the machine — never through
-            # Manager. Manager adds nothing once the link is known, and it failed a template's
-            # install outright (HTTP 500, "Server got itself in trouble") while the repository
-            # was fine. Manager is only for a pack named by its registry id or title.
-            try:
-                gpu_node_pack_worker.repository(query)
-                repo = query
-            except ValueError:
-                repo = ""
-            if repo:
-                return await self._install_from_repo(repo, abort, on_update)
-            if not _manager_present():
-                return ToolResult.text(
-                    "this instance has no ComfyUI-Manager, so a pack can only be installed from its "
-                    "repository link (https://github.com/<owner>/<repo>) — call again with that.",
-                    is_error=True,
-                )
-
-            catalog, catalog_error = _node_catalog()
-            found = _resolve_pack(catalog, query) if catalog else None
-            if not catalog:
-                return ToolResult.text(catalog_error, is_error=True)
-            if found is None:
-                alts = _pack_candidates(catalog, query)
-                return ToolResult.text(
-                    f"no node pack matching {query!r} in this instance's Manager registry "
-                    f"({len(catalog)} packs)."
-                    + (f" Closest: {'; '.join(alts)}. Call again with an exact id." if alts else "")
-                    + " A pack that is not in the registry installs from its repository link: "
-                    "call again with https://github.com/<owner>/<repo>.",
-                    is_error=True,
-                )
-            pack_id, entry = found
-            state = str(entry.get("state") or "")
-            title = str(entry.get("title") or pack_id)
-            if state == "installed":
-                return ToolResult.text(
-                    f"{title} ({pack_id}) is already installed on this instance. If its nodes "
-                    "still do not resolve, ComfyUI may need a restart to load them."
-                )
-
-            return await ComfyNodeInstallTool._manager_install(
-                [(pack_id, entry)], abort, on_update, restart=bool(params.get("restart", True)))
-        except Exception as e:  # noqa: BLE001
-            return ToolResult.text(
-                f"comfy_node_install failed: {type(e).__name__}: {e}", is_error=True
-            )
-
-
-    @staticmethod
-    async def _install_from_repo(repo: str, abort, on_update) -> ToolResult:
-        """One pack from its repository — see _install_from_repos."""
-        return await ComfyNodeInstallTool._install_from_repos([repo], abort, on_update)
-
-    @staticmethod
-    async def _manager_install(packs: list[tuple[str, dict]], abort, on_update, restart: bool = True) -> ToolResult:
-        """Packs from ComfyUI-Manager's registry, (id, entry) each: all queued, one wait, ONE restart."""
-        names = ", ".join(f"{e.get('title') or pid} ({pid})" for pid, e in packs)
-        for pack_id, entry in packs:
-            body = {
-                "ui_id": f"agent-{pack_id}",
-                "id": pack_id,
-                # Manager reads these three directly — a missing key is a 500, not a 400.
-                "version": str(entry.get("version") or entry.get("cnr_latest") or "latest"),
-                "selected_version": "latest",
-                "channel": "default",
-                "mode": "cache",
-                "repository": str(entry.get("repository") or ""),
-            }
-            res = _post("/manager/queue/install", body, timeout_s=30.0)
-            if not res.ok:
-                if res.status in (403, 404):
-                    return ToolResult.text(
-                        f"install {pack_id}: ComfyUI-Manager refused it "
-                        f"(HTTP {res.status}). Its security_level must allow node-pack installs "
-                        "('middle' or lower) — that is a Manager setting on the instance, not "
-                        "something I can change from here. Tell the user exactly that.",
-                        is_error=True,
-                    )
-                return ToolResult.text(_failed(res, f"install {pack_id}"), is_error=True)
-        _lease(_WORK_LEASE_S)
-        _post("/manager/queue/start", None, timeout_s=15.0)
-
-        # The same hold as comfy_install: this returns when Manager is done, not before.
-        state, waited = await _hold_until_manager_idle(abort, on_update, f"installing {names}")
-        if state == "aborted":
-            return ToolResult.text(
-                f"stopped after {_clock(waited)}; Manager continues installing {names}. Call "
-                "comfy_node_install again to finish (restart included)."
-            )
-        if state == "unreachable":
-            return ToolResult.text(
-                f"lost ComfyUI-Manager after {_clock(waited)} while installing {names}. If "
-                "the GPU was reclaimed, gpu_ensure; then call comfy_node_install again.",
-                is_error=True,
-            )
-
-        if not restart:
-            return ToolResult.text(
-                f"installed {names}. ComfyUI must RESTART before its nodes load — "
-                "call comfy_node_install again with restart, or ask the user to restart."
-            )
-        # A pack that is installed but not loaded is still a missing node. Rebooting is the
-        # step that makes it real, and Manager owns it — and so is waiting for the instance
-        # to answer again, which used to be "call comfy_probe until it answers".
-        _post("/manager/reboot", None, timeout_s=20.0)
-        if on_update is not None:
-            on_update(ToolResult.text(f"installed {names}; restarting ComfyUI"))
-        back = await _await_instance(abort)
-        if back is None:
-            return ToolResult.text(
-                f"installed {names} and restarted ComfyUI, but the instance has "
-                f"not answered in {_clock(_REBOOT_WAIT_S)}. comfy_probe to see whether it is "
-                "back; if not, the restart may have failed on the instance.",
-                is_error=True,
-            )
-        return ToolResult.text(
-            f"installed {names} and restarted ComfyUI — it answers again "
-            f"({_clock(back)} to come back). comfy_node_spec the node class you need to "
-            "confirm it loaded before emitting a workflow that uses it."
-        )
-
-    @staticmethod
-    async def _install_through_manager(repos: list[str], why_no_portal: str, abort, on_update) -> ToolResult:
-        """A plain address has no portal to clone on; its ComfyUI-Manager, when it has one, installs
-        the same packs from its registry. A pinned commit cannot be asked of Manager — said, not hidden."""
-        names = ", ".join(f"custom_nodes/{gpu_node_pack_worker.repository(r)[1]}" for r in repos)
-        by_hand = (f"Tell the user to install it themselves: clone {', '.join(repos)} into their "
-                   f"ComfyUI's custom_nodes folder (as {names}), pip install each requirements.txt "
-                   "if there is one, and restart ComfyUI — then call comfy_validate again.")
-        if not _manager_present():
-            return ToolResult.text(f"{why_no_portal}, and it has no ComfyUI-Manager. {by_hand}", is_error=True)
-        catalog, catalog_error = _node_catalog()
-        if not catalog:
-            return ToolResult.text(f"{catalog_error}. {by_hand}", is_error=True)
-        found, absent = [], []
-        for repo in repos:
-            hit = _resolve_pack(catalog, gpu_node_pack_worker.repository(repo)[0])
-            (found.append(hit) if hit else absent.append(repo))
-        if absent:
-            return ToolResult.text(f"{why_no_portal}, and ComfyUI-Manager's registry does not list "
-                                   f"{', '.join(absent)}. {by_hand}", is_error=True)
-        res = await ComfyNodeInstallTool._manager_install(found, abort, on_update)
-        pinned = [r for r in repos if gpu_node_pack_worker.pinned(r)[1]]
-        if pinned and not res.is_error:
-            return ToolResult.text(res.content[0].text + "\nThrough Manager, so at its LATEST version, not the "
-                                   f"commit the recipe was checked at: {', '.join(pinned)}. If a stage fails on "
-                                   "one of its nodes, that is the likely cause — say so to the user.")
-        return res
-
-    @staticmethod
-    async def _install_from_repos(repos: list[str], abort, on_update) -> ToolResult:
-        """Packs cloned and installed ON the machine through its portal (GpuNodePackWorker) —
-        the rented GPU and the person's own Vast machine — in ONE job: clones at once, then each
-        pack's requirements, then one ComfyUI restart for all of them."""
-        try:
-            portal = _portal_connection(_override() or {})
-        except ValueError as e:
-            return await ComfyNodeInstallTool._install_through_manager(repos, str(e), abort, on_update)
-
-        def report(message):
-            if on_update:
-                on_update(ToolResult.text(message))
-
-        by_folder = {gpu_node_pack_worker.repository(r)[1]: r for r in repos}
-
-        def panel(packs: dict) -> None:
-            # The install panel names a pack by the link it came from.
-            studio_state.set_install_progress(
-                "node_packs", [{"name": by_folder.get(f, f), "state": s} for f, s in packs.items()])
-
-        client = GpuNodePackInstallClient(fetch=fetch, get=_get, lease=lambda: _lease(_WORK_LEASE_S))
-        try:
-            status = await client.install(portal, repos, _WAIT_ATTEMPT_S - 60, abort, report, on_packs=panel)
-        except ValueError as e:
-            return ToolResult.text(f"install {', '.join(repos)}: {e}", is_error=True)
-        # WHERE THEY CAME FROM, kept: without the record the workflow's installer (and a
-        # template's setup guide) would name these packs "source unknown".
-        export_warning = ""
-        dependencies = WorkflowDependencyRepository(Path(current_workspace(".") or "."))
-        for folder, repo in by_folder.items():
-            try:
-                dependencies.record_node_pack(repo, folder)
-            except (OSError, ValueError) as e:
-                export_warning = f" (a source could not be recorded for installers: {e})"
-        folders = status.get("folders") or [status.get("folder")]
-        return ToolResult.text(
-            f"installed {', '.join(repos)} into custom_nodes/{', custom_nodes/'.join(map(str, folders))}"
-            f"{export_warning} and restarted ComfyUI once — it answers again. comfy_node_spec the node "
-            "class you need to confirm it loaded before emitting a workflow that uses it."
-        )
+async def _no_node_packs(repos: list[str], abort, on_update) -> ToolResult:
+    """Comfy Cloud runs only the node packs it has preinstalled — none can be added."""
+    return ToolResult.text(
+        "Comfy Cloud runs only the node packs it has preinstalled, so these cannot be installed: "
+        + ", ".join(repos) + ". The design must use nodes Comfy Cloud has (its node list is what "
+        "comfy_validate checks against).", is_error=True)
 
 
 class ComfyStudioStateTool(Tool):
@@ -2511,8 +1617,6 @@ class ComfyInterruptTool(Tool):
 class ComfyValidateTool(Tool):
     name = "comfy_validate"
     label = "Compile-check a workflow"
-    # The same declared wait as comfy_install: validating while Manager is downloading holds
-    # until the download lands, then compiles against what actually landed (_settle_downloads).
     default_timeout_sec = _WAIT_ATTEMPT_S
     default_retryable = True
     default_retry_on_timeout = True
@@ -2572,7 +1676,7 @@ class ComfyValidateTool(Tool):
                     WorkflowInstallerExporter.invalidate(export_path)
             except (OSError, ValueError):
                 pass  # do not change validation semantics if old export cleanup is unavailable
-            settled = await _settle_downloads(abort, on_update, "validate")
+            settled = ""
             # THE CATALOGUE: the box's own when there is a box, else the cached one for its
             # version (NodeRegistryCache). A design is checkable before any GPU exists; only the
             # model FILES need the box, and offline they are left to the box.
@@ -2687,8 +1791,8 @@ class ComfyValidateTool(Tool):
                 lines.append(
                     "unknown node classes — USUALLY A WRONG NAME, not a missing pack. Look each "
                     "one up (comfy_node_spec / comfy_inventory) and re-emit with the real class. "
-                    "If the class truly belongs to a pack this instance lacks, install it "
-                    "yourself with comfy_node_install:"
+                    "If the class truly belongs to a pack Comfy Cloud lacks, the design must "
+                    "use other nodes — Comfy Cloud runs only its preinstalled packs:"
                 )
                 lines += [f"  {x}" for x in structure.unknown_nodes]
             if structure.bad_links:
@@ -2900,6 +2004,26 @@ class ComfyPriceTool(Tool):
         return "\n".join(lines)
 
 
+def _export_design_installer(rel: str) -> str:
+    """ONE installer for a pipeline's combined workflow, from Comfy Cloud's node list. Not through
+    comfy_validate: the stages were each checked against their own model family's rules, and in
+    the joined graph one family's rules land on another's nodes (H3's "cfg must be 1.0" on the
+    Qwen stage's sampler) — false alarms that had the agent "fixing" a correct design."""
+    root = Path(current_workspace(".") or ".")
+    path = root / rel
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    info = _get("/api/object_info", timeout_s=60.0)
+    if not info.ok:
+        raise ValueError(_failed(info, "read Comfy Cloud's node list for the installer"))
+    artifacts, manifest = WorkflowInstallerExporter(
+        root, get=_get, known_files=KnowledgeBaseCatalog.shipped().model_sources(),
+    ).export(path, graph, info.json())
+    note = f"installer {artifacts[0]}"
+    if manifest["unresolved"]:
+        note += " — INCOMPLETE (it will refuse to install): " + "; ".join(manifest["unresolved"])
+    return note
+
+
 def _workflow_name(path) -> str:
     """`workflows/<chat>/storyboard.api.json` -> `storyboard`: the ROLE name comfy_emit was
     given, which is what every per-workflow record is keyed by."""
@@ -3001,7 +2125,6 @@ def register(api, ctx):
     from template_about_draft_tool import TemplateAboutDraftTool
 
     api.register_tool(ComfyInstallTool())
-    api.register_tool(ComfyNodeInstallTool())
     api.register_tool(ComfyProbeTool())
     api.register_tool(ComfyEmitTool(node_list=lambda: NodeRegistryCache(
         Path(current_workspace(".") or "."), _KNOWLEDGE_BASE).load(_last_known_version())[0]))
@@ -3014,7 +2137,6 @@ def register(api, ctx):
     api.register_tool(ComfyReferenceAssignTool())
     api.register_tool(ComfyDownloadTool())
     api.register_tool(ComfyPriceTool())
-    api.register_tool(ComfyConnectTool(release_rented=_release_rented))
     api.register_tool(ComfyRunTool())
     api.register_tool(ComfyRunStatusTool())
     api.register_tool(ComfyStudioStateTool())
@@ -3031,7 +2153,7 @@ def register(api, ctx):
     # links the template's setup guide carries — see template_setup_tool.
     api.register_tool(TemplateSetupTool(
         object_info=_machine_nodes,
-        install_packs=ComfyNodeInstallTool._install_from_repos,
+        install_packs=_no_node_packs,
         install_models=lambda files, abort, on_update: ComfyInstallTool().execute(
             "", {"files": files}, abort, on_update),
     ))
@@ -3064,9 +2186,8 @@ def register(api, ctx):
         validate=lambda path, abort, upd: ComfyValidateTool().execute(
             "", {"workflow_path": path}, abort or asyncio.Event(), upd),
         install_models=lambda files, abort, upd: ComfyInstallTool().execute("", {"files": files}, abort, upd),
-        install_packs=ComfyNodeInstallTool._install_from_repos,
+        export_installer=_export_design_installer,
         timeout_s=_WAIT_ATTEMPT_S, max_retries=_WAIT_ATTEMPTS,
-        own_machine=_own_connection,
     ))
     api.register_tool(PipelineRunTool(
         run=lambda path, fed, abort, upd: ComfyRunTool(fed).execute(

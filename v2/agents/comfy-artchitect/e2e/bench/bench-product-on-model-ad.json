@@ -1,0 +1,39 @@
+{
+  "id": "bench-product-on-model-ad",
+  "agent_id": "comfy-artchitect",
+  "goal": "Phase 1 only — the DESIGN. A product-ad brief: portrait ad images of the person in one photo wearing the product in another, at an exact size. The agent must pick free models itself, reach for a route that delivers the EXACT size (no stage that lets a reference photo decide the shape), keep the person's identity and the exact product, write full prompts, and present it on the approval card. It stops at the ask. Judged by reading the stage workflows against the reference.",
+  "reference": {
+    "source": "Comfy-Org templates image_z_image_turbo (scene at an exact size) + image_flux2_klein_image_edit_9b_base (two-reference edit: 'Let this character hold the bag with both hands'); the only official open single-stage alternative with an exact size is image_qwen_image_2_1_image_edit ('Replace costumes for the character', custom_size), whose files Comfy Cloud lacks",
+    "steps": [
+      "a text-to-image stage renders the ad scene at exactly 1080x1350 (setting, light, framing, a stand-in model in the pose, wearing a plain item of the product's kind)",
+      "a two-reference edit puts the person from the user's photo in the stand-in's place (image 1 = the scene, so the shape is kept)",
+      "a two-reference edit puts the exact product from the user's photo on that person (image 1 = the previous result)",
+      "optionally an upscale to restore the exact delivery size after the edits' pixel budget"
+    ],
+    "must": [
+      "two user slots: the person photo and the product photo",
+      "the final image is 1080x1350 (4:5) — set by a stage, or the card says plainly it is not guaranteed",
+      "no stage whose canvas comes from the person photo decides the final shape",
+      "prompts name what each reference contributes (identity from the person photo; colour, print, logo and details from the product photo)",
+      "clothing replaces what the stand-in or the person was wearing: the product is not hidden under other garments"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Create a product ad workflow that makes portrait images for ads, 1080x1350. I'll give you a photo of the human model and a photo of the product — mostly a clothing item like a jacket or a t-shirt, sometimes an accessory like a watch or headphones. The model has to look like the person in my photo, and the product has to be exactly my product."
+    }
+  ],
+  "checks": [
+    { "name": "completed" },
+    { "name": "tool_called", "tool": "kb_lookup" },
+    { "name": "tool_succeeded", "tool": "pipeline_plan" },
+    { "name": "tool_says", "tool": "pipeline_plan", "pattern": "stage:[a-z0-9_]+\\.[a-z0-9_]+" },
+    { "name": "tool_succeeded", "tool": "pipeline_present" },
+    { "name": "call_order", "first": "pipeline_present", "then": "ask_user" },
+    { "name": "tool_succeeded", "tool": "ask_user" },
+    { "name": "tool_never_says", "tools": ["pipeline_provision", "pipeline_run", "comfy_install", "comfy_run", "comfy_emit"], "pattern": "." },
+    { "name": "no_punt_to_user" },
+    { "name": "max_turns", "n": 1 }
+  ],
+  "max_turns": 1
+}

@@ -3,17 +3,6 @@
   "id": "flashvsr",
   "name": "FlashVSR",
   "publisher": "OpenImagingLab (Junhao Zhuang, Shi Guo, Xin Cai, Xiaohui Li, Yihao Liu, Chun Yuan, Tianfan Xue); ComfyUI wrappers by LacklusterOpsec (fork of naxci1/ComfyUI-FlashVSR_Stable), lihaoyun6, 1038lab",
-  "license": {
-    "name": "Apache-2.0",
-    "commercial": true,
-    "notes": "weights: Apache-2.0 (HF cardData on JunhaoZhuang/FlashVSR and /FlashVSR-v1.1; GitHub README). Packs carry their own licences: Lackluster MIT, lihaoyun6 GPL-3.0, 1038lab GPL-3.0.",
-    "src": [
-      "S-GH-FLASHVSR",
-      "S-HF-FLASHVSR-V11",
-      "S-LACKLUSTER-GH",
-      "S-LIHAOYUN6-GH"
-    ]
-  },
   "cost": "free",
   "kind": [
     "enhance"
@@ -246,7 +235,7 @@
   ],
   "community_alternatives": [
     {
-      "what": "1038lab/ComfyUI-FlashVSR (GPL-3.0; Manager: comfy node install ComfyUI-FlashVSR): nodes AILab_FlashVSR ('FlashVSR', presets Fast (2x Speed) / Balanced (2x Quality) [default] / Long Video (Low VRAM) / High Quality (Best) = Full model; scale 2-4 step 2) and AILab_FlashVSR_Advanced (model_version Tiny/Tiny Long/Full, enable_tiling, tile_size 384 (128-1024, 'Recommended: 384-512 for HD'), tile_overlap 24 ('Recommended: 48-64 ... Must be < Tile Size / 2'), speed_optimization 2.0 = sparse ratio, quality_boost 2.0 = kv ratio ('Full can handle 3.0'), stability_level 11 = local_range, color_fix, vae_tiling, sageattention, precision bf16|fp16, seed). Independent class ids - can coexist with one of the other packs. Minimum 21 frames.",
+      "what": "1038lab/ComfyUI-FlashVSR: nodes AILab_FlashVSR ('FlashVSR', presets Fast (2x Speed) / Balanced (2x Quality) [default] / Long Video (Low VRAM) / High Quality (Best) = Full model; scale 2-4 step 2) and AILab_FlashVSR_Advanced (model_version Tiny/Tiny Long/Full, enable_tiling, tile_size 384 (128-1024, 'Recommended: 384-512 for HD'), tile_overlap 24 ('Recommended: 48-64... Must be < Tile Size / 2'), speed_optimization 2.0 = sparse ratio, quality_boost 2.0 = kv ratio ('Full can handle 3.0'), stability_level 11 = local_range, color_fix, vae_tiling, sageattention, precision bf16|fp16, seed). Independent class ids - can coexist with one of the other packs. Minimum 21 frames.",
       "needs_pack": "https://github.com/1038lab/ComfyUI-FlashVSR",
       "folder": "FlashVSR",
       "files": [
@@ -271,7 +260,7 @@
       "task": "upscale-video",
       "vram_gb_min": 24,
       "recipe": "upscale-video-4x",
-      "why": "Lackluster fork (maintained: 1.5.1 on 2026-08-26, MIT, registry-listed), 24 GB+ row: full mode (Wan VAE decode), bf16, no tiling/chunking - best quality the pack documents",
+      "why": "Lackluster fork, 24 GB+ row: full mode (Wan VAE decode), bf16, no tiling/chunking - best quality the pack documents",
       "confidence": "community-confirmed",
       "src": "S-LACKLUSTER-GH"
     },
@@ -289,8 +278,8 @@
       "vram_gb_min": 16,
       "variant": "original wrapper",
       "recipe": "upscale-video-4x-ultrafast",
-      "why": "the lihaoyun6 original (GPL-3.0): same node ids and knobs, fewer options (no fp8, no chunking, no alt VAE catalogue); pick it only if the Lackluster fork is unavailable",
-      "tradeoff": "GPL-3.0; no frame_chunk_size - long clips need tiny-long mode",
+      "why": "the lihaoyun6 original: same node ids and knobs, fewer options (no fp8, no chunking, no alt VAE catalogue); pick it only if the Lackluster fork is unavailable",
+      "tradeoff": "no frame_chunk_size - long clips need tiny-long mode",
       "confidence": "community-confirmed",
       "src": "S-LIHAOYUN6-GH"
     },
@@ -1020,7 +1009,6 @@
     }
   },
   "card": {
-    "short_name": "FlashVSR",
-    "restriction": ""
+    "short_name": "FlashVSR"
   }
 }

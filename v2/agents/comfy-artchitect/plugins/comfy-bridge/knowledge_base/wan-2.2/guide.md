@@ -1,9 +1,6 @@
 # Wan 2.2 — the agent's guide
 
-Open-weights video family from Alibaba, Apache 2.0, free. The default pick for video when the user
-wants free: text-to-video, image-to-video, first+last frame, control video, camera moves, VACE
-reference, speech-to-video, character animation. Everything below was read from the official
-templates and model configs on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+Open-weights video family from Alibaba, free. The default pick for video when the user wants free: text-to-video, image-to-video, first+last frame, control video, camera moves, VACE reference, speech-to-video, character animation. Everything below was read from the official templates and model configs on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 

@@ -1,10 +1,6 @@
 # SeedVR2 — the agent's guide
 
-ByteDance Seed's one-step diffusion restorer/upscaler for stills and video, Apache 2.0, free, native in
-ComfyUI since v0.28.0 (the pinned 0.35.0 image has every node). It is an **enhancement stage**: it takes
-another stage's image or video (or an upload) through `@image` / `@video` and returns it larger and cleaner.
-It takes **no prompt**. Everything below was read from the official templates, node source and model cards
-on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
+ByteDance Seed's one-step diffusion restorer/upscaler for stills and video, free, native in ComfyUI since v0.28.0 (the pinned 0.35.0 image has every node). It is an **enhancement stage**: it takes another stage's image or video (or an upload) through `@image` / `@video` and returns it larger and cleaner. It takes **no prompt**. Everything below was read from the official templates, node source and model cards on 2026-10-01; `profile.json` holds the exact files, numbers and sources.
 
 ## When to pick it, and which recipe
 

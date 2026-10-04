@@ -1,4 +1,4 @@
-"""PipelineRunRecord — what each stage of this chat's pipeline has done: `workflows/<chat>/pipeline_runs.json`.
+"""PipelineRunRecord — what each stage of this chat's pipeline has done: `workflows/<chat>/stages/pipeline_runs.json`.
 
 Per stage: its status, the prompt it is rendering (a video outlives one tool call), and the files it
 produced, by output name. The run reads it to hand a stage's output to the stages after it; the
@@ -22,9 +22,14 @@ DONE, RENDERING, FAILED, STALE = "done", "rendering", "failed", "stale"
 
 class PipelineRunRecord:
     def __init__(self, workspace: Path) -> None:
-        self._path = Path(workspace) / chat_paths.chat_rel(chat_paths.WORKFLOWS) / FILE
+        folder = Path(workspace) / chat_paths.chat_rel(chat_paths.WORKFLOWS)
+        # In stages/ with the stage files — not beside the workflow, where the window listed it
+        # as one. `_legacy` is where a chat from before kept it: read once, moved on the next save.
+        self._path = folder / chat_paths.STAGES / FILE
+        self._legacy = folder / FILE
+        source = self._path if self._path.is_file() else self._legacy
         try:
-            self._data = json.loads(self._path.read_text(encoding="utf-8"))
+            self._data = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self._data = {}
 
@@ -89,6 +94,7 @@ class PipelineRunRecord:
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(self._data, indent=1), encoding="utf-8")
+        self._legacy.unlink(missing_ok=True)
 
 
 __all__ = ["DONE", "FAILED", "RENDERING", "STALE", "PipelineRunRecord"]

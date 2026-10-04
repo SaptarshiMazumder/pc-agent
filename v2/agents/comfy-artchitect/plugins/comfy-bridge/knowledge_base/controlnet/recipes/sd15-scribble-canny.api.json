@@ -97,7 +97,7 @@
       "control_v11p_sd15_scribble_fp16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "20 steps, cfg 6, euler/normal, strength 1.0, 1024x1024 as the archived template ships (SD1.5 was trained at 512; the ComfyUI_examples scribble graph uses 512x512, 16 steps, cfg 6, uni_pc). The ControlNet-v1-1 originals are openrail; the fp16 repack carries no license field.",
+    "defaults_note": "20 steps, cfg 6, euler/normal, strength 1.0, 1024x1024 as the archived template ships (SD1.5 was trained at 512; the ComfyUI_examples scribble graph uses 512x512, 16 steps, cfg 6, uni_pc).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

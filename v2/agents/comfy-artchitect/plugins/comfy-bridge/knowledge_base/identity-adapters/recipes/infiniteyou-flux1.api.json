@@ -125,7 +125,6 @@
         "name": "ComfyUI_InfiniteYou",
         "git": "https://github.com/bytedance/ComfyUI_InfiniteYou",
         "registry": "https://registry.comfy.org/publishers/yuminjia/nodes/infiniteyou",
-        "license": "Apache-2.0 (code); weights CC-BY-NC-4.0",
         "pip": [
           "insightface",
           "onnxruntime-gpu (OR onnxruntime, never both)",
@@ -140,7 +139,7 @@
         ]
       }
     ],
-    "defaults_note": "aes_stage2 = better text alignment/aesthetics; sim_stage1 = higher identity similarity (swap both files). strength 1, 0-1, 4 steps cfg 1 (schnell). The weights are trained for FLUX.1-dev (bf16 ~43 GB / fp8 ~24 GB per the README); the pack example uses schnell fp8 - a dev fp8 UNET with 20 steps and FluxGuidance is the documented target. WEIGHTS ARE CC-BY-NC-4.0: non-commercial only. face_analysis_provider CUDA needs onnxruntime-gpu.",
+    "defaults_note": "aes_stage2 = better text alignment/aesthetics; sim_stage1 = higher identity similarity (swap both files). strength 1, 0-1, 4 steps cfg 1 (schnell). The weights are trained for FLUX.1-dev (bf16 ~43 GB / fp8 ~24 GB per the README); the pack example uses schnell fp8 - a dev fp8 UNET with 20 steps and FluxGuidance is the documented target. face_analysis_provider CUDA needs onnxruntime-gpu.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

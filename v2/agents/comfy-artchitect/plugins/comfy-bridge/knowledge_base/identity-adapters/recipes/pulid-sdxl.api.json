@@ -115,7 +115,6 @@
       {
         "name": "PuLID_ComfyUI",
         "git": "https://github.com/cubiq/PuLID_ComfyUI",
-        "license": "Apache-2.0",
         "status": "maintenance only since 2025-04-14",
         "pip": [
           "insightface",
@@ -132,7 +131,7 @@
         ]
       }
     ],
-    "defaults_note": "fidelity (closer to the reference ID; 'style' gives the checkpoint more freedom), weight 0.8, 30 steps cfg 6 dpmpp_2m / sgm_uniform (README: try sgm_uniform). ApplyPulidAdvanced adds projection (ortho_v2/ortho/none), fidelity 0-32 (lower = closer) and noise. Apache-2.0 (pack + weights); insightface non-commercial.",
+    "defaults_note": "fidelity (closer to the reference ID; 'style' gives the checkpoint more freedom), weight 0.8, 30 steps cfg 6 dpmpp_2m / sgm_uniform (README: try sgm_uniform). ApplyPulidAdvanced adds projection (ortho_v2/ortho/none), fidelity 0-32 (lower = closer) and noise.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

@@ -100,7 +100,10 @@ DEFAULT_FETCH_LIMITS = {
     # "lost Manager", and gave up on a download that was going fine. Scaled from grant.timeout_s
     # — the sandbox's own clock, never the plugin's claim — so the budget and the clock agree.
     "max_calls": 32,
-    "max_bytes": 5 * 1024 * 1024,  # per-response body clamp
+    # PER-RESPONSE BODY CLAMP. 32 MB, not 5: Comfy Cloud's /api/object_info (every node it runs,
+    # with 1,300+ model files in the loaders' lists) is over 5 MB, and a JSON body cut at the
+    # clamp does not parse — validation and the node list failed on every call.
+    "max_bytes": 32 * 1024 * 1024,
     "timeout_s": 30.0,  # per-request wall clock
     # A TRANSFER IS NOT A REQUEST. The 30 s clock is right for an API call and wrong for moving
     # a file: an 8 MB reference photo going up to a rented GPU died at exactly 31 s, twice, and

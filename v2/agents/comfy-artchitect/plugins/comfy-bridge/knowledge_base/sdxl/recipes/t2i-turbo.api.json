@@ -65,7 +65,7 @@
       "sd_xl_turbo_1.0_fp16.safetensors"
     ],
     "packs": [],
-    "defaults_note": "Real-time synthesis: 1-4 steps, 512x512, no guidance. 'The proper way to use it is with the new SDTurboScheduler node' (ComfyUI_examples). Turbo is under the Stability AI Community License, not openrail++ (see profile.license).",
+    "defaults_note": "Real-time synthesis: 1-4 steps, 512x512, no guidance. 'The proper way to use it is with the new SDTurboScheduler node' (ComfyUI_examples).",
     "vram_evidence": {
       "gpu": null,
       "at": null,

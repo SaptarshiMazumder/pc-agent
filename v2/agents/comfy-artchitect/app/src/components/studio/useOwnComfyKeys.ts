@@ -1,9 +1,8 @@
-/* The person's own keys for THEIR ComfyUI — Comfy (paid models), Hugging Face, Civitai.
+/* The person's own keys: the Comfy API key (runs every workflow on Comfy Cloud) and the Civitai key.
  *
- * They are this agent's declared [[settings]] (agent.toml), so they save exactly the way the
- * Settings page saves them: `config.set` with `keys`, stored per account, never read back — a
- * secret only ever says whether it is set. The platform's own keys are never among them and
- * never go to a machine it does not run (comfy_bridge).
+ * It is this agent's declared [[settings]] (agent.toml), so it saves exactly the way the
+ * Settings page saves it: `config.set` with `keys`, stored per account, never read back — a
+ * secret only ever says whether it is set.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -17,12 +16,10 @@ export interface OwnKey {
   isSet: boolean
 }
 
-/** The keys used on the person's own machine. */
-export const OWN_KEYS = ['USER_COMFY_API_KEY', 'USER_HF_TOKEN', 'USER_CIVITAI_TOKEN']
-/** The key that finds their Vast machines. */
-export const VAST_KEY = ['USER_VAST_API_KEY']
+/** The keys this agent declares (agent.toml [[settings]]). */
+export const AGENT_KEYS = ['USER_COMFY_API_KEY', 'USER_CIVITAI_TOKEN']
 
-export function useOwnComfyKeys(client: AgentdClient | undefined, names: string[] = OWN_KEYS) {
+export function useOwnComfyKeys(client: AgentdClient | undefined, names: string[] = AGENT_KEYS) {
   const [keys, setKeys] = useState<OwnKey[]>([])
   const [message, setMessage] = useState('')
 

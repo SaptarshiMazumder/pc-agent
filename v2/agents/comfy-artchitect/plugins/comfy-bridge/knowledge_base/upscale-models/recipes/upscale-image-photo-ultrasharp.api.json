@@ -3,7 +3,7 @@
     "id": "upscale-image-photo-ultrasharp",
     "family": "upscale-models",
     "task": "upscale-image",
-    "variant": "4x-UltraSharp (Kim2091, ESRGAN 64nf23nb, 4x, CC-BY-NC-SA-4.0): 'lots and lots of detail', 'works best on JPEG compression' - AI renders and photos that want crisp detail; the author's .safetensors build",
+    "variant": "4x-UltraSharp: 'lots and lots of detail', 'works best on JPEG compression' - AI renders and photos that want crisp detail; the author's.safetensors build",
     "from_template": "utility-gan_upscaler (UpscaleModelLoader -> ImageUpscaleWithModel, the video template's upscale stage applied to a still) + docs.comfy.org/tutorials/basic/upscale (Load Upscale Model -> Upscale Image (using Model)); esrgan_example (archived) is the same two nodes after a txt2img pass. Model swapped to the OpenModelDB record 4x-UltraSharp (author HF tree: 4x-UltraSharp.safetensors 66,864,028 B; the OMDB resource itself is a Mega folder with the .pth).",
     "min_comfyui": "0.3.31",
     "confidence": "official",
@@ -33,7 +33,7 @@
       "4x-UltraSharp.safetensors"
     ],
     "packs": [],
-    "defaults_note": "4x. NON-COMMERCIAL licence (CC-BY-NC-SA-4.0): the licence rule warns; RealESRGAN_x4plus (BSD-3) for commercial work. docs.comfy.org: fix generation issues before upscaling an AI render.",
+    "defaults_note": "4x. docs.comfy.org: fix generation issues before upscaling an AI render.",
     "vram_evidence": {
       "gpu": null,
       "at": null,

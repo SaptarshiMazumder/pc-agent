@@ -74,10 +74,6 @@ import { SaveTemplatePrompt } from './components/library/SaveTemplatePrompt'
 import { saveChatAsTemplate, useTemplateMessage } from './agentd/library-template'
 import { readSetupGuide, type SetupGap, type SetupGuide } from './agentd/template-setup-guide'
 import { draftAbout, type TemplateAbout } from './agentd/template-about'
-import { useGpuWarmup } from './components/studio/useGpuWarmup'
-import { useComfyConnection } from './components/studio/useComfyConnection'
-import { ConnectionPrompt } from './components/studio/ConnectionPrompt'
-import { useHumanActivity } from './components/studio/useHumanActivity'
 import { SaveToLibraryChips } from './components/library/SaveToLibraryChips'
 import { StudioDashboard } from './components/studio/StudioDashboard'
 import type { Artifact } from './agentd/artifacts'
@@ -113,11 +109,11 @@ const OPENING_HEADLINE = 'What are we making?'
    a setup step before it had told them what they were setting up.
 
    THE BLURB SELLS THE OUTCOME, then the keeper (creative-studio redesign): an image or a video,
-   made by whichever model suits it, and a workflow that runs it again. It still says nothing is
-   needed from the person — the platform rents the GPU — without leading with the plumbing. */
+   made by whichever model suits it, and a workflow that runs it again. It names where the work
+   runs (Comfy Cloud) without leading with the plumbing. */
 const OPENING_BLURB =
   'An image, a video, a whole shoot. Describe it and add a photo if you have one — I pick the ' +
-  'model, set it up on a cloud GPU, and fix whatever breaks. You keep the results and the ' +
+  'model, set it up on Comfy Cloud, and fix whatever breaks. You keep the results and the ' +
   'workflow, to run again in one click or in your own ComfyUI.'
 
 
@@ -190,48 +186,8 @@ export default function App() {
 
   const { send, abort, addFiles, removeFile, addReference } = useRun(client)
 
-  // ONE POLLER FOR THE GPU, here rather than in the top bar's chip, because two things read
-  // it now: the chip, and the resume below. Two hooks would be two pollers asking the platform
-  // the same question.
-  //
-  // "ACTIVE" IS WHAT KEEPS THE MACHINE ALIVE: a human in this window (visible tab, recent
-  // input) or a run going on any of this window's chats. Either one, and the hook touches the
-  // platform once a minute. Neither, and ten minutes later the machine is reaped — the rule as
-  // set, measured by people and runs rather than by which tool the agent happens to be using.
-  const humanHere = useHumanActivity()
-  const anyRunning = useApp((s) => Object.values(s.sessions).some((x) => x.running))
-  // WHERE THE ACCOUNT'S COMFYUI RUNS. Nothing is rented without the person's yes: the warm-up
-  // runs only once they chose "Rent a GPU", and never for their own machine.
-  const connection = useComfyConnection(client, connected)
   /* THE ONE STUDIO POLL — the dashboard and the install panel above the composer both read it. */
   const studio = useStudioState(client ?? undefined, session.running)
-  const gpu = useGpuWarmup(client, connection.kind === 'rented', humanHere || anyRunning)
-
-  /* THE "CONTINUE" BUTTON, PRESSED BY CODE. A turn that ends while the machine is still
-     coming up leaves the agent asleep until something wakes it, and that something used to be
-     the user — "so will u automatically do it? are u monitoring it urself?" — clicking Continue
-     every few minutes. The window IS monitoring it; this is the click. Only for a turn that
-     ended cleanly while waiting (awaitingGpu), only while nothing is running, and only once:
-     the send clears the flag, so a turn that ends waiting again earns its own resume. */
-  useEffect(() => {
-    if (gpu.state !== 'ready' || !currentKey) return
-    const cur = useApp.getState().sessions[currentKey]
-    if (!cur || cur.running || cur.loadingHistory || !cur.awaitingGpu) return
-    useApp.getState().patch(currentKey, { awaitingGpu: false })
-    void send('The GPU is ready now — continue from where you stopped.')
-  }, [gpu.state, gpu.url, currentKey, send])
-
-  /* THE SAME CLICK FOR THE PERSON'S OWN MACHINE: a turn that ended waiting for them to choose
-     where ComfyUI runs goes on the moment they connect one. (Choosing "Rent a GPU" goes on
-     through the resume above, once the rented machine is ready.) */
-  const ownMachine = connection.kind === 'user_vast' || connection.kind === 'user_url'
-  useEffect(() => {
-    if (!ownMachine || !currentKey) return
-    const cur = useApp.getState().sessions[currentKey]
-    if (!cur || cur.running || cur.loadingHistory || !cur.awaitingGpu) return
-    useApp.getState().patch(currentKey, { awaitingGpu: false })
-    void send('My ComfyUI is connected now — continue from where you stopped.')
-  }, [ownMachine, connection.label, currentKey, send])
 
   /* THE FILES THIS CONVERSATION MADE — not every conversation's.
      Artifacts hang off the turn that produced them, which is right for the transcript and wrong
@@ -436,7 +392,7 @@ export default function App() {
   /* THE BALANCE, beside the thing that spends it. Re-read when a run ends, because that is when
      it changed. `null` means "not known" — a build with no accounts service, where showing a
      zero would be a lie. */
-  const credits = useCredits(client!, session.running, gpu.state === 'ready')
+  const credits = useCredits(client!, session.running)
 
   /* ONE auth state for the window. It lives here rather than in the Sidebar because the sign-in
      card is rendered here too, and two `useAuth()` calls would be two states that disagree about
@@ -972,7 +928,6 @@ export default function App() {
               </div>
 
               <div className="st-convo-foot">
-                <ConnectionPrompt client={client ?? undefined} connection={connection} />
                 <InstallProgressPanel state={studio} />
                 <BackgroundJobsStrip jobs={session.jobs} sessionKey={currentKey} client={client} />
                 <Composer
@@ -1030,8 +985,6 @@ export default function App() {
                 <StudioDashboard
                   client={client ?? undefined}
                   state={studio}
-                  connection={connection}
-                  gpu={gpu}
                   running={session.running}
                   artifacts={files}
                   slots={slots}
