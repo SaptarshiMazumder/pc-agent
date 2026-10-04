@@ -736,6 +736,149 @@
       "src": "S-HF-LOTUS"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "FLUX.1 Kontext dev",
+        "file": "^flux1-dev-kontext",
+        "bases": [
+          "Flux.1 Kontext"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 Krea dev",
+        "file": "^flux1-krea-dev",
+        "bases": [
+          "Flux.1 Krea",
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 schnell",
+        "file": "^flux1-schnell",
+        "bases": [
+          "Flux.1 S",
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 dev",
+        "file": "^flux1-(dev(?!-kontext)|canny-dev|fill-dev|depth-dev)",
+        "bases": [
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "Qwen-Image",
+        "file": "^qwen_image",
+        "bases": [
+          "Qwen"
+        ],
+        "cloud": [
+          "^qwen",
+          "^qie[-_]"
+        ]
+      },
+      {
+        "name": "Z-Image Turbo",
+        "file": "^z_image_turbo",
+        "bases": [
+          "ZImageTurbo"
+        ],
+        "cloud": [
+          "^zimage[-_]",
+          "^z[-_]image[-_]"
+        ]
+      },
+      {
+        "name": "SD 3.5",
+        "file": "^sd3\\.5",
+        "bases": [
+          "SD 3.5",
+          "SD 3.5 Large"
+        ],
+        "cloud": [
+          "sd3"
+        ]
+      },
+      {
+        "name": "SDXL base",
+        "file": "^(sd_xl_base|sdxl_lightning|sd_xl_turbo)",
+        "bases": [
+          "SDXL 1.0",
+          "SDXL Lightning",
+          "SDXL Hyper",
+          "SDXL Turbo"
+        ],
+        "cloud": [
+          "^sdxl[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Pony (SDXL)",
+        "file": "pony",
+        "bases": [
+          "Pony"
+        ],
+        "cloud": [
+          "^pony[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Illustrious / NoobAI (SDXL)",
+        "file": "illustrious|noob",
+        "bases": [
+          "Illustrious",
+          "NoobAI"
+        ],
+        "cloud": [
+          "^illustrious[-_]",
+          "^noob"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "SD 1.5 (DreamShaper 8)",
+        "file": "^dreamshaper_8",
+        "bases": [
+          "SD 1.5"
+        ],
+        "cloud": [
+          "^sd15[-_]"
+        ],
+        "loader": "LoraLoader"
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "A style LoRA rides the host model the control steers; it must be for that model."
+  },
   "preprocessors": {
     "note": "ControlNetApply* nodes do NOT convert a photo into a map ('The ControlNetApply node will not convert regular images'); the map must be made first. SD3.5 is the only family where ComfyUI applies the file-specific post-processing itself (canny rescale, depth 1.0 - a).",
     "native": [

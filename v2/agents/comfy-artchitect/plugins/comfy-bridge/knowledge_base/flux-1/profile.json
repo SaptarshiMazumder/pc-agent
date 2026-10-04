@@ -590,6 +590,68 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "FLUX.1 Kontext dev",
+        "file": "^flux1-dev-kontext",
+        "bases": [
+          "Flux.1 Kontext"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 Krea dev",
+        "file": "^flux1-krea-dev",
+        "bases": [
+          "Flux.1 Krea",
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 schnell",
+        "file": "^flux1-schnell",
+        "bases": [
+          "Flux.1 S",
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 dev",
+        "file": "^flux1-(dev(?!-kontext)|canny-dev|fill-dev|depth-dev)",
+        "bases": [
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (Flux branch)",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/flux_depth_lora_example.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "After the diffusion model, before ModelSamplingFlux and the sampler. Dev LoRAs are commonly run on schnell and Krea dev (both are dev-derived); Kontext LoRAs are their own tag."
+  },
   "community_alternatives": [
     {
       "what": "Kijai fp8 diffusion-model-only files (UNETLoader route, no all-in-one): flux1-dev-fp8-e4m3fn.safetensors 11.902 GB, flux1-dev-fp8-e5m2.safetensors 11.902 GB, flux1-schnell-fp8-e4m3fn.safetensors 11.891 GB, flux-vae-bf16.safetensors 0.168 GB",

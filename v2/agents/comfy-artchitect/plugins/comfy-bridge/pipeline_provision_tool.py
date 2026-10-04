@@ -58,7 +58,7 @@ class PipelineProvisionTool(Tool):
     parameters = {"type": "object", "properties": {}}
 
     def __init__(self, validate: Validate, install_models: InstallModels,
-                 export_installer: Callable[[str], str],
+                 export_installer: Callable[[str, dict[str, dict]], str],
                  timeout_s: float, max_retries: int,
                  context: Callable[[], PipelineToolContext] | None = None) -> None:
         self._validate = validate
@@ -122,7 +122,8 @@ class PipelineProvisionTool(Tool):
         in one script), beside the one workflow; the stages' own files stay in stages/."""
         rel = ctx.store.design_rel(pipeline)
         try:
-            note = self._export_installer(rel)
+            note = self._export_installer(rel, {lo.name.replace("\\", "/"): {"url": lo.url, "folder": "loras"}
+                                                for stage in pipeline.stages for lo in stage.loras if lo.url})
         except Exception as e:  # noqa: BLE001 — said, not hidden; the stages are still ready to run
             return f"the one-file installer for {rel} was not written: {type(e).__name__}: {e}"
         return "the whole design as one download: " + rel.removesuffix(".api.json") + ".json; " + note
@@ -151,19 +152,30 @@ class PipelineProvisionTool(Tool):
     @staticmethod
     def _install_list(ctx: PipelineToolContext, pipeline: Pipeline,
                       missing: dict[str, list[str]]) -> tuple[list[dict], list[str]]:
-        """[{filename, url, kind}] for every missing file the knowledge base describes (once each),
-        and the names it does not. The stage's OWN family is asked first: one file name can sit in
-        two families under different folders (a FLUX checkpoint the controlnet family also lists),
-        and the wrong folder makes the file "installed" yet never loadable — a loop."""
+        """[{filename, url, kind}] for every missing file the design or the knowledge base sources
+        (once each), and the names neither does. A stage's LoRA brings its own `url` (Civitai,
+        Hugging Face) and lands in loras/ under the name the stage loads. Otherwise the stage's OWN
+        family is asked first: one file name can sit in two families under different folders (a
+        FLUX checkpoint the controlnet family also lists), and the wrong folder makes the file
+        "installed" yet never loadable — a loop."""
         files, unsourced, seen = [], [], set()
         for stage_name, names in missing.items():
             stage = pipeline.stage(stage_name)
             own = ctx.catalog.families.get(stage.family) if stage is not None and stage.family else None
+            loras = {lo.name.replace("\\", "/").rsplit("/", 1)[-1]: lo for lo in (stage.loras if stage else [])}
             for name in names:
                 base = name.replace("\\", "/").rsplit("/", 1)[-1]
                 if base in seen:
                     continue
                 seen.add(base)
+                lora = loras.get(base)
+                if lora is not None:
+                    if lora.url:
+                        files.append({"filename": lora.name.replace("\\", "/"), "url": lora.url, "kind": "loras"})
+                    else:
+                        unsourced.append(f"{base} (LoRA without a `url` — give its civitai.com / huggingface.co "
+                                         "download link, or pick a Comfy Cloud LoRA)")
+                    continue
                 rec = own.file(base) if own is not None else None
                 if rec is None:
                     found = ctx.catalog.describe_file(base)

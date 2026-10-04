@@ -347,6 +347,27 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "HiDream",
+        "file": "^hidream_(i1|e1)",
+        "bases": [
+          "HiDream"
+        ],
+        "cloud": [
+          "hidream"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (HiDream branch)",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "No official LoRA template; no HiDream LoRA on Comfy Cloud."
+  },
   "community_alternatives": [
     {
       "what": "GGUF I1: Full/Dev/Fast Q2_K 6.56.. Q4_K_M 11.48.. Q8_0 18.69 GB, F16/BF16 34.2 GB; docs link the Full/Dev repos; community: 'GGUF Q8 works with 24GB'",

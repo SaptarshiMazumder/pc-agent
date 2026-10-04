@@ -703,6 +703,53 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "LTX-2.3",
+        "file": "^ltx-2\\.3",
+        "bases": [
+          "LTXV 2.3",
+          "LTXV2"
+        ],
+        "cloud": [
+          "^ltx[-_ ]?2\\.3",
+          "^ltx[-_ ]?23",
+          "^ltxv23"
+        ]
+      },
+      {
+        "name": "LTX-2.5",
+        "file": "^ltx-2\\.5",
+        "bases": [
+          "LTXV 2.5"
+        ],
+        "cloud": [
+          "^ltx[-_ ]?2\\.5"
+        ]
+      },
+      {
+        "name": "LTX-2",
+        "file": "^ltx-2-19b",
+        "bases": [
+          "LTXV2",
+          "LTXV"
+        ],
+        "cloud": [
+          "^ltx[-_]?2[-_]"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (LTXV/LTXAV branch)",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_ltx2_i2v_lora.json",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/template_ltx2_3_style_transition.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "The user LoRA and the distilled LoRA chain after the checkpoint (LTX-2.3 distilled LoRA at 0.5). IC-LoRA templates that need ComfyUI-LTXVideo nodes are out: only core LoraLoaderModelOnly. Civitai tags LTX loosely — check the version name."
+  },
   "disk_note": {
     "ltx-2.5 recipe set": "21.5 + 15.4 + 1.5 + 0.4 + 1.0 = ~39.7 GB",
     "ltx-2.3 dev route (t2v/i2v/ia2v/id-lora)": "29.1 + 9.4 + 2.7 + 1.0 (+1.2 ID LoRA) = ~42-43 GB",

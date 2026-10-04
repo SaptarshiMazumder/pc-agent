@@ -370,6 +370,40 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Z-Image Turbo",
+        "file": "^z_image_turbo",
+        "bases": [
+          "ZImageTurbo"
+        ],
+        "cloud": [
+          "^zimage[-_]",
+          "^z[-_]image[-_]"
+        ]
+      },
+      {
+        "name": "Z-Image",
+        "file": "^z_image_(bf16|int8|fp8)",
+        "bases": [
+          "ZImageBase"
+        ],
+        "cloud": [
+          "^zimage[-_]",
+          "^z[-_]image[-_]"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (Lumina2 branch)",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/basic_switch_node.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "Official note: always put the LoRA's trigger word in the prompt or the effect is weak."
+  },
   "community_alternatives": [
     {
       "what": "stable-diffusion.cpp path running Z-Image on 4 GB VRAM (listed under the GitHub README 'Community Works'); not a ComfyUI route",

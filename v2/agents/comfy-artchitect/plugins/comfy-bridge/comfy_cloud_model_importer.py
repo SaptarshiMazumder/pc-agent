@@ -8,6 +8,11 @@ ComfyUI lists it among a loader's choices (`await_loadable`), as everywhere else
 
 EVERY FILE IS ANSWERED. A file from another host, an unknown folder or a refused import (a plan
 without imports answers 403) is named with the reason; the others still go ahead.
+
+A CIVITAI FILE THAT NEEDS A LOGIN (most LoRAs) is imported with the person's own Civitai key, in the
+link Comfy Cloud fetches (`?token=${USER_CIVITAI_TOKEN}`, a name the host substitutes). Bare first,
+the key only on a failed import: an unset key would arrive as the literal `${…}` and spoil even a
+public download.
 """
 
 from __future__ import annotations
@@ -15,12 +20,14 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from model_download_request import ModelDownloadRequest
 
 #: The only hosts Comfy Cloud imports from (its API refuses the rest).
 IMPORT_HOSTS = ("huggingface.co", "civitai.com")
+#: The person's Civitai key, as the name the host substitutes.
+CIVITAI_KEY_REF = "${USER_CIVITAI_TOKEN}"
 
 
 class ComfyCloudModelImporter:
@@ -39,24 +46,16 @@ class ComfyCloudModelImporter:
         refused: list[str] = []
         tasks: dict[str, str] = {}  # filename -> task id
         ready: list[str] = []
+        sources: dict[str, tuple[str, str]] = {}  # filename -> (url, folder), for the keyed retry
         for f in files:
             name, url = f["filename"], str(f.get("url") or "")
             why = self._unimportable(url, str(f.get("kind") or ""))
             if why:
                 refused.append(f"{name} ({why})")
                 continue
-            folder = ModelDownloadRequest.folder_of(str(f["kind"]))
-            res = self._post("/api/assets/download", {
-                "source_url": url, "tags": ["models", folder], "user_metadata": {"filename": name}})
-            if res.status == 200:
-                ready.append(name)
-            elif res.status == 202:
-                tasks[name] = str((res.json() or {}).get("task_id") or "")
-                report(f"{name}: Comfy Cloud is importing it")
-            else:
-                refused.append(f"{name} (Comfy Cloud refused the import: HTTP {res.status} "
-                               f"{(res.text or '')[:200]})")
-        pending = await self._follow(tasks, refused, abort, report)
+            sources[name] = (url, ModelDownloadRequest.folder_of(str(f["kind"])))
+            self._start(name, *sources[name], ready, tasks, refused, report)
+        pending = await self._follow(tasks, refused, abort, report, sources, ready)
         ready += [n for n in tasks if n not in pending]
         landed = await self._await_loadable(ready, abort) if ready else {}
         missing = [n for n in ready if n not in landed]
@@ -74,8 +73,27 @@ class ComfyCloudModelImporter:
             raise ValueError(". ".join(parts) + ".")
         return landed
 
-    async def _follow(self, tasks: dict[str, str], refused: list[str], abort, report) -> list[str]:
-        """Wait for the import tasks; returns the names still running when the wait ends."""
+    def _start(self, name: str, url: str, folder: str, ready: list[str], tasks: dict[str, str],
+               refused: list[str], report) -> None:
+        """Ask Comfy Cloud to import one file: ready (200), a task (202), or refused — a refused bare
+        Civitai link is asked once more with the person's key."""
+        res = self._post("/api/assets/download", {
+            "source_url": url, "tags": ["models", folder], "user_metadata": {"filename": name}})
+        if res.status == 200:
+            ready.append(name)
+        elif res.status == 202:
+            tasks[name] = str((res.json() or {}).get("task_id") or "")
+            report(f"{name}: Comfy Cloud is importing it")
+        elif self._keyed(url) != url:
+            self._start(name, self._keyed(url), folder, ready, tasks, refused, report)
+        else:
+            refused.append(f"{name} (Comfy Cloud refused the import: HTTP {res.status} "
+                           f"{(res.text or '')[:200]})")
+
+    async def _follow(self, tasks: dict[str, str], refused: list[str], abort, report,
+                      sources: dict[str, tuple[str, str]], ready: list[str]) -> list[str]:
+        """Wait for the import tasks; returns the names still running when the wait ends. A Civitai
+        import that failed without the person's key is started once more with it."""
         deadline = time.monotonic() + self._wait_s
         running = dict(tasks)
         while running and time.monotonic() < deadline:
@@ -90,11 +108,31 @@ class ComfyCloudModelImporter:
                 elif status == "failed" or (not res.ok and res.status not in (0, 429, 500, 502, 503, 504)):
                     running.pop(name)
                     tasks.pop(name)
+                    url, folder = sources[name]
+                    if self._keyed(url) != url:
+                        report(f"{name}: Civitai wants a login — importing it with your Civitai key")
+                        sources[name] = (self._keyed(url), folder)
+                        self._start(name, *sources[name], ready, tasks, refused, report)
+                        if name in tasks:
+                            running[name] = tasks[name]
+                        continue
                     detail = (res.json() or {}).get("message") if res.ok else f"HTTP {res.status}"
-                    refused.append(f"{name} (the import failed on Comfy Cloud: {detail})")
+                    hint = "; the Civitai key in Settings may be missing or not allowed this file" if "civitai.com" in url else ""
+                    refused.append(f"{name} (the import failed on Comfy Cloud: {detail}{hint})")
             if running:
                 await asyncio.sleep(self._poll_s)
         return list(running)
+
+    @staticmethod
+    def _keyed(url: str) -> str:
+        """A civitai.com link carrying the person's key; any other link, or one already keyed, as is."""
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        if not (host == "civitai.com" or host.endswith(".civitai.com")) or any(k == "token" for k, _ in query):
+            return url
+        keyed = "&".join(q for q in (urlencode(query), "token=" + CIVITAI_KEY_REF) if q)
+        return urlunsplit(parts._replace(query=keyed))
 
     @staticmethod
     def _unimportable(url: str, kind: str) -> str:
@@ -106,4 +144,4 @@ class ComfyCloudModelImporter:
         return ""
 
 
-__all__ = ["ComfyCloudModelImporter"]
+__all__ = ["CIVITAI_KEY_REF", "ComfyCloudModelImporter"]

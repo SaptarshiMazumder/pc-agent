@@ -697,6 +697,52 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "FLUX.2 klein 9B",
+        "file": "^flux-2-klein-(base-)?9b",
+        "bases": [
+          "Flux.2 Klein 9B",
+          "Flux.2 Klein 9B-base"
+        ],
+        "cloud": [
+          "klein[-_]?9b"
+        ]
+      },
+      {
+        "name": "FLUX.2 klein 4B",
+        "file": "^flux-2-klein-(base-)?4b",
+        "bases": [
+          "Flux.2 Klein 4B",
+          "Flux.2 Klein 4B-base"
+        ],
+        "cloud": [
+          "klein[-_]?4b"
+        ]
+      },
+      {
+        "name": "FLUX.2 dev",
+        "file": "^flux2_dev",
+        "bases": [
+          "Flux.2 D"
+        ],
+        "cloud": [
+          "^flux[-_]?2[-_]?turbo",
+          "^flux_2-",
+          "^flux2[-_]dev"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (Flux2 inherits the Flux branch)",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_flux2_text_to_image.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "klein 9B and 4B are different models: a 9B LoRA does nothing on 4B and the reverse. Civitai tags the distilled and base klein separately; LoRAs trained on base are run on the distilled model."
+  },
   "community_alternatives": [
     {
       "what": "GGUF FLUX.2 [dev]: unsloth/FLUX.2-dev-GGUF (Q2_K 12.9 GB ... Q4_K_M 20.0 ... Q8_0 35.0 GB) and city96/FLUX.2-dev-gguf (same ladder; 'Q5_K_M, Q4_K_M, Q3_K_M, Q3_K_S and Q2_K have some extra logic as to which blocks to keep in high precision'); pair with the Mistral TE ('Safetensors or GGUF') and the flux2 VAE",

@@ -461,6 +461,30 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "SD 3.5",
+        "file": "^sd3\\.5",
+        "bases": [
+          "SD 3.5",
+          "SD 3.5 Large",
+          "SD 3.5 Large Turbo",
+          "SD 3.5 Medium"
+        ],
+        "cloud": [
+          "sd3"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (SD3 branch)",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "Civitai's SD 3.5 tags return no LoRA at all (live, 2026-10): a style is better found for another family."
+  },
   "community_alternatives": [
     {
       "what": "GGUF Large / Large Turbo / Medium (city96) for small cards; ungated route to Turbo",

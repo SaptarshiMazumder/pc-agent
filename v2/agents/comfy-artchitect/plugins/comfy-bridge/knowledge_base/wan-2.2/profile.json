@@ -816,6 +816,100 @@
       "auto_download": true
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Wan 2.2 T2V A14B high-noise",
+        "file": "^wan2\\.2_t2v_high_noise",
+        "expert": "high",
+        "bases": [
+          "Wan Video 2.2 T2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*t2v",
+          "^wan[-_. ]?2[._ ]?2[-_](high|low)[-_]?noise"
+        ]
+      },
+      {
+        "name": "Wan 2.2 T2V A14B low-noise",
+        "file": "^wan2\\.2_t2v_low_noise",
+        "expert": "low",
+        "bases": [
+          "Wan Video 2.2 T2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*t2v",
+          "^wan[-_. ]?2[._ ]?2[-_](high|low)[-_]?noise"
+        ]
+      },
+      {
+        "name": "Wan 2.2 I2V A14B high-noise",
+        "file": "^wan2\\.2_i2v_high_noise",
+        "expert": "high",
+        "bases": [
+          "Wan Video 2.2 I2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*(?<!t)i2v",
+          "^wan[-_. ]?2[._ ]?2[-_](high|low)[-_]?noise"
+        ]
+      },
+      {
+        "name": "Wan 2.2 I2V A14B low-noise",
+        "file": "^wan2\\.2_i2v_low_noise",
+        "expert": "low",
+        "bases": [
+          "Wan Video 2.2 I2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*(?<!t)i2v",
+          "^wan[-_. ]?2[._ ]?2[-_](high|low)[-_]?noise"
+        ]
+      },
+      {
+        "name": "Wan 2.2 Fun A14B high-noise",
+        "file": "^wan2\\.2_fun_.*high_noise",
+        "expert": "high",
+        "bases": [
+          "Wan Video 2.2 T2V-A14B",
+          "Wan Video 2.2 I2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*fun"
+        ]
+      },
+      {
+        "name": "Wan 2.2 Fun A14B low-noise",
+        "file": "^wan2\\.2_fun_.*low_noise",
+        "expert": "low",
+        "bases": [
+          "Wan Video 2.2 T2V-A14B",
+          "Wan Video 2.2 I2V-A14B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*fun"
+        ]
+      },
+      {
+        "name": "Wan 2.2 TI2V 5B",
+        "file": "^wan2\\.2_ti2v_5b",
+        "bases": [
+          "Wan Video 2.2 TI2V-5B"
+        ],
+        "cloud": [
+          "^wan[-_. ]?2[._ ]?2.*(ti2v|5b)"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_14B_t2v.json",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_14B_i2v.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "A14B runs two experts: a LoRA comes as a high/low pair — the high file on the high-noise model (expert 'high'), the low file on the low-noise one (expert 'low'). Civitai ships a pair as two versions of one model, as a .zip (not loadable — say so), or high-only. Fun models: which base their LoRAs want is not documented."
+  },
   "community_alternatives": [
     {
       "what": "GGUF quantised 14B pairs (QuantStack) for 12-16 GB cards",

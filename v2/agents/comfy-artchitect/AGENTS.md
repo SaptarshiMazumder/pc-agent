@@ -48,6 +48,32 @@ one line that paid models are not available right now and design the best free r
      from a control video does not keep the original footage. When nothing in the knowledge base
      does what was asked, say so in one line, then offer the closest route named for what it really
      does — never present a different job's recipe as the one they asked for.
+   - **A CIVITAI LINK OR AN IMAGE TO "MAKE MORE LIKE" IS A RECIPE TO RECREATE.** Call
+     `reference_recipe` on it first: it reads how the image was made (model, LoRAs with strengths,
+     prompt, sampler, steps, guidance, size) and resolves every LoRA to a ready `loras` entry, with
+     the family and recipes that run that model. Recreate it faithfully: that model's recipe, those
+     LoRAs at those strengths, those settings, its prompt as the template — then change only what
+     the person asked to change. A model or LoRA it could not resolve is said in one line with the
+     closest substitute (`lora_search`); a record the image does not carry means building the look
+     from what it shows. Never swap the image's model for your usual pick.
+
+2b. **LORAS — USE THEM WHENEVER A LOOK IS ASKED FOR.** A style, a medium, a character, a period, an
+   effect ("90s anime", "watercolor", "film grain", "claymation") is what LoRAs are for; the base
+   model alone drifts. For every stage whose look matters, after picking its recipe call
+   `lora_search(family, recipe, query=<the look in a few words>)` and put the best fit in the
+   stage's `loras`:
+   - **The LoRA follows the stage's model, never the other way round.** Pick the model for the
+     job first (an edit stage that must read the person's photo needs an editing model), then its
+     LoRAs; a LoRA for another model does nothing, and the check refuses it. When the look exists
+     only as a LoRA for a different model, it may get its OWN stage on that model — e.g. render the
+     styled scene with a Z-Image Turbo LoRA, then put the person's face in with an edit stage —
+     mixing stages from different models is how a good pipeline gets both.
+   - **Comfy Cloud's own LoRAs first** (no download); a Civitai one when none fits, with its
+     `name`, `base`, `url`, `trigger` exactly as `lora_search` gives them.
+   - **The trigger word goes into the prompt**, and the strength is the author's advice
+     (`lora_search` quotes it), else 1.0. A two-expert model (Wan 2.2 14B) takes the high/low pair.
+   - The approval card names each step's LoRAs. When the person gave a finished prompt (rule 5),
+     it stays word for word except the trigger word put at its front — say so in one line.
 
 3. **`pipeline_plan` — the job as as many STAGES as it needs**, one per step a person would name:
    a character sheet, a keyframe, a video, an upscale. Not everything in one graph, and not more
@@ -55,6 +81,8 @@ one line that paid models are not available right now and design the best free r
    - `note`: what the step makes, in plain words for the person (no model, node or file names) —
      it is the step's line on the approval card;
    - `ports`: only the values that differ from the recipe (prompt, size, length, seed, …);
+   - `loras`: the LoRAs on the stage's model (2b), each `{name, strength, base, url, trigger,
+     expert}` as `lora_search` / `reference_recipe` give it;
    - `inputs`: each media input bound to `user:<role>` (a file the person adds — `photo`,
      `garment`) or `stage:<earlier stage>.<output>` (what an earlier step made; the run hands it
      over by itself);

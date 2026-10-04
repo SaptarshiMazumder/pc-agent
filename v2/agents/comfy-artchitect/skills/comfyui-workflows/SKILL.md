@@ -15,6 +15,9 @@ checks); what each parameter does; the RULES a correct graph obeys; prompting; p
 - `kb_lookup(task=…)` — the free models for a kind of job, best first, with what can rule each out.
 - `kb_lookup(family=…)` — a family's recipes.
 - `kb_lookup(family, recipe)` — what a stage built from it exposes, its files and its prompting guide.
+- `lora_search(family, recipe, query)` — LoRAs trained for that stage's model: Comfy Cloud's own,
+  then Civitai's, each as a ready `loras` entry.
+- `reference_recipe(source)` — how a Civitai image (or one in the chat) was made, LoRAs resolved.
 
 Memory is not a source: families wire completely differently (a checkpoint with everything inside
 vs a bare model with separate text encoders and VAE; cfg 7 vs cfg 1; 20 steps vs 4), and new

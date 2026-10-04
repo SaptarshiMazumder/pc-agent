@@ -524,6 +524,25 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Kandinsky 5 lite",
+        "file": "^kandinsky5",
+        "bases": [],
+        "cloud": [
+          "kandinsky5"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (Kandinsky5 branch)",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "Civitai has no Kandinsky base tag (a search finds Wassily-Kandinsky style LoRAs for other models)."
+  },
   "disk_note": {
     "any Lite recipe": "4.6 + 9.4 + 0.2 + 0.5 = ~14.7 GB (each extra Lite checkpoint +4.6 GB)",
     "Pro": "43.4 + 9.4 + 0.2 + 0.5 = ~53.5 GB - fits a 60 GB disk alone, but no template / VRAM evidence",

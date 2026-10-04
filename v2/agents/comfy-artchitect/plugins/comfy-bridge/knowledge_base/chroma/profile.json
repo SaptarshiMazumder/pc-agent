@@ -252,6 +252,27 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Chroma",
+        "file": "^chroma",
+        "bases": [
+          "Chroma"
+        ],
+        "cloud": [
+          "chroma"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (Chroma inherits the Flux branch)",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "No official LoRA template; no Chroma LoRA on Comfy Cloud — a Civitai LoRA is imported."
+  },
   "community_alternatives": [
     {
       "what": "GGUF Chroma1-HD: Q2_K 3.41.. Q4_K_M 5.57.. Q8_0 9.74 GB, BF16 17.80 GB; the legacy README lists it as an official alternative",

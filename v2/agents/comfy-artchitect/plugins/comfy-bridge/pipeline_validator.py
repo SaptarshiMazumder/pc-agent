@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from family_rule_validator import FamilyRuleValidator, RuleReport
 from graph_structural_validator import GraphStructuralValidator, StructuralReport
 from knowledge_base_catalog import KnowledgeBaseCatalog
+from lora_compatibility import LoraCompatibility
 from pipeline import Pipeline, Stage
 from pipeline_design_checks import PipelineDesignChecks
 from recipe import version_tuple
@@ -95,6 +96,17 @@ class PipelineValidator:
         self._source = catalogue_source
         self._listed = catalogue_version
         self._version = comfyui_version
+        self._loras = LoraCompatibility(catalog)
+
+    @staticmethod
+    def _prompt_of(stage: Stage, recipe, graph: dict) -> str:
+        """The stage's prompt as set on its graph ('' for a custom stage or a recipe without one)."""
+        if recipe is None:
+            return ""
+        spec = recipe.ports.get("prompt") or {}
+        nid = spec.get("node") or (spec.get("nodes") or [None])[0]
+        value = ((graph.get(str(nid)) or {}).get("inputs") or {}).get(spec.get("input")) if nid else None
+        return value if isinstance(value, str) else ""
 
     def check(self, pipeline: Pipeline, graphs: dict[str, dict]) -> PipelineReport:
         """:param graphs: each stage's built graph, by stage name (from PipelineStore)."""
@@ -126,9 +138,13 @@ class PipelineValidator:
             for i in stage.inputs:
                 if not i.producer:
                     user_inputs.setdefault(i.role, f"stage {stage.name}: {i.name}")
+            lora_problems, lora_questions = self._loras.check(stage, graph, self._prompt_of(stage, recipe, graph))
+            v.problems += lora_problems
+            warnings += lora_questions
+            lora_files = {lo.name for lo in stage.loras}
             for name in self._model_files(graph):
                 files.setdefault(name, self._catalog.file_bytes(name))
-            unknown = self._catalog.unknown_model_files(graph)
+            unknown = [u for u in self._catalog.unknown_model_files(graph) if u not in lora_files]
             if unknown:
                 warnings.append(f"stage {stage.name}: model files no knowledge-base family describes — "
                                 f"their wiring is unchecked by the family rules: {', '.join(unknown)}")

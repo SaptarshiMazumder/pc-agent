@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from stage_lora import StageLora
+
 USER = "user"
 STAGE = "stage"
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
@@ -64,6 +66,8 @@ class Stage:
     outputs: dict = field(default_factory=dict)  # custom stages only: {name: {node, type}}
     review: bool = False  # Phase 3 stops after this stage and shows its output
     note: str = ""
+    #: LoRAs on top of the recipe's model, applied in order (StageBuilder splices them in).
+    loras: list[StageLora] = field(default_factory=list)
 
     @property
     def custom(self) -> bool:
@@ -115,6 +119,7 @@ class Pipeline:
                     "name": s.name, "family": s.family, "recipe": s.recipe, "ports": s.ports,
                     "inputs": {i.name: i.source for i in s.inputs}, "outputs": s.outputs,
                     "review": s.review, "note": s.note,
+                    **({"loras": [lo.to_dict() for lo in s.loras]} if s.loras else {}),
                 }
                 for s in self.stages
             ],
@@ -132,6 +137,7 @@ class Pipeline:
                 inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
                 outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
                 note=str(raw.get("note") or ""),
+                loras=[StageLora.from_dict(lo) for lo in raw.get("loras") or []],
             ))
         return cls(name=str(data.get("name") or ""), stages=stages, deliver_size=str(data.get("deliver_size") or ""))
 

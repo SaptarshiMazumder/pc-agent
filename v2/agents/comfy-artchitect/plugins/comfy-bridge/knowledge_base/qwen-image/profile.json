@@ -890,6 +890,39 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "Qwen-Image 2.1",
+        "file": "^qwen_image_2\\.1",
+        "bases": [
+          "Qwen 2.1",
+          "Qwen 2"
+        ],
+        "cloud": []
+      },
+      {
+        "name": "Qwen-Image / Edit 2509 / 2511 / 2512",
+        "file": "^qwen_image",
+        "bases": [
+          "Qwen"
+        ],
+        "cloud": [
+          "^qwen",
+          "^qie[-_]"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (QwenImage, Qwen-Image 2.1 branch)",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/template_qwen_image_illustration_lora.json",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_edit_2509_relight.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "Civitai tags Qwen-Image, its Edit models and 2512 all `Qwen`: an Edit LoRA is told apart by its name. Official strength 0.8-1.0 (illustration); lower it if grid artifacts appear. The user LoRA goes before a Lightning LoRA."
+  },
   "community_alternatives": [
     {
       "what": "GGUF: city96/Qwen-Image-gguf Q2_K 7.06.. Q4_K_M 13.07.. Q8_0 21.76 GB; QuantStack/Qwen-Image-Edit-2509-GGUF; unsloth/Qwen-Image-Edit-2511-GGUF (Q4_K_M 13.24, Q8_0 21.76 GB)",

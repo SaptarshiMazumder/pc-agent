@@ -32,6 +32,9 @@ class FamilyProfile:
     prompting: dict
     card: dict  # {short_name, recipes: [{match, short_name?}]}
     raw: dict = field(repr=False)
+    #: How a user LoRA attaches to this family's models (StageLoraSplicer): {loader, models: [{file,
+    #: bases, cloud, expert}], src, confirmed, note}. Empty = the family takes no LoRA.
+    lora: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls, folder: Path) -> "FamilyProfile":
@@ -55,6 +58,7 @@ class FamilyProfile:
             prompting=dict(data.get("prompting") or {}),
             card=card,
             raw=data,
+            lora=dict(data.get("lora") or {}),
         )
 
     def uses(self, file_names: set[str]) -> bool:

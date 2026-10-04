@@ -22,6 +22,7 @@ from pipeline_run_record import PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
+from stage_lora import LORAS_SCHEMA, StageLora
 from workflow_link import WorkflowLink
 
 
@@ -35,6 +36,8 @@ class PipelinePlanTool(Tool):
         "binding each media input to `user:<role>` (a file the person adds) or "
         "`stage:<earlier stage>.<output>` (what an earlier stage made), and `review: true` to stop "
         "and show its output before later stages run (put it before anything slow, like video). "
+        "`loras` puts LoRAs on a recipe stage's model (a style, a character, an effect) — lora_search "
+        "finds ones trained for that model. "
         "A model no recipe covers: give `nodes` (API format) and `outputs` instead of a recipe. "
         "Returns the validation report; fix with stage_set / stage_bind / stage_edit_graph until it "
         "holds."
@@ -56,6 +59,7 @@ class PipelinePlanTool(Tool):
                         "recipe": {"type": "string"},
                         "ports": {"type": "object", "description": "{port: value} — only what differs from the recipe"},
                         "inputs": {"type": "object", "description": "{input: 'user:<role>' | 'stage:<name>.<output>'}"},
+                        "loras": LORAS_SCHEMA,
                         "review": {"type": "boolean"},
                         "note": {"type": "string", "description":
                                  "What this step makes, in plain words for the person — no model, "
@@ -80,12 +84,16 @@ class PipelinePlanTool(Tool):
                 for raw in params.get("stages") or []:
                     if not isinstance(raw, dict):
                         return ToolResult.text(f"not a stage object: {raw!r}", is_error=True)
+                    try:
+                        loras = StageLora.list_from(raw.get("loras"))
+                    except ValueError as e:
+                        return ToolResult.text(f"stage {raw.get('name') or '?'}: {e}", is_error=True)
                     stage = Stage(
                         name=str(raw.get("name") or "").strip(), family=str(raw.get("family") or "").strip(),
                         recipe=str(raw.get("recipe") or "").strip(), ports=dict(raw.get("ports") or {}),
                         inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
                         outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
-                        note=str(raw.get("note") or ""),
+                        note=str(raw.get("note") or ""), loras=loras,
                     )
                     if not stage.note.strip():
                         return ToolResult.text(f"stage {stage.name or '?'}: `note` is required — what this step "

@@ -746,6 +746,27 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "HunyuanVideo 1.5",
+        "file": "^hunyuanvideo1\\.5_(480p|720p)",
+        "bases": [
+          "Hunyuan Video"
+        ],
+        "cloud": [
+          "^hunyuanvideo1\\.5"
+        ]
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py (HunyuanVideo branch)",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "Civitai's `Hunyuan Video` holds 1.0 and 1.5 LoRAs alike: read the version name. Never on the 1080p super-resolution model."
+  },
   "disk_note": {
     "t2v-720p set": "16.7 + 9.4 + 0.4 + 2.5 = ~29 GB",
     "+ 1080p SR": "+16.7 + 0.2 = ~46 GB (two 16.7 GB diffusion models loaded in turn)",

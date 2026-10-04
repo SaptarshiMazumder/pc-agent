@@ -25,6 +25,7 @@ from api_graph import ApiGraph
 from knowledge_base_catalog import KnowledgeBaseCatalog
 from pipeline import Stage
 from recipe import Recipe
+from stage_lora_splicer import StageLoraSplicer
 
 #: The media types a loader's slot reads, for a custom stage's inputs.
 LOADER_TYPES = {"LoadImage": "IMAGE", "LoadImageMask": "MASK", "LoadVideo": "VIDEO", "LoadAudio": "AUDIO"}
@@ -55,6 +56,10 @@ class StageBuilder:
         if stage.custom:
             if not custom_graph:
                 raise StageBuildError(f"stage {stage.name} has no recipe and no graph")
+            if stage.loras:
+                raise StageBuildError(f"stage {stage.name} has no recipe: a hand-written graph wires its own "
+                                      "LoRA nodes (LoraLoaderModelOnly after the model loader) — `loras` is for "
+                                      "recipe stages")
             graph = copy.deepcopy(custom_graph)
             self._bind_custom(stage, graph)
             self._name_outputs(stage, graph)
@@ -64,6 +69,11 @@ class StageBuilder:
         for port, value in stage.ports.items():
             self.apply_port(recipe, graph, port, value, stage.name)
         self._bind_recipe(stage, recipe, graph)
+        try:
+            StageLoraSplicer.splice(stage.name, stage.family, self._catalog.families[stage.family].lora,
+                                    stage.loras, graph)
+        except ValueError as e:
+            raise StageBuildError(str(e)) from e
         self._name_outputs(stage, graph)
         return graph
 

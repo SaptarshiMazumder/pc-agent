@@ -2004,11 +2004,13 @@ class ComfyPriceTool(Tool):
         return "\n".join(lines)
 
 
-def _export_design_installer(rel: str) -> str:
+def _export_design_installer(rel: str, design_sources: dict[str, dict]) -> str:
     """ONE installer for a pipeline's combined workflow, from Comfy Cloud's node list. Not through
     comfy_validate: the stages were each checked against their own model family's rules, and in
     the joined graph one family's rules land on another's nodes (H3's "cfg must be 1.0" on the
-    Qwen stage's sampler) — false alarms that had the agent "fixing" a correct design."""
+    Qwen stage's sampler) — false alarms that had the agent "fixing" a correct design.
+    `design_sources` ({file: {url, folder}}) are files the design itself sources — its LoRAs'
+    download links — beside the knowledge base's."""
     root = Path(current_workspace(".") or ".")
     path = root / rel
     graph = json.loads(path.read_text(encoding="utf-8"))
@@ -2016,7 +2018,7 @@ def _export_design_installer(rel: str) -> str:
     if not info.ok:
         raise ValueError(_failed(info, "read Comfy Cloud's node list for the installer"))
     artifacts, manifest = WorkflowInstallerExporter(
-        root, get=_get, known_files=KnowledgeBaseCatalog.shipped().model_sources(),
+        root, get=_get, known_files={**KnowledgeBaseCatalog.shipped().model_sources(), **design_sources},
     ).export(path, graph, info.json())
     note = f"installer {artifacts[0]}"
     if manifest["unresolved"]:
@@ -2161,7 +2163,10 @@ def register(api, ctx):
     api.register_tool(TemplateAboutDraftTool(ctx.config))
     # PHASE 1 — THE DESIGN, WITH NO GPU: the knowledge base, the pipeline of stages, and the checks.
     # Registered here; an agent sees them only when its agent.toml [tools] lists them.
+    from civitai_client import CivitaiClient
     from kb_lookup_tool import KbLookupTool
+    from lora_search_tool import LoraSearchTool
+    from reference_recipe_tool import ReferenceRecipeTool
     from pipeline_plan_tool import PipelinePlanTool
     from pipeline_present_tool import PipelinePresentTool
     from pipeline_provision_tool import PipelineProvisionTool
@@ -2173,6 +2178,11 @@ def register(api, ctx):
     from stage_set_tool import StageSetTool
 
     api.register_tool(KbLookupTool())
+    api.register_tool(LoraSearchTool(CivitaiClient(fetch)))
+    api.register_tool(ReferenceRecipeTool(
+        CivitaiClient(fetch),
+        download=lambda url, rel: fetch(url, save_path=rel, timeout_s=120.0, max_bytes=30_000_000),
+    ))
     api.register_tool(PipelinePlanTool())
     api.register_tool(StageSetTool())
     api.register_tool(StageBindTool())

@@ -608,6 +608,55 @@
       "src": "S-CIVITAI-PONY"
     }
   ],
+  "lora": {
+    "loader": "LoraLoader",
+    "models": [
+      {
+        "name": "SDXL base",
+        "file": "^(sd_xl_base|sdxl_lightning|sd_xl_turbo)",
+        "bases": [
+          "SDXL 1.0",
+          "SDXL Lightning",
+          "SDXL Hyper",
+          "SDXL Turbo"
+        ],
+        "cloud": [
+          "^sdxl[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Pony (SDXL)",
+        "file": "pony",
+        "bases": [
+          "Pony"
+        ],
+        "cloud": [
+          "^pony[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Illustrious / NoobAI (SDXL)",
+        "file": "illustrious|noob",
+        "bases": [
+          "Illustrious",
+          "NoobAI"
+        ],
+        "cloud": [
+          "^illustrious[-_]",
+          "^noob"
+        ],
+        "loader": "LoraLoader"
+      }
+    ],
+    "src": [
+      "https://comfyanonymous.github.io/ComfyUI_examples/lora/",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "LoraLoader patches the checkpoint's MODEL and CLIP. Pony, Illustrious and NoobAI are SDXL finetunes whose LoRAs want their own checkpoint; the refiner takes no LoRA."
+  },
   "community_alternatives": [
     {
       "what": "IP-Adapter (identity / style / composition from reference images): IPAdapter Unified Loader -> IPAdapter Advanced (weight, weight_type, start_at, end_at); FaceID variants need insightface + paired LoRAs; style/composition split via IPAdapter Style and Composition. Widget defaults NOT FOUND",

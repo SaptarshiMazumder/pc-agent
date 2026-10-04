@@ -667,6 +667,28 @@
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "MiniMax H3 (pruned)",
+        "file": "^(minimax_h3_.*pruned|fastvideo_fasth3)",
+        "bases": [
+          "MiniMax H3"
+        ],
+        "cloud": [
+          "^minimax_h3"
+        ]
+      }
+    ],
+    "src": [
+      "https://docs.comfy.org/tutorials/video/minimax/minimax-h3",
+      "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_i2v.json",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": true,
+    "note": "Take LoRAs distilled on the pruned build: a full-build LoRA's adaln weights do not merge."
+  },
   "community_alternatives": [
     {
       "what": "newer lightx2v turbo LoRAs, not in the Comfy-Org repo: minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16, _v1.2_768p_, minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16, minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16 (1.956 GB each; '_comfyui_' = Comfy key format)",

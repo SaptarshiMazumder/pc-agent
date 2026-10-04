@@ -189,6 +189,10 @@ class PipelinePresentTool(Tool):
                 fam = ctx.catalog.families[recipe.family]
                 model = fam.display_name(recipe.id)
                 does = f"{stage.note} — {model}"
+                if stage.loras:
+                    does += " with LoRA " + ", ".join(
+                        lo.name.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".safetensors")
+                        + (f" @{lo.strength:g}" if lo.strength != 1.0 else "") for lo in stage.loras)
                 spec = recipe.ports.get("prompt") or {}
                 nid = spec.get("node") or (spec.get("nodes") or [None])[0]
                 prompt = str(((graph.get(str(nid)) or {}).get("inputs") or {}).get(spec.get("input"), "")) if nid else ""

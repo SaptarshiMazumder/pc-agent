@@ -700,6 +700,91 @@
       "src": "S-HF-PULID-FLUX2"
     }
   ],
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "models": [
+      {
+        "name": "FLUX.1 schnell",
+        "file": "^flux1-schnell",
+        "bases": [
+          "Flux.1 S",
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "FLUX.1 dev",
+        "file": "^flux1-dev(?!-kontext)",
+        "bases": [
+          "Flux.1 D"
+        ],
+        "cloud": [
+          "^flux1[-_]",
+          "^flux\\.1[-_]",
+          "^flux[-_]1[-_]"
+        ]
+      },
+      {
+        "name": "SDXL base",
+        "file": "^(sd_xl_base|sdxl_lightning|sd_xl_turbo)",
+        "bases": [
+          "SDXL 1.0",
+          "SDXL Lightning",
+          "SDXL Hyper",
+          "SDXL Turbo"
+        ],
+        "cloud": [
+          "^sdxl[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Pony (SDXL)",
+        "file": "pony",
+        "bases": [
+          "Pony"
+        ],
+        "cloud": [
+          "^pony[-_]"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "Illustrious / NoobAI (SDXL)",
+        "file": "illustrious|noob",
+        "bases": [
+          "Illustrious",
+          "NoobAI"
+        ],
+        "cloud": [
+          "^illustrious[-_]",
+          "^noob"
+        ],
+        "loader": "LoraLoader"
+      },
+      {
+        "name": "SD 1.5 (DreamShaper 8)",
+        "file": "^dreamshaper_8",
+        "bases": [
+          "SD 1.5"
+        ],
+        "cloud": [
+          "^sd15[-_]"
+        ],
+        "loader": "LoraLoader"
+      }
+    ],
+    "src": [
+      "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py",
+      "https://civitai.com/api/v1/enums"
+    ],
+    "confirmed": false,
+    "note": "A style LoRA rides the host model; the identity adapter is applied after it."
+  },
   "packs": [
     {
       "name": "ComfyUI_IPAdapter_plus",
