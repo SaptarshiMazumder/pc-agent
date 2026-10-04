@@ -9,6 +9,7 @@ why both, and why this never converts one into the other).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
@@ -98,6 +99,10 @@ class ComfyEmitTool(Tool):
             },
         },
     }
+
+    def __init__(self, node_list: Callable[[], dict]) -> None:
+        # The node list (object_info) the UI file's widget positions are read from.
+        self._node_list = node_list
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -222,7 +227,7 @@ class ComfyEmitTool(Tool):
 
             # The files, the slot record and the "a design exists" marks — one writer, shared
             # with the pipeline tools, so a stage and an emitted workflow are the same thing on disk.
-            written = WorkflowFileWriter(Path(current_workspace(".") or ".")).write(
+            written = WorkflowFileWriter(Path(current_workspace(".") or "."), self._node_list()).write(
                 name, api, whats, order=[str(n.get("id")) for n in nodes], forget_fixed_shape=bool(user_asked),
             )
             api_rel, ui_rel, digest, installer_note = (

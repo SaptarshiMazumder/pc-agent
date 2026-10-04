@@ -14,7 +14,7 @@
 # pretending it can fix it.
 
 name = "Comfy Penguin"
-version = "1.75.0"
+version = "1.76.0"
 # No project manager: this agent's own ask_user card already holds the user's approval, and its
 # own rules stop its loops. The manager's plan points in that card read as a second approval.
 managed = false

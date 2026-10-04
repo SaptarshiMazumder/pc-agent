@@ -85,7 +85,7 @@ class PipelineRunTool(Tool):
                     return ToolResult.text(problem, is_error=True)
                 if asked:
                     record.stale_after(pipeline, name)
-                res = await self._run(ctx.store.rel(f"{stage.name}.api.json"), fed, abort, on_update)
+                res = await self._run(ctx.store.stage_rel(stage.name), fed, abort, on_update)
             text = res.content[0].text if res.content else ""
             if res.is_error:
                 record.failed(name, text)

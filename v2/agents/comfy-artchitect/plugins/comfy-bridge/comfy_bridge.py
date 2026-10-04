@@ -3003,7 +3003,8 @@ def register(api, ctx):
     api.register_tool(ComfyInstallTool())
     api.register_tool(ComfyNodeInstallTool())
     api.register_tool(ComfyProbeTool())
-    api.register_tool(ComfyEmitTool())
+    api.register_tool(ComfyEmitTool(node_list=lambda: NodeRegistryCache(
+        Path(current_workspace(".") or "."), _KNOWLEDGE_BASE).load(_last_known_version())[0]))
     api.register_tool(ComfyValidateTool())
     api.register_tool(ComfyInventoryTool())
     api.register_tool(ComfyNodeSpecTool())

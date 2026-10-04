@@ -123,6 +123,7 @@ class PipelineProvisionTool(Tool):
             if state.ready:
                 lines.append(f"ready: all {len(pipeline.stages)} stage(s) compile on the GPU with every model "
                              "in place. Next: pipeline_run.")
+                lines.append(await self._design_installer(ctx, pipeline, abort))
             else:
                 if any(state.missing.values()):
                     lines.append("still missing: " + ", ".join(sorted({f for v in state.missing.values() for f in v})))
@@ -134,6 +135,19 @@ class PipelineProvisionTool(Tool):
             return ToolResult.text("\n".join(lines), details={"ready": state.ready}, is_error=not state.ready)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_provision failed: {type(e).__name__}: {e}", is_error=True)
+
+    async def _design_installer(self, ctx: PipelineToolContext, pipeline: Pipeline, abort) -> str:
+        """ONE installer for the whole design. Validating the combined workflow on the box writes
+        `install_<design>.py` beside it (every stage's packs and models in one script) — the
+        stages' own installers stay in stages/, out of the person's way."""
+        rel = ctx.store.design_rel(pipeline)
+        res = await self._validate(rel, abort, None)
+        text = res.content[0].text if res.content else ""
+        found = [ln.strip() for ln in text.splitlines() if ln.strip().startswith(("Portable installer:", "Installer INCOMPLETE"))]
+        if res.is_error or not found:
+            return (f"the one-file installer for {rel} was not written — the combined workflow did not "
+                    f"validate as a whole:\n{text[:800]}")
+        return "the whole design as one download: " + rel.removesuffix(".api.json") + ".json; " + "; ".join(found)
 
     @staticmethod
     def _unreachable(own: bool, why: str) -> ToolResult:
@@ -150,7 +164,7 @@ class PipelineProvisionTool(Tool):
     async def _check(self, ctx: PipelineToolContext, pipeline: Pipeline, abort) -> _LiveState:
         state = _LiveState()
         for stage in pipeline.stages:
-            res = await self._validate(ctx.store.rel(f"{stage.name}.api.json"), abort, None)
+            res = await self._validate(ctx.store.stage_rel(stage.name), abort, None)
             text = res.content[0].text if res.content else ""
             # comfy_validate says "without a GPU" exactly when no box answered; any other refusal
             # that is not a compile report (a refused credential, a transport error) is the box too.

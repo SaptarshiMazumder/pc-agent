@@ -1,17 +1,25 @@
-"""PipelineStore — a chat's pipeline on disk: `workflows/<chat>/pipeline.json` plus one workflow per stage.
+"""PipelineStore — a chat's pipeline on disk.
 
-The pipeline file holds the design's DECISIONS (which recipe, which port values, which input reads
-what); each stage's graph is an ordinary workflow beside it (`<stage>.api.json` + `<stage>.json`,
-written by WorkflowFileWriter), so everything that runs, lists, validates or saves a workflow treats
-a stage as one. A custom stage's graph is read back from its own `.api.json` — that file IS its
-design. Stage roles are recorded with their slot descriptions so the References panel says what
-each one is for.
+    workflows/<chat>/pipeline.json            the design's DECISIONS (recipe, port values, wiring)
+    workflows/<chat>/<design>.json / .api.json ONE workflow with every stage in it, wired — the
+                                               file a person downloads (PipelineWorkflowAssembler)
+    workflows/<chat>/stages/<stage>.api.json   each stage alone: what the agent runs, one at a time
+                                               (review points, re-running one stage)
+
+Each stage's graph is an ordinary workflow (written by WorkflowFileWriter), so everything that
+runs, validates or saves a workflow treats a stage as one. A custom stage's graph is read back
+from its own `.api.json` — that file IS its design. Stage roles are recorded with their slot
+descriptions so the References panel says what each one is for.
+
+ONE FILE, NOT ONE PER STAGE. A five-stage design used to leave ten workflow files in the chat;
+the person wants one to drag into ComfyUI. The stages live one folder down, out of the list.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,17 +27,21 @@ from pathlib import Path
 import chat_paths
 import reference_slots
 from pipeline import Pipeline, Stage
+from pipeline_workflow_assembler import PipelineWorkflowAssembler
 from stage_builder import StageBuilder
 from workflow_file_writer import WorkflowFileWriter, WrittenWorkflow
 
 PIPELINE_FILE = "pipeline.json"
+STAGES = "stages"
 
 
 class PipelineStore:
-    def __init__(self, workspace: Path, builder: StageBuilder, writer: WorkflowFileWriter) -> None:
+    def __init__(self, workspace: Path, builder: StageBuilder, writer: WorkflowFileWriter,
+                 assembler: PipelineWorkflowAssembler) -> None:
         self._ws = Path(workspace)
         self._builder = builder
         self._writer = writer
+        self._assembler = assembler
 
     @property
     def folder(self) -> Path:
@@ -37,6 +49,14 @@ class PipelineStore:
 
     def rel(self, name: str) -> str:
         return f"{chat_paths.chat_rel(chat_paths.WORKFLOWS)}/{name}"
+
+    def stage_rel(self, stage_name: str) -> str:
+        """Workspace-relative path of a stage's run file."""
+        return self.rel(f"{STAGES}/{stage_name}.api.json")
+
+    def design_rel(self, pipeline: Pipeline) -> str:
+        """Workspace-relative path of the ONE combined workflow's run file."""
+        return self.rel(f"{self.design_name(pipeline)}.api.json")
 
     def load(self) -> Pipeline | None:
         p = self.folder / PIPELINE_FILE
@@ -46,17 +66,22 @@ class PipelineStore:
 
     def graph(self, stage: Stage) -> dict:
         """The stage's current graph, as written."""
-        p = self.folder / f"{stage.name}.api.json"
+        p = self.folder / STAGES / f"{stage.name}.api.json"
+        if not p.is_file():
+            # A pipeline written before stages moved into their own folder.
+            p = self.folder / f"{stage.name}.api.json"
         return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
 
     def save(self, pipeline: Pipeline, custom_graphs: dict[str, dict] | None = None,
              only: set[str] | None = None) -> dict[str, WrittenWorkflow]:
-        """Write pipeline.json and (re)build the stages named in `only` (all when None).
-        `custom_graphs`: the graph of each custom stage, by name, when it is new or changed."""
+        """Write pipeline.json, (re)build the stages named in `only` (all when None), and write the
+        one combined workflow again. `custom_graphs`: the graph of each custom stage, by name,
+        when it is new or changed."""
         custom_graphs = custom_graphs or {}
         written = {}
+        old = self.load()
         if only is None:
-            self._drop_stages_not_in(pipeline)
+            self._drop_stages_not_in(old, pipeline)
         for stage in pipeline.stages:
             if only is not None and stage.name not in only:
                 continue
@@ -64,13 +89,20 @@ class PipelineStore:
             graph = self._builder.build(stage, base)
             whats = {i.role: self._what(pipeline, stage, i) for i in stage.inputs}
             fed_by = {i.role: f"{i.producer[0]}.{i.producer[1]}" for i in stage.inputs if i.producer}
-            written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by)
+            written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by, subfolder=STAGES)
+        self._write_design(old, pipeline)
         self.folder.mkdir(parents=True, exist_ok=True)
         # ATOMIC: a reader (or a parallel call) never sees half a file.
         tmp = self.folder / f"{PIPELINE_FILE}.{os.getpid()}.tmp"
         tmp.write_text(json.dumps(pipeline.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         os.replace(tmp, self.folder / PIPELINE_FILE)
         return written
+
+    @staticmethod
+    def design_name(pipeline: Pipeline) -> str:
+        """The combined workflow's file name: the design's name in file-safe words, never a stage's."""
+        slug = re.sub(r"[^a-z0-9]+", "_", (pipeline.name or "").lower()).strip("_")[:48] or "pipeline"
+        return f"{slug}_pipeline" if pipeline.stage(slug) or slug == "pipeline" else slug
 
     @contextmanager
     def locked(self, timeout_s: float = 60.0, stale_s: float = 300.0):
@@ -101,19 +133,30 @@ class PipelineStore:
         finally:
             lock.unlink(missing_ok=True)
 
-    def _drop_stages_not_in(self, pipeline: Pipeline) -> None:
+    def _write_design(self, old: Pipeline | None, pipeline: Pipeline) -> None:
+        """The ONE workflow: every stage's current graph, joined and wired. A renamed design takes
+        its old file with it."""
+        name = self.design_name(pipeline)
+        if old is not None and self.design_name(old) != name:
+            for suffix in (".api.json", ".json"):
+                (self.folder / f"{self.design_name(old)}{suffix}").unlink(missing_ok=True)
+        assembled = self._assembler.assemble(pipeline, {s.name: self.graph(s) for s in pipeline.stages})
+        self._writer.write_files(chat_paths.chat_rel(chat_paths.WORKFLOWS), name, assembled.graph,
+                                 groups=assembled.groups)
+
+    def _drop_stages_not_in(self, old: Pipeline | None, pipeline: Pipeline) -> None:
         """A REPLACED DESIGN LEAVES NO STAGES BEHIND. The previous pipeline's stages that the new
         one does not have lose their workflow files and their slot records — otherwise the
         References panel keeps asking for inputs of a stage that no longer exists."""
-        old = self.load()
         if old is None:
             return
         keep = {s.name for s in pipeline.stages}
         for stage in old.stages:
             if stage.name in keep:
                 continue
-            for suffix in (".api.json", ".json"):
-                (self.folder / f"{stage.name}{suffix}").unlink(missing_ok=True)
+            for folder in (self.folder / STAGES, self.folder):
+                for suffix in (".api.json", ".json"):
+                    (folder / f"{stage.name}{suffix}").unlink(missing_ok=True)
             reference_slots.record(self._ws, stage.name, [], {})
 
     @staticmethod
@@ -124,4 +167,4 @@ class PipelineStore:
         return f"for stage '{stage.name}' ({inp.name})"
 
 
-__all__ = ["PIPELINE_FILE", "PipelineStore"]
+__all__ = ["PIPELINE_FILE", "STAGES", "PipelineStore"]

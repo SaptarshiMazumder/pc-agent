@@ -149,10 +149,13 @@ class StageBuilder:
                     out[role] = LOADER_TYPES.get(g.class_of(nid), "")
         return out
 
+    def output_specs(self, stage: Stage) -> dict[str, dict]:
+        """{output name: {node, type}} — which node of the stage's graph saves each result."""
+        return dict(stage.outputs if stage.custom else self.recipe_of(stage).outputs)
+
     def output_types(self, stage: Stage) -> dict[str, str]:
         """{output name: media type} the stage produces."""
-        outs = stage.outputs if stage.custom else self.recipe_of(stage).outputs
-        return {n: str(s.get("type") or "") for n, s in outs.items()}
+        return {n: str(s.get("type") or "") for n, s in self.output_specs(stage).items()}
 
 
 def _set(graph: dict, nid: str, name: str, value, stage: str, port: str) -> str:

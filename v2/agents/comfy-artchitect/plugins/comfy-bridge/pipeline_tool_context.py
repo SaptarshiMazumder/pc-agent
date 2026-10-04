@@ -22,6 +22,7 @@ from output_size_estimator import OutputSizeEstimator
 from pipeline_design_checks import PipelineDesignChecks
 from pipeline_store import PipelineStore
 from pipeline_validator import PipelineReport, PipelineValidator
+from pipeline_workflow_assembler import PipelineWorkflowAssembler
 from stage_builder import StageBuilder
 from task_index import TaskIndex
 from workflow_file_writer import WorkflowFileWriter
@@ -46,9 +47,11 @@ class PipelineToolContext:
         builder = StageBuilder(catalog)
         version = str((studio_state.read().get("instance") or {}).get("version") or "")
         catalogue, source, listed = NodeRegistryCache(workspace, KNOWLEDGE_BASE).load(version)
+        store = PipelineStore(workspace, builder, WorkflowFileWriter(workspace, catalogue),
+                              PipelineWorkflowAssembler(builder, catalogue))
         return cls(
             workspace=Path(workspace), catalog=catalog, task_index=TaskIndex.load(KNOWLEDGE_BASE),
-            builder=builder, store=PipelineStore(workspace, builder, WorkflowFileWriter(workspace)),
+            builder=builder, store=store,
             rules=FamilyRuleValidator(catalog, FamilyStructuralChecks()), catalogue=catalogue,
             catalogue_source=source, catalogue_version=listed, comfyui_version=NodeRegistryCache.version_key(version) or "0.35.0",
         )
