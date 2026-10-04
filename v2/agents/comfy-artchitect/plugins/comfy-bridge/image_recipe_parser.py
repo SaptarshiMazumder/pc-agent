@@ -27,18 +27,22 @@ _TEXT_KEYS = ("text", "text_g", "t5xxl", "clip_l", "string", "prompt", "value", 
 _VALUE_KEYS = ("value", "int", "float", "seed", "noise_seed", "number", "Number")
 _SAMPLERS = ("KSampler", "KSamplerAdvanced")
 
-#: A1111 / Forge / Civitai sampler names -> ComfyUI's (k-diffusion's own names, as ComfyUI lists them).
-A1111_SAMPLERS = {
-    "euler a": "euler_ancestral", "euler": "euler", "lms": "lms", "heun": "heun", "dpm2": "dpm_2",
-    "dpm2 a": "dpm_2_ancestral", "dpm++ 2s a": "dpmpp_2s_ancestral", "dpm++ 2m": "dpmpp_2m",
-    "dpm++ sde": "dpmpp_sde", "dpm++ 2m sde": "dpmpp_2m_sde", "dpm++ 2m sde gpu": "dpmpp_2m_sde_gpu",
-    "dpm++ 3m sde": "dpmpp_3m_sde", "dpm fast": "dpm_fast", "dpm adaptive": "dpm_adaptive", "lcm": "lcm",
-    "ddim": "ddim", "unipc": "uni_pc", "ddpm": "ddpm", "deis": "deis", "ipndm": "ipndm",
+#: Sampler names other tools write -> ComfyUI's, AFTER normalising (lower case, "++" -> "pp",
+#: spaces and dashes -> "_"): A1111 / Forge display names ("Euler a", "DPM2 a", "UniPC").
+SAMPLER_ALIASES = {
+    "euler_a": "euler_ancestral", "dpm2": "dpm_2", "dpm2_a": "dpm_2_ancestral", "dpmpp_2s_a": "dpmpp_2s_ancestral",
+    "dpmpp_2s_a_karras": "dpmpp_2s_ancestral", "unipc": "uni_pc", "dpm_adaptive": "dpm_adaptive",
 }
-#: A1111 schedule types (also a sampler name's suffix: "DPM++ 2M Karras") -> ComfyUI schedulers.
-A1111_SCHEDULES = {"karras": "karras", "exponential": "exponential", "sgm uniform": "sgm_uniform",
-                   "simple": "simple", "normal": "normal", "beta": "beta", "ddim": "ddim_uniform",
-                   "kl optimal": "kl_optimal", "align your steps": "", "automatic": ""}
+#: Schedule names other tools write (normalised) -> ComfyUI's schedulers. Also read as a sampler
+#: name's suffix ("DPM++ 2M Karras", Civitai's "Euler_beta", "res_2s_beta57"); '' = no choice made.
+SCHEDULE_ALIASES = {
+    "karras": "karras", "exponential": "exponential", "sgm_uniform": "sgm_uniform", "simple": "simple",
+    "normal": "normal", "beta57": "beta57", "beta": "beta", "ddim_uniform": "ddim_uniform",
+    "kl_optimal": "kl_optimal", "linear_quadratic": "linear_quadratic", "bong_tangent": "bong_tangent",
+    "align_your_steps": "", "automatic": "", "uniform": "sgm_uniform",
+}
+#: What a record writes when it has no sampler.
+NO_SAMPLER = {"", "undefined", "none", "null", "default"}
 _CUSTOM_SAMPLERS = ("SamplerCustomAdvanced", "SamplerCustom")
 
 
@@ -311,16 +315,31 @@ class ImageRecipeParser:
 
     @staticmethod
     def _comfy_sampler(sampler: str, schedule: str) -> tuple[str, str]:
-        """An A1111-style sampler and schedule as ComfyUI's sampler_name and scheduler. A name it
-        does not know is kept as written (the design check then says it is not one ComfyUI has)."""
-        name = sampler.strip().lower()
-        sched = schedule.strip().lower()
-        for suffix in sorted(A1111_SCHEDULES, key=len, reverse=True):
-            if name.endswith(" " + suffix) and name[:-len(suffix) - 1] in A1111_SAMPLERS:
-                name, sched = name[:-len(suffix) - 1], sched or suffix
-                break
-        comfy = A1111_SAMPLERS.get(name, sampler.strip())
-        return comfy, A1111_SCHEDULES.get(sched, schedule.strip()) if sched else ""
+        """Another tool's sampler (and schedule) as ComfyUI's sampler_name and scheduler. Reads the
+        shapes records come in: A1111 display names ("Euler a", "DPM++ 2M Karras"), Civitai's
+        joined ones ("Euler_beta", "DPM++ 2M_sgm_uniform", "res_2s_beta57"), slash pairs
+        ("exponential/res_2s_beta57", "linear/euler"). A name it cannot place is kept as written —
+        reference_recipe holds the result against ComfyUI's own list and says so."""
+        def norm(text: str) -> str:
+            text = text.strip().lower().replace("++", "pp")
+            return "_".join(t for t in text.replace("-", " ").replace("_", " ").split())
+
+        sched = SCHEDULE_ALIASES.get(norm(schedule), norm(schedule)) if norm(schedule) else ""
+        if norm(sampler) in NO_SAMPLER:
+            return "", sched
+        name = ""
+        for part in [norm(x) for x in sampler.split("/") if norm(x)]:
+            if part in SCHEDULE_ALIASES:
+                sched = sched or SCHEDULE_ALIASES[part]  # a bare schedule beside the sampler
+                continue
+            for suffix in sorted(SCHEDULE_ALIASES, key=len, reverse=True):
+                if part.endswith("_" + suffix) and len(part) > len(suffix) + 1:
+                    part, sched = part[:-len(suffix) - 1], SCHEDULE_ALIASES[suffix] or sched
+                    break
+            name = SAMPLER_ALIASES.get(part, part)  # the sampler is the last name: "linear/euler"
+        if not name or not name.replace("_", "").isalnum():
+            return sampler.strip(), sched  # a preset ("[Forge] Flux Realistic"), not a sampler name
+        return name, sched
 
     @classmethod
     def _skip(cls, value) -> int | None:

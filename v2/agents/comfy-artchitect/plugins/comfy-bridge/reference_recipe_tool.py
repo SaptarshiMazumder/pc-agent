@@ -189,6 +189,7 @@ class ReferenceRecipeTool(Tool):
             lines.append("  settings: " + ", ".join(f"{k} {v}" for k, v in settings.items())
                          + (" (clip_skip is the port's value: the record's 'clip skip "
                             f"{-recipe.clip_skip}')" if recipe.clip_skip not in (None, -1) else ""))
+        lines += self._unknown_sampling(ctx, recipe)
         if recipe.prompt:
             lines.append(f"  prompt: {recipe.prompt}")
         if recipe.negative:
@@ -277,6 +278,19 @@ class ReferenceRecipeTool(Tool):
             return [f"Runs on: no knowledge-base family takes {' / '.join(bases) or 'this model'} — "
                     "say so; the nearest family's look will differ."]
         return ["Runs on (the image's base model, in the knowledge base):"] + list(dict.fromkeys(out))
+
+    @staticmethod
+    def _unknown_sampling(ctx: PipelineToolContext, recipe: ImageRecipe) -> list[str]:
+        """A sampler or scheduler the record names that ComfyUI does not have (a Forge preset, a
+        custom node's own sampler): said, with what to do — the recipe's default stands in."""
+        spec = ((ctx.catalogue or {}).get("KSampler") or {}).get("input", {}).get("required", {})
+        out = []
+        for what, value, key in (("sampler", recipe.sampler, "sampler_name"), ("scheduler", recipe.scheduler, "scheduler")):
+            known = (spec.get(key) or [[]])[0]
+            if value and known and value not in known:
+                out.append(f"  {what} {value!r} is not one ComfyUI has (a Forge preset or a custom node's own "
+                           f"{what}): leave the recipe's default {what} and say the result may differ slightly")
+        return out
 
     @staticmethod
     def _checkpoint_lines(ctx: PipelineToolContext, checkpoints: list) -> list[str]:

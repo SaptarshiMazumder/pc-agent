@@ -1,0 +1,190 @@
+{
+  "schema": 2,
+  "id": "sd15",
+  "name": "Stable Diffusion 1.5",
+  "publisher": "Runway / CompVis / Stability AI (base); the Civitai community (fine-tunes: DreamShaper, majicMIX, …)",
+  "cost": "free",
+  "kind": [
+    "image"
+  ],
+  "tasks": [
+    "t2i"
+  ],
+  "cannot": [
+    {
+      "what": "legible text, and much past 512-768 px a side (trained at 512x512: larger canvases repeat subjects) — upscale after instead",
+      "src": "S-HF-SD15"
+    },
+    {
+      "what": "prompt adherence of the newer families: it is here to RECREATE SD 1.5 images (Civitai's large SD 1.5 library) faithfully, not to be picked for new work",
+      "src": "S-TPL-DEFAULT"
+    }
+  ],
+  "comfyui": {
+    "image_version": "0.35.0",
+    "template_min_versions": {
+      "default": "0.0.1"
+    },
+    "nodes_verified_against_registry": "the default graph's core nodes only"
+  },
+  "files": [
+    {
+      "name": "v1-5-pruned-emaonly-fp16.safetensors",
+      "role": "checkpoint",
+      "folder": "checkpoints",
+      "bytes": 2132696762,
+      "size_gb": 2.13,
+      "precision": "fp16",
+      "variant": "base",
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly-fp16.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND (2.13 GB on disk)",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "the SD 1.5 base as ComfyUI's default workflow loads it (CLIP-L and VAE inside)",
+      "used_by": [
+        "t2i-base"
+      ],
+      "src": [
+        "S-HF-SD15",
+        "S-TPL-DEFAULT"
+      ],
+      "bytes_src": "HF X-Linked-Size, 2026-10-05"
+    }
+  ],
+  "lora": {
+    "loader": "LoraLoader",
+    "models": [
+      {
+        "name": "SD 1.5",
+        "file": "^(v1-5-pruned|dreamshaper|sd15)",
+        "bases": [
+          "SD 1.5",
+          "SD 1.5 LCM",
+          "SD 1.5 Hyper"
+        ],
+        "cloud": [
+          "^sd15[-_]"
+        ],
+        "via_port": "checkpoint"
+      }
+    ],
+    "src": [
+      "S-CU-LORA",
+      "S-CIVITAI-ENUM"
+    ],
+    "confirmed": true,
+    "note": "LoraLoader patches MODEL and CLIP. An SD 1.5 fine-tune goes in the `checkpoint` port (the file in the stage's `models` with base 'SD 1.5'); its LoRAs are 'SD 1.5' on Civitai."
+  },
+  "selection": [
+    {
+      "task": "t2i",
+      "recipe": "t2i-base",
+      "vram_gb_min": null,
+      "why": "ComfyUI's own default workflow: 20 steps euler/normal, cfg 8, 512x512; the checkpoint port takes any SD 1.5 fine-tune — for recreating SD 1.5 images",
+      "src": [
+        "S-TPL-DEFAULT"
+      ]
+    }
+  ],
+  "params": [],
+  "rules": [
+    {
+      "id": "dims-multiple-8",
+      "severity": "error",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width|height"
+      },
+      "numeric": {
+        "multiple_of": 8
+      },
+      "message": "EmptyLatentImage takes width/height in multiples of 8 (8x VAE)",
+      "src": "S-REGISTRY"
+    },
+    {
+      "id": "native-size",
+      "severity": "warn",
+      "kind": "numeric",
+      "on": {
+        "node": "EmptyLatentImage",
+        "input": "width x height"
+      },
+      "numeric": {
+        "in": [
+          "512x512",
+          "512x768",
+          "768x512",
+          "512x640",
+          "640x512",
+          "576x768",
+          "768x576",
+          "768x768",
+          "512x704",
+          "704x512",
+          "512x896",
+          "896x512"
+        ]
+      },
+      "message": "SD 1.5 was trained at 512x512 (fine-tunes reach ~768): far larger canvases repeat subjects — render near 512 and upscale after",
+      "src": "S-HF-SD15"
+    },
+    {
+      "id": "min-comfyui",
+      "severity": "error",
+      "kind": "version",
+      "per_recipe": true,
+      "message": "the recipe's template needs a newer ComfyUI than the pinned image",
+      "src": "S-TPL-DEFAULT"
+    }
+  ],
+  "prompting": {
+    "negative_default": "text, watermark",
+    "negative_src": [
+      "S-TPL-DEFAULT"
+    ],
+    "positive": [
+      {
+        "line": "Short comma-separated phrases, as the default template writes them ('beautiful scenery nature glass bottle landscape, purple galaxy bottle,'); a fine-tune's own card sets its tags",
+        "class": "official",
+        "src": [
+          "S-TPL-DEFAULT"
+        ]
+      }
+    ]
+  },
+  "pitfalls": [],
+  "sources": {
+    "S-TPL-DEFAULT": {
+      "url": "https://github.com/Comfy-Org/workflow_templates/blob/main/archived/default.json",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-HF-SD15": {
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-REGISTRY": {
+      "url": "ComfyUI node registry (captured from Comfy Cloud, 0.38.2)",
+      "accessed": "2026-10-05",
+      "class": "official"
+    },
+    "S-CIVITAI-ENUM": {
+      "url": "https://civitai.com/api/v1/enums",
+      "accessed": "2026-10-04",
+      "class": "official"
+    },
+    "S-CU-LORA": {
+      "url": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/lora.py",
+      "accessed": "2026-10-04",
+      "class": "official"
+    }
+  },
+  "card": {
+    "short_name": "SD 1.5"
+  }
+}
