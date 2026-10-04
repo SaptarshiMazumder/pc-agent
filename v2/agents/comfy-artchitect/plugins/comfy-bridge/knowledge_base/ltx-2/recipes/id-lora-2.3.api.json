@@ -116,6 +116,14 @@
       "id_lora_strength": {
         "node": "21",
         "input": "strength_model"
+      },
+      "sampler": {
+        "nodes": [
+          "12",
+          "36"
+        ],
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

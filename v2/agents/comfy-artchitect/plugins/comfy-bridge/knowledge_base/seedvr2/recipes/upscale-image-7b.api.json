@@ -63,6 +63,11 @@
         ],
         "input": "overlap",
         "note": "VAE spatial overlap (template 128)"
+      },
+      "sampler": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

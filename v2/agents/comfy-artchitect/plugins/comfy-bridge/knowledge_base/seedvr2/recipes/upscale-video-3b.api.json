@@ -79,6 +79,11 @@
         ],
         "input": "temporal_overlap",
         "note": "VAE temporal overlap (template 8)"
+      },
+      "sampler": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

@@ -1,0 +1,77 @@
+{
+  "id": "bench-civitai-recreate",
+  "agent_id": "comfy-artchitect",
+  "goal": "Phase 1 only — the DESIGN. The person gives a Civitai image link and wants a workflow that consistently makes images of that kind. The agent must read the image's own recipe (reference_recipe), recreate it faithfully — its model, its LoRA at its strength, its sampler settings and size, its prompt as the template — and present it on the approval card. It stops at the ask. Judged by reading the stage workflow against the image's embedded ComfyUI graph.",
+  "reference": {
+    "source": "Civitai image 27763004 — its embedded ComfyUI graph: UNETLoader flux_dev -> LoraLoaderModelOnly(RetroAnimeFlux\\RetroAnimeFluxV1, 1.2) -> ModelSamplingFlux -> BasicGuider/SamplerCustomAdvanced; FluxGuidance 3.5, euler / sgm_uniform, 35 steps, 1024x1536",
+    "steps": [
+      "one FLUX.1 dev text-to-image stage with the Retro Anime Flux LoRA (Civitai 806265, base Flux.1 D) at 1.2, 35 steps, euler / sgm_uniform, guidance 3.5, 1024x1536"
+    ],
+    "must": [
+      "the model is FLUX.1 dev (not Z-Image, Qwen, FLUX.2 or another usual pick)",
+      "the stage carries the RetroAnimeFlux LoRA (Civitai version 806265 with its url) at strength 1.2 — or Comfy Cloud's flux1-lora-retro_anime_style named as an unverified stand-in, said so",
+      "steps, sampler, scheduler, guidance and size follow the image's recipe",
+      "the prompt keeps the image's style wording; only the subject is made variable"
+    ]
+  },
+  "turns": [
+    {
+      "text": "Make me a workflow that consistently creates images like this one: https://civitai.com/images/27763004 — same look every time, I'll change the character."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "reference_recipe"
+    },
+    {
+      "name": "call_order",
+      "first": "reference_recipe",
+      "then": "pipeline_plan"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_says",
+      "tool": "pipeline_present",
+      "pattern": "(?i)lora"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

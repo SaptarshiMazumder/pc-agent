@@ -89,6 +89,11 @@
         "node": "11",
         "input": "chunking_mode",
         "note": "auto (template: 'predict the largest chunk that fits free VRAM' with the official law) | manual with 'chunking_mode.frames_per_chunk' (4n+1, default 21)"
+      },
+      "sampler": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

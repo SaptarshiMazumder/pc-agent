@@ -78,6 +78,16 @@
         "node": "13",
         "input": "reference_frame_count",
         "note": "5 (template)"
+      },
+      "sampler": {
+        "node": "8",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "8",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {

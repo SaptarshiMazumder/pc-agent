@@ -156,10 +156,10 @@ class LoraSearchTool(Tool):
         if words:
             scored = [(sum(w in n.lower() for w in words), n) for n in mine]
             hits = [n for s, n in sorted(scored, key=lambda x: (-x[0], x[1])) if s]
-            return hits, (f"On Comfy Cloud — no download ({len(hits)} of its {len(mine)} for this model "
-                          f"match '{query}'):" if hits else
+            return hits, (f"On Comfy Cloud — no download; a `loras` entry is just {{'name': <file>}} "
+                          f"({len(hits)} of its {len(mine)} for this model match '{query}'):" if hits else
                           f"On Comfy Cloud: none of its {len(mine)} LoRAs for this model is named for '{query}'.")
-        return sorted(mine), f"On Comfy Cloud — no download ({len(mine)} for this model):"
+        return sorted(mine), f"On Comfy Cloud — no download; a `loras` entry is just {{'name': <file>}} ({len(mine)} for this model):"
 
 
 __all__ = ["LoraSearchTool"]

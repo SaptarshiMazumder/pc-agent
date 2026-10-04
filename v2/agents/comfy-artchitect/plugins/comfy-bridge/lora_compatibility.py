@@ -38,7 +38,13 @@ class LoraCompatibility:
             allowed = sorted({b for t in fits for b in t["bases"]})
             model = ", ".join(t["file"] for t in fits) or stage.family
             if lo.base:
-                if allowed and lo.base not in allowed:
+                if allowed and lo.base not in self._civitai_bases():
+                    problems.append(f"stage {stage.name}: LoRA {lo.name} has base {lo.base!r}, which is not Civitai's "
+                                    f"base-model tag for any model here — `base` is Civitai's tag for what the LoRA "
+                                    f"was trained on, as lora_search shows it. "
+                                    f"This stage takes {' / '.join(repr(b) for b in allowed)}: give that, or leave "
+                                    "`base` out for a Comfy Cloud LoRA (its name says the model).")
+                elif allowed and lo.base not in allowed:
                     problems.append(f"stage {stage.name}: LoRA {lo.name} was trained for {lo.base}, but this stage "
                                     f"runs {model}, which takes {' / '.join(allowed)} LoRAs — ComfyUI would apply it "
                                     "silently and the style would not appear. Pick a LoRA for this model "
@@ -57,6 +63,11 @@ class LoraCompatibility:
                 questions.append(f"stage {stage.name}: the prompt does not carry LoRA {lo.name}'s trigger "
                                  f"{lo.trigger!r} — the effect is weak without it.")
         return problems, questions
+
+    def _civitai_bases(self) -> set[str]:
+        """Every Civitai base-model tag the knowledge base knows (checked against /api/v1/enums)."""
+        return {b for fam in self._catalog.families.values() for m in fam.lora.get("models") or []
+                for b in m.get("bases") or []}
 
     @staticmethod
     def _named_for(name: str, fits: list[dict]) -> bool:

@@ -31,6 +31,16 @@
       "lora_strength": {
         "node": "20",
         "input": "strength_model"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {},

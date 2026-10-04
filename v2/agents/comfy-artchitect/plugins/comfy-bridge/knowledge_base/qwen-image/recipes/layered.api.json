@@ -42,6 +42,16 @@
         "node": "16",
         "input": "largest_size",
         "note": "'For input size, 640px is recommended, 1024px for high-res'"
+      },
+      "sampler": {
+        "node": "7",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {

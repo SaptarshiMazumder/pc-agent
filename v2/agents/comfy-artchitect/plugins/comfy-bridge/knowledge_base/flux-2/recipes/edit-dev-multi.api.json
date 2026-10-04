@@ -31,6 +31,11 @@
         ],
         "input": "megapixels",
         "note": "each reference is scaled to 1 MP; the output takes reference 1's size"
+      },
+      "sampler": {
+        "node": "14",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

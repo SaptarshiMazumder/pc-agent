@@ -32,6 +32,16 @@
         "node": "6",
         "input": "text",
         "note": "ignored at cfg 1.0; kept empty as the template does"
+      },
+      "sampler": {
+        "node": "10",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "10",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {},

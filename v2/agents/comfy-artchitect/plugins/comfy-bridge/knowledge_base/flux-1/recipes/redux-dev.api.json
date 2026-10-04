@@ -47,6 +47,16 @@
         "node": "8",
         "input": "strength_type",
         "note": "multiply | attn_bias"
+      },
+      "sampler": {
+        "node": "14",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "30",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {

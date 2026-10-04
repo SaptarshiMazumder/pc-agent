@@ -107,6 +107,14 @@
         "node": "51",
         "input": "duration",
         "note": "9.0 = (length-1)/fps; keep equal to the clip length"
+      },
+      "sampler": {
+        "nodes": [
+          "12",
+          "36"
+        ],
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

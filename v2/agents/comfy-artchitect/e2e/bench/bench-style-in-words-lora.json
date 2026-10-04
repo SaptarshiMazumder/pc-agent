@@ -1,0 +1,73 @@
+{
+  "id": "bench-style-in-words-lora",
+  "agent_id": "comfy-artchitect",
+  "goal": "Phase 1 only — the DESIGN. The person describes a style in words (90s retro anime cel look) for portraits of their own character from a photo. The agent must look for LoRAs proactively (lora_search) for the model each stage runs, pick ones trained for that model, put the trigger word in the prompt, and keep identity from the photo — mixing models across stages when the style LoRA exists only for a text-to-image model. It stops at the ask. Judged by reading the stage workflows.",
+  "reference": {
+    "source": "Comfy Cloud ships style LoRAs per model (zimage-90s_anime_aesthetic, flux1-lora-retro_anime_style, …); identity from a photo needs an edit model (FLUX.2 klein / Qwen-Image-Edit). A sound route: an edit stage restyles the person (with an edit-model style LoRA if one fits), or a styled text-to-image scene (Z-Image Turbo / FLUX.1 + style LoRA) then an identity edit.",
+    "steps": [
+      "every stage that sets the look carries a style LoRA trained for that stage's model",
+      "identity from the photo is kept by an edit/reference stage, not by a text-to-image stage"
+    ],
+    "must": [
+      "lora_search was called for the stage's family/recipe",
+      "no LoRA trained for another model (the design check holds)",
+      "the trigger word, when the LoRA has one, is in that stage's prompt",
+      "the person's photo is a user input read by an edit/reference model"
+    ]
+  },
+  "turns": [
+    {
+      "text": "I want portraits of my character in a 90s retro anime cel-shaded style — think old Sailor Moon / Cowboy Bebop screenshots. I'll give you a photo of the character. Make me the workflow."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "lora_search"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_plan"
+    },
+    {
+      "name": "tool_says",
+      "tool": "pipeline_present",
+      "pattern": "(?i)lora"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_present"
+    },
+    {
+      "name": "call_order",
+      "first": "pipeline_present",
+      "then": "ask_user"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "ask_user"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_provision",
+        "pipeline_run",
+        "comfy_install",
+        "comfy_run",
+        "comfy_emit"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "no_punt_to_user"
+    },
+    {
+      "name": "max_turns",
+      "n": 1
+    }
+  ],
+  "max_turns": 1
+}

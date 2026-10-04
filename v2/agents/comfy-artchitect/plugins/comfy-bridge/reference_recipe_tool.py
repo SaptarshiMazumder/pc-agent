@@ -189,8 +189,9 @@ class ReferenceRecipeTool(Tool):
         lines.append("")
         lines.append("To recreate it faithfully: one stage of that recipe with this prompt, size, steps, "
                      "guidance/cfg, sampler, scheduler and seed set through its ports (kb_lookup shows their "
-                     "names), and these LoRAs at these strengths in `loras` — then change only what the person "
-                     "asked to change.")
+                     "names), and THESE LoRAs at THESE strengths in `loras`, exactly as listed — they ARE the "
+                     "look; no other LoRA replaces or joins them unless one above was not found. Then change "
+                     "only what the person asked to change.")
         if note:
             lines.append(note)
         return "\n".join(lines)

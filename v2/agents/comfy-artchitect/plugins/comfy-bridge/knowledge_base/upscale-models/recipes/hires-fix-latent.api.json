@@ -103,6 +103,14 @@
       "base_height": {
         "node": "7",
         "input": "height"
+      },
+      "sampler": {
+        "nodes": [
+          "8",
+          "10"
+        ],
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {},

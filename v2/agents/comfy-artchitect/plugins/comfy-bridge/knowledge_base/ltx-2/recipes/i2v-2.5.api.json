@@ -114,6 +114,14 @@
         "node": "17",
         "input": "img_compression",
         "note": "18 for LTX-2.5 (template; diffusers LTX2_5_IMAGE_CRF)"
+      },
+      "sampler": {
+        "nodes": [
+          "12",
+          "36"
+        ],
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

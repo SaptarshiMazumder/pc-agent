@@ -61,7 +61,9 @@ one line that paid models are not available right now and design the best free r
    effect ("90s anime", "watercolor", "film grain", "claymation") is what LoRAs are for; the base
    model alone drifts. For every stage whose look matters, after picking its recipe call
    `lora_search(family, recipe, query=<the look in a few words>)` and put the best fit in the
-   stage's `loras`:
+   stage's `loras`. **A recreation is the exception:** the reference image's own LoRAs (from
+   `reference_recipe`) ARE the look — use exactly those, at their strengths; `lora_search` only
+   stands in for one it could not find.
    - **The LoRA follows the stage's model, never the other way round.** Pick the model for the
      job first (an edit stage that must read the person's photo needs an editing model), then its
      LoRAs; a LoRA for another model does nothing, and the check refuses it. When the look exists

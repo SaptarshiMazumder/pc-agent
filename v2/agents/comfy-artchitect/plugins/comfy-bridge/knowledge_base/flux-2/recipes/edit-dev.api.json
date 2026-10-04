@@ -28,6 +28,11 @@
         "node": "16",
         "input": "megapixels",
         "note": "the reference is scaled to this many megapixels and the output takes that size (GetImageSize feeds both EmptyFlux2LatentImage and Flux2Scheduler)"
+      },
+      "sampler": {
+        "node": "14",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {

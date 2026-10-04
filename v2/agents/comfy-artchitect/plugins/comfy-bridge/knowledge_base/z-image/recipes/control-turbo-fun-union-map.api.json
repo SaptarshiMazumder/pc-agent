@@ -38,6 +38,16 @@
         "node": "11",
         "input": "name",
         "note": "swap for a *-2.1-*-8steps union/tile file from alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.0 (same loader path)"
+      },
+      "sampler": {
+        "node": "7",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {

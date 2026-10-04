@@ -90,6 +90,14 @@
         "node": "41",
         "input": "tile_size",
         "note": "drop to 512 (already) / temporal 64-16 for 10 s clips on 24 GB"
+      },
+      "sampler": {
+        "nodes": [
+          "12",
+          "36"
+        ],
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
       }
     },
     "inputs": {},

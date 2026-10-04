@@ -40,6 +40,16 @@
         "node": "12",
         "input": "reference_latents_method",
         "note": "'Edit Model Reference Method' index_timestep_zero: 'not needed if you use Comfy files, but may be needed if you use repackaged ones from other people' (node 13 mirrors it for the negative)"
+      },
+      "sampler": {
+        "node": "7",
+        "input": "sampler_name",
+        "note": "the sampling method (ComfyUI's sampler list: euler, dpmpp_2m, res_multistep, …)"
+      },
+      "scheduler": {
+        "node": "7",
+        "input": "scheduler",
+        "note": "the noise schedule (simple, normal, karras, beta, sgm_uniform, …)"
       }
     },
     "inputs": {
