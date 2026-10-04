@@ -28,6 +28,8 @@ from pipeline_tool_context import PipelineToolContext
 
 #: Comfy Cloud LoRAs listed per search — the rest are counted.
 CLOUD_SHOWN = 25
+#: Word pairs a long query is retried as on Civitai, at most.
+MAX_PAIRS = 4
 
 
 class LoraSearchTool(Tool):
@@ -48,7 +50,7 @@ class LoraSearchTool(Tool):
         "properties": {
             "family": {"type": "string", "description": "the stage's knowledge-base family, e.g. z-image"},
             "recipe": {"type": "string", "description": "the stage's recipe, to narrow to its model (klein 9B vs 4B, Wan T2V vs I2V)"},
-            "query": {"type": "string", "description": "the style or subject in a few words; empty = the most used"},
+            "query": {"type": "string", "description": "the look in 1-3 words ('cel anime', 'watercolor', 'film grain') — search again with other words rather than one long phrase; empty = the most used"},
             "limit": {"type": "integer", "description": "Civitai results, 1-20 (default 8)"},
         },
     }
@@ -81,7 +83,7 @@ class LoraSearchTool(Tool):
         cloud, cloud_note = self._cloud(ctx, models, query)
         lines.append("")
         lines.append(cloud_note)
-        lines += [f"  {n}" for n in cloud[:CLOUD_SHOWN]]
+        lines += [f"  {n}" + (f"  (matches: {', '.join(hit)})" if hit else "") for n, hit in cloud[:CLOUD_SHOWN]]
         if len(cloud) > CLOUD_SHOWN:
             lines.append(f"  … and {len(cloud) - CLOUD_SHOWN} more (narrow the query)")
 
@@ -91,12 +93,14 @@ class LoraSearchTool(Tool):
             lines.append("Civitai: no base tag exists for this model — only Comfy Cloud's LoRAs above apply.")
         else:
             try:
-                found = self._civitai.search_loras(bases, query, limit)
+                found, asked = self._civitai_search(bases, query, limit)
             except CivitaiError as e:
                 lines.append(f"Civitai: {e} — try again, or use Comfy Cloud's LoRAs above.")
             else:
-                lines.append(f"On Civitai — imported at setup with the person's Civitai key ({len(found)}):"
-                             if found else f"Civitai: nothing trained on {' / '.join(bases)} matches '{query}'.")
+                searched = f" (searched: {' / '.join(repr(q) for q in asked)})" if asked != [query] else ""
+                lines.append(f"On Civitai — imported at setup with the person's Civitai key ({len(found)}){searched}:"
+                             if found else f"Civitai: nothing trained on {' / '.join(bases)} matches "
+                             f"{' / '.join(repr(q) for q in asked)}.")
                 for i, lo in enumerate(found, 1):
                     liked = f", {round(100 * lo.liked / (lo.liked + lo.disliked))}% liked" if lo.liked + lo.disliked else ""
                     lines.append(f"  {i}. {lo.name} — {lo.version} [{lo.base}] {lo.downloads:,} downloads{liked}, "
@@ -119,7 +123,23 @@ class LoraSearchTool(Tool):
                      "the prompt. Strength 1.0 unless the author says otherwise; two-expert models take a "
                      "high/low pair (`expert`).")
         return ToolResult.text("\n".join(lines), details={
-            "cloud": cloud, "civitai": [dataclasses.asdict(lo) for lo in found], "bases": bases})
+            "cloud": [n for n, _ in cloud], "civitai": [dataclasses.asdict(lo) for lo in found], "bases": bases})
+
+    # ------------------------------------------------------------------ Civitai
+
+    def _civitai_search(self, bases: list[str], query: str, limit: int) -> tuple[list, list[str]]:
+        """Civitai's LoRAs for the query — and when a phrase of several words finds nothing (its
+        search wants every word in a name), for each pair of neighbouring words, merged by downloads."""
+        found = self._civitai.search_loras(bases, query, limit)
+        words = query.split()
+        if found or len(words) < 3:
+            return found, [query]
+        asked, merged = [], {}
+        for pair in [" ".join(words[i:i + 2]) for i in range(len(words) - 1)][:MAX_PAIRS]:
+            asked.append(pair)
+            for lo in self._civitai.search_loras(bases, pair, limit):
+                merged.setdefault(lo.version_id, lo)
+        return sorted(merged.values(), key=lambda lo: -lo.downloads)[:limit], [query] + asked
 
     # ------------------------------------------------------------------ the model
 
@@ -142,8 +162,9 @@ class LoraSearchTool(Tool):
     # ------------------------------------------------------------------ Comfy Cloud
 
     @staticmethod
-    def _cloud(ctx: PipelineToolContext, models: list[dict], query: str) -> tuple[list[str], str]:
-        """Comfy Cloud's preinstalled LoRAs for these models, best match first, and the heading."""
+    def _cloud(ctx: PipelineToolContext, models: list[dict], query: str) -> tuple[list[tuple[str, list[str]]], str]:
+        """Comfy Cloud's preinstalled LoRAs for these models, as (name, the query words it carries),
+        most words first; and the heading."""
         if "captured" not in str(ctx.catalogue_source):
             return [], ("Comfy Cloud: its LoRA list is not captured yet (comfy_probe captures it) — "
                         "only Civitai below.")
@@ -152,14 +173,17 @@ class LoraSearchTool(Tool):
         patterns = [p for m in models for p in m.get("cloud") or []]
         mine = [str(n) for n in choices if isinstance(n, str)
                 and any(re.search(p, n.replace("\\", "/").rsplit("/", 1)[-1], re.I) for p in patterns)]
+        head = "On Comfy Cloud — no download; a `loras` entry is just {'name': <file>}"
         words = [w for w in re.split(r"[^a-z0-9]+", query.lower()) if len(w) > 1]
-        if words:
-            scored = [(sum(w in n.lower() for w in words), n) for n in mine]
-            hits = [n for s, n in sorted(scored, key=lambda x: (-x[0], x[1])) if s]
-            return hits, (f"On Comfy Cloud — no download; a `loras` entry is just {{'name': <file>}} "
-                          f"({len(hits)} of its {len(mine)} for this model match '{query}'):" if hits else
-                          f"On Comfy Cloud: none of its {len(mine)} LoRAs for this model is named for '{query}'.")
-        return sorted(mine), f"On Comfy Cloud — no download; a `loras` entry is just {{'name': <file>}} ({len(mine)} for this model):"
+        if not words:
+            return [(n, []) for n in sorted(mine)], f"{head} ({len(mine)} for this model):"
+        scored = sorted(((n, [w for w in words if w in n.lower()]) for n in mine), key=lambda x: (-len(x[1]), x[0]))
+        hits = [(n, hit) for n, hit in scored if hit]
+        if not hits:
+            return [], f"On Comfy Cloud: none of its {len(mine)} LoRAs for this model is named for '{query}'."
+        weak = (" — a name sharing one word of several is a weak fit: pick it only if the name means the look"
+                if len(words) > 1 and len(hits[0][1]) == 1 else "")
+        return hits, f"{head} ({len(hits)} of its {len(mine)} for this model share words with '{query}'{weak}):"
 
 
 __all__ = ["LoraSearchTool"]
