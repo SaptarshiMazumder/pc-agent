@@ -19,6 +19,7 @@ from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
 from stage_lora import LORAS_SCHEMA, StageLora
+from stage_model_file import MODELS_SCHEMA, StageModelFile
 
 
 class StageSetTool(Tool):
@@ -29,7 +30,8 @@ class StageSetTool(Tool):
         "Set one or more ports of a pipeline stage (prompt, negative, width, height, length, steps, "
         "seed, …: kb_lookup shows a recipe's ports) and/or its LoRAs, and re-check the whole design. "
         "Only the values change; the stage's wiring stays the recipe's. `loras` replaces the stage's "
-        "whole LoRA list ([] removes them)."
+        "whole LoRA list ([] removes them); `models` replaces its list of model files from elsewhere "
+        "(a checkpoint the `checkpoint` port swaps in)."
     )
     parameters = {
         "type": "object",
@@ -38,6 +40,7 @@ class StageSetTool(Tool):
             "stage": {"type": "string"},
             "ports": {"type": "object", "description": "{port: value}"},
             "loras": LORAS_SCHEMA,
+            "models": MODELS_SCHEMA,
         },
     }
 
@@ -59,15 +62,18 @@ class StageSetTool(Tool):
                     return ToolResult.text(f"stage {stage.name} has no recipe, so no ports or loras — change it "
                                            "with stage_edit_graph", is_error=True)
                 new = dict(params.get("ports") or {})
-                if not new and "loras" not in params:
-                    return ToolResult.text("give `ports`, `loras` or both", is_error=True)
+                if not new and "loras" not in params and "models" not in params:
+                    return ToolResult.text("give `ports`, `loras` or `models`", is_error=True)
                 try:
                     if "loras" in params:
                         stage.loras = StageLora.list_from(params.get("loras"))
                         new["loras"] = ", ".join(lo.name for lo in stage.loras) or "none"
+                    if "models" in params:
+                        stage.models = StageModelFile.list_from(params.get("models"))
+                        new["models"] = ", ".join(m.name for m in stage.models) or "none"
                 except ValueError as e:
                     return ToolResult.text(f"stage {stage.name}: {e}", is_error=True)
-                stage.ports.update({k: v for k, v in new.items() if k != "loras"})
+                stage.ports.update({k: v for k, v in new.items() if k not in ("loras", "models")})
                 try:
                     ctx.store.save(pipeline, only={stage.name})
                 except StageBuildError as e:

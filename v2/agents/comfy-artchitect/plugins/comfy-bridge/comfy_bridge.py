@@ -41,6 +41,7 @@ from agent_runtime.infrastructure.net.outbound import fetch
 import chat_paths
 import reference_slots
 import studio_state
+from comfy_cloud_catalogue import ComfyCloudCatalogue
 from comfy_cloud_connection import ComfyCloudConnection
 from comfy_cloud_model_importer import ComfyCloudModelImporter
 from editor_graph_converter import EditorGraphConverter
@@ -251,6 +252,12 @@ def _post(path: str, body, timeout_s: float = 60.0):
     return fetch(url, method="POST", json=body, headers=_headers(), timeout_s=timeout_s)
 
 
+def _with_own_models(object_info: dict) -> dict:
+    """Comfy Cloud's node list with the models this account imported in their loaders' choices —
+    what every "can it load this file?" check reads (ComfyCloudCatalogue)."""
+    return ComfyCloudCatalogue(_get).with_own_models(object_info)
+
+
 def _failed(res, what: str) -> str:
     """One sentence naming what went wrong, in Comfy Cloud's own words where there are any."""
     if res.error:
@@ -398,6 +405,7 @@ class ComfyInventoryTool(Tool):
                     "sandbox_fetch_limits.max_bytes in the daemon config.",
                     is_error=True,
                 )
+            catalogue = _with_own_models(catalogue)
 
             needle = str(params.get("filter") or "").strip().lower()
             found: dict = {}
@@ -1197,7 +1205,7 @@ class ComfyRunTool(Tool):
             inventory = _get("/api/object_info", timeout_s=60.0)
             if not inventory.ok:
                 return ToolResult.text(_failed(inventory, "check model readiness"), is_error=True)
-            readiness = ModelReadiness(inventory.json())
+            readiness = ModelReadiness(_with_own_models(inventory.json()))
             # Model names as THIS instance spells them (Krea2\x on Windows, Krea2/x on Linux).
             prompt = readiness.respell(prompt)
             missing_models = readiness.missing(prompt)
@@ -1432,7 +1440,7 @@ def _loadable_names() -> dict[str, str]:
     inv = _get("/api/object_info", timeout_s=60.0)
     if not inv.ok:
         raise ValueError("ComfyUI loader inventory unavailable; installation cannot be verified")
-    return ModelReadiness(inv.json()).names()
+    return ModelReadiness(_with_own_models(inv.json())).names()
 
 
 async def _await_loadable(filenames: list[str], abort) -> dict[str, str]:
@@ -1469,7 +1477,8 @@ def _install_requests(params: dict) -> list[dict]:
         url = str(it.get("url") or "").strip()
         kind = str(it.get("kind") or "").strip().lower()
         if filename and url and kind:
-            out.append({"filename": filename, "url": url, "kind": kind})
+            out.append({"filename": filename, "url": url, "kind": kind,
+                        **({"base": str(it["base"]).strip()} if str(it.get("base") or "").strip() else {})})
     return out
 
 
@@ -1514,6 +1523,11 @@ class ComfyInstallTool(Tool):
                             "description": "The file's Hugging Face /resolve/ link or Civitai "
                             "download link (https://civitai.com/api/download/models/<version id>).",
                         },
+                        "base": {
+                            "type": "string",
+                            "description": "A LoRA's base model in Civitai's words ('Flux.1 D') — kept "
+                            "with the import, so lora_search can offer it for that model later.",
+                        },
                         "kind": {
                             "type": "string",
                             "description": "Where it belongs: checkpoint | unet | diffusion_model | "
@@ -1535,14 +1549,20 @@ class ComfyInstallTool(Tool):
                 if not allowed:
                     return ToolResult.text(why, is_error=True)
 
+            notes: list[str] = []  # how each import went — said in the result, not only streamed
+
             def report(message):
+                notes.append(message)
                 if on_update:
                     on_update(ToolResult.text(message))
 
             selected_sources = {f["filename"]: f for f in files}
             installer = ComfyCloudModelImporter(post=_post, get=_get, await_loadable=_await_loadable,
                                                 wait_s=_WAIT_ATTEMPT_S - 60)
-            installed = await installer.install(files, abort, report)
+            try:
+                installed = await installer.install(files, abort, report)
+            except ValueError as e:
+                raise ValueError(f"{e} How it went: {'; '.join(notes)}." if notes else str(e)) from e
             export_warning = ""
             repository = WorkflowDependencyRepository(Path(current_workspace(".") or "."))
             for filename, source in selected_sources.items():
@@ -1554,6 +1574,7 @@ class ComfyInstallTool(Tool):
             return ToolResult.text(
                 "Installed and loadable: " + "; ".join(f"{f} -> '{name}'" for f, name in installed.items())
                 + ". Re-validate with those names, then run." + export_warning
+                + (f" How it went: {'; '.join(notes)}." if notes else "")
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
@@ -1696,6 +1717,7 @@ class ComfyValidateTool(Tool):
                         is_error=True,
                     )
                 registry.save(version, catalogue)
+                catalogue = _with_own_models(catalogue)
                 source = "this instance"
             else:
                 catalogue, source, _listed = registry.load(version)
@@ -2178,7 +2200,8 @@ def register(api, ctx):
     from stage_set_tool import StageSetTool
 
     api.register_tool(KbLookupTool())
-    api.register_tool(LoraSearchTool(CivitaiClient(fetch)))
+    api.register_tool(LoraSearchTool(CivitaiClient(fetch),
+                                     own_loras=lambda: ComfyCloudCatalogue(_get).own_loras()))
     api.register_tool(ReferenceRecipeTool(
         CivitaiClient(fetch),
         download=lambda url, rel: fetch(url, save_path=rel, timeout_s=120.0, max_bytes=30_000_000),

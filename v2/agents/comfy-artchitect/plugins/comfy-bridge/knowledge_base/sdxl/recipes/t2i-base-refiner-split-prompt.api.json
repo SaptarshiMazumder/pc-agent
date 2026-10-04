@@ -90,6 +90,11 @@
       "negative_refiner": {
         "node": "4",
         "input": "text"
+      },
+      "clip_skip": {
+        "node": "15",
+        "input": "stop_at_clip_layer",
+        "note": "CLIP layers to skip, as ComfyUI's stop_at_clip_layer: -1 = none (default); -2 = A1111 / Civitai 'Clip skip: 2', which Pony, Illustrious and most anime fine-tunes are made with"
       }
     },
     "inputs": {},
@@ -133,8 +138,8 @@
       "class_type": "CLIPTextEncode",
       "inputs": {
         "clip": [
-          "1",
-          1
+          "15",
+          0
         ],
         "text": "daytime sky nature dark blue galaxy bottle"
       }
@@ -143,8 +148,8 @@
       "class_type": "CLIPTextEncode",
       "inputs": {
         "clip": [
-          "1",
-          1
+          "15",
+          0
         ],
         "text": "text, watermark"
       }
@@ -258,6 +263,19 @@
           0
         ],
         "filename_prefix": "sdxl/t2i_base_refiner_split"
+      }
+    },
+    "15": {
+      "class_type": "CLIPSetLastLayer",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "stop_at_clip_layer": -1
+      },
+      "_meta": {
+        "title": "CLIP Set Last Layer"
       }
     }
   }

@@ -12,6 +12,10 @@ THE TRAPS IT ABSORBS (live, 2026-10; comfy_kb/lora_research.md §4-5):
     though dozens exist). So a worded search asks without the base filter, takes a full page (100)
     and keeps the versions trained on the bases here; an unworded one filters by base on Civitai;
   * `query` cannot be paged with `page` (cursor only) — one page is all a search needs;
+  * a search can fail SERVER-SIDE for one exact request — live, 2026-10: LORA+LoCon+DoRA, query
+    "Retro Anime Flux V1", 100 results → HTTP 500 every time, while 20 results work (one item in
+    the bigger page breaks Civitai's own server). A search that fails with a 5xx is asked again
+    in a page of SMALL_PAGE;
   * one model holds versions for many bases ("Lenovo UltraReal": 13): only versions of the
     stage's bases count, and a two-expert pair is two versions of one model (high, low);
   * there is no strength field: the author's advice lives in the description's free text.
@@ -26,6 +30,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 API = "https://civitai.com/api/v1"
+#: The page a search falls back to when the full page fails on Civitai's side.
+SMALL_PAGE = 20
 
 #: The LoRA-like model types Civitai lists separately; all load through the same LoRA nodes.
 LORA_TYPES = ("LORA", "LoCon", "DoRA")
@@ -65,7 +71,12 @@ class CivitaiImage:
 
 
 class CivitaiError(RuntimeError):
-    """Civitai did not answer usefully; the message says how."""
+    """Civitai did not answer usefully; the message says how. `status` is its HTTP status (0 when
+    it could not be reached or the answer was not usable)."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class CivitaiClient:
@@ -80,7 +91,7 @@ class CivitaiClient:
             params += [("query", query.strip()), ("limit", "100")]
         else:
             params += [("baseModels", b) for b in bases] + [("limit", str(max(1, min(limit, 100))))]
-        data = self._get(f"{API}/models?{urlencode(params)}")
+        data = self._models(params)
         out = [hit for item in data.get("items") or [] if (hit := self._lora(item, set(bases))) is not None]
         return sorted(out, key=lambda lo: -lo.downloads)[:limit]
 
@@ -122,7 +133,7 @@ class CivitaiClient:
                              if re.search(r"v?\d+$", words, re.I) else [])
         for query in dict.fromkeys(q for q in queries if q):
             params = [("types", t) for t in LORA_TYPES] + [("query", query), ("limit", "100")]
-            for item in self._get(f"{API}/models?{urlencode(params)}").get("items") or []:
+            for item in self._models(params).get("items") or []:
                 for version in item.get("modelVersions") or []:
                     if any(str(f.get("name") or "").lower() == base.lower() for f in version.get("files") or []):
                         hit = self._version(item, version)
@@ -176,6 +187,17 @@ class CivitaiClient:
         m = re.search(r"(?:[^.\n]|\.\d){0,40}\b(strength|weight)s?\b(?:[^.\n]|\.\d){0,60}", text, re.I)
         return re.sub(r"\s+", " ", m.group(0)).strip() if m else ""
 
+    def _models(self, params: list[tuple[str, str]]) -> dict:
+        """A `/models` search; one that fails on Civitai's side is asked again in a smaller page."""
+        try:
+            return self._get(f"{API}/models?{urlencode(params)}")
+        except CivitaiError as e:
+            limit = int(dict(params).get("limit") or SMALL_PAGE)
+            if e.status < 500 or limit <= SMALL_PAGE:
+                raise
+            smaller = [(k, v) for k, v in params if k != "limit"] + [("limit", str(SMALL_PAGE))]
+            return self._get(f"{API}/models?{urlencode(smaller)}")
+
     def _get(self, url: str, missing_ok: bool = False) -> dict:
         """The JSON object at `url`; {} for a 404 when `missing_ok` (a hash Civitai does not know)."""
         res = self._fetch(url, timeout_s=30.0)
@@ -184,7 +206,7 @@ class CivitaiClient:
         if missing_ok and res.status == 404:
             return {}
         if not res.ok:
-            raise CivitaiError(f"Civitai answered HTTP {res.status}: {(res.text or '')[:200]}")
+            raise CivitaiError(f"Civitai answered HTTP {res.status}: {(res.text or '')[:200]}", res.status)
         data = res.json()
         if not isinstance(data, dict):
             raise CivitaiError("Civitai answered with something that is not a JSON object")

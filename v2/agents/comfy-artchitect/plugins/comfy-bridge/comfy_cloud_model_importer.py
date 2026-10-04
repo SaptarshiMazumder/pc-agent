@@ -47,6 +47,7 @@ class ComfyCloudModelImporter:
         tasks: dict[str, str] = {}  # filename -> task id
         ready: list[str] = []
         sources: dict[str, tuple[str, str]] = {}  # filename -> (url, folder), for the keyed retry
+        metadata: dict[str, dict] = {}  # filename -> what the asset keeps: its name, base, source
         for f in files:
             name, url = f["filename"], str(f.get("url") or "")
             why = self._unimportable(url, str(f.get("kind") or ""))
@@ -54,8 +55,10 @@ class ComfyCloudModelImporter:
                 refused.append(f"{name} ({why})")
                 continue
             sources[name] = (url, ModelDownloadRequest.folder_of(str(f["kind"])))
-            self._start(name, *sources[name], ready, tasks, refused, report)
-        pending = await self._follow(tasks, refused, abort, report, sources, ready)
+            metadata[name] = {"filename": name, "source_url": url,
+                              **({"base_model": f["base"]} if f.get("base") else {})}
+            self._start(name, *sources[name], ready, tasks, refused, report, metadata[name])
+        pending = await self._follow(tasks, refused, abort, report, sources, ready, metadata)
         ready += [n for n in tasks if n not in pending]
         landed = await self._await_loadable(ready, abort) if ready else {}
         missing = [n for n in ready if n not in landed]
@@ -74,24 +77,27 @@ class ComfyCloudModelImporter:
         return landed
 
     def _start(self, name: str, url: str, folder: str, ready: list[str], tasks: dict[str, str],
-               refused: list[str], report) -> None:
+               refused: list[str], report, metadata: dict) -> None:
         """Ask Comfy Cloud to import one file: ready (200), a task (202), or refused — a refused bare
         Civitai link is asked once more with the person's key."""
         res = self._post("/api/assets/download", {
-            "source_url": url, "tags": ["models", folder], "user_metadata": {"filename": name}})
+            "source_url": url, "tags": ["models", folder], "user_metadata": metadata})
+        keyed = " with your Civitai key" if "token=" in url and "civitai.com" in url else ""
         if res.status == 200:
             ready.append(name)
+            report(f"{name}: Comfy Cloud already had this file — added to this account{keyed}")
         elif res.status == 202:
             tasks[name] = str((res.json() or {}).get("task_id") or "")
-            report(f"{name}: Comfy Cloud is importing it")
+            report(f"{name}: Comfy Cloud is importing it{keyed}")
         elif self._keyed(url) != url:
-            self._start(name, self._keyed(url), folder, ready, tasks, refused, report)
+            self._start(name, self._keyed(url), folder, ready, tasks, refused, report, metadata)
         else:
             refused.append(f"{name} (Comfy Cloud refused the import: HTTP {res.status} "
                            f"{(res.text or '')[:200]})")
 
     async def _follow(self, tasks: dict[str, str], refused: list[str], abort, report,
-                      sources: dict[str, tuple[str, str]], ready: list[str]) -> list[str]:
+                      sources: dict[str, tuple[str, str]], ready: list[str],
+                      metadata: dict[str, dict]) -> list[str]:
         """Wait for the import tasks; returns the names still running when the wait ends. A Civitai
         import that failed without the person's key is started once more with it."""
         deadline = time.monotonic() + self._wait_s
@@ -112,7 +118,7 @@ class ComfyCloudModelImporter:
                     if self._keyed(url) != url:
                         report(f"{name}: Civitai wants a login — importing it with your Civitai key")
                         sources[name] = (self._keyed(url), folder)
-                        self._start(name, *sources[name], ready, tasks, refused, report)
+                        self._start(name, *sources[name], ready, tasks, refused, report, metadata[name])
                         if name in tasks:
                             running[name] = tasks[name]
                         continue

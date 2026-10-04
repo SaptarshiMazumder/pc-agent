@@ -45,6 +45,11 @@
         "node": "10",
         "input": "denoise",
         "note": "'the smaller the denoise value, the smaller the difference' from the input; 1.0 ignores it; ComfyUI_examples img2img uses 0.87"
+      },
+      "clip_skip": {
+        "node": "16",
+        "input": "stop_at_clip_layer",
+        "note": "CLIP layers to skip, as ComfyUI's stop_at_clip_layer: -1 = none (default); -2 = A1111 / Civitai 'Clip skip: 2', which Pony, Illustrious and most anime fine-tunes are made with"
       }
     },
     "inputs": {
@@ -88,8 +93,8 @@
       "class_type": "CLIPTextEncode",
       "inputs": {
         "clip": [
-          "1",
-          1
+          "16",
+          0
         ],
         "text": "a giant classical marble statue standing alone in a pure white empty void, soft diffused lighting, subtle shadows, surreal, minimalist, fine art photography, quiet atmosphere, sense of scale"
       }
@@ -98,8 +103,8 @@
       "class_type": "CLIPTextEncode",
       "inputs": {
         "clip": [
-          "1",
-          1
+          "16",
+          0
         ],
         "text": "text, watermark"
       }
@@ -171,6 +176,19 @@
           "1",
           2
         ]
+      }
+    },
+    "16": {
+      "class_type": "CLIPSetLastLayer",
+      "inputs": {
+        "clip": [
+          "1",
+          1
+        ],
+        "stop_at_clip_layer": -1
+      },
+      "_meta": {
+        "title": "CLIP Set Last Layer"
       }
     }
   }

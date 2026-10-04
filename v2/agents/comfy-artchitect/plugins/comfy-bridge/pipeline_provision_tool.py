@@ -122,8 +122,9 @@ class PipelineProvisionTool(Tool):
         in one script), beside the one workflow; the stages' own files stay in stages/."""
         rel = ctx.store.design_rel(pipeline)
         try:
-            note = self._export_installer(rel, {lo.name.replace("\\", "/"): {"url": lo.url, "folder": "loras"}
-                                                for stage in pipeline.stages for lo in stage.loras if lo.url})
+            note = self._export_installer(rel, {f["filename"]: {"url": f["url"], "folder": f["kind"]}
+                                                for stage in pipeline.stages
+                                                for f in stage.sourced_files().values() if f["url"]})
         except Exception as e:  # noqa: BLE001 — said, not hidden; the stages are still ready to run
             return f"the one-file installer for {rel} was not written: {type(e).__name__}: {e}"
         return "the whole design as one download: " + rel.removesuffix(".api.json") + ".json; " + note
@@ -162,19 +163,19 @@ class PipelineProvisionTool(Tool):
         for stage_name, names in missing.items():
             stage = pipeline.stage(stage_name)
             own = ctx.catalog.families.get(stage.family) if stage is not None and stage.family else None
-            loras = {lo.name.replace("\\", "/").rsplit("/", 1)[-1]: lo for lo in (stage.loras if stage else [])}
+            own_files = stage.sourced_files() if stage else {}
             for name in names:
                 base = name.replace("\\", "/").rsplit("/", 1)[-1]
                 if base in seen:
                     continue
                 seen.add(base)
-                lora = loras.get(base)
-                if lora is not None:
-                    if lora.url:
-                        files.append({"filename": lora.name.replace("\\", "/"), "url": lora.url, "kind": "loras"})
+                own = own_files.get(base)
+                if own is not None:
+                    if own["url"]:
+                        files.append({k: v for k, v in own.items() if v})
                     else:
-                        unsourced.append(f"{base} (LoRA without a `url` — give its civitai.com / huggingface.co "
-                                         "download link, or pick a Comfy Cloud LoRA)")
+                        unsourced.append(f"{base} ({own['kind']} file without a `url` — give its civitai.com / "
+                                         "huggingface.co download link, or pick one Comfy Cloud has)")
                     continue
                 rec = own.file(base) if own is not None else None
                 if rec is None:

@@ -1,0 +1,35 @@
+{
+  "id": "civitai-recreate-render-live",
+  "agent_id": "comfy-artchitect",
+  "goal": "LIVE on Comfy Cloud, one render. The Civitai 27763004 recreation is designed with the ORIGINAL character kept (a faithfulness test), approved with the defaults, set up and rendered once. Judged by looking at the render next to the Civitai original: same model, LoRA, settings, seed and prompt should give a near-identical image.",
+  "turns": [
+    {
+      "text": "Make me a workflow that consistently creates images like this one: https://civitai.com/images/27763004 — same look every time. For this first test keep the original character and everything else exactly as in that image, so I can compare."
+    },
+    {
+      "text": "Keep the defaults — go ahead and render it."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "reference_recipe"
+    },
+    {
+      "name": "tool_succeeded",
+      "tool": "pipeline_run"
+    },
+    {
+      "name": "produced_artifact",
+      "kind": "image"
+    },
+    {
+      "name": "max_turns",
+      "n": 2
+    }
+  ],
+  "max_turns": 2
+}

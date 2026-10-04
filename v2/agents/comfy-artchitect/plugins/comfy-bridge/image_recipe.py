@@ -34,6 +34,7 @@ class ImageRecipe:
     scheduler: str = ""
     seed: int | None = None
     denoise: float | None = None
+    clip_skip: int | None = None  # as ComfyUI's stop_at_clip_layer: A1111 "Clip skip: 2" is -2
     width: int | None = None
     height: int | None = None
     classes: list[str] = field(default_factory=list)  # every node class of an embedded graph
@@ -47,6 +48,7 @@ class ImageRecipe:
         """The sampling settings the record gives, by the names a recipe's ports use."""
         out = {"steps": self.steps, "cfg": self.cfg, "guidance": self.guidance, "sampler": self.sampler,
                "scheduler": self.scheduler, "seed": self.seed, "denoise": self.denoise,
+               "clip_skip": self.clip_skip if self.clip_skip not in (None, -1) else None,
                "width": self.width, "height": self.height}
         return {k: v for k, v in out.items() if v not in (None, "")}
 

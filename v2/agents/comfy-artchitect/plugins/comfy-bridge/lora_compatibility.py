@@ -32,7 +32,7 @@ class LoraCompatibility:
         if not stage.loras or stage.custom:
             return problems, questions
         fam = self._catalog.families.get(stage.family)
-        targets = StageLoraSplicer.targets(fam.lora if fam else {}, graph)
+        targets = StageLoraSplicer.targets(fam.lora if fam else {}, graph, stage.declared_bases())
         for lo in stage.loras:
             fits = [t for t in targets if not lo.expert or t["expert"] == lo.expert]
             allowed = sorted({b for t in fits for b in t["bases"]})

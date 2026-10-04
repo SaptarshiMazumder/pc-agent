@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field
 
 from stage_lora import StageLora
+from stage_model_file import StageModelFile
 
 USER = "user"
 STAGE = "stage"
@@ -68,6 +69,9 @@ class Stage:
     note: str = ""
     #: LoRAs on top of the recipe's model, applied in order (StageBuilder splices them in).
     loras: list[StageLora] = field(default_factory=list)
+    #: Model files a port swaps in that the knowledge base does not list (a Pony checkpoint), with
+    #: what they are and where they come from.
+    models: list[StageModelFile] = field(default_factory=list)
 
     @property
     def custom(self) -> bool:
@@ -75,6 +79,22 @@ class Stage:
 
     def input(self, name: str) -> StageInput | None:
         return next((i for i in self.inputs if i.name == name), None)
+
+    def sourced_files(self) -> dict[str, dict]:
+        """{bare file name: {filename, url, kind, base}} for every file the stage brings its own
+        source for — its LoRAs and its model files — the way setup imports them. `url` may be ''
+        (Comfy Cloud has it, or nothing says where it comes from)."""
+        out = {}
+        for lo in self.loras:
+            out[lo.name.replace("\\", "/").rsplit("/", 1)[-1]] = {
+                "filename": lo.name.replace("\\", "/"), "url": lo.url, "kind": "loras", "base": lo.base}
+        for m in self.models:
+            out[m.file] = {"filename": m.name.replace("\\", "/"), "url": m.url, "kind": m.folder, "base": m.base}
+        return out
+
+    def declared_bases(self) -> dict[str, str]:
+        """{bare file name: Civitai base} for the model files the stage declares a base for."""
+        return {m.file: m.base for m in self.models if m.base}
 
 
 @dataclass
@@ -120,6 +140,7 @@ class Pipeline:
                     "inputs": {i.name: i.source for i in s.inputs}, "outputs": s.outputs,
                     "review": s.review, "note": s.note,
                     **({"loras": [lo.to_dict() for lo in s.loras]} if s.loras else {}),
+                    **({"models": [m.to_dict() for m in s.models]} if s.models else {}),
                 }
                 for s in self.stages
             ],
@@ -138,6 +159,7 @@ class Pipeline:
                 outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
                 note=str(raw.get("note") or ""),
                 loras=[StageLora.from_dict(lo) for lo in raw.get("loras") or []],
+                models=[StageModelFile.from_dict(m) for m in raw.get("models") or []],
             ))
         return cls(name=str(data.get("name") or ""), stages=stages, deliver_size=str(data.get("deliver_size") or ""))
 

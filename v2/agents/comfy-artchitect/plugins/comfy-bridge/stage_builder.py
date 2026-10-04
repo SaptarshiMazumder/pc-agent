@@ -71,7 +71,7 @@ class StageBuilder:
         self._bind_recipe(stage, recipe, graph)
         try:
             StageLoraSplicer.splice(stage.name, stage.family, self._catalog.families[stage.family].lora,
-                                    stage.loras, graph)
+                                    stage.loras, graph, stage.declared_bases())
         except ValueError as e:
             raise StageBuildError(str(e)) from e
         self._name_outputs(stage, graph)

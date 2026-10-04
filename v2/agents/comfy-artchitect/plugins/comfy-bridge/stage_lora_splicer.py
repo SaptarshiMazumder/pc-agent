@@ -28,13 +28,14 @@ MODEL_LOADERS = {"UNETLoader": "unet_name", "CheckpointLoaderSimple": "ckpt_name
 
 class StageLoraSplicer:
     @staticmethod
-    def splice(stage_name: str, family_id: str, spec: dict, loras: list[StageLora], graph: dict) -> list[str]:
+    def splice(stage_name: str, family_id: str, spec: dict, loras: list[StageLora], graph: dict,
+               declared: dict[str, str] | None = None) -> list[str]:
         """Add the LoRA nodes; returns their node ids. ValueError when the stage cannot take them."""
         if not loras:
             return []
         if not spec:
             raise ValueError(f"stage {stage_name}: {family_id} takes no LoRA in this knowledge base")
-        targets = StageLoraSplicer.targets(spec, graph)
+        targets = StageLoraSplicer.targets(spec, graph, declared)
         if not targets:
             raise ValueError(f"stage {stage_name}: no model loader in this recipe takes a LoRA "
                              f"(the {family_id} LoRA models are: "
@@ -80,16 +81,22 @@ class StageLoraSplicer:
         return added
 
     @staticmethod
-    def targets(spec: dict, graph: dict) -> list[dict]:
+    def targets(spec: dict, graph: dict, declared: dict[str, str] | None = None) -> list[dict]:
         """[{node, file, expert, bases, cloud, loader}] — the model loaders of `graph` this family's
         LoRAs go on. A model's own `loader` overrides the family's (a family with SD1.5/SDXL and DiT
-        models side by side)."""
+        models side by side). A model file the STAGE declares a base for (a checkpoint swapped in through a port,
+        `declared` = {file: Civitai base}) is that base, whatever its name looks like."""
         out = []
+        declared = {k.lower(): v for k, v in (declared or {}).items()}
         for nid, node in graph.items():
             field_name = MODEL_LOADERS.get(node.get("class_type", "")) if isinstance(node, dict) else None
             if not field_name:
                 continue
             file = str((node.get("inputs") or {}).get(field_name) or "").replace("\\", "/").rsplit("/", 1)[-1]
+            if file.lower() in declared and spec:
+                out.append({"node": nid, "file": file, "expert": "", "bases": [declared[file.lower()]], "cloud": [],
+                            "loader": str(spec.get("loader") or "LoraLoaderModelOnly")})
+                continue
             for model in spec.get("models") or []:
                 if re.search(str(model.get("file") or "$^"), file, re.I):
                     out.append({"node": nid, "file": file, "expert": str(model.get("expert") or ""),

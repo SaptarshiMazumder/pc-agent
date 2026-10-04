@@ -26,6 +26,19 @@ _A1111_LORA = re.compile(r"<lora:([^:>]+):?([-\d.]*)[^>]*>")
 _TEXT_KEYS = ("text", "text_g", "t5xxl", "clip_l", "string", "prompt", "value", "text_l")
 _VALUE_KEYS = ("value", "int", "float", "seed", "noise_seed", "number", "Number")
 _SAMPLERS = ("KSampler", "KSamplerAdvanced")
+
+#: A1111 / Forge / Civitai sampler names -> ComfyUI's (k-diffusion's own names, as ComfyUI lists them).
+A1111_SAMPLERS = {
+    "euler a": "euler_ancestral", "euler": "euler", "lms": "lms", "heun": "heun", "dpm2": "dpm_2",
+    "dpm2 a": "dpm_2_ancestral", "dpm++ 2s a": "dpmpp_2s_ancestral", "dpm++ 2m": "dpmpp_2m",
+    "dpm++ sde": "dpmpp_sde", "dpm++ 2m sde": "dpmpp_2m_sde", "dpm++ 2m sde gpu": "dpmpp_2m_sde_gpu",
+    "dpm++ 3m sde": "dpmpp_3m_sde", "dpm fast": "dpm_fast", "dpm adaptive": "dpm_adaptive", "lcm": "lcm",
+    "ddim": "ddim", "unipc": "uni_pc", "ddpm": "ddpm", "deis": "deis", "ipndm": "ipndm",
+}
+#: A1111 schedule types (also a sampler name's suffix: "DPM++ 2M Karras") -> ComfyUI schedulers.
+A1111_SCHEDULES = {"karras": "karras", "exponential": "exponential", "sgm uniform": "sgm_uniform",
+                   "simple": "simple", "normal": "normal", "beta": "beta", "ddim": "ddim_uniform",
+                   "kl optimal": "kl_optimal", "align your steps": "", "automatic": ""}
 _CUSTOM_SAMPLERS = ("SamplerCustomAdvanced", "SamplerCustom")
 
 
@@ -64,10 +77,11 @@ class ImageRecipeParser:
             r.negative = str(meta.get("negativePrompt") or "")
             r.steps = cls._int(meta.get("steps"))
             r.cfg = cls._float(meta.get("cfgScale"))
-            r.sampler = str(meta.get("sampler") or "")
-            r.scheduler = str(meta.get("scheduler") or meta.get("Schedule type") or "")
+            r.sampler, r.scheduler = cls._comfy_sampler(str(meta.get("sampler") or ""),
+                                                        str(meta.get("scheduler") or meta.get("Schedule type") or ""))
             r.seed = cls._int(meta.get("seed"))
             r.denoise = cls._float(meta.get("denoise") or meta.get("Denoising strength"))
+            r.clip_skip = cls._skip(meta.get("clipSkip") or meta.get("Clip skip"))
             r.width, r.height = cls._size(meta.get("Size") or meta.get("resolution"))
             r.width = r.width or cls._int(meta.get("width"))
             r.height = r.height or cls._int(meta.get("height"))
@@ -89,6 +103,8 @@ class ImageRecipeParser:
             cls._graph_loras(r, inputs)
             if node["class_type"] == "FluxGuidance":
                 r.guidance = cls._float(cls._literal(g, inputs.get("guidance")))
+            if node["class_type"] == "CLIPSetLastLayer":
+                r.clip_skip = cls._int(cls._literal(g, inputs.get("stop_at_clip_layer")))
         sampler = next((n for n in g.values() if n["class_type"] in _SAMPLERS), None)
         custom = next((n for n in g.values() if n["class_type"] in _CUSTOM_SAMPLERS), None)
         if sampler is not None:
@@ -145,12 +161,12 @@ class ImageRecipeParser:
         fields = {k.strip(): v.strip().strip('"') for k, v in
                   re.findall(r'\s*([\w][\w \-/]*):\s*("(?:[^"\\]|\\.)*"|[^,]*)', settings)}
         r.steps = cls._int(fields.get("Steps"))
-        r.sampler = fields.get("Sampler", "")
-        r.scheduler = fields.get("Schedule type", "")
+        r.sampler, r.scheduler = cls._comfy_sampler(fields.get("Sampler", ""), fields.get("Schedule type", ""))
         r.cfg = cls._float(fields.get("CFG scale"))
         r.guidance = cls._float(fields.get("Distilled CFG Scale"))
         r.seed = cls._int(fields.get("Seed"))
         r.denoise = cls._float(fields.get("Denoising strength"))
+        r.clip_skip = cls._skip(fields.get("Clip skip"))
         r.width, r.height = cls._size(fields.get("Size"))
         if fields.get("Model"):
             r.models.append(fields["Model"])
@@ -292,6 +308,25 @@ class ImageRecipeParser:
             return float(value) if value not in (None, "") and not isinstance(value, (list, dict)) else None
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _comfy_sampler(sampler: str, schedule: str) -> tuple[str, str]:
+        """An A1111-style sampler and schedule as ComfyUI's sampler_name and scheduler. A name it
+        does not know is kept as written (the design check then says it is not one ComfyUI has)."""
+        name = sampler.strip().lower()
+        sched = schedule.strip().lower()
+        for suffix in sorted(A1111_SCHEDULES, key=len, reverse=True):
+            if name.endswith(" " + suffix) and name[:-len(suffix) - 1] in A1111_SAMPLERS:
+                name, sched = name[:-len(suffix) - 1], sched or suffix
+                break
+        comfy = A1111_SAMPLERS.get(name, sampler.strip())
+        return comfy, A1111_SCHEDULES.get(sched, schedule.strip()) if sched else ""
+
+    @classmethod
+    def _skip(cls, value) -> int | None:
+        """A1111's "Clip skip: N" (N >= 1) as ComfyUI's stop_at_clip_layer (-N)."""
+        n = cls._int(value)
+        return -n if n and n > 0 else None
 
     @staticmethod
     def _size(value) -> tuple[int | None, int | None]:

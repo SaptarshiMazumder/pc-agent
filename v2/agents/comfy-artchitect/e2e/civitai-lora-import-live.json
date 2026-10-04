@@ -1,0 +1,39 @@
+{
+  "id": "civitai-lora-import-live",
+  "agent_id": "comfy-artchitect",
+  "goal": "LIVE on Comfy Cloud, setup only. The Civitai 27763004 recreation is designed, approved with the defaults, and set up — which imports the RetroAnimeFlux LoRA (a Civitai file that needs a login) into the person's Comfy Cloud with their Civitai key. Nothing is rendered. Proves: the keyed Civitai import, the loras/ folder routing, and the name ComfyUI then lists the file under.",
+  "turns": [
+    {
+      "text": "Make me a workflow that consistently creates images like this one: https://civitai.com/images/27763004 — same look every time, I'll change the character."
+    },
+    {
+      "text": "Keep the defaults. Set it up on Comfy Cloud so it's ready, but don't render anything yet — no images this time."
+    }
+  ],
+  "checks": [
+    {
+      "name": "completed"
+    },
+    {
+      "name": "tool_called",
+      "tool": "reference_recipe"
+    },
+    {
+      "name": "tool_called",
+      "tool": "pipeline_provision"
+    },
+    {
+      "name": "tool_never_says",
+      "tools": [
+        "pipeline_run",
+        "comfy_run"
+      ],
+      "pattern": "."
+    },
+    {
+      "name": "max_turns",
+      "n": 2
+    }
+  ],
+  "max_turns": 2
+}

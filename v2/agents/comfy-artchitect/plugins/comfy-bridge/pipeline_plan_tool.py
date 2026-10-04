@@ -23,6 +23,7 @@ from pipeline_tool_context import PipelineToolContext
 from pipeline_validator import render_report
 from stage_builder import StageBuildError
 from stage_lora import LORAS_SCHEMA, StageLora
+from stage_model_file import MODELS_SCHEMA, StageModelFile
 from workflow_link import WorkflowLink
 
 
@@ -60,6 +61,7 @@ class PipelinePlanTool(Tool):
                         "ports": {"type": "object", "description": "{port: value} — only what differs from the recipe"},
                         "inputs": {"type": "object", "description": "{input: 'user:<role>' | 'stage:<name>.<output>'}"},
                         "loras": LORAS_SCHEMA,
+                        "models": MODELS_SCHEMA,
                         "review": {"type": "boolean"},
                         "note": {"type": "string", "description":
                                  "What this step makes, in plain words for the person — no model, "
@@ -86,6 +88,7 @@ class PipelinePlanTool(Tool):
                         return ToolResult.text(f"not a stage object: {raw!r}", is_error=True)
                     try:
                         loras = StageLora.list_from(raw.get("loras"))
+                        models = StageModelFile.list_from(raw.get("models"))
                     except ValueError as e:
                         return ToolResult.text(f"stage {raw.get('name') or '?'}: {e}", is_error=True)
                     stage = Stage(
@@ -93,7 +96,7 @@ class PipelinePlanTool(Tool):
                         recipe=str(raw.get("recipe") or "").strip(), ports=dict(raw.get("ports") or {}),
                         inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
                         outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
-                        note=str(raw.get("note") or ""), loras=loras,
+                        note=str(raw.get("note") or ""), loras=loras, models=models,
                     )
                     if not stage.note.strip():
                         return ToolResult.text(f"stage {stage.name or '?'}: `note` is required — what this step "

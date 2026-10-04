@@ -6,7 +6,9 @@ the search starts from the STAGE'S MODEL, not from the words: the family (and re
 model, its profile's `lora` block gives Civitai's base tags and Comfy Cloud's naming for it, and
 only LoRAs of that model are listed.
 
-  * COMFY CLOUD first: its preinstalled LoRAs (the captured node list's `lora_name` choices) need
+  * THE PERSON'S OWN imports first: LoRAs already in their Comfy Cloud account, offered for this
+    model when the import recorded its base (setup does), listed as "base unknown" otherwise;
+  * COMFY CLOUD next: its preinstalled LoRAs (the captured node list's `lora_name` choices) need
     no download and no plan that imports. Matched by the model's naming and the query's words.
   * CIVITAI next: the most-downloaded safe-for-work LoRAs of the model's bases matching the query,
     each with what a stage's `loras` entry needs — file name, base, download link, trained words —
@@ -50,14 +52,17 @@ class LoraSearchTool(Tool):
         "properties": {
             "family": {"type": "string", "description": "the stage's knowledge-base family, e.g. z-image"},
             "recipe": {"type": "string", "description": "the stage's recipe, to narrow to its model (klein 9B vs 4B, Wan T2V vs I2V)"},
+            "base": {"type": "string", "description": "when a port swapped the stage's model (a Pony or Illustrious checkpoint in an SDXL recipe): its Civitai base — 'Pony', 'Illustrious' — so LoRAs for THAT model are found"},
             "query": {"type": "string", "description": "the look in 1-3 words ('cel anime', 'watercolor', 'film grain') — search again with other words rather than one long phrase; empty = the most used"},
             "limit": {"type": "integer", "description": "Civitai results, 1-20 (default 8)"},
         },
     }
 
-    def __init__(self, civitai: CivitaiClient,
+    def __init__(self, civitai: CivitaiClient, own_loras: Callable[[], list[tuple[str, str]]],
                  context: Callable[[], PipelineToolContext] | None = None) -> None:
+        """:param own_loras: () -> [(file name, Civitai base or '')] imported into the person's account."""
         self._civitai = civitai
+        self._own_loras = own_loras
         self._context = context or (lambda: PipelineToolContext.for_workspace(Path(current_workspace(".") or ".")))
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
@@ -69,7 +74,9 @@ class LoraSearchTool(Tool):
                                    f"{', '.join(sorted(ctx.catalog.families))})", is_error=True)
         if not fam.lora:
             return ToolResult.text(f"{family} takes no LoRA in this knowledge base", is_error=True)
-        models, problem = self._models(ctx, fam, str(params.get("recipe") or "").strip())
+        base = str(params.get("base") or "").strip()
+        models, problem = (self._models_of_base(fam, base) if base
+                           else self._models(ctx, fam, str(params.get("recipe") or "").strip()))
         if problem:
             return ToolResult.text(problem, is_error=True)
         query = str(params.get("query") or "").strip()
@@ -80,6 +87,7 @@ class LoraSearchTool(Tool):
         if fam.lora.get("note"):
             lines.append(f"  {fam.lora['note']}")
 
+        lines += self._own(bases, query)
         cloud, cloud_note = self._cloud(ctx, models, query)
         lines.append("")
         lines.append(cloud_note)
@@ -125,6 +133,32 @@ class LoraSearchTool(Tool):
         return ToolResult.text("\n".join(lines), details={
             "cloud": [n for n, _ in cloud], "civitai": [dataclasses.asdict(lo) for lo in found], "bases": bases})
 
+    # ------------------------------------------------------------------ the person's own imports
+
+    def _own(self, bases: list[str], query: str) -> list[str]:
+        """The LoRAs the person already imported: those recorded for this model's bases, then those
+        with no base recorded. One for another model is left out (counted)."""
+        try:
+            own = self._own_loras()
+        except ValueError as e:
+            return ["", f"Imported into your account: could not be read — {e}"]
+        if not own:
+            return []
+        words = [w for w in re.split(r"[^a-z0-9]+", query.lower()) if len(w) > 1]
+        rank = lambda n: -sum(w in n.lower() for w in words)  # noqa: E731
+        fits = sorted((n for n, b in own if b in bases), key=rank)
+        unknown = sorted((n for n, b in own if not b), key=rank)
+        other = len(own) - len(fits) - len(unknown)
+        if not fits and not unknown:
+            return ["", f"Imported into your account: {other} LoRA(s), none for this model."]
+        lines = ["", "Imported into your account — no download; a `loras` entry is {'name': <file>, 'base': …}:"]
+        lines += [f"  {n}  [{' / '.join(bases)}]" for n in fits]
+        lines += [f"  {n}  (base unknown — imported outside a design: use it only if you know it is for "
+                  "this model, and give its `base`)" for n in unknown]
+        if other:
+            lines.append(f"  ({other} more for other models)")
+        return lines
+
     # ------------------------------------------------------------------ Civitai
 
     def _civitai_search(self, bases: list[str], query: str, limit: int) -> tuple[list, list[str]]:
@@ -142,6 +176,15 @@ class LoraSearchTool(Tool):
         return sorted(merged.values(), key=lambda lo: -lo.downloads)[:limit], [query] + asked
 
     # ------------------------------------------------------------------ the model
+
+    @staticmethod
+    def _models_of_base(fam, base: str) -> tuple[list[dict], str]:
+        """The family's LoRA models trained as `base` — for a stage whose model a port swapped."""
+        models = [m for m in fam.lora.get("models") or [] if base in (m.get("bases") or [])]
+        if not models:
+            known = sorted({b for m in fam.lora.get("models") or [] for b in m.get("bases") or []})
+            return [], f"{fam.id} has no model with Civitai base {base!r} (it has: {', '.join(known)})"
+        return [{**m, "bases": [base]} for m in models[:1]], ""
 
     @staticmethod
     def _models(ctx: PipelineToolContext, fam, recipe_id: str) -> tuple[list[dict], str]:

@@ -56,6 +56,10 @@ one line that paid models are not available right now and design the best free r
      the person asked to change. A model or LoRA it could not resolve is said in one line with the
      closest substitute (`lora_search`); a record the image does not carry means building the look
      from what it shows. Never swap the image's model for your usual pick.
+     **When `reference_recipe` itself fails** (Civitai not answering), say so in one line and try
+     it once more; still failing, stop and offer to retry later. The image is someone's result to
+     recreate, never an input to edit: no design that feeds their picture into an edit model
+     stands in for its recipe.
 
 2b. **LORAS — USE THEM WHENEVER A LOOK IS ASKED FOR.** A style, a medium, a character, a period, an
    effect ("90s anime", "watercolor", "film grain", "claymation") is what LoRAs are for; the base
@@ -72,7 +76,8 @@ one line that paid models are not available right now and design the best free r
      mixing stages from different models is how a good pipeline gets both.
    - **Comfy Cloud's own LoRAs first** (no download); a Civitai one when none fits, with its
      `name`, `base`, `url`, `trigger` exactly as `lora_search` gives them.
-   - **The trigger word goes into the prompt**, and the strength is the author's advice
+   - **The trigger word goes into the prompt** — only a word the LoRA was trained on (its
+     `trigger`); a LoRA without one gets nothing added, never its file name. The strength is the author's advice
      (`lora_search` quotes it), else 1.0. A two-expert model (Wan 2.2 14B) takes the high/low pair.
    - The approval card names each step's LoRAs. When the person gave a finished prompt (rule 5),
      it stays word for word except the trigger word put at its front — say so in one line.

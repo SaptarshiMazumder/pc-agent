@@ -81,10 +81,11 @@ class ReferenceRecipeTool(Tool):
                                    "stripped): recreate it from what it shows — kb_lookup and lora_search.",
                                    is_error=not note)
         resolved = self._resolve(recipe)
-        return ToolResult.text(self._render(ctx, recipe, base, resolved, note), details={
+        checkpoints = self._checkpoints(recipe)
+        return ToolResult.text(self._render(ctx, recipe, base, resolved, checkpoints, note), details={
             "settings": recipe.settings(), "models": recipe.models,
-            "loras": [{"as_named": lo.name, "strength": lo.strength,
-                       "civitai": dataclasses.asdict(hit) if hit else None} for lo, hit in resolved]})
+            "loras": [{"as_named": lo.name, "strength": lo.strength, "lookup_failed": failed,
+                       "civitai": dataclasses.asdict(hit) if hit else None} for lo, hit, failed in resolved]})
 
     # ------------------------------------------------------------------ reading
 
@@ -124,35 +125,70 @@ class ReferenceRecipeTool(Tool):
 
     # ------------------------------------------------------------------ resolving
 
-    def _resolve(self, recipe: ImageRecipe) -> list[tuple[ImageRecipeLora, CivitaiLora | None]]:
+    def _resolve(self, recipe: ImageRecipe) -> list[tuple[ImageRecipeLora, CivitaiLora | None, str]]:
+        """(the LoRA as the image names it, its Civitai version, why the lookup failed) — a failed
+        lookup is that LoRA's to report: the recipe read from the image stands without it."""
         out = []
         for lo in recipe.loras[:MAX_LORAS]:
-            hit = None
-            if lo.version_id:
-                hit = self._civitai.version(lo.version_id)
-            if hit is None and lo.hash:
-                hit = self._civitai.version_by_hash(lo.hash)
-            if hit is None and lo.name.lower().endswith(".safetensors"):
-                hit = self._civitai.lora_by_file(lo.name)
-            out.append((lo, hit))
+            hit, failed = None, ""
+            try:
+                if lo.version_id:
+                    hit = self._civitai.version(lo.version_id)
+                if hit is None and lo.hash:
+                    hit = self._civitai.version_by_hash(lo.hash)
+                if hit is None and lo.name.lower().endswith(".safetensors"):
+                    hit = self._civitai.lora_by_file(lo.name)
+            except CivitaiError as e:
+                failed = str(e)
+            out.append((lo, hit, failed))
+        return self._one_per_lora(out)
+
+    def _one_per_lora(self, rows: list) -> list:
+        """A LoRA the record names TWICE — by its short name in the prompt (`<lora:gr33nXLP:1>`) and
+        by its Civitai version — is one LoRA: the unresolved name whose file the resolved version
+        ships is dropped. A short name nothing resolved is then looked up as `<name>.safetensors`."""
+        stems = {_stem(hit.file) for _, hit, _ in rows if hit is not None}
+        out = []
+        for lo, hit, failed in rows:
+            if hit is None and not failed and _stem(lo.name) in stems:
+                continue
+            if hit is None and not failed and not lo.version_id and not lo.hash and "." not in _stem_tail(lo.name):
+                try:
+                    hit = self._civitai.lora_by_file(f"{_stem(lo.name)}.safetensors")
+                except CivitaiError as e:
+                    failed = str(e)
+            out.append((lo, hit, failed))
         return out
 
-    def _model_bases(self, recipe: ImageRecipe) -> list[str]:
-        return [v.base for v in (self._civitai.version(i) for i in recipe.model_version_ids[:2]) if v is not None]
+    def _checkpoints(self, recipe: ImageRecipe) -> list[tuple[int, CivitaiLora | None, str]]:
+        """(version id, the checkpoint's Civitai version, why the lookup failed) for the record's
+        checkpoint(s)."""
+        out = []
+        for vid in recipe.model_version_ids[:2]:
+            try:
+                out.append((vid, self._civitai.version(vid), ""))
+            except CivitaiError as e:
+                out.append((vid, None, str(e)))
+        return out
 
     # ------------------------------------------------------------------ the answer
 
     def _render(self, ctx: PipelineToolContext, recipe: ImageRecipe, image_base: str,
-                resolved: list[tuple[ImageRecipeLora, CivitaiLora | None]], note: str) -> str:
+                resolved: list[tuple[ImageRecipeLora, CivitaiLora | None, str]],
+                checkpoints: list[tuple[int, CivitaiLora | None, str]], note: str) -> str:
         lines = [f"Recipe, from {recipe.source}:"]
-        bases = [b for b in [image_base, *self._model_bases(recipe), *(h.base for _, h in resolved if h)] if b]
+        bases = [b for b in [image_base, *(c.base for _, c, _ in checkpoints if c),
+                             *(h.base for _, h, _ in resolved if h)] if b]
         if recipe.models:
             lines.append(f"  model: {', '.join(recipe.models)}" + (f" [{image_base}]" if image_base else ""))
         elif image_base:
             lines.append(f"  model: {image_base} (Civitai's tag; the file is not named)")
+        lines += self._checkpoint_lines(ctx, checkpoints)
         settings = recipe.settings()
         if settings:
-            lines.append("  settings: " + ", ".join(f"{k} {v}" for k, v in settings.items()))
+            lines.append("  settings: " + ", ".join(f"{k} {v}" for k, v in settings.items())
+                         + (" (clip_skip is the port's value: the record's 'clip skip "
+                            f"{-recipe.clip_skip}')" if recipe.clip_skip not in (None, -1) else ""))
         if recipe.prompt:
             lines.append(f"  prompt: {recipe.prompt}")
         if recipe.negative:
@@ -165,7 +201,15 @@ class ReferenceRecipeTool(Tool):
             lines.append("")
             lines.append("LoRAs:")
             cloud = self._cloud_loras(ctx)
-            for lo, hit in resolved:
+            for lo, hit, failed in resolved:
+                if failed:
+                    file = lo.name.replace("\\", "/").rsplit("/", 1)[-1]
+                    keep = {"name": file, "strength": lo.strength, **({"base": image_base} if image_base else {})}
+                    lines.append(f"  {lo.name} @{lo.strength:g} — the Civitai lookup FAILED ({failed}). This is the "
+                                 f"image's LoRA all the same: call reference_recipe again in a moment for its "
+                                 f"download link, or keep it by name — {keep} — which runs only if it is already "
+                                 "in the person's Comfy Cloud (lora_search lists their imports)")
+                    continue
                 if hit is None:
                     lines.append(f"  {lo.name} @{lo.strength:g} — NOT found on Civitai (a private or renamed file): "
                                  "find the closest with lora_search, and say so")
@@ -188,8 +232,9 @@ class ReferenceRecipeTool(Tool):
         lines += self._families(ctx, list(dict.fromkeys(bases)), recipe.models)
         lines.append("")
         lines.append("To recreate it faithfully: one stage of that recipe with this prompt, size, steps, "
-                     "guidance/cfg, sampler, scheduler and seed set through its ports (kb_lookup shows their "
-                     "names), and THESE LoRAs at THESE strengths in `loras`, exactly as listed — they ARE the "
+                     "guidance/cfg, sampler, scheduler, clip_skip and seed set through its ports (kb_lookup "
+                     "shows their names); the image's checkpoint in the recipe's `checkpoint` port with its "
+                     "`models` entry when it is not the recipe's own; and THESE LoRAs at THESE strengths in `loras`, exactly as listed — they ARE the "
                      "look; no other LoRA replaces or joins them unless one above was not found. Then change "
                      "only what the person asked to change.")
         if note:
@@ -209,15 +254,18 @@ class ReferenceRecipeTool(Tool):
                     if base not in model_bases:
                         continue
                     pattern = str(model.get("file") or "$^")
+                    port = str(model.get("via_port") or "")
                     recipes = [r for r in ctx.catalog.recipes_of(fam.id)
-                               if any(re.search(pattern, f.replace("\\", "/").rsplit("/", 1)[-1], re.I) for f in r.files)]
+                               if (port and port in r.ports) or
+                               any(re.search(pattern, f.replace("\\", "/").rsplit("/", 1)[-1], re.I) for f in r.files)]
                     if not recipes:
                         continue
                     t2i = sorted(r.id for r in recipes if r.task == "t2i")
                     rest = sorted(r.id for r in recipes if r.task != "t2i")
                     text = f"  {base} → {fam.id} ({model.get('name')}): " + (
                         f"text-to-image {', '.join(t2i)}" + (f"; also {', '.join(rest[:8])}" if rest else "")
-                        if t2i else ", ".join(rest[:10]))
+                        if t2i else ", ".join(rest[:10])) + (
+                        f" — the image's checkpoint goes in their `{port}` port" if port else "")
                     rank = (model_bases.index(base) != 0, fam.id in ("controlnet", "identity-adapters"), not t2i)
                     rows.append((rank, text))
         out = [text for _, text in sorted(rows, key=lambda r: r[0])]
@@ -229,6 +277,30 @@ class ReferenceRecipeTool(Tool):
             return [f"Runs on: no knowledge-base family takes {' / '.join(bases) or 'this model'} — "
                     "say so; the nearest family's look will differ."]
         return ["Runs on (the image's base model, in the knowledge base):"] + list(dict.fromkeys(out))
+
+    @staticmethod
+    def _checkpoint_lines(ctx: PipelineToolContext, checkpoints: list) -> list[str]:
+        """The image's checkpoint: what it is, and the `models` entry that brings it — or that Comfy
+        Cloud already has the very file."""
+        cloud = set()
+        if "captured" in str(ctx.catalogue_source):
+            spec = (ctx.catalogue.get("CheckpointLoaderSimple") or {}).get("input") or {}
+            cloud = {str(n).replace("\\", "/").rsplit("/", 1)[-1].lower()
+                     for n in ((spec.get("required") or {}).get("ckpt_name") or [[]])[0] if isinstance(n, str)}
+        lines = []
+        for vid, hit, failed in checkpoints:
+            if failed or hit is None:
+                why = f"the Civitai lookup FAILED ({failed})" if failed else "not found on Civitai"
+                lines.append(f"  checkpoint: Civitai version {vid} — {why}; call reference_recipe again in a moment")
+                continue
+            lines.append(f"  checkpoint: {hit.name} — {hit.version} [{hit.base}], file {hit.file}")
+            if hit.file.lower() in cloud:
+                lines.append(f"     Comfy Cloud has this very file: set the recipe's checkpoint port to {hit.file!r}")
+            else:
+                entry = {"name": hit.file, "folder": "checkpoints", "base": hit.base, "url": hit.download_url}
+                lines.append(f"     models entry: {entry} — and the recipe's checkpoint port set to {hit.file!r}")
+            lines.append(f"     {hit.page}")
+        return lines
 
     @staticmethod
     def _cloud_loras(ctx: PipelineToolContext) -> list[str]:
@@ -253,6 +325,17 @@ class ReferenceRecipeTool(Tool):
             return {w for w in re.split(r"[^a-z0-9]+", stem.lower()) if len(w) > 2 and not w.isdigit()}
         mine = words(file)
         return [n for n in cloud if len(mine & words(n)) >= 2][:3]
+
+
+def _stem(name: str) -> str:
+    """A file or LoRA name without folder or extension, lower-cased: `gr33nXLP` for both
+    `<lora:gr33nXLP:1>` and `models/loras/gr33nXLP.safetensors`."""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return (base.rsplit(".", 1)[0] if base.lower().endswith((".safetensors", ".pt", ".ckpt")) else base).lower()
+
+
+def _stem_tail(name: str) -> str:
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 __all__ = ["ReferenceRecipeTool"]

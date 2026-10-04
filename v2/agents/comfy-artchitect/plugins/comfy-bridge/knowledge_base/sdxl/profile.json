@@ -634,7 +634,8 @@
         "cloud": [
           "^pony[-_]"
         ],
-        "loader": "LoraLoader"
+        "loader": "LoraLoader",
+        "via_port": "checkpoint"
       },
       {
         "name": "Illustrious / NoobAI (SDXL)",
@@ -647,7 +648,8 @@
           "^illustrious[-_]",
           "^noob"
         ],
-        "loader": "LoraLoader"
+        "loader": "LoraLoader",
+        "via_port": "checkpoint"
       }
     ],
     "src": [
@@ -655,7 +657,7 @@
       "https://civitai.com/api/v1/enums"
     ],
     "confirmed": true,
-    "note": "LoraLoader patches the checkpoint's MODEL and CLIP. Pony, Illustrious and NoobAI are SDXL finetunes whose LoRAs want their own checkpoint; the refiner takes no LoRA."
+    "note": "LoraLoader patches the checkpoint's MODEL and CLIP. Pony, Illustrious and NoobAI are SDXL finetunes whose LoRAs want their own checkpoint; the refiner takes no LoRA. Pony / Illustrious / NoobAI images run on the base recipes with their checkpoint in the `checkpoint` port (and clip_skip -2), the file in the stage's `models` with its base."
   },
   "community_alternatives": [
     {
