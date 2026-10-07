@@ -55,9 +55,10 @@ class CallRateBrake:
         return (
             f"You've called the '{ev.name}' tool {n} times in the last {self.window} "
             f"tool calls and the earlier calls brought nothing new — you appear to be repeating "
-            f"the same kind of action without progress. STOP this approach: switch to a different "
-            f"tool/strategy, or report the blocker (and your best partial answer) to the user. "
-            f"Do not just retry."
+            f"the same kind of action without progress. Change approach: use what those calls "
+            f"returned, give the call different input, try another tool or route, or find out why it "
+            f"is not working. Ask the user only for what only they can give (a file, a decision, a "
+            f"credential) — and keep working on everything else meanwhile."
         )
 
     def on_turn(self, index: int) -> str | None:

@@ -888,6 +888,27 @@
         "S-TPL-360"
       ],
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "bfs_head_v1.1_qwen_2.1.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 260100000,
+      "size_gb": 0.26,
+      "precision": "bf16",
+      "variant": "2.1",
+      "url": "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap/resolve/main/bfs_head_v1.1_qwen_2.1.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "BFS (Best Face Swap) head-swap LoRA for Qwen Image 2.1, v1.1 (the author's recommended version): the face, hair, eye colour and nose of <image2> onto <image1>, keeping <image1>'s eye direction, head rotation and expression. Trigger 'head_swap:'. Used by head-swap-2-1.",
+      "src": [
+        "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap/blob/main/docs/qwen-image-2.1.md"
+      ],
+      "bytes_src": "HF tree API size, 2026-10-07"
     }
   ],
   "lora": {

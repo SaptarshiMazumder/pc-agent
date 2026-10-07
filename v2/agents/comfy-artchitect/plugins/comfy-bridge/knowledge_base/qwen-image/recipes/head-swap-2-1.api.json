@@ -1,0 +1,203 @@
+{
+  "recipe": {
+    "id": "head-swap-2-1",
+    "task": "edit",
+    "variant": "Qwen-Image-2.1 int8 + BFS head-swap LoRA v1.1 (strength 1): image_1 = the target, whose body, outfit, pose, light, background AND eye direction, head rotation and expression are kept; image_2 = the person's photo, whose face, hair, eye colour and nose are transferred; 50 steps",
+    "from_template": "BFS 'Head Swap V1 Qwen 2.1 Workflow' (Alissonerdx/BFS-Best-Face-Swap), flattened to core nodes: its KJ resizes and 2 MP empty latent replaced by the encoder's own latent (the target's size), its optional Pruna 8-step LoRA and RES4LYF sampler replaced by 50 euler steps",
+    "min_comfyui": "0.37.0",
+    "confidence": "community",
+    "ports": {
+      "prompt": {
+        "node": "485",
+        "input": "prompt",
+        "note": "the BFS prompt, kept word for word: it starts with the trigger 'head_swap:' and names <image1> (target) and <image2> (face) in that order. Gaze and expression come from the target, so set them in the step that made the target, not here."
+      },
+      "seed": {
+        "node": "482",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "482",
+        "input": "steps",
+        "note": "50; 2.1's official 40-50"
+      },
+      "lora_strength": {
+        "node": "493",
+        "input": "strength_model",
+        "note": "1.0 (the author's)"
+      },
+      "resolution": {
+        "node": "485",
+        "input": "resolution",
+        "note": "0 = each image at its own size (the author's). Qwen 2.1 shifts colour and softens the WHOLE frame a little; the author found a ~2K target reduces it"
+      }
+    },
+    "inputs": {
+      "target": {
+        "node": "470",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "Image 1: the picture the person goes INTO, usually the still a person-from-reference step made. Its size is the output's; its gaze and expression are the output's."
+      },
+      "face": {
+        "node": "510",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "Image 2: the person's own photo. A clear, well-lit face gives the best likeness; with several photos, use the one whose head angle is closest to the target's."
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "518",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2.1_int8_convrot.safetensors",
+      "qwen3vl_8b_int8_convrot.safetensors",
+      "qwen_image_2.1_vae_bf16.safetensors",
+      "bfs_head_v1.1_qwen_2.1.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "50 steps, cfg 1, euler/simple, resolution 0, latent = the encoder's (target size), BFS v1.1 at 1.0. v1.1 is BFS v1 with the skin-softening MLP modules cut from blocks 16-31: more skin texture, the same identity and head pose. The 'alternative' file copies strong expressions better, the original v1 has the softest skin. FIXED: seed 31841, the BFS prompt word for word, no LoRA beyond BFS — only the two images change.",
+    "verify": [
+      "Ran on Comfy Cloud (ComfyUI 0.38.2) on 2026-10-07 against the official 2.1 prompt-enhancer route on the same target: comparable likeness, kept the target's gaze and smile, the nose stud came through; 34 s vs 57 s, and no 9.5 GB enhancer file."
+    ],
+    "family": "qwen-image",
+    "fixed": {
+      "ports": [],
+      "why": "it is the workflow tested on Comfy Cloud (2026-10-07): at seed 31841 with the BFS prompt the swap came out clean every time; at seeds 0 and 42 (and with a reworded prompt) it came out as a crunched picture with the head not swapped — the same job with only the seed back at 31841 was clean"
+    }
+  },
+  "graph": {
+    "477": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "493": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "477",
+          0
+        ],
+        "lora_name": "bfs_head_v1.1_qwen_2.1.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "484": {
+      "class_type": "QwenImage21Cache",
+      "inputs": {
+        "model": [
+          "493",
+          0
+        ],
+        "device": "auto",
+        "dtype": "default"
+      }
+    },
+    "478": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "479": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+      }
+    },
+    "470": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@target"
+      }
+    },
+    "510": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@face"
+      }
+    },
+    "485": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "clip": [
+          "478",
+          0
+        ],
+        "prompt": "head_swap: start with <image1> as the base image, keeping its lighting, environment, and background. remove the head from <image1> completely and replace it with the head from <image2>, strictly preserving the hair, eye color, nose structure from <image2>. copy the direction of the eye, head rotation, micro expressions from <image1>, high quality, sharp details, 4k",
+        "negative_prompt": "",
+        "resolution": 0,
+        "vae": [
+          "479",
+          0
+        ],
+        "images.image_1": [
+          "470",
+          0
+        ],
+        "images.image_2": [
+          "510",
+          0
+        ]
+      }
+    },
+    "482": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "484",
+          0
+        ],
+        "seed": 31841,
+        "steps": 50,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "485",
+          0
+        ],
+        "negative": [
+          "485",
+          1
+        ],
+        "latent_image": [
+          "485",
+          2
+        ],
+        "denoise": 1.0
+      }
+    },
+    "481": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "482",
+          0
+        ],
+        "vae": [
+          "479",
+          0
+        ]
+      }
+    },
+    "518": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "481",
+          0
+        ],
+        "filename_prefix": "head-swap"
+      }
+    }
+  }
+}

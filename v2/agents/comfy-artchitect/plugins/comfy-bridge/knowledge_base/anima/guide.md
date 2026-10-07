@@ -45,4 +45,3 @@ mix of both.
 - Only single words or short phrases of text.
 - 512² to 1536² pixels. The template sizes in multiples of 16. Upscale after for larger output.
 - The base model's style is plain unless you add quality or artist tags.
-- Licence: the model is non-commercial; the generated images may be used commercially.

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 
 import type { SubagentItem, ThreadItem, ToolItem, UserItem, BotItem } from '../agentd/chat'
+import { askOf } from '../agentd/chat'
 import { timeLabel } from '../lib/timefmt'
 import { useApp } from '../state/store'
 import ArtifactView from './ArtifactView'
@@ -390,7 +391,7 @@ export default function MessageItem({
       // arguments (AskPanel) once the daemon has accepted the call. A refused ask (a service
       // without its price) stays a plain tool row carrying its error, so a malformed question is
       // never put to the user.
-      if (item.name === 'ask_user' && item.done && !item.isError) {
+      if (askOf(item)) {
         return (
           <div className="msg-item">
             <AskPanel item={item} answered={!!answered} onDecide={onDecide} />

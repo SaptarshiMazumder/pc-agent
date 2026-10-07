@@ -225,8 +225,9 @@ def _platform_rate() -> float:
 
 
 def _no_instance_message() -> str:
-    return ("Comfy Cloud is not reachable from here. The person's Comfy API key (Settings) and a paid "
-            "Comfy Cloud plan are what it needs; say so in one line and stop.")
+    return ("Comfy Cloud is not reachable from here: it needs the person's Comfy API key (Settings) and a "
+            "paid Comfy Cloud plan. Ask them for that — it is theirs to add — and carry on with everything "
+            "that does not need Comfy Cloud (the design, its checks, the approval card) meanwhile.")
 
 
 def _no_instance() -> "ToolResult":
@@ -265,9 +266,10 @@ def _failed(res, what: str) -> str:
     if res.status in (401, 403):
         return (f"{what}: Comfy Cloud refused the key (HTTP {res.status}: {(res.text or '')[:200]}). "
                 "The person's Comfy API key (Settings, from platform.comfy.org) and a paid Comfy Cloud "
-                "plan are needed — tell them that in one line.")
+                "plan are needed — ask them to check it; the design work goes on meanwhile.")
     if res.status == 402:
-        return f"{what}: Comfy Cloud says the plan has no credits left (HTTP 402) — tell the person."
+        return (f"{what}: Comfy Cloud says the plan has no credits left (HTTP 402) — the person tops it up "
+                "(platform.comfy.org); ask them, and run again when they say it is done.")
     return f"{what}: HTTP {res.status} — {(res.text or '')[:300]}"
 
 
@@ -982,7 +984,7 @@ def _execution_error_help(messages) -> str:
             )
             return head + json.dumps(schema.example("<node id>"), indent=1) + (
                 "\nRepair the keys and resubmit the SAME node class and model. A different class "
-                "or a smaller model is a design change: back through the ask."
+                "or a smaller model is a design change: redesign and show the card again (pipeline_present)."
             )
     except Exception:  # noqa: BLE001 — help is optional; the error itself is what matters
         pass
@@ -1040,7 +1042,9 @@ async def _poll_run(prompt_id: str, deadline: float, abort) -> ToolResult | None
                     "Pass these entries to comfy_download to pull them into the chat, "
                     "then ask whether they are right — you cannot see the pixels."
                 )
-                return ToolResult.text("\n".join(lines), details=entry)
+                # The job id rides along: a caller whose download then fails collects THIS job
+                # again instead of submitting the render a second time.
+                return ToolResult.text("\n".join(lines), details={**entry, "prompt_id": prompt_id})
             # A success whose outputs have not landed yet — a known race. Keep waiting
             # rather than reporting an empty run as finished.
         studio_state.run_tick(prompt_id)
@@ -1252,6 +1256,12 @@ class ComfyRunTool(Tool):
                         )
                     names[role] = server
                 prompt = reference_slots.bind(prompt, names)
+
+            # IMPORTED FILES GO BY THE NAME COMFY CLOUD LOADS. Designs name them as the editor shows
+            # them; a Hugging Face import is stored under a longer name, and the shown one stopped
+            # loading (see ComfyCloudCatalogue.stored_names).
+            catalogue = ComfyCloudCatalogue(_get)
+            prompt = catalogue.with_stored_names(prompt, catalogue.stored_names())
 
             # Secrets go in HERE, not when the workflow was written — see _fill_secrets.
             prompt, missing_keys = _fill_secrets(prompt)

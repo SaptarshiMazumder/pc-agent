@@ -57,9 +57,11 @@ def present(workspace: str, session_key: str, run_id: str = "", presented: dict 
     _save(workspace, sessions)
 
 
-def answer(workspace: str, session_key: str) -> bool:
+def answer(workspace: str, session_key: str, text: str = "") -> bool:
     """A user message arrived on `session_key`. Counts as the answer to a presented, unanswered
-    checkpoint — and only then. Returns whether it did."""
+    checkpoint — and only then. Returns whether it did. `text` is what they said (kept, bounded):
+    an answer is not always a yes — "Instead: …" asks for a different design, and the tool that
+    acts on the answer has to be able to see that."""
     if not workspace or not session_key:
         return False
     sessions = _load(workspace)
@@ -69,6 +71,7 @@ def answer(workspace: str, session_key: str) -> bool:
     if float(rec.get("answered_at") or 0.0) >= float(rec.get("presented_at") or 0.0):
         return False
     rec["answered_at"] = time.time()
+    rec["answer"] = str(text or "")[:4000]
     sessions[session_key] = rec
     _save(workspace, sessions)
     return True

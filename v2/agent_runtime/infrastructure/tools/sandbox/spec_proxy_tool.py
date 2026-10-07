@@ -37,6 +37,8 @@ class SpecProxyTool(Tool):
             self.default_retry_on_timeout = True
         if spec.get("default_max_retries") is not None:
             self.default_max_retries = int(spec["default_max_retries"])
+        if spec.get("checkpoint"):
+            self.checkpoint = True
 
     async def execute(self, tool_call_id, params, abort, on_update=None) -> ToolResult:
         # Reached only if wiring ever hands this out UNWRAPPED — which must fail closed, loudly:

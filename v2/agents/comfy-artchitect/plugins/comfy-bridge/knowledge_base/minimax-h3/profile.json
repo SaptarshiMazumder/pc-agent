@@ -19,12 +19,6 @@
   ],
   "cannot": [
     {
-      "what": "EU, UK or Korea; >$20M yearly revenue needs MiniMax's written authorization",
-      "src": [
-        "S-DOCS-H3"
-      ]
-    },
-    {
       "what": "negative prompt or CFG: the released checkpoints are CFG-distilled, the graphs use BasicGuider, 'a negative prompt has no effect' — bans are written as positives",
       "src": [
         "S-HF-MINIMAXAI",

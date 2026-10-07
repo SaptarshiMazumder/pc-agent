@@ -4,10 +4,6 @@
   "name": "Anima (CircleStone Labs x Comfy Org)",
   "publisher": "CircleStone Labs in collaboration with Comfy Org; a derivative of NVIDIA Cosmos-Predict2-2B-Text2Image",
   "cost": "free",
-  "license": {
-    "what": "CircleStone Labs Non-Commercial License (+ NVIDIA Open Model License for the Cosmos derivative): the MODEL is non-commercial (no paid hosting / API / monetized product without a license); generated IMAGES may be used commercially",
-    "src": "S-HF-ANIMA"
-  },
   "architecture": {
     "what": "2B-parameter flow DiT built on Cosmos-Predict2-2B (ComfyUI detects it as a Cosmos Predict2 state dict with an llm_adapter); text encoder Qwen-3 0.6B base (qwen_3_06b_base, CLIPLoader); VAE the Qwen-Image VAE (qwen_image_vae, latent format Wan21); ComfyUI model class Anima: sampling shift 3.0, patch 2",
     "src": [

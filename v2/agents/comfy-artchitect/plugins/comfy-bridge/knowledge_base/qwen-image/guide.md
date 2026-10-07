@@ -7,6 +7,19 @@ Alibaba Qwen's 20B MMDiT image family, free: **Qwen-Image** (Aug 2025) and **251
 All fp8 diffusion files are ~20.4 GB; the reference is an RTX 4090D 24 GB at 86 % VRAM, ~94 s per 1328²
 image (Qwen-Image fp8, 20 steps), ~55 s → ~34 s with an 8-step LoRA.
 
+- **A real person from their photo (photoreal), whatever the job:** task `person-from-reference`, three
+  steps: `t2i-2-1-person-from-reference` (the shot, with their body read off their photo by a form —
+  ethnicity, skin, body size, bust, belly, hair; the photo is never rendered from) → `head-swap-2-1` (target
+  = that still, face = their photo; the BFS head-swap LoRA keeps the still's gaze and expression), both at
+  1024x1536, fixed (smaller or larger, the face came out long and narrow; a video model resizes its first
+  frame by itself). Nothing after them: a Z-Image pass
+  changed her face and made the skin plastic, an upscaler added nothing. Every later picture or video of
+  them reads the swapped still. The still and the swap are FIXED recipes (tested templates): only the shot, size and
+  images are set — a LoRA, another seed or a reworded swap prompt broke them in tests, and the design
+  check refuses them. Tested 2026-10-07: the only route that kept her face, hair, glasses and figure; editing her
+  own photo (2511, FLUX.2 klein) changed her face or body, and a Z-Image Turbo first still drew her slim
+  0/4. Angles: make each from the final still (`multi-angle`), then `head-swap-2-1` again with the photo
+  whose head angle is closest.
 - **T2I, text-heavy or photoreal people:** `t2i-2512` (50 steps, cfg 4, official Chinese negative).
   Faster: `t2i-2512-lightning-4step` (4 / 1); draft: `t2i-2512-turbo-2step` (2 steps, third-party LoRA).
 - **T2I, the original Aug-2025 look:** `t2i` (20 / 4) or `t2i-lightning-4step` (4 / 1, fp8-distilled LoRA).
@@ -21,7 +34,8 @@ image (Qwen-Image fp8, 20 steps), ~55 s → ~34 s with an 8-step LoRA.
 - **Inpaint / outpaint:** `inpaint-instantx` (painted mask, original pixels composited back) and
   `outpaint-instantx-lightning-4step` (ImagePadForOutpaint canvas).
 - **Layer decomposition:** `layered` — RGBA layers from one image (40.9 GB bf16 file; shift 1; slow).
-- **Pending:** `t2i-2-1`, `edit-2-1`, `background-removal-2-1`.
+- **Qwen Image 2.1 runs on Comfy Cloud** (t2i and two-image edits, 2026-10-07); `background-removal-2-1`
+  is still unrun.
 - **Not this family** for IP-Adapter (NOT FOUND); 4K on 2.1; >3 inputs on 2509.
 
 Stage composition: a Qwen T2I still → wan-2.2 `i2v-14b`; a Z-Image / Chroma still → `edit-2511` for text
@@ -44,6 +58,8 @@ fixes; a depth/pose map from any preprocessor → `control-instantx-union`.
 | `outpaint-instantx-lightning-4step` | image | pad 200 px left/top/bottom, 4/1 |
 | `layered` | image | RGBA layers (layers 2), shift 1 |
 | `t2i-2-1`, `edit-2-1`, `background-removal-2-1` | pending | 2.1 int8 (7.3 GB), 25 steps cfg 1 |
+| `t2i-2-1-person-from-reference` | their photo + the shot | describer form (Qwen3-VL, the same encoder) before the shot → 2.1 t2i, 30 steps |
+| `head-swap-2-1` | target still + face photo | 2.1 + BFS head-swap LoRA v1.1, fixed 'head_swap:' prompt, 50 steps, target's size |
 
 Disk: one fp8 model (20.4 GB) + Qwen2.5-VL-7B fp8 (9.4 GB) + VAE ≈ 30 GB; each extra model +20.4 GB;
 Layered bf16 40.9 GB; 2.1 int8 7.3 GB + Qwen3-VL-8B int8 9.4 GB + RGBA VAE 0.7 GB.

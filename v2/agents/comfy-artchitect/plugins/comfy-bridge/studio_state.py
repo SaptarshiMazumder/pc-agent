@@ -561,16 +561,21 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
     rec = ((_read_json(_CHECKPOINT_FILE).get("sessions") or {}).get(session) or {})
     presented = float(rec.get("presented_at") or 0.0)
     answered = float(rec.get("answered_at") or 0.0)
-    how = (
-        "Call `ask_user` — for a design, with exactly the arguments pipeline_present returns — "
-        "then end the turn. Install and run only in the turn AFTER the user answers."
-    )
+    how = ("Show the person the approval card first: pipeline_present (the design must hold). Setup and "
+           "runs go ahead once they answer it.")
     if not presented:
-        return False, f"'{name}': no ask has been presented in this conversation. {how}"
+        return False, f"'{name}': the person has not seen an approval card in this conversation. {how}"
     if answered < presented:
         return False, (
-            f"'{name}': the ask was presented but the user has not answered it. Do nothing more "
-            "this turn — the answer arrives as their next message."
+            f"'{name}': the approval card is on screen and its answer has not come yet — it is the "
+            "person's next message. Nothing is set up or run before it."
+        )
+    change = _asked_for_change(str(rec.get("answer") or ""))
+    if change and name in card.stage_names:
+        return False, (
+            f"'{name}': the person answered the card with a change, not a yes: {change!r}. Change the "
+            "design to match (pipeline_plan / stage_set / stage_bind), validate, and show the new card "
+            "with pipeline_present."
         )
     if name in card.stage_names:
         if "presented" not in rec:
@@ -582,12 +587,21 @@ def checkpoint_answered(name: str) -> tuple[bool, str]:
         changed = card.differences((rec.get("presented") or {}).get("ask"))
         if changed:
             return False, (
-                f"'{name}': the card the person answered is not the one pipeline_present built — it "
-                f"changed {'; '.join(changed)}. They approved something else. Call pipeline_present, "
-                "then ask_user with EXACTLY its arguments, and end the turn."
+                f"'{name}': the card the person answered is not this design's card (it differs in "
+                f"{'; '.join(changed)}). Show this design's card with pipeline_present — it shows it itself."
             )
         _approve_card(answered)
     return True, ""
+
+
+def _asked_for_change(answer: str) -> str:
+    """What an answer to the card asked to change ('' for a plain yes). The window writes a change
+    as an 'Instead: …' line; nothing else in an answer is read as a no."""
+    for line in answer.splitlines():
+        head, sep, rest = line.strip().partition(":")
+        if sep and head.strip().lower() == "instead" and rest.strip():
+            return rest.strip()
+    return ""
 
 
 def design_approved(stages: list[str]) -> str:
@@ -596,7 +610,7 @@ def design_approved(stages: list[str]) -> str:
     unshown = [s for s in stages if s not in presented_stages()]
     if unshown:
         return (f"the design was never put to the person as a whole ({', '.join(unshown)} not on an approval "
-                "card): pipeline_present, then ask_user with exactly its arguments, and wait for the answer.")
+                "card): show it with pipeline_present — setup and runs go ahead once they answer.")
     for stage in stages:
         ok, why = checkpoint_answered(stage)
         if not ok:

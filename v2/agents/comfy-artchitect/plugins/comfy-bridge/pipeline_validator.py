@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from family_rule_validator import FamilyRuleValidator, RuleReport
 from graph_structural_validator import GraphStructuralValidator, StructuralReport
 from knowledge_base_catalog import KnowledgeBaseCatalog
+from fixed_recipe_check import FixedRecipeCheck
 from lora_compatibility import LoraCompatibility
 from pipeline import Pipeline, Stage
 from pipeline_design_checks import PipelineDesignChecks
@@ -99,6 +100,7 @@ class PipelineValidator:
         self._listed = catalogue_version
         self._version = comfyui_version
         self._loras = LoraCompatibility(catalog)
+        self._fixed = FixedRecipeCheck()
 
     @staticmethod
     def _prompt_of(stage: Stage, recipe, graph: dict) -> str:
@@ -131,6 +133,7 @@ class PipelineValidator:
             v.unjudged = self._not_judged_here(recipe, v.structure)
             v.rules = self._rules.check(graph, comfyui_version=self._version, recipe=recipe)
             if recipe is not None:
+                v.problems += self._fixed.check(stage, recipe)
                 if recipe.meta.get("blocked"):
                     v.problems.append(f"recipe {recipe.family}/{recipe.id} cannot run here yet: {recipe.meta['blocked']}")
                 if self._version and not recipe.runs_on(self._version):

@@ -168,7 +168,7 @@ class LibraryUseTool(Tool):
             note = ("\nConverted by the machine's ComfyUI. Dropped links into inputs the installed "
                     "node packs no longer have (their pack changed since the workflow was made — "
                     "ComfyUI's editor drops these the same way): " + "; ".join(dropped)
-                    + ". Say so to the user in one line.")
+                    + ". Mention it in your reply and go on.")
             result = ToolResult.text(result.content[0].text + note, details=result.details)
         return result
 

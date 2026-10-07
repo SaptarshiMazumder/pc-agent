@@ -74,6 +74,23 @@ export interface ToolItem {
   progress?: string
   done: boolean
   isError: boolean
+  /** The question a CHECKPOINT tool put on screen (pipeline_present's approval card), from its
+   *  result — live from the event's details, on reload from the stored message. */
+  ask?: Record<string, unknown>
+}
+
+/** The question this tool row puts to the person, or null when it is not one: a checkpoint tool's
+ *  card (`ask`, e.g. pipeline_present), or `ask_user`'s arguments. Only once it returned, without
+ *  an error — a refused ask is never shown. The one place the window decides "this is an ask". */
+export function askOf(item: ThreadItem): Record<string, unknown> | null {
+  if (item.kind !== 'tool' || !item.done || item.isError) return null
+  if (item.ask && typeof item.ask === 'object') return item.ask
+  return item.name === 'ask_user' ? item.args : null
+}
+
+/** A checkpoint's question as a result carries it — `{ask: {...}}` in details or on the message. */
+export function readAsk(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 /** A delegated sub-agent run, collapsed into ONE item rather than a scatter of lines.
  *
@@ -287,7 +304,7 @@ export function restore(messages: any[]): ThreadItem[] {
       const at = toolAt.get(String(m.toolCallId))
       const call = at === undefined ? undefined : out[at]
       if (at !== undefined && call && call.kind === 'tool') {
-        out[at] = { ...call, result: text, isError: !!m.isError, done: true }
+        out[at] = { ...call, result: text, isError: !!m.isError, done: true, ask: readAsk(m.ask) }
       } else {
         out.push({
           kind: 'tool',
@@ -297,6 +314,7 @@ export function restore(messages: any[]): ThreadItem[] {
           result: text,
           isError: !!m.isError,
           done: true,
+          ask: readAsk(m.ask),
           ts,
         })
       }

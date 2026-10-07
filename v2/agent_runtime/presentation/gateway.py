@@ -7013,7 +7013,7 @@ class Gateway:
             try:
                 checkpoint_marker.answer(
                     self._resolve_workspace(agent_id or self._agent_for_key(session_key)),
-                    session_key,
+                    session_key, message if isinstance(message, str) else "",
                 )
             except Exception:  # noqa: BLE001
                 log.exception("checkpoint answer stamp failed for %s", session_key)

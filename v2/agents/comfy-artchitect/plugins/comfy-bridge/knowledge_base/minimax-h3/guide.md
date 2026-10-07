@@ -1,7 +1,5 @@
 # MiniMax H3 — the agent's guide
 
-> EU, UK or Korea** (outputs may not be used there either); products over **$20M yearly revenue** need > MiniMax's written authorization; sold only through Comfy** (Comfy > Cloud generations include it). Say this to the user before the first H3 render. The weights themselves are > free to download; `cost` is `free`.
-
 Open-weights omni-modal video model (MiniMax, open since 2026-08-03): one pass produces 24 fps video **with
 native stereo audio** — dialogue, SFX and music together. Two checkpoints: **FL2VA** (text, first frame,
 last frame, both) and **Ref2VA** (up to 9 images / 3 videos / 3 audio clips as references, plus keyframe

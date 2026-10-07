@@ -151,7 +151,7 @@ class PipelineStore:
                                      assembled.graph, groups=assembled.groups)
         except Exception as e:  # noqa: BLE001 — said in the result, see the docstring
             return (f"the one-file download ({self.design_rel(pipeline)}) was not written: {type(e).__name__}: "
-                    f"{e}. The design and its stage files stand; tell the person this one file is missing.")
+                    f"{e}. The design and its stage files stand — go on; mention that this one file is missing.")
         return ""
 
     def _drop_old_design(self, old: Pipeline | None, pipeline: Pipeline) -> None:

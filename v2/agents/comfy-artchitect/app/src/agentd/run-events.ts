@@ -17,7 +17,7 @@
 
 import type { AgentdClient } from '@agentd/client'
 
-import { closeThinking, resultText, type SubagentItem, type ThreadItem } from './chat'
+import { closeThinking, readAsk, resultText, type SubagentItem, type ThreadItem } from './chat'
 import { freshArtifacts, readArtifacts, type Artifact } from './artifacts'
 import { applyLibraryCopies, libraryCopies } from './library'
 import { applyApprovedDeletions, approvedDeletions } from './workspace-files'
@@ -294,7 +294,10 @@ function fold(
         for (let i = items.length - 1; i >= 0; i--) {
           const it = items[i]
           if (it.kind === 'tool' && it.id === id && !it.done) {
-            items[i] = { ...it, done: true, isError: !!ev.isError, result: resultText(ev.result) }
+            items[i] = {
+              ...it, done: true, isError: !!ev.isError, result: resultText(ev.result),
+              ask: readAsk((ev.details as { ask?: unknown } | undefined)?.ask),
+            }
             return { items }
           }
         }

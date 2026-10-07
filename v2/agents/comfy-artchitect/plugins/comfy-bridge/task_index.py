@@ -32,10 +32,24 @@ class RankedChoice:
     route: tuple = ()
 
 
+@dataclass(frozen=True)
+class TaskDescription:
+    #: What the task is FOR, in the words a brief uses — what a search by words matches.
+    gloss: str
+    #: The recipe `task` values (t2i, edit, r2v, …) that serve it.
+    recipe_tasks: tuple
+
+
 class TaskIndex:
-    def __init__(self, tasks: dict[str, list[RankedChoice]], meta: dict) -> None:
+    """THE TASK LIST IS DATA. Each task's description and recipe kinds live in the file next to its
+    ranking (`task_meta`): a task added there is searchable and askable by name — a list kept in code
+    hid a new task from every lookup until someone remembered to copy it over."""
+
+    def __init__(self, tasks: dict[str, list[RankedChoice]], meta: dict,
+                 described: dict[str, TaskDescription] | None = None) -> None:
         self.tasks = tasks
         self.meta = meta
+        self.described = described or {}
 
     @classmethod
     def load(cls, folder: Path) -> "TaskIndex | None":
@@ -52,14 +66,27 @@ class TaskIndex:
                              tuple(s for s in r.get("route") or [] if isinstance(s, dict)))
                 for i, r in enumerate(rows) if isinstance(r, dict) and r.get("family")
             ]
-        return cls(tasks, {k: v for k, v in data.items() if k != "tasks"})
+        described = {
+            str(task): TaskDescription(str(m.get("gloss") or ""), tuple(str(t) for t in m.get("recipe_tasks") or ()))
+            for task, m in (data.get("task_meta") or {}).items() if isinstance(m, dict)
+        }
+        return cls(tasks, {k: v for k, v in data.items() if k not in ("tasks", "task_meta")}, described)
 
     def ranked(self, task: str) -> list[RankedChoice]:
         return list(self.tasks.get(task) or [])
 
+    def gloss(self, task: str) -> str:
+        d = self.described.get(task)
+        return d.gloss if d else ""
+
+    def recipe_tasks(self, task: str) -> tuple:
+        """The recipe kinds that serve `task`; a task the file does not describe is its own kind."""
+        d = self.described.get(task)
+        return d.recipe_tasks if d and d.recipe_tasks else (task,)
+
     @property
     def task_ids(self) -> list[str]:
-        return sorted(self.tasks)
+        return sorted(set(self.tasks) | set(self.described))
 
 
-__all__ = ["FILE", "RankedChoice", "TaskIndex"]
+__all__ = ["FILE", "RankedChoice", "TaskDescription", "TaskIndex"]

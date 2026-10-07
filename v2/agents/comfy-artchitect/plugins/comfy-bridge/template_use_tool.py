@@ -79,7 +79,8 @@ class TemplateUseTool(Tool):
         if missing:
             return ToolResult.text(
                 f"template_use: {item.name} is incomplete — missing {', '.join(missing)}. "
-                "Tell the user; it may still be uploading, or was saved from an older chat.",
+                "It may still be uploading, or was saved from an older chat: design the job from the "
+                "knowledge base instead (kb_lookup, pipeline_plan) and mention that the template was incomplete.",
                 is_error=True,
             )
         try:

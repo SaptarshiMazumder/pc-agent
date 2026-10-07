@@ -177,6 +177,9 @@ class ToolResultMessage:
     content: list[ContentBlock] = field(default_factory=list)  # usually a single TextContent
     is_error: bool = False  # True if the tool failed (the model sees it as an error)
     artifacts: list[Artifact] = field(default_factory=list)  # files the tool DECLARED it produced
+    #: The question a CHECKPOINT tool put on screen (its `details["ask"]`), kept with the message so
+    #: a window can draw it again on reload. None for every other tool.
+    ask: dict | None = None
     timestamp: int = field(default_factory=now_ms)
     role: str = "toolResult"
 
@@ -264,6 +267,8 @@ def message_to_dict(m: Message) -> dict[str, Any]:
         }
         if m.artifacts:  # only when the tool declared something (keeps old records identical)
             d["artifacts"] = [artifact_to_dict(a) for a in m.artifacts]
+        if m.ask:  # only a checkpoint's question (keeps every other record identical)
+            d["ask"] = m.ask
         return d
     raise TypeError(f"unknown message: {m!r}")
 
@@ -295,6 +300,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             content=[content_from_dict(b) for b in d.get("content") or []],
             is_error=d.get("isError", False),
             artifacts=[artifact_from_dict(a) for a in d.get("artifacts") or []],
+            ask=d.get("ask") if isinstance(d.get("ask"), dict) else None,
             timestamp=d.get("timestamp", 0),
         )
     raise ValueError(f"unknown message role: {role!r}")

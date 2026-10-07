@@ -211,9 +211,9 @@ class GuardedTool(Tool):
         if limit and self._repeat_count > limit:
             return ToolResult.text(
                 f"loop guard: '{self.name}' was called with identical arguments "
-                f"{self._repeat_count} times in a row. Stop repeating this exact call — "
-                f"change the arguments, switch tools (e.g. use the browser for "
-                f"login-walled/blocked content), or report the blocker to the user.",
+                f"{self._repeat_count} times in a row. Change something: the arguments, the "
+                f"tool (e.g. the browser for login-walled content) or the approach. Ask the user "
+                f"only for what only they can give, and keep working on the rest.",
                 is_error=True,
             )
         return None
@@ -227,8 +227,9 @@ class GuardedTool(Tool):
                 TextContent(
                     text=(
                         f"\n\n[loop guard] '{self.name}' has failed {self._consec_errors} times "
-                        f"in a row. Stop retrying the same approach — try a different tool "
-                        f"(e.g. the browser for gated content) or report the blocker."
+                        f"in a row. Read what the errors say, then change what the call is "
+                        f"given or take another route (another tool, another approach). Ask the "
+                        f"user only for what only they can give."
                     )
                 )
             )

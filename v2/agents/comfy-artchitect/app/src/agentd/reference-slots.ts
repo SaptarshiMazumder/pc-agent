@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react'
 
 import { fileUrl, type Artifact } from './artifacts'
 import type { ThreadItem } from './chat'
+import { askOf } from './chat'
 import { chatDirFor } from './workspace-files'
 
 export const SLOTS_RECORD = '.slots.json'
@@ -58,7 +59,7 @@ export function chatReferences(listed: Artifact[], sessionKey: string): Artifact
 export function latestAskTs(items: ThreadItem[]): number {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
-    if (it.kind === 'tool' && it.name === 'ask_user' && it.done && !it.isError) return it.ts || 0
+    if (askOf(it)) return (it.kind === 'tool' && it.ts) || 0
   }
   return 0
 }
@@ -68,8 +69,9 @@ export function latestAskTs(items: ThreadItem[]): number {
 export function slotsFromThread(items: ThreadItem[]): Array<{ role: string; what: string }> {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
-    if (it.kind !== 'tool' || it.name !== 'ask_user' || !it.done || it.isError) continue
-    const raw = (it.args as { references?: unknown }).references
+    const ask = askOf(it)
+    if (!ask) continue
+    const raw = (ask as { references?: unknown }).references
     if (!Array.isArray(raw)) return []
     const out: Array<{ role: string; what: string }> = []
     for (const r of raw) {

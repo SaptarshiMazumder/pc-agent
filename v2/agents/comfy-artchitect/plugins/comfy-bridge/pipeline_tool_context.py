@@ -48,13 +48,16 @@ class PipelineToolContext:
         builder = StageBuilder(catalog)
         version = str((studio_state.read().get("instance") or {}).get("version") or "")
         catalogue, source, listed = NodeRegistryCache(workspace, KNOWLEDGE_BASE).load(version)
+        # NO BOX RECORD ON COMFY CLOUD: nothing is rented, so no instance version is ever written. The
+        # version is then the node list's own — captured from Comfy Cloud itself. A fixed "0.35.0"
+        # here marked every recipe newer than 0.35 (Qwen Image 2.1, the head swap) "NOT AVAILABLE".
         store = PipelineStore(workspace, builder, WorkflowFileWriter(workspace, catalogue),
                               PipelineWorkflowAssembler(builder, catalogue))
         return cls(
             workspace=Path(workspace), catalog=catalog, task_index=TaskIndex.load(KNOWLEDGE_BASE),
             builder=builder, store=store,
             rules=FamilyRuleValidator(catalog, FamilyStructuralChecks()), catalogue=catalogue,
-            catalogue_source=source, catalogue_version=listed, comfyui_version=NodeRegistryCache.version_key(version) or "0.35.0",
+            catalogue_source=source, catalogue_version=listed, comfyui_version=NodeRegistryCache.version_key(version) or listed,
         )
 
     def cloud_files(self) -> set[str] | None:

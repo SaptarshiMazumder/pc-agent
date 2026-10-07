@@ -3,8 +3,214 @@
   "version": 1,
   "compiled": "2026-10-02",
   "method": "Per task, best first: public leaderboards with open-weights views (Artificial Analysis, arena.ai, OpenArt) as of Sep/Oct 2026, then official claims, then community comparisons. Figures read through a summarising fetch; spot-check before quoting exact numbers. Where no board covers a pair of families the order is marked as inference in `why`.",
+  "task_meta": {
+    "compose-multi-image": {
+      "gloss": "combine several images (put X into scene Y, outfit onto person)",
+      "recipe_tasks": [
+        "edit",
+        "reference"
+      ]
+    },
+    "control": {
+      "gloss": "image guided by edges/depth/pose of another image",
+      "recipe_tasks": [
+        "control"
+      ]
+    },
+    "control-map": {
+      "gloss": "make the edges/depth map a control input needs, from a raw photo or clip; keep a video's motion and layout while restyling it (watercolor, anime, clay, painting style)",
+      "recipe_tasks": [
+        "control-map"
+      ]
+    },
+    "edit": {
+      "gloss": "change an image by instruction",
+      "recipe_tasks": [
+        "edit"
+      ]
+    },
+    "edit-identity": {
+      "gloss": "keep a person/character/product while changing the rest",
+      "recipe_tasks": [
+        "edit",
+        "reference",
+        "style-ref"
+      ]
+    },
+    "flf2v": {
+      "gloss": "video between a first and a last frame: morph or transition from one image to the next, keyframes",
+      "recipe_tasks": [
+        "flf2v",
+        "inpaint"
+      ]
+    },
+    "frame-from-video": {
+      "gloss": "one frame of a clip as an image (to restyle or edit it, then start a video from it)",
+      "recipe_tasks": [
+        "frame-from-video"
+      ]
+    },
+    "i2v": {
+      "gloss": "video starting from an image, animate a photo",
+      "recipe_tasks": [
+        "i2v"
+      ]
+    },
+    "inpaint": {
+      "gloss": "repaint a masked part of an image",
+      "recipe_tasks": [
+        "inpaint"
+      ]
+    },
+    "join-clips": {
+      "gloss": "several clips played as one continuous video: stitch, merge, concatenate segments in order",
+      "recipe_tasks": [
+        "join-clips"
+      ]
+    },
+    "motion-transfer": {
+      "gloss": "make a still character move or dance like the person in a video",
+      "recipe_tasks": [
+        "animate"
+      ]
+    },
+    "multi-angle": {
+      "gloss": "the same subject or character from other camera angles: views, turnaround, angle sheet, front side back",
+      "recipe_tasks": [
+        "multi-angle"
+      ]
+    },
+    "outpaint": {
+      "gloss": "extend an image beyond its borders",
+      "recipe_tasks": [
+        "outpaint"
+      ]
+    },
+    "person-from-reference": {
+      "gloss": "a real person from their photo in new images or videos: an influencer, a model, the same person in a new scene, pose, outfit or angle, photoreal, consistent across shots",
+      "recipe_tasks": [
+        "t2i",
+        "edit"
+      ]
+    },
+    "product-on-model": {
+      "gloss": "a given person wearing or holding a given product (jacket, shirt, watch, headphones, bag): product ad, ad shot, lookbook, try-on, model with product, at an exact size or aspect ratio",
+      "recipe_tasks": [
+        "edit",
+        "reference"
+      ]
+    },
+    "reference-video": {
+      "gloss": "video of a subject/product/sheet read as a reference (not as a frame)",
+      "recipe_tasks": [
+        "reference",
+        "vace",
+        "r2v"
+      ]
+    },
+    "stack-clips": {
+      "gloss": "several clips side by side in one frame: split screen, montage, grid, stacked videos",
+      "recipe_tasks": [
+        "stack-clips"
+      ]
+    },
+    "t2i-360": {
+      "gloss": "360 / equirectangular panorama, skybox, VR environment",
+      "recipe_tasks": [
+        "t2i-360"
+      ]
+    },
+    "t2i-general": {
+      "gloss": "any image from text",
+      "recipe_tasks": [
+        "t2i"
+      ]
+    },
+    "t2i-photoreal": {
+      "gloss": "photographic image from text",
+      "recipe_tasks": [
+        "t2i"
+      ]
+    },
+    "t2i-text": {
+      "gloss": "image with legible text (posters, signs, packaging)",
+      "recipe_tasks": [
+        "t2i"
+      ]
+    },
+    "t2v": {
+      "gloss": "video from text",
+      "recipe_tasks": [
+        "t2v"
+      ]
+    },
+    "talking-head": {
+      "gloss": "a person speaking, talking, saying a line or singing to camera (lip-sync, voice, dialogue)",
+      "recipe_tasks": [
+        "ia2v",
+        "s2v",
+        "id-lora"
+      ]
+    },
+    "upscale-image": {
+      "gloss": "enlarge, sharpen or restore an image: higher resolution, 2K, 4K, 8K",
+      "recipe_tasks": [
+        "upscale",
+        "upscale-image"
+      ]
+    },
+    "upscale-video": {
+      "gloss": "enlarge, sharpen, restore or clean up a video: higher resolution, 1080p, 4K, old or grainy footage",
+      "recipe_tasks": [
+        "upscale",
+        "upscale-video"
+      ]
+    },
+    "video-character-replace": {
+      "gloss": "replace or swap the person/dancer in an existing video with a character, keep the moves and background",
+      "recipe_tasks": [
+        "animate"
+      ]
+    },
+    "video-object-replace": {
+      "gloss": "change, swap or replace one object inside an existing clip or video, leave the rest as it is",
+      "recipe_tasks": [
+        "video-inpaint"
+      ]
+    },
+    "video-with-audio": {
+      "gloss": "video with generated sound",
+      "recipe_tasks": [
+        "t2v",
+        "i2v",
+        "ia2v"
+      ]
+    }
+  },
   "tasks": {
     "t2i-photoreal": [
+      {
+        "family": "z-image",
+        "recipe_hint": "z-image turbo",
+        "why": "Ties Qwen 2512 on Portraits (1142 vs 1143) at a third of the size and ~8 steps: the pick for a photoreal person",
+        "evidence": [
+          {
+            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
+            "date": "2026-09-24",
+            "class": "LEADERBOARD"
+          },
+          {
+            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
+            "date": "2026-02-16",
+            "class": "COMMUNITY"
+          }
+        ],
+        "constraints": [
+          "6B; <16 GB",
+          "narrow style range"
+        ],
+        "recipe": "t2i-turbo"
+      },
       {
         "family": "qwen-image",
         "recipe_hint": "qwen-image t2i-2512",
@@ -31,28 +237,6 @@
           "slow (~20 steps)"
         ],
         "recipe": "t2i-2512"
-      },
-      {
-        "family": "z-image",
-        "recipe_hint": "z-image turbo",
-        "why": "Ties Qwen 2512 on Portraits (1142 vs 1143); fastest strong photoreal model",
-        "evidence": [
-          {
-            "src": "https://arena.ai/leaderboard/text-to-image/portraits",
-            "date": "2026-09-24",
-            "class": "LEADERBOARD"
-          },
-          {
-            "src": "https://diffusiondoodles.substack.com/p/open-source-diffusion-model-summary",
-            "date": "2026-02-16",
-            "class": "COMMUNITY"
-          }
-        ],
-        "constraints": [
-          "6B; <16 GB",
-          "narrow style range"
-        ],
-        "recipe": "t2i-turbo"
       },
       {
         "family": "flux-2",
@@ -1040,8 +1224,7 @@
           }
         ],
         "constraints": [
-          "gated",
-          "<$10M revenue"
+          "gated"
         ],
         "recipe": "i2v-2.5"
       },
@@ -1086,9 +1269,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "<$10M revenue"
-        ],
+        "constraints": [],
         "recipe": "i2v-2.3"
       },
       {
@@ -1143,8 +1324,7 @@
           }
         ],
         "constraints": [
-          "gated",
-          "<$10M revenue"
+          "gated"
         ],
         "recipe": "flf2v-2.5"
       },
@@ -1208,8 +1388,7 @@
           }
         ],
         "constraints": [
-          "gated",
-          "<$10M revenue"
+          "gated"
         ],
         "recipe": "ingredients-2.3"
       }
@@ -1260,8 +1439,7 @@
           }
         ],
         "constraints": [
-          "gated",
-          "<$10M revenue"
+          "gated"
         ],
         "recipe": "ia2v-2.3"
       }
@@ -1300,8 +1478,7 @@
           }
         ],
         "constraints": [
-          "gated",
-          "<$10M revenue"
+          "gated"
         ],
         "recipe": "t2v-2.5"
       },
@@ -1316,9 +1493,7 @@
             "class": "LEADERBOARD"
           }
         ],
-        "constraints": [
-          "<$10M revenue"
-        ],
+        "constraints": [],
         "recipe": "t2v-2.3"
       }
     ],
@@ -1801,6 +1976,38 @@
           }
         ],
         "constraints": []
+      }
+    ],
+    "person-from-reference": [
+      {
+        "family": "qwen-image",
+        "recipe": "t2i-2-1-person-from-reference",
+        "recipe_hint": "route: Qwen Image 2.1 still at the delivery size, with the body read off their photo -> Qwen Image 2.1 BFS head swap with their photo",
+        "why": "ANY job that recreates a real person from their photoreal photo: a still, angles, an ad, a video. The body is read off the photo (ethnicity, skin, body size, bust, belly, age, hair), so the shot is free and the body stays theirs; the head swap puts their own face on it, keeping the shot's gaze and expression. Both render at 1024x1536, fixed (smaller or larger, the face came out long and narrow; a video model resizes its first frame by itself) — no upscale and no realism pass after them: a Z-Image pass changed her face and made the skin plastic, an upscaler added nothing a native render lacks. Every later step reads the swapped still. Tested on Comfy Cloud 2026-10-07: the only route here that kept her face and figure; edits of her photo (Qwen 2511, FLUX.2 klein) changed her face or body.",
+        "evidence": [
+          {
+            "src": "Comfy Cloud test, red-jacket influencer case, 2026-10-07",
+            "date": "2026-10-07",
+            "class": "TESTED"
+          }
+        ],
+        "constraints": [
+          "photoreal people only (illustration and anime keep their own routes)",
+          "a clear face photo; with several, the one closest to the shot's head angle",
+          "the still is 1024x1536, fixed"
+        ],
+        "route": [
+          {
+            "family": "qwen-image",
+            "recipe": "t2i-2-1-person-from-reference",
+            "does": "the shot (outfit, pose, framing, setting, light, gaze, expression) with the person's body as their photo shows it; their photo is read, not rendered from"
+          },
+          {
+            "family": "qwen-image",
+            "recipe": "head-swap-2-1",
+            "does": "target = that still, face = their photo: their face and hair on it, everything else kept"
+          }
+        ]
       }
     ]
   }

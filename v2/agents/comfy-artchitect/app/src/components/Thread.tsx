@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ThreadItem } from '../agentd/chat'
+import { askOf } from '../agentd/chat'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import MessageItem from './MessageItem'
 import { isFoldableStep, StepsGroup } from './StepsGroup'
@@ -147,7 +148,7 @@ export function Thread({
         // daemon stamps by (checkpoint_marker.answer). Read off the thread here so the panel
         // shows as answered after a reload too, not only in the window that pressed the button.
         answered={
-          item.kind === 'tool' && item.name === 'ask_user'
+          askOf(item)
             ? items.slice(i + 1).some((it) => it.kind === 'user')
             : undefined
         }

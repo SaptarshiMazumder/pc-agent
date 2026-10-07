@@ -20,48 +20,9 @@ from pathlib import Path
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
+from knowledge_base_catalog import FOLDER as KNOWLEDGE_BASE
 from pipeline_tool_context import PipelineToolContext
-
-#: Index task id -> the profile `selection` task names that serve it.
-_TASK_FAMILY_TASKS = {
-    "t2i-photoreal": ("t2i",), "t2i-general": ("t2i",), "t2i-text": ("t2i",),
-    "edit": ("edit",), "edit-identity": ("edit", "reference", "style-ref"),
-    "compose-multi-image": ("edit", "reference"),
-    "product-on-model": ("edit", "reference"),
-    "t2v": ("t2v",), "i2v": ("i2v",), "flf2v": ("flf2v", "inpaint"),
-    "reference-video": ("reference", "vace", "r2v"), "talking-head": ("ia2v", "s2v", "id-lora"),
-    "video-with-audio": ("t2v", "i2v", "ia2v"), "upscale-image": ("upscale", "upscale-image"),
-    "upscale-video": ("upscale", "upscale-video"), "control": ("control",), "inpaint": ("inpaint",),
-    "outpaint": ("outpaint",), "join-clips": ("join-clips",), "stack-clips": ("stack-clips",), "multi-angle": ("multi-angle",), "control-map": ("control-map",), "t2i-360": ("t2i-360",), "video-character-replace": ("animate",), "motion-transfer": ("animate",), "video-object-replace": ("video-inpaint",), "frame-from-video": ("frame-from-video",),
-}
-
-
-#: What each task is FOR, in the words a brief uses — so the agent maps "a skybox", "the same
-#: character from other angles", "replace the dancer" to the task that holds the right recipe.
-_TASK_GLOSS = {
-    "t2i-photoreal": "photographic image from text", "t2i-general": "any image from text",
-    "t2i-text": "image with legible text (posters, signs, packaging)",
-    "t2i-360": "360 / equirectangular panorama, skybox, VR environment",
-    "edit": "change an image by instruction", "edit-identity": "keep a person/character/product while changing the rest",
-    "compose-multi-image": "combine several images (put X into scene Y, outfit onto person)",
-    "product-on-model": "a given person wearing or holding a given product (jacket, shirt, watch, headphones, bag): product ad, ad shot, lookbook, try-on, model with product, at an exact size or aspect ratio",
-    "multi-angle": "the same subject or character from other camera angles: views, turnaround, angle sheet, front side back",
-    "control": "image guided by edges/depth/pose of another image",
-    "control-map": "make the edges/depth map a control input needs, from a raw photo or clip; keep a video's motion and layout while restyling it (watercolor, anime, clay, painting style)",
-    "inpaint": "repaint a masked part of an image", "outpaint": "extend an image beyond its borders",
-    "t2v": "video from text", "i2v": "video starting from an image, animate a photo",
-    "flf2v": "video between a first and a last frame: morph or transition from one image to the next, keyframes",
-    "reference-video": "video of a subject/product/sheet read as a reference (not as a frame)",
-    "talking-head": "a person speaking, talking, saying a line or singing to camera (lip-sync, voice, dialogue)", "video-with-audio": "video with generated sound",
-    "video-character-replace": "replace or swap the person/dancer in an existing video with a character, keep the moves and background",
-    "motion-transfer": "make a still character move or dance like the person in a video",
-    "video-object-replace": "change, swap or replace one object inside an existing clip or video, leave the rest as it is",
-    "upscale-image": "enlarge, sharpen or restore an image: higher resolution, 2K, 4K, 8K",
-    "upscale-video": "enlarge, sharpen, restore or clean up a video: higher resolution, 1080p, 4K, old or grainy footage",
-    "frame-from-video": "one frame of a clip as an image (to restyle or edit it, then start a video from it)",
-    "join-clips": "several clips played as one continuous video: stitch, merge, concatenate segments in order",
-    "stack-clips": "several clips side by side in one frame: split screen, montage, grid, stacked videos",
-}
+from task_index import TaskIndex
 
 
 _STOP = frozenset({"the", "and", "with", "for", "from", "into", "that", "this", "make", "want", "need", "please",
@@ -79,30 +40,34 @@ class KbLookupTool(Tool):
     name = "kb_lookup"
     label = "Look up the best model for a job"
     default_retryable = True
-    description = (
-        "YOUR knowledge of the image and video models — use it instead of searching the web or "
-        "recalling. Start with `query` (the job in plain words) to find the tasks and recipes that do it. "
-        "Give `task` to get the free models ranked best-first for that kind of job, each "
-        "with its recipes, why, and what can rule it out (gated download, VRAM, disk). "
-        "Give `family` and `recipe` to see what a stage built from it exposes (ports you can set, "
-        "media it takes and makes, files, prompting guide). Pick the top option that fits the job "
-        "yourself and say your pick in one line — the user should never have to name a model. "
-        "Tasks: " + "; ".join(f"{t} ({_TASK_GLOSS.get(t, '')})" for t in sorted(_TASK_FAMILY_TASKS)) + "."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "The job in the person's own words (e.g. 'replace the dancer "
-                      "in my video with my character') — finds the tasks and recipes that do it. Start here."},
-            "task": {"type": "string", "enum": sorted(_TASK_FAMILY_TASKS),
-                     "description": "The kind of job."},
-            "family": {"type": "string", "description": "A family id, to list its recipes or (with recipe) see one."},
-            "recipe": {"type": "string", "description": "A recipe id within `family`."},
-        },
-    }
 
-    def __init__(self, context: Callable[[], PipelineToolContext] | None = None) -> None:
+    def __init__(self, context: Callable[[], PipelineToolContext] | None = None,
+                 tasks: TaskIndex | None = None) -> None:
         self._context = context or (lambda: PipelineToolContext.for_workspace(Path(current_workspace(".") or ".")))
+        # The task list the agent is told about and may ask for comes from the knowledge base's own
+        # task index, so a task added there is offered here without touching this file.
+        index = tasks or TaskIndex.load(KNOWLEDGE_BASE)
+        ids = index.task_ids if index else []
+        self.description = (
+            "YOUR knowledge of the image and video models — use it instead of searching the web or "
+            "recalling. Start with `query` (the job in plain words) to find the tasks and recipes that do it. "
+            "Give `task` to get the free models ranked best-first for that kind of job, each "
+            "with its recipes, why, and what can rule it out (gated download, VRAM, disk). "
+            "Give `family` and `recipe` to see what a stage built from it exposes (ports you can set, "
+            "media it takes and makes, files, prompting guide). Pick the top option that fits the job "
+            "yourself and say your pick in one line — the user should never have to name a model. "
+            "Tasks: " + "; ".join(f"{t} ({index.gloss(t)})" for t in ids) + "."
+        )
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The job in the person's own words (e.g. 'replace the "
+                          "dancer in my video with my character') — finds the tasks and recipes that do it. Start here."},
+                "task": {"type": "string", "enum": ids, "description": "The kind of job."},
+                "family": {"type": "string", "description": "A family id, to list its recipes or (with recipe) see one."},
+                "recipe": {"type": "string", "description": "A recipe id within `family`."},
+            },
+        }
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -121,7 +86,7 @@ class KbLookupTool(Tool):
                 text = self._task(ctx, task)
             else:
                 text = ("families: " + ", ".join(sorted(ctx.catalog.families))
-                        + "\ntasks: " + ", ".join(sorted(_TASK_FAMILY_TASKS))
+                        + "\ntasks: " + ", ".join(ctx.task_index.task_ids if ctx.task_index else [])
                         + "\nCall with `task` to get the ranked picks.")
             skipped = "".join(f"\n! family '{name}' was skipped (it could not be read: {why[:160]}); every other "
                               "family works" for name, why in ctx.catalog.broken.items())
@@ -137,12 +102,13 @@ class KbLookupTool(Tool):
         framing guessed."""
         words = {_stem(w) for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2 and w not in _STOP}
         scored = []
-        for task in _TASK_FAMILY_TASKS:
-            blob = [task.replace("-", " "), _TASK_GLOSS.get(task, "")]
-            for c in (ctx.task_index.ranked(task) if ctx.task_index else []):
+        index = ctx.task_index
+        for task in (index.task_ids if index else []):
+            blob = [task.replace("-", " "), index.gloss(task)]
+            for c in index.ranked(task):
                 blob += [c.why, c.recipe_hint, " ".join(map(str, c.constraints))]
             for (fam_id, _rid), r in ctx.catalog.recipes.items():
-                if r.task in _TASK_FAMILY_TASKS[task]:
+                if r.task in index.recipe_tasks(task):
                     blob.append(str(r.meta.get("variant", "")))
             own = {_stem(w) for w in re.findall(r"[a-z0-9]+", " ".join(blob[:2]).lower())}
             rest = {_stem(w) for w in re.findall(r"[a-z0-9]+", " ".join(blob[2:]).lower())}
@@ -155,7 +121,7 @@ class KbLookupTool(Tool):
         for n, task in sorted(scored, key=lambda x: (-x[0], x[1]))[:5]:
             top = (ctx.task_index.ranked(task) or [None])[0] if ctx.task_index else None
             pick = f" — top pick: {top.family}/{top.recipe}" if top and top.recipe else ""
-            lines.append(f"  {task}: {_TASK_GLOSS.get(task, '')}{pick}")
+            lines.append(f"  {task}: {index.gloss(task)}{pick}")
         lines.append("Then kb_lookup task=<one of these> for the ranked picks, and family+recipe for the detail.")
         return "\n".join(lines)
 
@@ -176,7 +142,7 @@ class KbLookupTool(Tool):
         return kept
 
     def _task(self, ctx: PipelineToolContext, task: str) -> str:
-        wanted = _TASK_FAMILY_TASKS.get(task, (task,))
+        wanted = ctx.task_index.recipe_tasks(task) if ctx.task_index else (task,)
         lines = [f"best free models for {task}, best first:"]
         ranked = ctx.task_index.ranked(task) if ctx.task_index else []
         cloud = ctx.cloud_files()
@@ -247,7 +213,7 @@ class KbLookupTool(Tool):
             return f"no family '{family}'. Families: {', '.join(sorted(ctx.catalog.families))}"
         lines = [f"{fam.name} ({fam.id})"]
         for s in fam.selection:
-            if task and str(s.get("task")) not in _TASK_FAMILY_TASKS.get(task, (task,)):
+            if task and str(s.get("task")) not in (ctx.task_index.recipe_tasks(task) if ctx.task_index else (task,)):
                 continue
             status = f" [{s['status']}]" if s.get("status") else ""
             lines.append(f"  {s.get('task')}: {s.get('recipe') or '(none)'}{status} — "

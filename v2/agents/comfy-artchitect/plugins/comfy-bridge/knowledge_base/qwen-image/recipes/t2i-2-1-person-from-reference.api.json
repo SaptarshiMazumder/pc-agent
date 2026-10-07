@@ -1,0 +1,257 @@
+{
+  "recipe": {
+    "id": "t2i-2-1-person-from-reference",
+    "task": "t2i",
+    "variant": "Qwen-Image-2.1 int8 t2i: the person's body read off their photo by its own Qwen3-VL encoder (a form: ethnicity, skin, age, body size, bust, belly, arms, hair, eyewear, piercings), then the shot as written. The photo is never an image input of the render, so the shot (outfit, pose, framing) is free while the body stays theirs.",
+    "from_template": "composed: image_qwen_image_2_1_t2i (t2i, unchanged; ResolutionSelector inlined) + core TextGenerate on the same Qwen3-VL encoder (the node the official 2.1 template's prompt-enhancer branch uses) + StringConcatenate",
+    "min_comfyui": "0.37.2",
+    "confidence": "composed",
+    "ports": {
+      "scene": {
+        "node": "22",
+        "input": "value",
+        "note": "THE SHOT, written in full: clothing, pose, framing, camera position and angle, setting, light, expression and where the eyes look. Not the person's looks: the describer reads those off the photo and its form goes first."
+      },
+      "describe": {
+        "node": "23",
+        "input": "value",
+        "note": "the describer's form. It reads the BODY only and never sees the shot, so the photo's clothes and pose cannot leak in. A form with fixed options, not free prose: asked freely, the vision model called a curvy woman 'slender' (tested); made to pick from slim / average / curvy / full-figured / plus-size it answered truly. It outputs the filled form itself, which goes BEFORE the shot. Both alternatives failed in tests: the form AFTER the shot drowned the outfit and framing, and turned into a sentence (even a fixed template) it silently dropped the ethnicity, so the render came out as someone else. Add a line only for a body detail it must keep."
+      },
+      "width": {
+        "node": "6",
+        "input": "width",
+        "note": "FIXED at 1024x1536 — the size of every good result. Not the video's size, not 2K: a video model resizes its first frame to the video by itself."
+      },
+      "height": {
+        "node": "6",
+        "input": "height",
+        "note": "FIXED at 1024x1536 — the size of every good result. Not the video's size, not 2K: a video model resizes its first frame to the video by itself."
+      },
+      "seed": {
+        "node": "7",
+        "input": "seed"
+      },
+      "steps": {
+        "node": "7",
+        "input": "steps",
+        "note": "30 as tested; the template's 25, official 40-50"
+      },
+      "describe_seed": {
+        "node": "25",
+        "input": "sampling_mode.seed"
+      }
+    },
+    "inputs": {
+      "reference": {
+        "node": "20",
+        "input": "image",
+        "type": "IMAGE",
+        "note": "the person's own photo: read by the describer only, never rendered from"
+      }
+    },
+    "outputs": {
+      "image": {
+        "node": "10",
+        "type": "IMAGE"
+      }
+    },
+    "files": [
+      "qwen_image_2.1_int8_convrot.safetensors",
+      "qwen3vl_8b_int8_convrot.safetensors",
+      "qwen_image_2.1_vae_bf16.safetensors"
+    ],
+    "packs": [],
+    "defaults_note": "Qwen Image 2.1 t2i (30 steps, cfg 1, euler/simple). The describer runs at temperature 0.1 on the same encoder so the same photo reads the same way; node 24 puts its form before the shot and node 26 shows the full prompt. WHY QWEN 2.1, NOT Z-IMAGE TURBO: on the same prompt and 4 seeds each (2026-10-07), Qwen 2.1 drew her curvy figure, ethnicity and hair 4/4; Z-Image Turbo drew a slim or average body 0/4 and turned South Asian into East Asian when the hair read 'straight bob'. Render it at the delivery size: the swap keeps it, and no upscale or realism pass follows. FIXED: 1024x1536, seed 777, no LoRA — set only the shot.",
+    "verify": [
+      "Ran on Comfy Cloud (ComfyUI 0.38.2) on 2026-10-07: 4/4 seeds kept the described body, ethnicity, hair, glasses and the shot's outfit and framing."
+    ],
+    "family": "qwen-image",
+    "fixed": {
+      "ports": [
+        "scene"
+      ],
+      "why": "it is the workflow tested on Comfy Cloud (2026-10-07): with an added LoRA the body came out slim twice; as it is, it drew the person's figure 4 times out of 4; and at 1024x1536 — smaller (a 480x864 'video size') or larger (2K) the face came out long and narrow"
+    }
+  },
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "QwenImage21Cache",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "device": "auto",
+        "dtype": "default"
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      }
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+      }
+    },
+    "20": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "@reference"
+      }
+    },
+    "22": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "A natural photo of this person standing outdoors in soft daylight, waist-up, looking at the camera."
+      }
+    },
+    "23": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "Fill in this form about the person in the photo. Answer every line with the option that is TRUE for this person, judging from what is visible; do not soften or flatter.\nEthnicity:\nMan or woman:\nSkin tone and undertone:\nApparent age (a number):\nBody size (exactly one: slim / average / curvy / full-figured / plus-size):\nBust or chest (exactly one: small / medium / large / very large):\nWaist and belly (exactly one: flat / soft / rounded):\nArms and shoulders (exactly one: thin / average / soft and full):\nFace shape:\nHair (colour, length, texture, cut, fringe):\nEyewear:\nPiercings:\nMarks:\n\nOutput only the filled-in form, one line per field, nothing else."
+      }
+    },
+    "25": {
+      "class_type": "TextGenerate",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "image": [
+          "20",
+          0
+        ],
+        "prompt": [
+          "23",
+          0
+        ],
+        "max_length": 600,
+        "sampling_mode": "on",
+        "sampling_mode.temperature": 0.1,
+        "sampling_mode.top_k": 64,
+        "sampling_mode.top_p": 0.95,
+        "sampling_mode.min_p": 0.05,
+        "sampling_mode.repetition_penalty": 1.05,
+        "sampling_mode.seed": 0,
+        "sampling_mode.presence_penalty": 0.0,
+        "thinking": false,
+        "use_default_template": true,
+        "mtp": "auto"
+      }
+    },
+    "24": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "25",
+          0
+        ],
+        "string_b": [
+          "22",
+          0
+        ],
+        "delimiter": "\n\n"
+      }
+    },
+    "26": {
+      "class_type": "PreviewAny",
+      "inputs": {
+        "source": [
+          "24",
+          0
+        ]
+      }
+    },
+    "4": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "prompt": [
+          "24",
+          0
+        ],
+        "negative_prompt": "",
+        "vae": [
+          "8",
+          0
+        ],
+        "resolution": 1024
+      }
+    },
+    "6": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1024,
+        "height": 1536,
+        "batch_size": 1
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "seed": 777,
+        "steps": 30,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "4",
+          1
+        ],
+        "latent_image": [
+          "6",
+          0
+        ],
+        "denoise": 1.0
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "8",
+          0
+        ]
+      }
+    },
+    "10": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "images": [
+          "9",
+          0
+        ],
+        "filename_prefix": "person-from-reference"
+      }
+    }
+  }
+}

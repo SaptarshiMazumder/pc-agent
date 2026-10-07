@@ -101,6 +101,10 @@ def _tool_spec(tool) -> dict:
         # these a sandboxed tool's "retry me when my attempt times out" never left the child.
         "default_retry_on_timeout": bool(getattr(tool, "default_retry_on_timeout", False)),
         "default_max_retries": getattr(tool, "default_max_retries", None),
+        # A CHECKPOINT TOOL (it puts a question on screen: the daemon stamps it, keeps its card and
+        # ends the turn). A flag the daemon reads off the tool — lost here, a sandboxed checkpoint
+        # (comfy-bridge's pipeline_present) was just another tool.
+        "checkpoint": bool(getattr(tool, "checkpoint", False)),
     }
 
 

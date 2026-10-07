@@ -1,8 +1,8 @@
 """pipeline_present — the approval card, built from the design that was CHECKED, not from memory.
 
-The end of Phase 1. Refuses unless the pipeline holds (pipeline_validate). Then it assembles the
-arguments for `ask_user` — the card the window renders and the run gate waits on — from the stages
-themselves:
+The end of Phase 1. Refuses unless the pipeline holds (pipeline_validate). Then it builds the card
+the window renders and the run gate waits on — from the stages themselves — and SHOWS it: this tool
+is the checkpoint (`checkpoint = True`; its `details["ask"]` is the card, in ask_user's shape):
 
     workflows   one row per stage: the agent's plain note on what it makes, and the model's short name
     references  the files the person adds (user slots), with what each must show
@@ -10,14 +10,13 @@ themselves:
     title       the job, the size it delivers (or what that size follows, when no stage sets it),
                 and the download size
 
-The agent passes them to ask_user unchanged and ends its turn. Nothing is downloaded or rented
-before the answer: comfy_run refuses while the card is unanswered, and refuses a card that is not
-this one (studio_state.checkpoint_answered, PipelineCard).
+The turn ends when it returns (the engine stops after a shown checkpoint). Nothing is downloaded or
+rented before the answer: setup and runs refuse while the card is unanswered, when the answer asks
+for a change ("Instead: …"), and for a card that is not this one (studio_state.checkpoint_answered).
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -37,14 +36,19 @@ CARD_ROWS = 8
 
 class PipelinePresentTool(Tool):
     name = "pipeline_present"
-    label = "Prepare the approval card"
+    label = "Show the approval card"
     default_retryable = True
+    #: THE CARD IS SHOWN BY THIS TOOL — it is the checkpoint (the daemon stamps it and ends the
+    #: turn, as for ask_user). The model used to copy the card into ask_user by hand: it forgot,
+    #: curled a quote in a 3,000-character prompt (refused as "a different card"), or wrote "the
+    #: card is open" with nothing shown. Nothing to copy, nothing to get wrong.
+    checkpoint = True
     description = (
-        "When the design holds and every ? is answered: builds the approval card — every stage with "
-        "its model, the files the person adds, each stage's full prompt, what it delivers and downloads. "
-        "Give `answers`: for each ? in the report (q1, q2, …) one line on why the design is right as it "
-        "is — or fix the design instead and validate again. Call ask_user with EXACTLY the arguments "
-        "it returns, then end your turn."
+        "When the design holds and every ? is answered: shows the person the approval card — every "
+        "stage with its model, the files the person adds, each stage's full prompt, what it delivers "
+        "and what Comfy Cloud imports. Give `answers`: for each ? in the report (q1, q2, …) one line "
+        "on why the design is right as it is — or fix the design instead and validate again. The card "
+        "is on screen when this returns; the person's answer is their next message."
     )
     parameters = {
         "type": "object",
@@ -91,13 +95,13 @@ class PipelinePresentTool(Tool):
             args = self.ask_arguments(ctx, pipeline, report, str(params.get("why") or "").strip())
             studio_state.record_card(args, [s.name for s in pipeline.stages])  # the gate checks the person saw THIS
             answered = "".join(f"\n  q{i}: {given[f'q{i}']}" for i in range(1, len(report.questions) + 1))
+            steps = "".join(f"\n  {w['name']} — {w['does']}" for w in args["workflows"])
             return ToolResult.text(
-                "Call ask_user with exactly these arguments — copy them character for character, title "
-                "included: setup checks the person approved THIS card, and a reworded one (even a nicer "
-                "title) is refused, so they would be asked twice. Then end your turn:\n"
-                + json.dumps(args, indent=1, ensure_ascii=False)
+                f"The approval card is on screen: {args['title']}{steps}\n"
+                "The person's answer is their next message — a yes (with any prompt they edited), or "
+                "'Instead: …', which is a change to the design."
                 + (f"\n\nyour answers to the design's ? findings:{answered}" if answered else ""),
-                details={"ask_user": args},
+                details={"ask": args},
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_present failed: {type(e).__name__}: {e}", is_error=True)

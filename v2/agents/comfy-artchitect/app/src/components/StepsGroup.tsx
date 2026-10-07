@@ -17,6 +17,7 @@ import { AlertTriangle, Check, ChevronDown, ChevronRight, Loader2 } from 'lucide
 import { useState } from 'react'
 
 import type { ThreadItem } from '../agentd/chat'
+import { askOf } from '../agentd/chat'
 import MessageItem from './MessageItem'
 import { milestoneFor } from './milestones'
 
@@ -25,7 +26,7 @@ type ToolItem = Extract<ThreadItem, { kind: 'tool' }>
 /** A tool call that renders as a plain log row — the only kind this folds. */
 export function isFoldableStep(item: ThreadItem): boolean {
   if (item.kind !== 'tool') return false
-  if (item.name === 'ask_user' && item.done && !item.isError) return false
+  if (askOf(item)) return false
   if (item.name === 'update_plan' && Array.isArray((item.args as { plan?: unknown }).plan)) return false
   if (item.done && milestoneFor(item.name, item.args, item.result, item.isError)) return false
   return true

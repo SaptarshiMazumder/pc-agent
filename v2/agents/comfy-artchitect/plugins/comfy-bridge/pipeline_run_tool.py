@@ -37,6 +37,10 @@ class PipelineRunTool(Tool):
     name = "pipeline_run"
     label = "Run the next step"
     default_retryable = False
+    # THE CALL BUDGET FOLLOWS THIS. The sandbox grants 32 requests per 120 s of declared time; one
+    # call uploads, polls a render for up to 100 s (~23 polls) and downloads, and a long render
+    # left the download without a request. 240 s doubles the budget; the poll still stops at 100 s.
+    default_timeout_sec = 240.0
     description = (
         "Run the pipeline's next stage (or the `stage` named — after a change, to redo it and what "
         "follows). It hands earlier stages' outputs to this one, renders, downloads the result into "
@@ -77,7 +81,16 @@ class PipelineRunTool(Tool):
                 return ToolResult.text(f"no stage '{name}'", is_error=True)
 
             pending = record.stage(name)
-            if record.status(name) == RENDERING and pending.get("prompt_id") and not asked:
+            # A STAGE THAT IS RENDERING IS COLLECTED, NEVER SUBMITTED AGAIN — however it is called.
+            # "call pipeline_run again to collect it" was read as pipeline_run(stage=…), which this
+            # took for "re-run": one H3 video was submitted five times, each billed on the
+            # person's plan. A re-run of a rendering stage waits for its render to end.
+            if record.status(name) == RENDERING:
+                if not pending.get("prompt_id"):
+                    return ToolResult.text(
+                        f"stage {name} was submitted but its job id was not recorded, so it is not submitted "
+                        "again: pipeline_status shows the job; when it has finished, pipeline_run brings it in.",
+                        is_error=True)
                 res = await self._run_status(pending["prompt_id"], abort, on_update)
             else:
                 problem, fed = self._hand_over(ctx, pipeline, stage, record)
@@ -93,7 +106,9 @@ class PipelineRunTool(Tool):
             if text.startswith("still rendering"):
                 m = _PROMPT_ID.search(text)
                 record.rendering(name, (m.group(1) or m.group(2)) if m else "")
-                return ToolResult.text(f"stage {name} is still rendering — call pipeline_run again to collect it.")
+                return ToolResult.text(
+                    f"stage {name} is still rendering (one job on Comfy Cloud). pipeline_run collects it — "
+                    "calling it again only checks on this render, it never starts another.")
             return await self._collect(ctx, pipeline, stage, record, res, abort, on_update)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_run failed: {type(e).__name__}: {e}", is_error=True)
@@ -144,8 +159,13 @@ class PipelineRunTool(Tool):
             return ToolResult.text(f"stage {stage.name} ran but wrote no output files.", is_error=True)
         dl = await self._download(wanted, abort, on_update)
         if dl.is_error:
-            return ToolResult.text(f"stage {stage.name} ran, but its outputs did not come back:\n"
-                                   + dl.content[0].text, is_error=True)
+            # THE RENDER IS KEPT. Recorded as nothing, the stage read as never run and the retry
+            # submitted it again — a second FLUX.2 job, billed, for a file already rendered.
+            # Kept as its job, the next call fetches the finished job and only downloads.
+            record.rendering(stage.name, str(entry.get("prompt_id") or ""))
+            return ToolResult.text(f"stage {stage.name} rendered, but its outputs did not come back:\n"
+                                   + dl.content[0].text + "\nThe render is kept: pipeline_run again "
+                                   "downloads it, it does not render again.", is_error=True)
         saved = list((dl.details or {}).get("saved") or [])
         by_name = {Path(p).name: p for p in saved}
         recorded = {

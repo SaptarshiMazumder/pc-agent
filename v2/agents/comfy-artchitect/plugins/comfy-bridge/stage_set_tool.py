@@ -29,16 +29,17 @@ class StageSetTool(Tool):
     description = (
         "Set one or more ports of a pipeline stage (prompt, negative, width, height, length, steps, "
         "seed, …: kb_lookup shows a recipe's ports) and/or its LoRAs, and re-check the whole design. "
-        "Only the values change; the stage's wiring stays the recipe's. `loras` replaces the stage's "
-        "whole LoRA list ([] removes them); `models` replaces its list of model files from elsewhere "
-        "(a checkpoint the `checkpoint` port swaps in)."
+        "Only the values change; the stage's wiring stays the recipe's. A port set to null goes back "
+        "to the recipe's own value. `loras` replaces the stage's whole LoRA list ([] removes them); "
+        "`models` replaces its list of model files from elsewhere (a checkpoint the `checkpoint` port "
+        "swaps in)."
     )
     parameters = {
         "type": "object",
         "required": ["stage"],
         "properties": {
             "stage": {"type": "string"},
-            "ports": {"type": "object", "description": "{port: value}"},
+            "ports": {"type": "object", "description": "{port: value}; null puts a port back to the recipe's value"},
             "loras": LORAS_SCHEMA,
             "models": MODELS_SCHEMA,
         },
@@ -73,7 +74,13 @@ class StageSetTool(Tool):
                         new["models"] = ", ".join(m.name for m in stage.models) or "none"
                 except ValueError as e:
                     return ToolResult.text(f"stage {stage.name}: {e}", is_error=True)
-                stage.ports.update({k: v for k, v in new.items() if k not in ("loras", "models")})
+                for k, v in new.items():
+                    if k in ("loras", "models"):
+                        continue
+                    if v is None:  # back to the recipe's own value (a fixed recipe's tested one)
+                        stage.ports.pop(k, None)
+                    else:
+                        stage.ports[k] = v
                 try:
                     ctx.store.save(pipeline, only={stage.name})
                 except StageBuildError as e:

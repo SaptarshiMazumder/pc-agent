@@ -35,6 +35,7 @@ import { Check } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ThreadItem } from '../agentd/chat'
+import { askOf } from '../agentd/chat'
 
 type ToolItem = Extract<ThreadItem, { kind: 'tool' }>
 
@@ -95,7 +96,7 @@ export function AskPanel({
   answered: boolean
   onDecide?: (reply: string) => void
 }) {
-  const args = item.args as Record<string, unknown>
+  const args = askOf(item) || {}
   const title = text(args.title)
   const services = rows<Service>(args.services, (r) =>
     text(r.name)

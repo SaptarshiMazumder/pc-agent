@@ -803,12 +803,18 @@ async def _execute_tool_calls(
                 getattr(result, "artifacts", None), base=current_workspace() or None
             )
         ]
+        # A CHECKPOINT'S QUESTION is kept with its message: the window draws the card from it,
+        # on reload as live. Only a checkpoint tool's, so no other record changes.
+        details = getattr(result, "details", None)
+        ask = (details.get("ask") if isinstance(details, dict) and isinstance(details.get("ask"), dict)
+               and getattr(_unwrap_tool(tool), "checkpoint", False) and not result.is_error else None)
         msg = ToolResultMessage(
             tool_call_id=call.id,
             tool_name=call.name,
             content=result.content,
             is_error=result.is_error,
             artifacts=declared,
+            ask=ask,
         )
         results[index] = msg
         rtext = "".join(getattr(b, "text", "") for b in result.content)

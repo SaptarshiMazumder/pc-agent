@@ -68,11 +68,44 @@ class ComfyCloudCatalogue:
 
     @staticmethod
     def file_name(asset: dict) -> str:
-        """The name a workflow names the asset by — the editor's own rule."""
+        """The name a DESIGN names the asset by — the editor's own rule, and the name the knowledge
+        base's recipes use. Not always the name Comfy Cloud loads: see stored_names."""
         for meta in (asset.get("user_metadata") or {}, asset.get("metadata") or {}):
             if isinstance(meta.get("filename"), str) and meta["filename"]:
                 return meta["filename"]
         return str(asset.get("name") or "")
+
+    def stored_names(self) -> dict[str, str]:
+        """{name a design uses: name Comfy Cloud loads} for each imported file whose two names differ.
+
+        A Hugging Face import is STORED as '<owner>__<repo>__<file>'; its display name is the plain
+        file name. Comfy Cloud loaded the display name, then (2026-10-07) stopped: a run naming the
+        BFS LoRA by 'bfs_head_v1.1_qwen_2.1.safetensors' went through with the LoRA not applied — the
+        head swap came out as a crunched, unswapped picture — and the next was refused outright,
+        'not in list'. The stored name loads."""
+        out: dict[str, str] = {}
+        for asset in self.own_assets():
+            stored, shown = str(asset.get("name") or ""), self.file_name(asset)
+            if stored and shown and stored != shown:
+                out[shown] = stored
+        return out
+
+    @staticmethod
+    def with_stored_names(prompt: dict, names: dict[str, str]) -> dict:
+        """Pure: `prompt` (API format) with every model-loader field that names an imported file by
+        its display name renamed to the name Comfy Cloud loads. Other fields are never touched."""
+        if not names:
+            return prompt
+        fields = {f for fs in ModelReadiness.DIRECTORY_FIELDS.values() for f in fs}
+        out: dict = {}
+        for nid, node in prompt.items():
+            inputs = node.get("inputs") if isinstance(node, dict) else None
+            if isinstance(inputs, dict) and any(k in fields and isinstance(v, str) and v in names
+                                                for k, v in inputs.items()):
+                node = {**node, "inputs": {k: names[v] if k in fields and isinstance(v, str) and v in names else v
+                                           for k, v in inputs.items()}}
+            out[nid] = node
+        return out
 
     @staticmethod
     def merge(object_info: dict, own: dict[str, list[str]]) -> dict:
