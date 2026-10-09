@@ -54,6 +54,7 @@ class CampaignViewService:
             "campaign_id": campaign_id,
             "recipe_key": checklist.recipe_key,
             "recipe_title": recipe.title,
+            "recipe_name": recipe.name,
             "product": {"name": profile.name, "category": profile.category, "photos": list(profile.photos)},
             "cast": member.to_dict() if member else None,
             "brief": brief,
@@ -118,7 +119,10 @@ class CampaignViewService:
         return [
             {
                 "key": r.key,
+                "name": r.name,
                 "title": r.title,
+                "aspect_ratio": r.aspect_ratio,
+                "budget_usd": r.budget_usd,
                 "covers": r.covers,
                 "steps": [{"id": s.id, "title": s.title, "action": s.action} for s in r.steps],
                 "needs_cast": r.needs_cast(),

@@ -1,28 +1,34 @@
-/* The studio — the right-hand side of a chat: the campaign this chat is on, its steps, and what the
- * cast member and the product look like.
+/* The studio — the left of a chat (the chat is on its right): the campaign this chat is on, as a
+ * pipeline of stages, the stage on screen, and how it hands on to the next.
  *
- * The stepper is the campaign's checklist (the recipe's steps plus any the user added); any step
- * opens, any time. It opens on the current step (the first not done) and follows it as the
- * campaign moves, unless the user opened another. */
+ *   CampaignHeader    what it is, how runs are approved, the budget
+ *   StagePipeline     every stage, its pick, and "All generations"
+ *   StepPanel         the stage on screen: its results | the form that makes more
+ *   CarryForwardBar   its pick, and the next stage
+ *
+ * A chat with no campaign yet shows the new-ad setup (or a post chat's collections, or its post).
+ * The pipeline opens on the current stage (the first not done) and follows it as the campaign
+ * moves, unless the user opened another. */
 
 import type { AgentdClient } from '@agentd/client'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { listModels, money, setApproval, type ModelLists } from '../agentd/campaigns'
+import { listModels, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { AddProductStill } from './AddProductStill'
+import { CampaignHeader } from './CampaignHeader'
+import { CarryForwardBar } from './CarryForwardBar'
+import { CastProposals } from './CastProposals'
 import { DoneView } from './DoneView'
 import { GenerationsTab } from './GenerationsTab'
-import { MediaTileActions } from './MediaTileActions'
-import { StepPanel } from './StepPanel'
-import { StepStepper } from './StepStepper'
-import { CastProposals } from './CastProposals'
+import { NewAdSetup } from './NewAdSetup'
 import { PostOpening } from './PostOpening'
 import { PostPanel } from './PostPanel'
-import { StartPanel } from './StartPanel'
-import { usePost } from './usePost'
+import { StagePipeline } from './StagePipeline'
+import { StepPanel } from './StepPanel'
 import { useCampaign } from './useCampaign'
+import { usePost } from './usePost'
 
 const NO_JOBS: Record<string, { tool: string; text: string }> = {}
 
@@ -32,6 +38,7 @@ export function Studio({
   session,
   running,
   onAnswer,
+  onFiles,
 }: {
   client: AgentdClient | null
   /** The socket is open — the model lists are (re)loaded when it is. */
@@ -39,9 +46,10 @@ export function Studio({
   session: string
   running: boolean
   onAnswer: (text: string) => void
+  /** Attach files to the chat's next message (a new ad's product photos). */
+  onFiles: (files: FileList | File[]) => void
 }) {
   const tick = useApp((s) => s.studioTick)
-  const bump = useApp((s) => s.bumpStudio)
   const pinned = useApp((s) => s.pinned[session] || '')
   // The selector returns the stored object itself (or undefined) — never a fresh `{}`, which
   // zustand would see as a change on every render and loop on.
@@ -52,7 +60,7 @@ export function Studio({
   const pinnedPost = useApp((s) => s.pinnedPost[session] || '')
   const { post, media: postMedia, progress: postProgress, error: postError } = usePost(client, session, pinnedPost)
   const working = Object.values(jobs)
-  const [tab, setTab] = useState<'steps' | 'generations'>('steps')
+  const [all, setAll] = useState(false)
   const [shown, setShown] = useState('')
 
   /* THE MODELS, loaded once: the agent's specs. Said, not swallowed, when they cannot be read —
@@ -71,14 +79,21 @@ export function Studio({
       .catch((e) => setListsError(String(e?.message || e)))
   }, [client, connected, lists, tick])
 
-  // A different campaign, or the campaign moving on, shows its current step again.
+  // A different campaign, or the campaign moving on, shows its current stage again.
   useEffect(() => setShown(''), [campaign?.campaign_id, campaign?.current])
-  // A run the agent proposed opens its step, where the user approves it.
+  // A run the agent proposed opens its stage, where the user approves it.
   const proposedStep = campaign?.steps.find((s) => s.proposal?.tool)?.id || ''
   useEffect(() => {
-    if (proposedStep) setShown(proposedStep)
+    if (proposedStep) {
+      setShown(proposedStep)
+      setAll(false)
+    }
   }, [proposedStep])
 
+  const show = (id: string) => {
+    setShown(id)
+    setAll(false)
+  }
   const step = campaign
     ? campaign.steps.find((s) => s.id === (shown || campaign.current)) || campaign.steps[campaign.steps.length - 1]
     : undefined
@@ -105,69 +120,32 @@ export function Studio({
       ) : postChat && !campaign ? (
         <PostOpening client={client} session={session} />
       ) : !campaign ? (
-        !loading && <StartPanel client={client} session={session} />
+        !loading && <NewAdSetup client={client} session={session} onFiles={onFiles} />
       ) : (
         <>
-          <header className="studio-head">
-            <div className="studio-title">
-              <span className="eyebrow-red">{campaign.recipe_title || campaign.recipe_key}</span>
-              <h2>{campaign.product.name}</h2>
-              <span className="studio-sub">
-                {campaign.campaign_id}
-                {campaign.cast ? ` · ${campaign.cast.name}` : ''}
-              </span>
-            </div>
-            <div className="approval-switch" role="radiogroup" aria-label="Model approval">
-              <span className="strip-label">Model approval</span>
-              {(['ask', 'auto'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  role="radio"
-                  aria-checked={campaign.approval === mode}
-                  className={`filter-chip${campaign.approval === mode ? ' on' : ''}`}
-                  disabled={!client}
-                  onClick={() => client && void setApproval(client, campaign.campaign_id, mode).then(bump)}
-                  title={
-                    mode === 'ask'
-                      ? 'Nothing is generated until you press Generate here — that click approves its model'
-                      : 'The agent generates when you ask it in the chat'
-                  }
-                >
-                  {mode === 'ask' ? 'Ask me' : 'Auto'}
-                </button>
-              ))}
-            </div>
-            <div className="studio-money" title="Spent so far / the campaign's budget">
-              <span className="money-now">{money(campaign.spent_usd)}</span>
-              <span className="money-of">of {money(campaign.budget_usd)}</span>
-            </div>
-          </header>
-
-          <div className="studio-tabs" role="tablist">
-            <button className={`studio-tab${tab === 'steps' ? ' on' : ''}`} onClick={() => setTab('steps')}>
-              Steps
-            </button>
-            <button className={`studio-tab${tab === 'generations' ? ' on' : ''}`} onClick={() => setTab('generations')}>
-              Generations
-            </button>
-          </div>
+          <CampaignHeader client={client} campaign={campaign} media={media} />
+          <StagePipeline
+            steps={campaign.steps}
+            current={campaign.current}
+            shown={step?.id || ''}
+            all={all}
+            media={media}
+            onShow={show}
+            onAll={() => setAll(true)}
+          />
+          <AddProductStill client={client} campaign={campaign.campaign_id} onAdded={show} />
 
           {listsError && (
             <div className="studio-error">
-              Could not load the model lists, so the model dropdowns are missing: {listsError}. If the daemon was not restarted after
-              Ad Studio was updated, restart it.
+              Could not load the model lists, so the model dropdowns are missing: {listsError}. If the daemon was not restarted after Ad Studio was
+              updated, restart it.
             </div>
           )}
 
-          {tab === 'generations' ? (
+          {all ? (
             <GenerationsTab client={client} campaign={campaign.campaign_id} />
           ) : (
             <>
-              <div className="steps-bar">
-                <StepStepper steps={campaign.steps} current={campaign.current} shown={step?.id || ''} onShow={setShown} />
-              </div>
-              <AddProductStill client={client} campaign={campaign.campaign_id} onAdded={setShown} />
-              {!campaign.current && <DoneView campaign={campaign} media={media} />}
               {step && (
                 <StepPanel
                   key={`${campaign.campaign_id}:${step.id}`}
@@ -178,37 +156,12 @@ export function Studio({
                   lists={lists}
                   busy={running}
                   onSend={onAnswer}
-                  onShow={setShown}
                 />
               )}
+              {!campaign.current && <DoneView campaign={campaign} media={media} />}
+              {step && <CarryForwardBar campaign={campaign} step={step} media={media} onShow={show} />}
             </>
           )}
-
-          <div className="studio-strip">
-            {campaign.cast && (
-              <div className="strip-card">
-                <span className="strip-label">Cast · {campaign.cast.name}</span>
-                <div className="sheet-box">
-                  <img src={media(campaign.cast.sheet)} alt={campaign.cast.name} />
-                  <MediaTileActions
-                    item={{ path: campaign.cast.sheet, kind: 'image', campaign: campaign.campaign_id, shot: '', src: media(campaign.cast.sheet) }}
-                    title={`Cast · ${campaign.cast.name}`}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="strip-card">
-              <span className="strip-label">Product · {campaign.product.category}</span>
-              <div className="strip-photos">
-                {campaign.product.photos.map((p) => (
-                  <div key={p} className="sheet-box">
-                    <img src={media(p)} alt="product" />
-                    <MediaTileActions item={{ path: p, kind: 'image', campaign: campaign.campaign_id, shot: '', src: media(p) }} title="Product photo" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </>
       )}
     </section>

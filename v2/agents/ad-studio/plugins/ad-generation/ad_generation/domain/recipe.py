@@ -22,6 +22,7 @@ from ad_generation.domain.shot_template import ShotTemplate
 @dataclass(frozen=True)
 class Recipe:
     key: str
+    name: str  # the short name the window shows ("Wearables + shoot sheet")
     title: str
     covers: str  # the kinds of product it is for, in words — what the product reader matches
     formats: tuple[str, ...]  # the playbooks a scene may follow; the brief picks the best fit
@@ -58,8 +59,11 @@ class Recipe:
         brief = str(data.get("brief") or "scene")
         if brief not in ("scene", "poster"):
             raise ValueError(f"recipe {key}: brief is 'scene' or 'poster', not '{brief}'")
+        if not data.get("name"):
+            raise ValueError(f"recipe {key} has no name")
         return cls(
             key=key,
+            name=str(data["name"]),
             title=str(data.get("title") or key),
             covers=str(data.get("covers") or ""),
             formats=tuple(str(f) for f in data["formats"]),

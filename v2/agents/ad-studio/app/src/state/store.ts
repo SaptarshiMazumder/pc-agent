@@ -136,6 +136,9 @@ export interface AppState {
   /** The chat column's width, px. Dragged wider only — the studio needs its own minimum. */
   chatWidth: number
   setChatWidth: (px: number) => void
+  /** The chat folded to a strip at the window's edge, so the studio has the whole width. */
+  chatCollapsed: boolean
+  toggleChat: () => void
 
   /** Images and clips shown full screen, over everything — the one opened, and the set it belongs
    *  to (a post's slides, a collection) to step through with the arrows. */
@@ -154,7 +157,7 @@ export interface AppState {
   clearSelection: () => void
 }
 
-export const CHAT_MIN_PX = 430
+export const CHAT_MIN_PX = 360
 export const STUDIO_MIN_PX = 560
 
 export const useApp = create<AppState>((set) => ({
@@ -242,6 +245,8 @@ export const useApp = create<AppState>((set) => ({
 
   chatWidth: CHAT_MIN_PX,
   setChatWidth: (px) => set({ chatWidth: Math.max(CHAT_MIN_PX, Math.round(px)) }),
+  chatCollapsed: false,
+  toggleChat: () => set((s) => ({ chatCollapsed: !s.chatCollapsed })),
 
   viewer: null,
   openViewer: (v, items) => {

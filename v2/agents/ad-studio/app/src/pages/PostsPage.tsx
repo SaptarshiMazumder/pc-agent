@@ -1,9 +1,7 @@
-/* Posts — five tabs:
+/* Posts — two tabs:
  *   Posts        every post made, as cards; click one to open it (its chat and the post panel)
  *   Collections  the pictures and clips gathered for posts; open one to edit it, or make a post
- *   References   pictures of designs worth following — the structure new designs take
- *   Templates    the design templates the agent starts from
- *   Brand        the name, sign-off line, voice, fonts and colours every post carries
+ * What posts are designed FROM (references, templates, the brand) is the Brand kit page.
  * "New post" opens a new chat that shows the collections to make a post from. */
 
 import type { AgentdClient } from '@agentd/client'
@@ -13,20 +11,14 @@ import { useEffect, useState } from 'react'
 import type { Media } from '../agentd/campaigns'
 import { listCollections, listPosts, type Collection, type Post } from '../agentd/posts'
 import { useApp } from '../state/store'
-import { BrandForm } from './BrandForm'
 import { CollectionCard } from './CollectionCard'
 import { NewCollection } from './NewCollection'
 import { PostCard } from './PostCard'
-import { ReferenceLibrary } from './ReferenceLibrary'
-import { TemplateGallery } from './TemplateGallery'
 
-type Tab = 'posts' | 'collections' | 'references' | 'templates' | 'brand'
+type Tab = 'posts' | 'collections'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'posts', label: 'Posts' },
   { id: 'collections', label: 'Collections' },
-  { id: 'references', label: 'References' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'brand', label: 'Brand' },
 ]
 const TAB_KEY = 'ad-studio.posts-tab'
 
@@ -84,9 +76,9 @@ export function PostsPage({
           </button>
         </div>
       </header>
-      <nav className="studio-tabs posts-tabs" role="tablist">
+      <nav className="seg-switch page-seg" role="tablist" aria-label="Posts">
         {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={`studio-tab${tab === t.id ? ' on' : ''}`} onClick={() => setTab(t.id)}>
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
             {t.label}
             {t.id === 'posts' && data ? <span className="tab-count">{data.posts.length}</span> : null}
             {t.id === 'collections' && data ? <span className="tab-count">{data.collections.length}</span> : null}
@@ -126,12 +118,6 @@ export function PostsPage({
           </div>
         </>
       )}
-
-      {tab === 'references' && <ReferenceLibrary client={client} />}
-
-      {tab === 'templates' && <TemplateGallery client={client} />}
-
-      {tab === 'brand' && <BrandForm client={client} />}
     </div>
   )
 }
