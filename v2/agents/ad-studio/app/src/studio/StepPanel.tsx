@@ -28,6 +28,7 @@ import {
 } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { BriefView } from './BriefView'
+import { ViewableMedia, viewerItem } from './ViewableMedia'
 import { ImageGeneratePanel } from './ImageGeneratePanel'
 import { ModelSelect } from './ModelSelect'
 import { ModelTextEdit } from './ModelTextEdit'
@@ -175,9 +176,9 @@ export function StepPanel({
             <div className="another">
               <span className="strip-label">Sent to the models as six separate references</span>
               <div className="another-row">
-                {(step.defaults.panels || []).map((p) => (
+                {(step.defaults.panels || []).map((p, i, all) => (
                   <div key={p} className="another-still panel-view" title={p}>
-                    <img src={media(p)} alt="" loading="lazy" />
+                    <ViewableMedia item={viewerItem(media(p), p, `Panel ${i + 1}`)} set={all.map((x, k) => viewerItem(media(x), x, `Panel ${k + 1}`))} />
                   </div>
                 ))}
               </div>

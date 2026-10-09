@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
-from ad_generation.application.cast_approvals import CastApprovals
+from ad_generation.application.one_time_approvals import OneTimeApprovals
 from ad_generation.presentation.generation_backend_resolver import PLUGIN
 from ad_generation.presentation.run_gate import from_window
 
@@ -26,7 +26,7 @@ class CastApprovalTool(Tool):
         },
     }
 
-    def __init__(self, approvals: CastApprovals) -> None:
+    def __init__(self, approvals: OneTimeApprovals) -> None:
         self._approvals = approvals
 
     async def execute(self, tool_call_id, params, abort, on_update=None):

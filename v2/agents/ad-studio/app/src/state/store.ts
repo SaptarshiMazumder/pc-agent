@@ -29,6 +29,21 @@ import type { ChatRow } from '../agentd/sessions'
  *  without editing this file: a view is a string and a branch in App.tsx, nothing more. */
 export type View = 'chat' | 'credits' | 'orgs' | 'settings' | (string & {})
 
+/** One image or clip the full-screen viewer can show. */
+export interface ViewerItem {
+  src: string
+  kind: 'image' | 'video'
+  title: string
+}
+
+export interface StartChoice {
+  recipe?: string
+  cast?: string
+  scene?: string
+  mode?: 'ad' | 'post'
+  collection?: string
+}
+
 /** How full the model's context window is, as the daemon last reported it. */
 export interface ContextUsage {
   used: number
@@ -100,8 +115,9 @@ export interface AppState {
   /** What a new chat's start has chosen so far — a recipe, a cast member ('new' = make one) —
    *  by session key, so the studio offers the OTHER choice next. Gone once the chat has a
    *  campaign (the studio then shows the campaign). */
-  starts: Record<string, { recipe?: string; cast?: string; scene?: string }>
-  setStart: (session: string, choice: { recipe?: string; cast?: string; scene?: string }) => void
+  /** A new chat's choices so far. `mode` 'post': a chat making an Instagram post from a collection. */
+  starts: Record<string, StartChoice>
+  setStart: (session: string, choice: StartChoice) => void
 
   /** Bumped whenever something the studio shows may have changed — a tool finished, a job ended,
    *  a run ended. The studio re-reads the campaign on each bump instead of guessing which tool
@@ -113,14 +129,19 @@ export interface AppState {
    *  that chat did not start (the studio otherwise shows the chat's own newest campaign). */
   pinned: Record<string, string>
   pin: (session: string, campaign: string) => void
+  /** A post opened from the Posts page into a chat that did not make it: session → post slug. */
+  pinnedPost: Record<string, string>
+  pinPost: (session: string, post: string) => void
 
   /** The chat column's width, px. Dragged wider only — the studio needs its own minimum. */
   chatWidth: number
   setChatWidth: (px: number) => void
 
-  /** An image or clip shown full screen, over everything. */
-  viewer: { src: string; kind: 'image' | 'video'; title: string } | null
-  openViewer: (v: { src: string; kind: 'image' | 'video'; title: string }) => void
+  /** Images and clips shown full screen, over everything — the one opened, and the set it belongs
+   *  to (a post's slides, a collection) to step through with the arrows. */
+  viewer: { items: ViewerItem[]; at: number } | null
+  openViewer: (v: ViewerItem, set?: ViewerItem[]) => void
+  stepViewer: (by: -1 | 1) => void
   closeViewer: () => void
 
   /** What the user selected — stills and clips, from the board or Generations. Shown as chips
@@ -216,12 +237,19 @@ export const useApp = create<AppState>((set) => ({
 
   pinned: {},
   pin: (session, campaign) => set((s) => ({ pinned: { ...s.pinned, [session]: campaign } })),
+  pinnedPost: {},
+  pinPost: (session, post) => set((s) => ({ pinnedPost: { ...s.pinnedPost, [session]: post } })),
 
   chatWidth: CHAT_MIN_PX,
   setChatWidth: (px) => set({ chatWidth: Math.max(CHAT_MIN_PX, Math.round(px)) }),
 
   viewer: null,
-  openViewer: (viewer) => set({ viewer }),
+  openViewer: (v, items) => {
+    const all = items?.length ? items : [v]
+    set({ viewer: { items: all, at: Math.max(0, all.findIndex((x) => x.src === v.src)) } })
+  },
+  stepViewer: (by) =>
+    set((s) => (s.viewer ? { viewer: { ...s.viewer, at: (s.viewer.at + by + s.viewer.items.length) % s.viewer.items.length } } : {})),
   closeViewer: () => set({ viewer: null }),
 
   selection: [],

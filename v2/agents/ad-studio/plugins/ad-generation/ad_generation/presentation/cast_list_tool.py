@@ -6,7 +6,7 @@ from __future__ import annotations
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 from ad_generation.application.campaign_view_service import CampaignViewService
-from ad_generation.application.cast_approvals import CastApprovals
+from ad_generation.application.one_time_approvals import OneTimeApprovals
 from ad_generation.infrastructure.run_workspace import RunWorkspace
 from ad_generation.presentation.generation_backend_resolver import PLUGIN
 
@@ -21,7 +21,7 @@ class CastListTool(Tool):
     )
     parameters = {"type": "object", "properties": {}}
 
-    def __init__(self, views: CampaignViewService, approvals: CastApprovals, workspace: RunWorkspace) -> None:
+    def __init__(self, views: CampaignViewService, approvals: OneTimeApprovals, workspace: RunWorkspace) -> None:
         self._views = views
         self._approvals = approvals
         self._ws = workspace

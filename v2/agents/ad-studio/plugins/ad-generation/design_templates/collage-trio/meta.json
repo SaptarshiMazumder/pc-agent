@@ -1,0 +1,10 @@
+{
+  "name": "Collage trio",
+  "description": "one large photo and two smaller ones in a clean grid with thin gutters, a title band across the bottom",
+  "kind": "still",
+  "tags": [
+    "collage",
+    "cover",
+    "multiple"
+  ]
+}

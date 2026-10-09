@@ -13,6 +13,7 @@ import { useState } from 'react'
 
 import { approveRun, command, dismissProposal, isVideo, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { MediaTileActions } from './MediaTileActions'
 import { ModelSelect } from './ModelSelect'
 import { ReferenceTray } from './ReferenceTray'
 import { UploadImages } from './UploadImages'
@@ -127,6 +128,7 @@ export function VideoGeneratePanel({
             {frames.map((p) => (
               <button key={p} className={`another-still${p === firstFrame ? ' on' : ''}`} onClick={() => setFrame(p)} title={p}>
                 <img src={media(p)} alt="" loading="lazy" />
+                <MediaTileActions item={{ path: p, kind: 'image', campaign: '', shot: '', src: media(p) }} title={p.split('/').pop() || p} selectable={false} />
                 {p === firstFrame && <span className="another-tag on">first frame</span>}
                 {p !== firstFrame && p === sourcePick && <span className="another-tag">picked</span>}
               </button>

@@ -12,7 +12,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { listGenerations, money, type Generation, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { AddToCollection } from './AddToCollection'
 import { MediaTileActions } from './MediaTileActions'
+import { viewerItem } from './ViewableMedia'
 
 type Filter = 'all' | 'images' | 'clips' | 'picked' | 'flagged'
 const FILTERS: Filter[] = ['all', 'images', 'clips', 'picked', 'flagged']
@@ -72,8 +74,10 @@ export function GenerationsTab({ client, campaign }: { client: AgentdClient | nu
         </span>
       </div>
       {error && <div className="studio-error">{error}</div>}
+      <AddToCollection client={client} campaign={campaign} paths={selection.filter((x) => x.campaign === campaign).map((x) => x.path)} />
       <div className="gens-grid">
         {rows.map((r) => {
+          const views = rows.map((x) => viewerItem(data!.media(x.path), x.path, `${x.step_title} · ${x.path.split('/').pop()}`))
           const kind = r.kind === 'video' ? ('video' as const) : ('image' as const)
           const item = { path: r.path, kind, campaign, shot: r.step || '', src: data!.media(r.path) }
           const selected = selection.some((x) => x.path === r.path)
@@ -95,7 +99,7 @@ export function GenerationsTab({ client, campaign }: { client: AgentdClient | nu
                 <img src={data!.media(r.path)} alt={r.path} loading="lazy" />
               )}
               {r.in_use && <span className="chosen-tag">Picked</span>}
-              <MediaTileActions item={item} title={`${r.step_title} · ${r.path.split('/').pop()}`} />
+              <MediaTileActions item={item} title={`${r.step_title} · ${r.path.split('/').pop()}`} set={views} />
             </div>
             <figcaption>
               <div className="gen-line">

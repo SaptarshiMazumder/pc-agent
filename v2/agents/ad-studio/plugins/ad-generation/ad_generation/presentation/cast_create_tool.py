@@ -6,7 +6,7 @@ import asyncio
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
-from ad_generation.application.cast_approvals import CastApprovals
+from ad_generation.application.one_time_approvals import OneTimeApprovals
 from ad_generation.application.cast_service import CastService
 from ad_generation.application.run_approvals import NeedsApproval
 from ad_generation.presentation.generation_backend_resolver import GenerationBackendResolver, plugin_setting
@@ -43,7 +43,7 @@ class CastCreateTool(Tool):
         },
     }
 
-    def __init__(self, config, service: CastService, approvals: CastApprovals) -> None:
+    def __init__(self, config, service: CastService, approvals: OneTimeApprovals) -> None:
         self.config = config
         self._service = service
         self._approvals = approvals
@@ -64,7 +64,9 @@ class CastCreateTool(Tool):
                     str(plugin_setting(self.config, "generation_approval", "ask")),
                 )
             except NeedsApproval:
-                self._approvals.propose(name, description, references, f"{provider}/{model}")
+                self._approvals.propose(
+                    name, {"name": name, "description": description, "references": references, "model": f"{provider}/{model}"}
+                )
                 return ToolResult.text(
                     f"Nothing was generated. Cast member '{name}' is proposed in the studio, where the user "
                     "chooses the model and presses Generate, or dismisses it. Tell them in one line that it is "

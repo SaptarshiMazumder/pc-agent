@@ -1,0 +1,10 @@
+{
+  "name": "Video, lower third",
+  "description": "the clip fills the frame; a soft gradient rises at the bottom and a title with an accent bar slides in, then stays",
+  "kind": "video",
+  "tags": [
+    "video",
+    "title",
+    "hook"
+  ]
+}

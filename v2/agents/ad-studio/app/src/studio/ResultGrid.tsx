@@ -11,6 +11,7 @@ import { Clapperboard, FastForward, ImagePlus, Loader2, Type, Wand2 } from 'luci
 import { isVideo, type CampaignStep, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { MediaTileActions } from './MediaTileActions'
+import { viewerItem } from './ViewableMedia'
 
 export type TileAction = 'fix' | 'like' | 'edit' | 'extend' | 'text'
 
@@ -48,7 +49,7 @@ export function ResultGrid({
   if (!step.results.length) return null
   return (
     <div className="tiles">
-      {step.results.map((r) => {
+      {step.results.map((r, _, all) => {
         const video = r.kind === 'video' || isVideo(r.path)
         const picked = r.path === step.pick
         const item = { path: r.path, kind: video ? ('video' as const) : ('image' as const), campaign, shot: step.id, src: media(r.path) }
@@ -81,7 +82,11 @@ export function ResultGrid({
                 text wrong
               </span>
             )}
-            <MediaTileActions item={item} title={`${step.title} · ${r.path.split('/').pop()}`} />
+            <MediaTileActions
+              item={item}
+              title={`${step.title} · ${r.path.split('/').pop()}`}
+              set={all.map((x) => viewerItem(media(x.path), x.path, `${step.title} · ${x.path.split('/').pop()}`))}
+            />
             {offered.length > 0 && (
               <span className="tile-acts">
                 {offered.map((a) => (

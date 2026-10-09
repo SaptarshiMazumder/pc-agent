@@ -8,6 +8,9 @@ factory, because the Reasoner wraps the calling tool's own model access.
 from __future__ import annotations
 
 import secrets
+import time
+
+import imageio_ffmpeg
 from pathlib import Path
 
 from ad_generation.application.animation_service import AnimationService
@@ -20,8 +23,17 @@ from ad_generation.application.step_media import StepMedia
 from ad_generation.application.campaign_view_service import CampaignViewService
 from ad_generation.application.run_approvals import RunApprovals
 from ad_generation.application.clip_edit_service import ClipEditService
-from ad_generation.application.cast_approvals import CastApprovals
+from ad_generation.application.one_time_approvals import OneTimeApprovals
+from ad_generation.application.brand_service import BrandService
 from ad_generation.application.cast_service import CastService
+from ad_generation.application.collection_service import CollectionService
+from ad_generation.application.design_reference_picker import DesignReferencePicker
+from ad_generation.application.design_reference_service import DesignReferenceService
+from ad_generation.application.design_service import DesignService
+from ad_generation.application.design_template_service import DesignTemplateService
+from ad_generation.application.post_page_check import PostPageCheck
+from ad_generation.application.post_planner import PostPlanner
+from ad_generation.application.post_service import PostService
 from ad_generation.application.keyframe_service import KeyframeService
 from ad_generation.application.product_analysis_service import ProductAnalysisService
 from ad_generation.application.product_sheet_service import ProductSheetService
@@ -36,8 +48,16 @@ from ad_generation.infrastructure.byteplus_ark_client import BytePlusArkClient
 from ad_generation.infrastructure.byteplus_image_generator import BytePlusImageGenerator
 from ad_generation.infrastructure.byteplus_video_generator import BytePlusVideoGenerator
 from ad_generation.infrastructure.campaign_file_store import CampaignFileStore
+from ad_generation.infrastructure.brand_file_store import BrandFileStore
 from ad_generation.infrastructure.cast_file_library import CastFileLibrary
-from ad_generation.infrastructure.cast_proposal_file_store import CastProposalFileStore
+from ad_generation.infrastructure.collection_file_store import CollectionFileStore
+from ad_generation.infrastructure.design_reference_file_store import DesignReferenceFileStore
+from ad_generation.infrastructure.design_template_file_store import DesignTemplateFileStore
+from ad_generation.infrastructure.ffmpeg_media_probe import FfmpegMediaProbe
+from ad_generation.infrastructure.ffmpeg_slide_renderer import FfmpegSlideRenderer
+from ad_generation.infrastructure.playwright_design_renderer import PlaywrightDesignRenderer
+from ad_generation.infrastructure.post_file_store import PostFileStore
+from ad_generation.infrastructure.proposal_file_store import ProposalFileStore
 from ad_generation.infrastructure.fal_image_generator import FalImageGenerator
 from ad_generation.infrastructure.fal_queue_client import FalQueueClient
 from ad_generation.infrastructure.fal_video_generator import FalVideoGenerator
@@ -76,7 +96,24 @@ from ad_generation.presentation.campaign_generations_tool import CampaignGenerat
 from ad_generation.presentation.campaign_list_tool import CampaignListTool
 from ad_generation.presentation.campaign_status_tool import CampaignStatusTool
 from ad_generation.presentation.cast_list_tool import CastListTool
+from ad_generation.presentation.brand_profile_tool import BrandProfileTool
 from ad_generation.presentation.cast_approval_tool import CastApprovalTool
+from ad_generation.presentation.collection_add_tool import CollectionAddTool
+from ad_generation.presentation.collection_import_tool import CollectionImportTool
+from ad_generation.presentation.collection_list_tool import CollectionListTool
+from ad_generation.presentation.collection_update_tool import CollectionUpdateTool
+from ad_generation.presentation.design_reference_delete_tool import DesignReferenceDeleteTool
+from ad_generation.presentation.design_reference_list_tool import DesignReferenceListTool
+from ad_generation.presentation.design_reference_save_tool import DesignReferenceSaveTool
+from ad_generation.presentation.design_template_list_tool import DesignTemplateListTool
+from ad_generation.presentation.design_template_save_tool import DesignTemplateSaveTool
+from ad_generation.presentation.post_attach_tool import PostAttachTool
+from ad_generation.presentation.post_design_tool import PostDesignTool
+from ad_generation.presentation.post_list_tool import PostListTool
+from ad_generation.presentation.post_render_tool import PostRenderTool
+from ad_generation.presentation.post_replan_tool import PostReplanTool
+from ad_generation.presentation.post_start_tool import PostStartTool
+from ad_generation.presentation.post_update_tool import PostUpdateTool
 from ad_generation.presentation.poster_text_tool import PosterTextTool
 from ad_generation.presentation.cast_create_tool import CastCreateTool
 from ad_generation.presentation.clip_edit_tool import ClipEditTool
@@ -146,7 +183,7 @@ def register(api, ctx):
     media = StepMedia(store)
     editor = CampaignChecklistEditor(store, recipes, loader, media)
     approvals = RunApprovals(store, loader, lambda: secrets.token_hex(12))
-    cast_approvals = CastApprovals(CastProposalFileStore(workspace), lambda: secrets.token_hex(12))
+    cast_approvals = OneTimeApprovals(ProposalFileStore(workspace, "cast/proposals.json"), lambda: secrets.token_hex(12))
     poster_texts = PosterTextFileStore(workspace)
     poster_text = PosterTextService(store, poster_texts, PillowPosterTypesetter(workspace, root / "fonts"))
     views = CampaignViewService(store, recipes, cast, loader, defaults, media, poster_texts)
@@ -195,6 +232,35 @@ def register(api, ctx):
         )
 
     vision_images = VisionImagePreparer(workspace, _VISION_MAX_SIDE, _VISION_JPEG_QUALITY)
+
+    # Posts: collections gathered from any campaign -> an Instagram carousel or Reel, planned by the
+    # agent's model from the playbook, rendered with Pillow + ffmpeg (no generation, nothing paid).
+    collection_files = CollectionFileStore(workspace)
+    collections = CollectionService(collection_files, store)
+    brand_files = BrandFileStore(workspace)
+    media_probe = FfmpegMediaProbe(workspace, imageio_ffmpeg.get_ffmpeg_exe())
+    slide_renderer = FfmpegSlideRenderer(workspace, root / "fonts", imageio_ffmpeg.get_ffmpeg_exe(), media_probe)
+    post_files = PostFileStore(workspace)
+    # Designs: the agent's model writes each slide as HTML/CSS; a headless browser renders it.
+    design_renderer = PlaywrightDesignRenderer(workspace, imageio_ffmpeg.get_ffmpeg_exe(), media_probe)
+    design_templates = DesignTemplateFileStore(workspace, root / "design_templates")
+    # References: pictures of designs worth following (Canva previews, screenshots), read once.
+    design_references = DesignReferenceFileStore(workspace)
+
+    def designs(reasoner, progress):
+        return DesignService(
+            reasoner, post_files, collection_files, brand_files, design_templates, design_references,
+            DesignReferencePicker(reasoner, prompt("design_reference_pick")), design_renderer, slide_renderer,
+            prompt("design_slide"), prompt("design_playbook"), prompt("design_critique"), progress, time.time,
+        )
+
+    def references(reasoner, progress):
+        return DesignReferenceService(design_references, reasoner, prompt("design_reference_read"), time.time)
+
+    def posts(reasoner, progress):
+        planner = PostPlanner(reasoner, prompt("post_plan"), prompt("post_playbook")) if reasoner is not None else None
+        pages = PostPageCheck(reasoner, prompt("post_page_check")) if reasoner is not None else None
+        return PostService(post_files, collection_files, brand_files, store, slide_renderer, design_renderer, media_probe, planner, progress, pages)
     validator = GenerationChoiceValidator(specs)
     # A campaign: started from its recipe, then any step run, re-run, added, changed, picked.
     api.register_tool(CampaignStartTool(config, steps, views, vision_images))
@@ -217,5 +283,24 @@ def register(api, ctx):
     api.register_tool(CampaignStatusTool(views, workspace))
     api.register_tool(CampaignGenerationsTool(views, workspace))
     api.register_tool(CastListTool(views, cast_approvals, workspace))
+    api.register_tool(CollectionAddTool(collections))
+    api.register_tool(CollectionImportTool(collections))
+    api.register_tool(CollectionListTool(collections, workspace))
+    api.register_tool(CollectionUpdateTool(collections))
+    api.register_tool(BrandProfileTool(BrandService(brand_files)))
+    api.register_tool(PostStartTool(config, posts, vision_images))
+    api.register_tool(PostReplanTool(config, posts, vision_images))
+    api.register_tool(PostUpdateTool(posts))
+    api.register_tool(PostRenderTool(posts))
+    api.register_tool(PostAttachTool(config, posts, vision_images))
+    api.register_tool(PostDesignTool(config, designs, vision_images))
+    template_service = DesignTemplateService(design_templates, post_files)
+    api.register_tool(DesignTemplateListTool(template_service, workspace))
+    api.register_tool(DesignTemplateSaveTool(template_service))
+    api.register_tool(DesignReferenceSaveTool(config, references, vision_images))
+    reference_library = DesignReferenceService(design_references, None, "", time.time)
+    api.register_tool(DesignReferenceListTool(reference_library, workspace))
+    api.register_tool(DesignReferenceDeleteTool(reference_library))
+    api.register_tool(PostListTool(posts, workspace))
     api.register_tool(RecipeListTool(views))
     api.register_tool(GenerationModelsTool(config, specs))

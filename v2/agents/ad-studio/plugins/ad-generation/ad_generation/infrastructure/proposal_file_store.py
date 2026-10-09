@@ -1,4 +1,4 @@
-"""CastProposalStore as one JSON file beside the cast: cast/proposals.json."""
+"""ProposalStore as one JSON file in the workspace (cast/proposals.json for cast members)."""
 
 from __future__ import annotations
 
@@ -6,20 +6,19 @@ import json
 
 from ad_generation.infrastructure.run_workspace import RunWorkspace
 
-_FILE = "cast/proposals.json"
 
-
-class CastProposalFileStore:
-    def __init__(self, workspace: RunWorkspace) -> None:
+class ProposalFileStore:
+    def __init__(self, workspace: RunWorkspace, file: str) -> None:
         self._ws = workspace
+        self._file = file
 
     def _read(self) -> dict:
-        path = self._ws.path(_FILE)
+        path = self._ws.path(self._file)
         return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
     def _write(self, key: str, value) -> None:
         data = {**self._read(), key: value}
-        path = self._ws.path(_FILE)
+        path = self._ws.path(self._file)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 

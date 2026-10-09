@@ -11,7 +11,7 @@
  */
 
 import { useEffect } from 'react'
-import { BookOpen, Images, Users } from 'lucide-react'
+import { BookOpen, Images, Megaphone, Users } from 'lucide-react'
 
 import { campaignStatus, selectionBlock, START } from './agentd/campaigns'
 import { AGENT_ID, useClient } from './agentd/client'
@@ -31,6 +31,9 @@ import { RecipesPage } from './pages/RecipesPage'
 import { ChatResizer } from './studio/ChatResizer'
 import { MediaViewer } from './studio/MediaViewer'
 import { NewAdOpening } from './studio/NewAdOpening'
+import { PostOpening } from './studio/PostOpening'
+import { PostsPage } from './pages/PostsPage'
+import { POST_START, type Post } from './agentd/posts'
 import { SelectionChips } from './studio/SelectionChips'
 import { Studio } from './studio/Studio'
 
@@ -117,6 +120,9 @@ export default function App() {
     void listSessions(client).then((rows) => useApp.getState().setChats(rows))
   }, [connected, client, currentKey, newSession])
 
+  // A chat started from the Posts tab makes a post from a collection, not an ad.
+  const postChat = useApp((s) => s.starts[currentKey]?.mode === 'post')
+
   /** A new ad started from the Recipes or Cast page: a new chat with that choice made; the studio
    *  offers the other one. */
   const newAdWith = (choice: { recipe?: string; cast?: string }, text: string) => {
@@ -141,6 +147,20 @@ export default function App() {
       if (items.length) useApp.getState().openSession(home, items)
     } else {
       st.pin(st.currentSessionKey, id)
+      st.setView('chat')
+    }
+  }
+
+  /** Open a post: in the chat that made it, or pinned into this one. */
+  const openPost = async (post: Post) => {
+    if (!client) return
+    const st = useApp.getState()
+    if (post.session && chats.some((c) => c.sessionId === post.session)) {
+      st.openSession(post.session)
+      const items = await loadHistory(client, post.session)
+      if (items.length) useApp.getState().openSession(post.session, items)
+    } else {
+      st.pinPost(st.currentSessionKey, post.slug)
       st.setView('chat')
     }
   }
@@ -170,6 +190,7 @@ export default function App() {
           { id: 'recipes', label: 'Recipes', icon: <BookOpen size={15} /> },
           { id: 'campaigns', label: 'Campaigns', icon: <Images size={15} /> },
           { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
+          { id: 'posts', label: 'Posts', icon: <Megaphone size={15} /> },
         ]}
       />
 
@@ -184,6 +205,20 @@ export default function App() {
           <CampaignsPage client={client} onOpen={(id) => void openCampaign(id)} />
         ) : view === 'recipes' ? (
           <RecipesPage client={client} onUse={(key, startText) => newAdWith({ recipe: key }, START.recipe(key, startText))} />
+        ) : view === 'posts' ? (
+          <PostsPage
+            client={client}
+            onPost={(c) => {
+              const key = newSession()
+              setStart(key, { mode: 'post', collection: c.slug })
+              seedComposer(POST_START(c.name) + ' ')
+            }}
+            onNewPost={() => {
+              const key = newSession()
+              setStart(key, { mode: 'post' })
+            }}
+            onOpenPost={(p) => void openPost(p)}
+          />
         ) : view === 'cast' ? (
           <CastPage
             client={client}
@@ -197,7 +232,7 @@ export default function App() {
           <div className="st-cols">
             <section className="st-convo" style={{ width: chatWidth }}>
               <header className="convo-head">
-                <h1 className="convo-title">{empty ? 'New ad' : openChat?.title || 'Ad'}</h1>
+                <h1 className="convo-title">{empty ? (postChat ? 'New post' : 'New ad') : openChat?.title || 'Ad'}</h1>
                 {pct !== null && (
                   <span className="meter" title={`${session.usage!.used} of ${session.usage!.limit} tokens`}>
                     {pct}% context
@@ -206,7 +241,7 @@ export default function App() {
               </header>
 
               {empty ? (
-                <NewAdOpening client={client} session={currentKey} />
+                postChat ? <PostOpening client={client} session={currentKey} /> : <NewAdOpening client={client} session={currentKey} />
               ) : (
                 <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
               )}

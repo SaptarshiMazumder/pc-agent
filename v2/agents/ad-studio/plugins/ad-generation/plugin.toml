@@ -24,4 +24,4 @@ net = [
 ]
 # HIGGSFIELD_*: the CLI login's OAuth tokens (there is no API key) — see higgsfield_session.py.
 secrets = ["FAL_KEY", "BYTEPLUS_API_KEY", "HIGGSFIELD_ACCESS_TOKEN", "HIGGSFIELD_REFRESH_TOKEN"]
-workspace = ["campaigns", "cast", "uploads"]
+workspace = ["campaigns", "cast", "uploads", "collections", "posts"]

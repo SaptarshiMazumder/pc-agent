@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 
 import { listCast, type CastMember, type CastProposal, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { ViewableMedia, viewerItem } from '../studio/ViewableMedia'
 
 export function CastPage({
   client,
@@ -62,7 +63,11 @@ export function CastPage({
         {(data?.proposed || []).map((p) => (
           <article key={p.name} className="cast-card proposed">
             <div className="cast-sheet-btn">
-              {p.references[0] ? <img src={data!.media(p.references[0])} alt={p.name} loading="lazy" /> : <UserPlus size={26} />}
+              {p.references[0] ? (
+                <ViewableMedia item={viewerItem(data!.media(p.references[0]), p.references[0], `Proposed · ${p.name}`)} set={p.references.map((r) => viewerItem(data!.media(r), r, `Proposed · ${p.name}`))} />
+              ) : (
+                <UserPlus size={26} />
+              )}
             </div>
             <div className="cast-body">
               <span className="camp-name">{p.name}</span>

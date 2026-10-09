@@ -18,7 +18,10 @@ import { MediaTileActions } from './MediaTileActions'
 import { StepPanel } from './StepPanel'
 import { StepStepper } from './StepStepper'
 import { CastProposals } from './CastProposals'
+import { PostOpening } from './PostOpening'
+import { PostPanel } from './PostPanel'
 import { StartPanel } from './StartPanel'
+import { usePost } from './usePost'
 import { useCampaign } from './useCampaign'
 
 const NO_JOBS: Record<string, { tool: string; text: string }> = {}
@@ -44,6 +47,10 @@ export function Studio({
   // zustand would see as a change on every render and loop on.
   const jobs = useApp((s) => s.sessions[session]?.jobs) ?? NO_JOBS
   const { campaign, media, error, loading } = useCampaign(client, session, pinned)
+  // A post chat: the post it is making (or, before it exists, the collections to make it from).
+  const postChat = useApp((s) => s.starts[session]?.mode === 'post')
+  const pinnedPost = useApp((s) => s.pinnedPost[session] || '')
+  const { post, media: postMedia, progress: postProgress, error: postError } = usePost(client, session, pinnedPost)
   const working = Object.values(jobs)
   const [tab, setTab] = useState<'steps' | 'generations'>('steps')
   const [shown, setShown] = useState('')
@@ -92,7 +99,12 @@ export function Studio({
 
       <CastProposals client={client} lists={lists} running={running} onSend={onAnswer} />
 
-      {!campaign ? (
+      {postError && <div className="studio-error">Could not read the post: {postError}</div>}
+      {post ? (
+        <PostPanel key={post.slug} client={client} post={post} media={postMedia} progress={postProgress} running={running} onSend={onAnswer} />
+      ) : postChat && !campaign ? (
+        <PostOpening client={client} session={session} />
+      ) : !campaign ? (
         !loading && <StartPanel client={client} session={session} />
       ) : (
         <>

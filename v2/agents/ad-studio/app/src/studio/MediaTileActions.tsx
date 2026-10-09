@@ -4,13 +4,14 @@
 import { Check, Expand } from 'lucide-react'
 
 import type { Selected } from '../agentd/campaigns'
-import { useApp } from '../state/store'
+import { useApp, type ViewerItem } from '../state/store'
 
 export function MediaTileActions({
   item,
   title,
   selectable = true,
   onSelect,
+  set,
 }: {
   item: Selected
   title: string
@@ -18,6 +19,8 @@ export function MediaTileActions({
   selectable?: boolean
   /** Overrides the plain toggle — the stills board selects one image per shot. */
   onSelect?: () => void
+  /** The tiles it sits among, to step through in the full view. */
+  set?: ViewerItem[]
 }) {
   const openViewer = useApp((s) => s.openViewer)
   const selected = useApp((s) => s.selection.some((x) => x.path === item.path))
@@ -35,7 +38,7 @@ export function MediaTileActions({
         title="Full view"
         onClick={(e) => {
           stop(e)
-          openViewer({ src: item.src, kind: item.kind, title })
+          openViewer({ src: item.src, kind: item.kind, title }, set)
         }}
       >
         <Expand size={13} />

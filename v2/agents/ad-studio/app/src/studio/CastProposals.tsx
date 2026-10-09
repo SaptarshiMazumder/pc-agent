@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { approveCast, command, dismissCast, listCast, type CastProposal, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { ModelSelect } from './ModelSelect'
+import { ViewableMedia, viewerItem } from './ViewableMedia'
 
 export function CastProposals({
   client,
@@ -106,8 +107,8 @@ function ProposalCard({
         </button>
       </div>
       <div className="cast-proposal-body">
-        {proposal.references.map((r) => (
-          <img key={r} className="cast-proposal-face" src={media(r)} alt="" />
+        {proposal.references.map((r, _, all) => (
+          <ViewableMedia key={r} className="cast-proposal-face" item={viewerItem(media(r), r, proposal.name)} set={all.map((x) => viewerItem(media(x), x, proposal.name))} />
         ))}
         <div>
           <span className="camp-name">{proposal.name}</span>

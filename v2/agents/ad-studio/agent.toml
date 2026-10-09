@@ -43,7 +43,7 @@ web = true
 # No update_plan: the studio already shows where the campaign stands, and every plan update was a
 # full model call (~40 s) the user waited through for a checklist nobody read.
 [tools]
-allow = ["ls", "read", "show_files", "web_search", "web_fetch"]
+allow = ["ls", "read", "show_files", "web_search", "web_fetch", "browser"]
 
 # The default backends: `images` (every images step and shoot sheet), `video` (every video step
 # and extension), and per tool for cast_create, still_fix and clip_edit. Each run can name another

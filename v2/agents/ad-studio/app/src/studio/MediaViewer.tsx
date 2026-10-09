@@ -1,15 +1,19 @@
 /* An image or clip, full screen over the window. Fit to the screen, or at its actual size (scroll
- * to look around). Esc, the ✕ or a click on the backdrop closes it. Rendered once, in App; any
- * tile opens it through the store. */
+ * to look around). Opened from a set (a post's slides, a collection), ‹ › and the arrow keys step
+ * through it. Esc, the ✕ or a click on the backdrop closes it. Rendered once, in App; any tile
+ * opens it through the store. */
 
-import { Maximize2, Minimize2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { useApp } from '../state/store'
 
 export function MediaViewer() {
-  const viewer = useApp((s) => s.viewer)
+  const open = useApp((s) => s.viewer)
+  const step = useApp((s) => s.stepViewer)
   const close = useApp((s) => s.closeViewer)
+  const viewer = open ? open.items[open.at] : null
+  const many = (open?.items.length || 0) > 1
   const [actual, setActual] = useState(false)
   const [size, setSize] = useState('')
 
@@ -22,10 +26,12 @@ export function MediaViewer() {
     if (!viewer) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
+      else if (e.key === 'ArrowLeft') step(-1)
+      else if (e.key === 'ArrowRight') step(1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [viewer, close])
+  }, [viewer, close, step])
 
   if (!viewer) return null
   return (
@@ -34,6 +40,11 @@ export function MediaViewer() {
         <span className="viewer-title" title={viewer.title}>
           {viewer.title}
         </span>
+        {many && (
+          <span className="viewer-size">
+            {open!.at + 1} / {open!.items.length}
+          </span>
+        )}
         {size && <span className="viewer-size">{size}</span>}
         <button className="viewer-btn" onClick={() => setActual((a) => !a)} title={actual ? 'Fit to the screen' : 'Actual size'}>
           {actual ? <Minimize2 size={15} /> : <Maximize2 size={15} />} {actual ? 'Fit' : 'Actual size'}
@@ -42,6 +53,16 @@ export function MediaViewer() {
           <X size={16} />
         </button>
       </div>
+      {many && (
+        <>
+          <button className="viewer-nav prev" onClick={(e) => (e.stopPropagation(), step(-1))} title="Previous (←)">
+            <ChevronLeft size={26} />
+          </button>
+          <button className="viewer-nav next" onClick={(e) => (e.stopPropagation(), step(1))} title="Next (→)">
+            <ChevronRight size={26} />
+          </button>
+        </>
+      )}
       <div className={`viewer-stage${actual ? ' actual' : ''}`}>
         {viewer.kind === 'video' ? (
           <video
