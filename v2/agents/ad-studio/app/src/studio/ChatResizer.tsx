@@ -1,5 +1,5 @@
-/* The handle between the chat and the studio. Drag to widen the chat; the studio keeps its own
- * minimum, so neither side can be squeezed into uselessness. */
+/* The handle between the studio and the chat (the chat is on the right). Drag left to widen the
+ * chat; the studio keeps its own minimum, so neither side can be squeezed into uselessness. */
 
 import { useRef } from 'react'
 
@@ -22,7 +22,7 @@ export function ChatResizer() {
       onPointerMove={(e) => {
         if (!start.current) return
         const row = (e.currentTarget.parentElement?.getBoundingClientRect().width || 0) - STUDIO_MIN_PX
-        setWidth(Math.min(row, start.current.w + (e.clientX - start.current.x)))
+        setWidth(Math.min(row, start.current.w - (e.clientX - start.current.x)))
       }}
       onPointerUp={() => (start.current = null)}
     />

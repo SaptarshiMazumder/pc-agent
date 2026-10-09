@@ -105,6 +105,7 @@ export interface CampaignDetail {
   campaign_id: string
   recipe_key: string
   recipe_title: string
+  recipe_name: string
   product: { name: string; category: string; photos: string[] }
   cast: CastMember | null
   brief: Brief | null
@@ -236,7 +237,12 @@ export async function dismissCast(client: AgentdClient, name: string): Promise<v
 /** A recipe an ad can start from: what it is for, its default steps, whether it casts a model. */
 export interface Recipe {
   key: string
+  /** The short name the window shows ("Wearables + shoot sheet"). */
+  name: string
   title: string
+  /** What it makes: "9:16", "4:5"… */
+  aspect_ratio: string
+  budget_usd: number
   covers: string
   steps: { id: string; title: string; action: StepAction }[]
   needs_cast: boolean

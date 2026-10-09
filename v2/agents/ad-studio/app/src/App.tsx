@@ -1,6 +1,6 @@
-/* Ad Studio's window: a rail, then the chat beside the studio.
+/* Ad Studio's window: a rail, then the studio with the chat on its right.
  *
- *   rail  | chat (thread + composer)  ┆  studio (the campaign's steps, every result, the cast)
+ *   rail  | studio (the campaign as a pipeline of stages)  ┆  chat (thread + composer; folds away)
  *
  * THE STUDIO SHOWS; WHAT COSTS GOES THROUGH THE CHAT. The studio reads through the agent's
  * read-only tools and picks results directly (free); every generation is sent as a chat message
@@ -11,7 +11,7 @@
  */
 
 import { useEffect } from 'react'
-import { BookOpen, Images, Megaphone, Users } from 'lucide-react'
+import { Images, Megaphone, Palette, Users } from 'lucide-react'
 
 import { campaignStatus, selectionBlock, START } from './agentd/campaigns'
 import { AGENT_ID, useClient } from './agentd/client'
@@ -22,16 +22,16 @@ import { useRun } from './agentd/run'
 import { listSessions, loadHistory } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
+import { ChatPanel } from './components/ChatPanel'
 import { Composer } from './components/Composer'
 import { Sidebar } from './components/Sidebar'
 import { Thread } from './components/Thread'
+import { BrandKitPage } from './pages/BrandKitPage'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CastPage } from './pages/CastPage'
-import { RecipesPage } from './pages/RecipesPage'
 import { ChatResizer } from './studio/ChatResizer'
 import { MediaViewer } from './studio/MediaViewer'
-import { NewAdOpening } from './studio/NewAdOpening'
-import { PostOpening } from './studio/PostOpening'
+import { StartSummary } from './studio/StartSummary'
 import { PostsPage } from './pages/PostsPage'
 import { POST_START, type Post } from './agentd/posts'
 import { SelectionChips } from './studio/SelectionChips'
@@ -59,7 +59,7 @@ export default function App() {
   const chats = useApp((s) => s.chats)
   const seedComposer = useApp((s) => s.seedComposer)
   const setStart = useApp((s) => s.setStart)
-  const chatWidth = useApp((s) => s.chatWidth)
+  const chatCollapsed = useApp((s) => s.chatCollapsed)
   const session = useSession()
 
   const { send, abort, addFiles, removeFile } = useRun(client)
@@ -123,8 +123,8 @@ export default function App() {
   // A chat started from the Posts tab makes a post from a collection, not an ad.
   const postChat = useApp((s) => s.starts[currentKey]?.mode === 'post')
 
-  /** A new ad started from the Recipes or Cast page: a new chat with that choice made; the studio
-   *  offers the other one. */
+  /** A new ad started from the Cast page: a new chat with that choice made; the studio offers the
+   *  other one. */
   const newAdWith = (choice: { recipe?: string; cast?: string }, text: string) => {
     const key = newSession()
     setStart(key, choice)
@@ -187,10 +187,10 @@ export default function App() {
         groupLabel="Studio"
         sharedGroupLabel="Account"
         extraDestinations={[
-          { id: 'recipes', label: 'Recipes', icon: <BookOpen size={15} /> },
-          { id: 'campaigns', label: 'Campaigns', icon: <Images size={15} /> },
-          { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
+          { id: 'campaigns', label: 'Ads', icon: <Images size={15} /> },
           { id: 'posts', label: 'Posts', icon: <Megaphone size={15} /> },
+          { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
+          { id: 'brand-kit', label: 'Brand kit', icon: <Palette size={15} /> },
         ]}
       />
 
@@ -203,8 +203,8 @@ export default function App() {
           client && <Settings client={client} agentId={AGENT_ID} />
         ) : view === 'campaigns' ? (
           <CampaignsPage client={client} onOpen={(id) => void openCampaign(id)} />
-        ) : view === 'recipes' ? (
-          <RecipesPage client={client} onUse={(key, startText) => newAdWith({ recipe: key }, START.recipe(key, startText))} />
+        ) : view === 'brand-kit' ? (
+          <BrandKitPage client={client} />
         ) : view === 'posts' ? (
           <PostsPage
             client={client}
@@ -230,43 +230,56 @@ export default function App() {
           />
         ) : (
           <div className="st-cols">
-            <section className="st-convo" style={{ width: chatWidth }}>
-              <header className="convo-head">
-                <h1 className="convo-title">{empty ? (postChat ? 'New post' : 'New ad') : openChat?.title || 'Ad'}</h1>
-                {pct !== null && (
+            <Studio
+              client={client}
+              connected={connected}
+              session={currentKey}
+              running={session.running}
+              onAnswer={sendAnswer}
+              onFiles={(files) => void addFiles(files)}
+            />
+
+            {!chatCollapsed && <ChatResizer />}
+
+            <ChatPanel
+              title={empty ? (postChat ? 'New post' : 'New ad') : openChat?.title || 'Ad'}
+              meter={
+                pct !== null && (
                   <span className="meter" title={`${session.usage!.used} of ${session.usage!.limit} tokens`}>
                     {pct}% context
                   </span>
-                )}
-              </header>
-
-              {empty ? (
-                postChat ? <PostOpening client={client} session={currentKey} /> : <NewAdOpening client={client} session={currentKey} />
-              ) : (
-                <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
-              )}
-
-              <Composer
-                running={session.running}
-                pending={session.pending}
-                onSend={sendTyped}
-                above={<SelectionChips />}
-                onAbort={() => void abort()}
-                onFiles={(files) => void addFiles(files)}
-                onRemoveFile={removeFile}
-                credits={credits}
-                onCredits={() => setView('credits')}
-                maxFiles={MAX_FILES}
-                connected={connected}
-                model={session.usage?.model || ''}
-                placeholder="Attach product photos, say who and where…"
-                meter={null}
-              />
-            </section>
-
-            <ChatResizer />
-
-            <Studio client={client} connected={connected} session={currentKey} running={session.running} onAnswer={sendAnswer} />
+                )
+              }
+              body={
+                empty ? (
+                  postChat ? (
+                    <p className="convo-intro">Pick the collection in the studio, add anything you want — the hook, the order, where each product was found — and send.</p>
+                  ) : (
+                    <StartSummary client={client} session={currentKey} />
+                  )
+                ) : (
+                  <Thread items={session.items} running={session.running} onSuggest={(p) => void send(p)} />
+                )
+              }
+              composer={
+                <Composer
+                  running={session.running}
+                  pending={session.pending}
+                  onSend={sendTyped}
+                  above={<SelectionChips />}
+                  onAbort={() => void abort()}
+                  onFiles={(files) => void addFiles(files)}
+                  onRemoveFile={removeFile}
+                  credits={credits}
+                  onCredits={() => setView('credits')}
+                  maxFiles={MAX_FILES}
+                  connected={connected}
+                  model={session.usage?.model || ''}
+                  placeholder="Attach product photos, say who and where…"
+                  meter={null}
+                />
+              }
+            />
           </div>
         )}
       </main>
