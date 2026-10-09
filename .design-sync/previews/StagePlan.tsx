@@ -98,35 +98,41 @@ const noop = () => {}
 
 const Panel = ({ children }: { children: React.ReactNode }) => <div style={{ maxWidth: 640 }}>{children}</div>
 
-export const TwoStages = () => (
+/* One stage on screen at a time now (`shown`), with its carry-forward bar: the first cell shows
+   the stage that has run and its pick, the second the stage waiting on it, mid-turn. */
+export const StageThatRan = () => (
   <Panel>
     <StagePlan
       client={client}
       sessionKey={CHAT}
       plan={PLAN}
+      shown="person_still"
       files={FILES}
       slots={SLOTS}
       running={false}
       onAddReference={async () => {}}
       onFromLibrary={noop}
       onOpen={noop}
+      onShow={noop}
       onSend={noop}
     />
   </Panel>
 )
 
-export const WhileATurnRuns = () => (
+export const NextStageWhileATurnRuns = () => (
   <Panel>
     <StagePlan
       client={client}
       sessionKey={CHAT}
       plan={PLAN}
+      shown="talking_clip"
       files={FILES}
       slots={SLOTS}
       running
       onAddReference={async () => {}}
       onFromLibrary={noop}
       onOpen={noop}
+      onShow={noop}
       onSend={noop}
     />
   </Panel>

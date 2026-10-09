@@ -13,25 +13,17 @@
  * A VIEW REPLACES THE WHOLE MAIN AREA rather than stacking under the chat's header. Rendering two
  * at once is how you end up with a conversation's toolbar sitting on top of a settings page.
  *
- * THE CONVERSATION HAS TWO FACES. Empty, it is an OPENING: what this agent is for, and four ways
- * in. In use, it is the transcript in a card with the run's own numbers beside it. They are the
- * same view — an agent that greets you and then throws the greeting away has told you what it
- * does exactly once, at the moment you had not yet asked.
+ * THE STUDIO IS THE SCREEN, THE CHAT IS BESIDE IT (stage-first redesign, Oct 2026). The studio
+ * shows the creation as a pipeline of stages — Design → Set up → Run — and the conversation sits
+ * on its right, foldable to a strip. Empty, the studio is the new-creation setup and the chat is
+ * an OPENING: what this agent is for, and the ways in. They are the same view — an agent that
+ * greets you and then throws the greeting away has told you what it does exactly once, at the
+ * moment you had not yet asked.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { onIdentityChanged } from '@agentd/client'
-import {
-  Loader2,
-  Menu,
-  PanelLeft,
-  PanelRight,
-  Images,
-  LayoutTemplate,
-  Library,
-  Info,
-  Mail,
-} from 'lucide-react'
+import { Loader2, Menu, PanelRight, Images, Library, Info, Mail, Settings2 } from 'lucide-react'
 
 import { AGENT_ID, useClient } from './agentd/client'
 import { useCredits } from './agentd/credits'
@@ -52,20 +44,20 @@ import { ChatImageTooBigPrompt } from './components/ChatImageTooBigPrompt'
 import { BackgroundJobsStrip } from './components/BackgroundJobsStrip'
 import { InstallProgressPanel } from './components/InstallProgressPanel'
 import { useStudioState } from './components/studio/useStudioState'
+import { ChatPanel } from './components/ChatPanel'
 import { ContextRing } from './components/ContextRing'
 import { Composer } from './components/Composer'
 import { ChatResizer } from './components/studio/ChatResizer'
 import { Sidebar } from './components/Sidebar'
 import { StarterPrompts } from './components/StarterPrompts'
-import { StarterWorkflows } from './components/StarterWorkflows'
 import { Thread } from './components/Thread'
 
 /* THIS AGENT'S OWN SCREEN, in place of the scaffold's sample widgets. It reads the artifacts the
    runs really declared, so an empty shelf is a fact about the agent rather than a sign that
    nobody finished the window. */
 import Gallery from './components/creations/Gallery'
+import { KeysPage } from './components/keys/KeysPage'
 import { LibraryPage } from './components/library/LibraryPage'
-import { SuggestedTemplatesPage } from './components/templates/SuggestedTemplatesPage'
 import PolicyPage from './components/policies/PolicyPage'
 import { BrandMark } from './components/BrandMark'
 import { collectWorkflows } from './components/workflows/WorkflowCard'
@@ -116,6 +108,20 @@ const OPENING_BLURB =
   'model, set it up on Comfy Cloud, and fix whatever breaks. You keep the results and the ' +
   'workflow, to run again in one click or in your own ComfyUI.'
 
+/* A PHONE IS ONE COLUMN: the chat is the page and the studio is a drawer (the 820px block in
+   styles.css). Two things key off it here — the chat cannot fold, and the design card stays in
+   the thread rather than pointing at a studio that is not on screen. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => (typeof window !== 'undefined' ? window.matchMedia('(max-width: 820px)').matches : false))
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 820px)')
+    const on = (e: MediaQueryListEvent) => setNarrow(e.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return narrow
+}
+
 
 export default function App() {
   const { client, status } = useClient()
@@ -144,10 +150,10 @@ export default function App() {
      reader the moment the drawer handles moved out of the studio's own header -- see the bar
      below. `is-studio` and the bar MUST agree: a handle offering a workspace that the current
      view does not render is the same bug as a view with no handle at all. */
-  /* NO 'settings'. The page is gone (see the rail), so the view it named renders nothing --
-     and leaving it here would have made `main` fall through to an empty screen rather than to
-     the studio if anything ever set it. */
-  const isStudio = !['credits', 'orgs', 'creations', 'library', 'templates', 'about', 'contact'].includes(view)
+  /* NO 'settings': the shared page is gone (see the rail); this agent's own keys page is 'keys'.
+     An unknown view falls through to the studio rather than to an empty screen. */
+  const isStudio = !['credits', 'orgs', 'creations', 'library', 'keys', 'about', 'contact'].includes(view)
+  const narrow = useNarrow()
   const drawerOpener = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
 
@@ -383,11 +389,12 @@ export default function App() {
   }, [files])
 
   const chatSide = useApp((s) => s.chatSide)
+  const chatCollapsed = useApp((s) => s.chatCollapsed)
+  const libraryTab = useApp((s) => s.libraryTab)
+  const libraryTarget = useApp((s) => s.libraryTarget)
   const libraryFlash = useLibraryFlash()
   const oversizeImages = useApp((s) => s.oversizeImages)
   const setOversizeImages = useApp((s) => s.setOversizeImages)
-  const chatWidth = useApp((s) => s.chatWidth)
-  const setChatSide = useApp((s) => s.setChatSide)
 
   /* THE BALANCE, beside the thing that spends it. Re-read when a run ends, because that is when
      it changed. `null` means "not known" — a build with no accounts service, where showing a
@@ -695,13 +702,8 @@ export default function App() {
      why `empty` alone could never tell them apart — and getting it wrong puts the opening screen
      over the chat the user just clicked. */
   const loadingHistory = session.loadingHistory
-  /* NOTHING SAID YET — so the conversation is the whole screen and the workspace is not drawn
-     at all. NOT hidden: `StudioDashboard` polls `.studio/state.json` on a timer and the file
-     explorer lists the chat's files, and doing either for a chat that has produced nothing is
-     work with no reader. The first send makes `items` non-empty, this flips, the dashboard
-     mounts and the column goes back to `chatWidth` — which is still whatever the user last
-     dragged it to, because nothing here ever wrote to it. */
-  const solo = empty && !loadingHistory
+  /* THE CHAT FOLDS only where there is a studio beside it to give the room to. */
+  const folded = chatCollapsed && !narrow
   /* `pct` ARRIVES AS A FRACTION (0-1), not a percentage — the daemon sends `used / limit`
      rounded to 4 places. Rounding it straight to an integer floored every real conversation to
      "0% ctx" (anything under half a window), which read as a broken meter rather than a wrong
@@ -747,9 +749,8 @@ export default function App() {
         <span className="mobile-bar-mark" aria-hidden="true">
           <BrandMark size={22} />
         </span>
-        {/* Only where there IS one to open: the workspace belongs to the studio, and `solo`
-            means the run has produced nothing for it to hold yet. */}
-        {isStudio && !solo && (
+        {/* Only where there IS one to open: the studio belongs to the chat view. */}
+        {isStudio && (
           <button
             className="st-drawer-btn mobile-bar-end"
             aria-label="Open outputs, workflow and files"
@@ -783,10 +784,11 @@ export default function App() {
         /* A SCREEN OF THIS AGENT'S OWN, above the shared three. What this agent makes is FILES,
            and files are the one thing a conversation is a bad container for. */
         extraDestinations={[
-          { id: 'creations', label: 'Gallery', icon: <Images size={15} /> },
+          { id: 'creations', label: 'Creations', icon: <Images size={15} /> },
+          // ONE LIBRARY: templates (yours and suggested), workflows, inputs, renders, uploads.
           { id: 'library', label: 'Library', icon: <Library size={15} />, flash: libraryFlash },
-          // Whole setups we made, ready to reuse (SuggestedTemplatesPage).
-          { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={15} /> },
+          // This agent's own keys page (KeysPage) — "the key goes in Settings" points here.
+          { id: 'keys', label: 'Settings', icon: <Settings2 size={15} /> },
         ]}
         /* ABOUT AND CONTACT ARE SCREENS OF THIS APP, read here like Settings is. The words come
            from the shipped HTML files (components/policies), which stay readable with no
@@ -827,20 +829,35 @@ export default function App() {
             }}
           />
         ) : view === 'library' ? (
-          /* THE LIBRARY, full page. The same panel the stage's Library tab shows; "Use in new
-             chat" opens a fresh conversation with the workflow's ask in the box, unsent. */
+          /* THE ONE LIBRARY. A workflow's Use lands in the open chat when one has started (the
+             box is filled, the chat comes back on screen), else in a new chat. */
           <LibraryPage
             client={client ?? undefined}
             sessionKey={currentKey}
             slots={slots}
             running={session.running}
             workspaceVersion={workspaceVersion}
-            onUseWorkflow={onUseWorkflowInNewChat}
+            tab={libraryTab}
+            onTab={(tab) => useApp.getState().openLibrary(tab, libraryTarget)}
+            targetRole={libraryTarget}
+            onClearTarget={() => {
+              useApp.getState().clearLibraryTarget()
+              setView('chat')
+            }}
+            useLabel={empty ? 'Use in new chat' : 'Use in this chat'}
+            onUseWorkflow={
+              empty
+                ? onUseWorkflowInNewChat
+                : (item) => {
+                    onUseWorkflow(item)
+                    setView('chat')
+                  }
+            }
             onRunAgain={onRunAgain}
             onUseTemplate={onUseTemplate}
           />
-        ) : view === 'templates' ? (
-          <SuggestedTemplatesPage client={client ?? undefined} onUse={onUseTemplate} />
+        ) : view === 'keys' ? (
+          <KeysPage client={client ?? undefined} />
         ) : view === 'about' ? (
           <PolicyPage key="about" start="about.html" />
         ) : view === 'contact' ? (
@@ -849,62 +866,45 @@ export default function App() {
           /* THE STUDIO: conversation beside a live dashboard of what the run produced
              (design_handoff_agent_studio). The dashboard replaced the old stat aside — its
              KPI row carries the same numbers from the same sources. */
-          <div
-            className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}${solo ? ' is-solo' : ''}`}
-          >
-            {/* Width is INLINE because it is user state, not design state — the stylesheet owns
-                the minimum, this owns what the person dragged it to. */}
-            <div className="st-convo" style={solo ? undefined : { width: chatWidth }}>
-              <div className="st-convo-head">
-                <span className="st-live-dot" />
-                <div className="st-convo-titles">
-                  <span className="st-convo-title">
-                    {/* The rail already knows this conversation's name, so the header can carry it
-                        while the transcript is still coming. Falling back to the agent's name here
-                        would say "Comfy Penguin" over a chat that is demonstrably not new. */}
-                    {loadingHistory
-                      ? openChat?.title || 'Opening conversation…'
-                      : empty
-                        ? AGENT_NAME
-                        : openChat?.title || 'New conversation'}
-                  </span>
-                  {latestWorkflow && (
-                    <span className="st-convo-sub st-mono">{latestWorkflow}</span>
-                  )}
-                </div>
-                {pct !== null && <span className="st-ctx-pill st-mono">{pct}% ctx</span>}
-                <button
-                  className="st-swap"
-                  title="Swap chat side"
-                  onClick={() => setChatSide(chatSide === 'left' ? 'right' : 'left')}
-                >
-                  {chatSide === 'left' ? (
-                    <PanelRight size={14} strokeWidth={1.7} />
-                  ) : (
-                    <PanelLeft size={14} strokeWidth={1.7} />
-                  )}
-                </button>
-              </div>
-
-              <div className="st-convo-body">
-                {loadingHistory ? (
-                  /* WAITING, AND SAYING SO. Deliberately not the opening below: the four cards
-                     invite the user to start a DIFFERENT chat from the one they just clicked, and
-                     a transcript that then lands underneath makes the window look as if it
-                     changed its mind. Nothing here is clickable, because there is nothing useful
-                     to do for the second or two this lasts. */
+          <div className={`st-cols${chatSide === 'right' ? ' is-chat-right' : ''}${folded ? ' is-chat-folded' : ''}`}>
+            <ChatPanel
+              /* The rail already knows this conversation's name, so the header can carry it while
+                 the transcript is still coming. Falling back to the agent's name here would say
+                 "Comfy Penguin" over a chat that is demonstrably not new. */
+              title={loadingHistory ? openChat?.title || 'Opening conversation…' : empty ? AGENT_NAME : openChat?.title || 'New conversation'}
+              sub={latestWorkflow}
+              pct={pct}
+              folded={folded}
+              body={
+                loadingHistory ? (
+                  /* WAITING, AND SAYING SO. Deliberately not the opening below: it invites the
+                     user to start a DIFFERENT chat from the one they just clicked, and a
+                     transcript that then lands underneath makes the window look as if it changed
+                     its mind. Nothing here is clickable, because there is nothing useful to do for
+                     the second or two this lasts. */
                   <div className="chat-loading">
                     <Loader2 className="ld-spin" size={20} strokeWidth={1.8} />
                     <span>Opening conversation…</span>
                   </div>
                 ) : empty ? (
-                  /* THE OPENING. Not a placeholder — the only screen guaranteed to be read. */
+                  /* THE OPENING. Not a placeholder — the only screen guaranteed to be read. The
+                     studio beside it holds the ways in (NewCreationSetup); this says what happens
+                     next and offers the starter prompts, beside the box you would type in. */
                   <div className="opening">
                     <h2 className="opening-headline">{OPENING_HEADLINE}</h2>
                     <p className="opening-blurb">{OPENING_BLURB}</p>
-                    {/* The four ways in used to be a grid of cards HERE. They moved under the
-                        composer (StarterPrompts) — beside the box you would type in anyway,
-                        rather than floating in the middle of the screen away from it. */}
+                    <ol className="opening-steps">
+                      <li>
+                        <b>Design.</b> Models picked, every stage written and checked. You approve the card.
+                      </li>
+                      <li>
+                        <b>Set up.</b> Comfy Cloud imports what it lacks.
+                      </li>
+                      <li>
+                        <b>Run.</b> Each stage on your click; you judge each result; one workflow and installer at the end.
+                      </li>
+                    </ol>
+                    <StarterPrompts onPick={seedComposer} />
                   </div>
                 ) : (
                   <Thread
@@ -914,6 +914,7 @@ export default function App() {
                     /* A ticked-boxes verdict SENDS. The user already made the deliberate choice
                        in the checkboxes; asking them to press Enter afterwards asks twice. */
                     onDecide={(reply) => void send(reply)}
+                    askInStudio={!narrow}
                     after={
                       <SaveToLibraryChips
                         client={client ?? undefined}
@@ -924,97 +925,73 @@ export default function App() {
                       />
                     }
                   />
-                )}
-              </div>
-
-              <div className="st-convo-foot">
-                <InstallProgressPanel state={studio} />
-                <BackgroundJobsStrip jobs={session.jobs} sessionKey={currentKey} client={client} />
-                <Composer
-                  running={session.running}
-                  pending={session.pending}
-                  onSend={(text) => void send(text)}
-                  onAbort={() => void abort()}
-                  onFiles={(files) => void addFiles(files)}
-                  library={client ? () => readIndex(client).then((i) => i.items) : undefined}
-                  onRemoveFile={removeFile}
-                  credits={credits}
-                  onCredits={() => setView('credits')}
-                  maxFiles={MAX_FILES}
-                  connected={connected}
-                  meter={
-                    pct === null ? null : (
-                      <ContextRing
-                        pct={pct}
-                        used={session.usage!.used}
-                        limit={session.usage!.limit}
-                      />
-                    )
-                  }
-                />
-                {/* UNDER THE BOX, and only while there is nothing to read. Once a conversation
-                    exists these are noise competing with the agent's own `suggest` chips. */}
-                {empty && !loadingHistory && <StarterPrompts onPick={seedComposer} />}
-                {/* THE SAVED WORKFLOWS, on an empty chat only — "run it again" at the moment a
-                    person is about to start something. Renders nothing when none are kept. */}
-                {empty && !loadingHistory && (
-                  <StarterWorkflows
-                    client={client ?? undefined}
-                    workspaceVersion={workspaceVersion}
-                    onRunAgain={onRunAgain}
+                )
+              }
+              foot={
+                <>
+                  <InstallProgressPanel state={studio} />
+                  <BackgroundJobsStrip jobs={session.jobs} sessionKey={currentKey} client={client} />
+                  <Composer
+                    running={session.running}
+                    pending={session.pending}
+                    onSend={(text) => void send(text)}
+                    onAbort={() => void abort()}
+                    onFiles={(files) => void addFiles(files)}
+                    library={client ? () => readIndex(client).then((i) => i.items) : undefined}
+                    onRemoveFile={removeFile}
+                    credits={credits}
+                    onCredits={() => setView('credits')}
+                    maxFiles={MAX_FILES}
+                    connected={connected}
+                    meter={pct === null ? null : <ContextRing pct={pct} used={session.usage!.used} limit={session.usage!.limit} />}
                   />
-                )}
-              </div>
+                </>
+              }
+            />
+
+            {/* THE HANDLE that sizes the chat. Between the two columns in DOM order, so
+                `is-chat-right` ordering carries it to the correct edge without a second element.
+                Gone while the chat is folded: there is no column to size. */}
+            {!folded && <ChatResizer side={chatSide} />}
+
+            <div
+              className="drawer-host drawer-host--workspace"
+              ref={drawer === 'workspace' ? drawerRef : null}
+              tabIndex={-1}
+              role={drawer === 'workspace' ? 'dialog' : undefined}
+              aria-modal={drawer === 'workspace' ? true : undefined}
+              aria-label={drawer === 'workspace' ? 'Studio panel' : undefined}
+            >
+              <StudioDashboard
+                client={client ?? undefined}
+                state={studio}
+                running={session.running}
+                items={session.items}
+                empty={empty && !loadingHistory}
+                title={openChat?.title || 'New creation'}
+                workflowName={latestWorkflow}
+                artifacts={files}
+                slots={slots}
+                freeReferences={free}
+                onAddReference={onAddReference}
+                referencesDisabled={!connected}
+                onDeleteFiles={onDeleteFiles}
+                onAddToLibrary={onAddToLibrary}
+                sessionKey={currentKey}
+                workspaceVersion={workspaceVersion}
+                onRunAgain={onRunAgain}
+                onOpenLibrary={(tab) => useApp.getState().openLibrary(tab)}
+                onFromLibrary={(role) => useApp.getState().openLibrary('inputs', role)}
+                onSaveTemplate={chatWorkflows.length ? openTemplatePrompt : undefined}
+                onSend={(text) => void send(text)}
+                onDecide={(reply) => void send(reply)}
+                /* Not mid-run: a delete landing between an emit and its run is the one case
+                   worth refusing outright, so it waits rather than queues. */
+                deletionDisabled={!connected ? 'Not connected to the daemon' : session.running ? 'Wait for the current turn to finish' : ''}
+                credits={credits}
+                onCredits={() => setView('credits')}
+              />
             </div>
-
-            {/* THE WORKSPACE, and the handle that sizes it — both absent on an empty chat.
-                Between the two columns in DOM order, so `is-chat-right` ordering carries the
-                handle to the correct edge without a second element. */}
-            {!solo && (
-              <>
-                <ChatResizer side={chatSide} />
-
-                <div
-                  className="drawer-host drawer-host--workspace"
-                  ref={drawer === 'workspace' ? drawerRef : null}
-                  tabIndex={-1}
-                  role={drawer === 'workspace' ? 'dialog' : undefined}
-                  aria-modal={drawer === 'workspace' ? true : undefined}
-                  aria-label={drawer === 'workspace' ? 'Studio panel' : undefined}
-                >
-                <StudioDashboard
-                  client={client ?? undefined}
-                  state={studio}
-                  running={session.running}
-                  artifacts={files}
-                  slots={slots}
-                  freeReferences={free}
-                  onAddReference={onAddReference}
-                  referencesDisabled={!connected}
-                  onDeleteFiles={onDeleteFiles}
-                  onAddToLibrary={onAddToLibrary}
-                  sessionKey={currentKey}
-                  workspaceVersion={workspaceVersion}
-                  onUseWorkflow={onUseWorkflow}
-                  onRunAgain={onRunAgain}
-                  onUseTemplate={onUseTemplate}
-                  onSaveTemplate={chatWorkflows.length ? openTemplatePrompt : undefined}
-                  onSend={(text) => void send(text)}
-                  /* Not mid-run: a delete landing between an emit and its run is the one case
-                     worth refusing outright, so it waits rather than queues. */
-                  deletionDisabled={
-                    !connected
-                      ? 'Not connected to the daemon'
-                      : session.running
-                        ? 'Wait for the current turn to finish'
-                        : ''
-                  }
-                  credits={credits}
-                  onCredits={() => setView('credits')}
-                />
-                </div>
-              </>
-            )}
           </div>
         )}
       </main>

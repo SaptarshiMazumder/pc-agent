@@ -199,6 +199,33 @@ const client = {
 const noop = () => {}
 const Stage = ({ children }: { children: React.ReactNode }) => <div style={{ maxWidth: 760 }}>{children}</div>
 
+/* The thread is what the Design phase reads (agentd/creation-phase.ts): a user message after
+   the design card means it is answered, so the stages show; no plan and no card means the agent
+   is still designing. */
+const ASK_CARD = {
+  kind: 'tool' as const,
+  id: 'call_present_1',
+  name: 'pipeline_present',
+  args: {
+    title: 'Talking portrait — 2 steps',
+    workflows: [
+      { name: 'person_still', does: 'a studio portrait of the person in the photo' },
+      { name: 'talking_clip', does: 'the portrait says the line, 8 s' },
+    ],
+    delivers: 'one 8-second 1080×1920 clip',
+  },
+  done: true,
+  isError: false,
+  result: '',
+  ts: now * 1000 - 3_000_000,
+}
+const ANSWERED_THREAD = [
+  { kind: 'user' as const, text: 'Make my photo say this line.', ts: now * 1000 - 3_600_000 },
+  ASK_CARD,
+  { kind: 'user' as const, text: 'Build it as proposed.', ts: now * 1000 - 2_900_000 },
+] as never[]
+const WAITING_THREAD = [{ kind: 'user' as const, text: 'Put my logo on the mug.', ts: now * 1000 - 600_000 }] as never[]
+
 const common = {
   client,
   onAddReference: async () => {},
@@ -207,10 +234,12 @@ const common = {
   onDeleteFiles: async () => {},
   onAddToLibrary: (async () => ({ ok: true, message: 'Added to your Library.' })) as never,
   workspaceVersion: 1,
-  onUseWorkflow: noop,
   onRunAgain: noop,
-  onUseTemplate: noop,
+  onOpenLibrary: noop,
+  onFromLibrary: noop,
   onSend: noop,
+  onDecide: noop,
+  workflowName: 'talking_clip.api.json',
 }
 
 export const MidRunWithStages = () => (
@@ -218,6 +247,9 @@ export const MidRunWithStages = () => (
     <StudioDashboard
       {...common}
       sessionKey={CHAT}
+      items={ANSWERED_THREAD}
+      empty={false}
+      title="Talking portrait"
       state={STUDIO_RUNNING}
       running
       artifacts={ARTIFACTS}
@@ -237,8 +269,12 @@ export const WaitingOnAPhoto = () => (
     <StudioDashboard
       {...common}
       sessionKey={WAITING_CHAT}
+      items={WAITING_THREAD}
+      empty={false}
+      title="Logo on the mug"
+      workflowName=""
       state={{ runs: RUNS }}
-      running={false}
+      running
       artifacts={[PRODUCT_LOGO]}
       slots={[
         { role: 'product', what: 'the mug on a plain background, shot straight on', workflows: [], file: null, fedBy: null },
@@ -255,6 +291,10 @@ export const FreshChat = () => (
     <StudioDashboard
       {...common}
       sessionKey={FRESH_CHAT}
+      items={[]}
+      empty
+      title="New creation"
+      workflowName=""
       state={{}}
       running={false}
       artifacts={[]}

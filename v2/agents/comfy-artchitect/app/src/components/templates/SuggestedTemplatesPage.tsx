@@ -37,10 +37,13 @@ import './templates.css'
 export function SuggestedTemplatesPage({
   client,
   onUse,
+  embedded = false,
 }: {
   client: AgentdClient | undefined
   /** The installed Library template: a new chat with its brief. */
   onUse: (item: LibraryItem) => void
+  /** Inside the Library's Templates tab: the grid under its own small head, no page head. */
+  embedded?: boolean
 }) {
   const [catalogue, setCatalogue] = useState<SuggestedTemplate[] | null>(null)
   const [error, setError] = useState('')
@@ -57,16 +60,23 @@ export function SuggestedTemplatesPage({
 
   return (
     <>
-      <header className="page-head">
-        <div className="page-head-text">
-          <h1 className="page-title">Templates</h1>
-          <p className="page-sub">
-            Whole setups, ready to reuse — add your own photos and run. Each one is every workflow, installer and
-            input it needs; change anything once it is in your chat.
-          </p>
+      {embedded ? (
+        <div className="lib-sec-head tp-embedded-head">
+          <span className="lib-sec-title">Suggested</span>
+          <span className="lib-sec-hint">whole setups we made, ready to reuse — add your own photos and run</span>
         </div>
-      </header>
-      <div className="tp-page">
+      ) : (
+        <header className="page-head">
+          <div className="page-head-text">
+            <h1 className="page-title">Templates</h1>
+            <p className="page-sub">
+              Whole setups, ready to reuse — add your own photos and run. Each one is every workflow, installer and
+              input it needs; change anything once it is in your chat.
+            </p>
+          </div>
+        </header>
+      )}
+      <div className={`tp-page${embedded ? ' is-embedded' : ''}`}>
         {error && <p className="lib-error">{error}</p>}
         {!catalogue && !error && (
           <div className="lib-loading" role="status">

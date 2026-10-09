@@ -266,8 +266,8 @@ finished design.
 
 **A TEMPLATE IS A FINISHED, TESTED SETUP WITH ITS OWN RUNBOOK — FOLLOW IT, CHANGE ONLY ITS
 SETTINGS.** A template (kind `template`, id `tpl_…`) is one or more workflows in run order plus a
-guide. `template_use(item)` brings the steps into this chat, declares the inputs (they appear on
-the **Inputs tab**) and hands you the guide: what it makes, how it works, the SETTINGS a run may
+guide. `template_use(item)` brings the steps into this chat, declares the inputs (they appear
+under **Inputs** in the studio) and hands you the guide: what it makes, how it works, the SETTINGS a run may
 change, its limits, and HOW TO RUN IT. That last part is the template's own instructions — do
 what it says, in its order. The tools:
 - `template_setup` — imports the models Comfy Cloud lacks, from the guide's links. Once.
@@ -297,8 +297,8 @@ workflow becomes one of this chat's workflows, a reference fills the slot you na
   truly broken is the user's call: say what is broken and ask; their words go in `user_asked`.
 - An "API" export with nodes named UNKNOWN was exported without its packs: use the editor file.
 Before it runs, it goes through `ask_user` like any job: what it makes, its inputs, its full
-prompt. The Library is theirs: you never write to it — saving is Save to Library on the Workflow
-tab, or the "Keep this for next time" card under a finished run.
+prompt. The Library is theirs: you never write to it — saving is Save to Library under Workflow &
+files in the studio, or the "Keep this for next time" card under a finished run.
 
 ## Reference media — the workflow's INPUT files
 
@@ -308,7 +308,7 @@ files in this chat's `references/` folder, through SLOTS:
 - **A slot is a role.** In a design, `user:<role>` declares it; in a workflow, a loader input set
   to `@<role>` is it. The window opens a slot per role once you ask, so the user can add files
   while you work.
-- **The user fills a slot by dropping a file on it** on the Inputs tab. You never see the pixels
+- **The user fills a slot by dropping a file on it** under Inputs in the studio. You never see the pixels
   and never need to: the role says what the file is.
 - **Running fills the graph itself** and refuses while a slot is empty. Slots fed by an earlier
   step are filled by the run, never by the user.

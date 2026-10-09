@@ -39,6 +39,9 @@ export const DASH_MIN_PX = 560
  *  without editing this file: a view is a string and a branch in App.tsx, nothing more. */
 export type View = 'chat' | 'credits' | 'orgs' | 'settings' | (string & {})
 
+/** The Library page's tabs — one shelf, filtered by what a thing is. */
+export type LibraryTab = 'templates' | 'workflows' | 'inputs' | 'renders' | 'uploads'
+
 /** How full the model's context window is, as the daemon last reported it. */
 export interface ContextUsage {
   used: number
@@ -107,6 +110,18 @@ export interface AppState {
    *  dashboard always keeps its own minimum. */
   chatWidth: number
   setChatWidth: (px: number) => void
+  /** The chat folded to a strip at the window's edge, so the studio has the whole width. Never
+   *  gone: the strip is one click from bringing it back. Not persisted — a fold is for this look. */
+  chatCollapsed: boolean
+  toggleChat: () => void
+
+  /** THE LIBRARY PAGE'S TAB, and the slot waiting for a reference from it. One Library: the
+   *  studio's "From Library" door opens the page on Inputs with the role set, "Use" on a reference
+   *  fills that slot and the page hands back to the chat. */
+  libraryTab: LibraryTab
+  libraryTarget: string
+  openLibrary: (tab: LibraryTab, targetRole?: string) => void
+  clearLibraryTarget: () => void
 
   /** THE FILE THE CENTRE PANE IS SHOWING, by path — the studio's subject.
    *
@@ -194,11 +209,13 @@ export const useApp = create<AppState>((set) => ({
   view: 'chat',
   setView: (view) => set({ view }),
 
+  /* RIGHT BY DEFAULT (stage-first redesign): the studio is the work, the chat is beside it. A
+     person who swapped it stays swapped. */
   chatSide: (() => {
     try {
-      return localStorage.getItem('comfy.chatSide') === 'right' ? 'right' : 'left'
+      return localStorage.getItem('comfy.chatSide') === 'left' ? 'left' : 'right'
     } catch {
-      return 'left' as const
+      return 'right' as const
     }
   })(),
   setChatSide: (chatSide) => {
@@ -227,6 +244,13 @@ export const useApp = create<AppState>((set) => ({
     }
     set({ chatWidth: width })
   },
+  chatCollapsed: false,
+  toggleChat: () => set((s) => ({ chatCollapsed: !s.chatCollapsed })),
+
+  libraryTab: 'templates',
+  libraryTarget: '',
+  openLibrary: (libraryTab, targetRole = '') => set({ libraryTab, libraryTarget: targetRole, view: 'library' }),
+  clearLibraryTarget: () => set({ libraryTarget: '' }),
 
   selectedArtifactPath: '',
   selectionSeq: 0,

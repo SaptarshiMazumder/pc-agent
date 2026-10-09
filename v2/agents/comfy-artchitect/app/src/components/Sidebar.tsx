@@ -210,7 +210,7 @@ export function Sidebar({
             <span className="nav-ico">
               <Sparkles size={15} strokeWidth={1.7} />
             </span>
-            <span className="nav-item-label">Create</span>
+            <span className="nav-item-label">Studio</span>
           </button>
         )}
 
