@@ -349,7 +349,7 @@ export function AskPanel({
             <p className="cq-note">Add your files in the Workspace: {references.map((r) => words(r.role)).join(', ')}</p>
           ) : (
             <div className="cq-q">
-              <p className="cq-title">Photos it needs — add them on the Inputs tab</p>
+              <p className="cq-title">Photos it needs — add them under Inputs, below this card</p>
               <ol className="cq-list">
                 {references.map((r, i) => (
                   <li key={i}>

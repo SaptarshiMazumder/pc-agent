@@ -28,6 +28,7 @@ export function Thread({
   onSuggest,
   onDecide,
   after,
+  askInStudio = false,
 }: {
   items: ThreadItem[]
   running: boolean
@@ -38,7 +39,21 @@ export function Thread({
   onSuggest?: (prompt: string) => void
   /** Sends a paid-service verdict — see MessageItem. */
   onDecide?: (reply: string) => void
+  /** THE STUDIO SHOWS THE CARD. While a design card waits for its answer the studio beside this
+   *  thread renders it (DesignPhase, the same AskPanel); here it is a one-line pointer rather than
+   *  a second copy. Answered cards stay here as history. Off on a phone, where the chat is the
+   *  page and the studio is a drawer. */
+  askInStudio?: boolean
 }) {
+  /* The latest card no user message has answered — the one the studio is showing. */
+  const pendingAsk = (() => {
+    if (!askInStudio) return -1
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].kind === 'user') return -1
+      if (askOf(items[i])) return i
+    }
+    return -1
+  })()
   const boxRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
 
@@ -138,6 +153,14 @@ export function Thread({
       continue
     }
     dayMark(item.ts, `day-${i}`)
+    if (i === pendingAsk) {
+      rendered.push(
+        <div key={i} className="msg-system ask-pointer">
+          The design card is open in the studio — answer it there.
+        </div>,
+      )
+      continue
+    }
     rendered.push(<MessageItem
         key={i}
         item={item}

@@ -13,20 +13,26 @@ import type { AgentdClient } from '@agentd/client'
 import { useOwnComfyKeys, type OwnKey } from './useOwnComfyKeys'
 import { WorkspaceSection } from './WorkspaceSection'
 
-export function ApiKeysSection({ client }: { client?: AgentdClient }) {
+export function ApiKeysSection({ client, plain = false }: { client?: AgentdClient; plain?: boolean }) {
   const { keys, message, save } = useOwnComfyKeys(client)
   const saved = keys.filter((k) => k.isSet).length
 
+  const body = (
+    <div className="ck">
+      {keys.map((k) => (
+        <KeyRow key={k.key} item={k} onSave={(value) => save({ [k.key]: value })} />
+      ))}
+      {message && message !== 'Saved.' && (
+        <p className={message.startsWith('could not') ? 'ck-err' : 'ck-note'}>{message}</p>
+      )}
+    </div>
+  )
+  /* PLAIN on the Settings page, which carries its own head; folded inside a workspace section
+     anywhere else. */
+  if (plain) return body
   return (
     <WorkspaceSection title="Your keys" count={keys.length ? `${saved}/${keys.length} saved` : ''} defaultOpen={false}>
-      <div className="ck">
-        {keys.map((k) => (
-          <KeyRow key={k.key} item={k} onSave={(value) => save({ [k.key]: value })} />
-        ))}
-        {message && message !== 'Saved.' && (
-          <p className={message.startsWith('could not') ? 'ck-err' : 'ck-note'}>{message}</p>
-        )}
-      </div>
+      {body}
     </WorkspaceSection>
   )
 }

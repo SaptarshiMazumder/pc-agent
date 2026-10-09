@@ -1,4 +1,4 @@
-/* The Library tab — a sibling of the Workspace in the studio, and the one place chats share.
+/* The Library — the one place chats share, shown by the Library page one tab at a time (`show`).
  *
  * TWO SECTIONS, BY WHO PUT IT THERE. "Uploaded" is what the person brought from their machine;
  * "Saved from chats" is what came out of a conversation (the workspace rail's Add to Library, a
@@ -44,6 +44,10 @@ import { LibraryWorkflowItem } from './LibraryWorkflowItem'
 
 import './library.css'
 
+/** What the panel shows: everything (the sections by origin), or one kind of thing — the Library
+ *  page's tabs. A filter over the one list; nothing is stored differently. */
+export type LibraryShow = 'all' | 'templates' | 'workflows' | 'references' | 'renders' | 'uploads'
+
 export function LibraryPanel({
   client,
   sessionKey,
@@ -57,6 +61,7 @@ export function LibraryPanel({
   onRunAgain,
   onUseTemplate,
   titled = true,
+  show = 'all',
 }: {
   client: AgentdClient | undefined
   /** The chat a "Use" lands in. */
@@ -80,6 +85,7 @@ export function LibraryPanel({
   /** Draw the panel's own "Library · count" line. The Library PAGE says it in its page title
    *  already, so it turns this off rather than printing "Library" twice. */
   titled?: boolean
+  show?: LibraryShow
 }) {
   /* FIRST FRAME FROM THE CACHE, then the daemon's answer replaces it (agentd/library-cache).
      `cached` is read once: it only decides whether the first load shows a spinner or a list. */
@@ -221,6 +227,39 @@ export function LibraryPanel({
     }
     return [...titles.entries()]
   }, [items])
+  /* ONE KIND AT A TIME (the page's Workflows and Inputs tabs): every item of that kind whoever
+     put it there, with the chat filter for the saved ones. */
+  const ofKind = useMemo(
+    () =>
+      items.filter(
+        (i) =>
+          (show === 'workflows' ? i.kind === 'workflow' : show === 'references' ? i.kind === 'reference' : false) &&
+          (!filter || i.origin !== 'saved' || i.from?.title === filter),
+      ),
+    [items, show, filter],
+  )
+  const showTemplates = show === 'all' || show === 'templates'
+  const showUploaded = show === 'all' || show === 'uploads'
+  const showSaved = show === 'all' || show === 'renders'
+  const kindTab = show === 'workflows' || show === 'references'
+  const chatFilter = chatsSeen.length > 1 && (
+    <div className="lib-filters">
+      <button type="button" className={`lib-chip${!filter ? ' on' : ''}`} onClick={() => setFilter('')}>
+        all
+      </button>
+      {chatsSeen.map(([title, n]) => (
+        <button
+          key={title}
+          type="button"
+          className={`lib-chip${filter === title ? ' on' : ''}`}
+          onClick={() => setFilter(filter === title ? '' : title)}
+          title={`${n} item(s) from this chat`}
+        >
+          {title}
+        </button>
+      ))}
+    </div>
+  )
 
   // The drop zone: a real <input type=file> behind a button, plus the whole panel as a target.
   const pickRef = useRef<HTMLInputElement>(null)
@@ -315,6 +354,28 @@ export function LibraryPanel({
         </p>
       )}
 
+      {kindTab && (
+        <Section
+          title={show === 'workflows' ? 'Workflows' : 'Inputs'}
+          hint={show === 'workflows' ? 'kept from a chat or uploaded — run again, or use in a chat' : 'faces, products, clips you keep reusing — use one in a slot'}
+          origin={show === 'workflows' ? 'saved' : 'uploaded'}
+        >
+          {chatFilter}
+          {ofKind.length ? (
+            ofKind.map(row)
+          ) : (
+            <p className="lib-sec-empty">
+              {show === 'workflows' ? (
+                <>None yet. Press <em>Save to Library</em> on a workflow, or drop a workflow JSON here.</>
+              ) : (
+                <>None yet. Press <em>Add to Library</em> on a render or an input, or drop files here.</>
+              )}
+            </p>
+          )}
+        </Section>
+      )}
+
+      {showTemplates && (
       <Section
         title="Templates"
         hint="whole setups — every workflow, installer and input — to reuse in a new chat"
@@ -361,9 +422,11 @@ export function LibraryPanel({
           </p>
         )}
       </Section>
+      )}
 
       {/* UPLOADED CARRIES ITS OWN UPLOAD BUTTON, like Templates does: the button sat in the
           Library's header, above Templates, so what it added looked like it landed somewhere else. */}
+      {showUploaded && (
       <Section
         title="Uploaded"
         hint="from this computer"
@@ -400,32 +463,12 @@ export function LibraryPanel({
           </p>
         )}
       </Section>
+      )}
 
-      {items.some((i) => i.origin === 'saved') && (
+      {showSaved && (items.some((i) => i.origin === 'saved') || show === 'renders') && (
         <Section title="Saved from chats" hint="Add to Library and Save to Library land here" origin="saved">
-          {chatsSeen.length > 1 && (
-            <div className="lib-filters">
-              <button
-                type="button"
-                className={`lib-chip${!filter ? ' on' : ''}`}
-                onClick={() => setFilter('')}
-              >
-                all
-              </button>
-              {chatsSeen.map(([title, n]) => (
-                <button
-                  key={title}
-                  type="button"
-                  className={`lib-chip${filter === title ? ' on' : ''}`}
-                  onClick={() => setFilter(filter === title ? '' : title)}
-                  title={`${n} item(s) from this chat`}
-                >
-                  {title}
-                </button>
-              ))}
-            </div>
-          )}
-          {saved.map(row)}
+          {chatFilter}
+          {saved.length ? saved.map(row) : <p className="lib-sec-empty">None yet. Press <em>Add to Library</em> on a render or a workflow in a creation.</p>}
         </Section>
       )}
 

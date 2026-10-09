@@ -1828,19 +1828,27 @@ h2 { font-size: var(--fs-lead); }
 /* ── the kind tag on a render in the thread ───────────────────────────────────────────────── */
 .artifact-kind { position: absolute; top: 8px; left: 8px; pointer-events: none; }
 
-/* ── the empty chat: prompt first ─────────────────────────────────────────────────────────── */
-/* NOTHING SAID YET, so the question, the box and the ways in sit together in the middle of the
-   window instead of the question floating at the top and the box pinned to the bottom edge. The
-   same elements as before; only where they sit changes. */
-.st-cols.is-solo .st-convo-body { flex: 0 0 auto; margin-top: auto; }
-.st-cols.is-solo .opening { flex: none; padding-bottom: 6px; }
-.st-cols.is-solo .st-convo-foot { border-top: 0; margin-bottom: auto; padding-bottom: 40px; }
-.st-cols.is-solo .opening-headline { max-width: none; }
-.st-cols.is-solo .composer {
-  border-color: var(--border-strong);
-  box-shadow: 0 30px 90px -30px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 0 6px color-mix(in srgb, var(--glow-1) 30%, transparent);
+/* ── the empty chat (stage-first redesign): the opening beside the new-creation setup ───────── */
+/* NOTHING SAID YET: the studio holds the ways in, the chat says what happens next and offers the
+   starters, beside the box you would type in. Left-aligned in its column, not centred. */
+.st-convo-body .opening { align-items: flex-start; justify-content: flex-start; text-align: left; gap: 0; }
+.st-convo-body .opening-headline { font-size: 30px; max-width: none; }
+.st-convo-body .opening-blurb { max-width: none; }
+.opening-steps {
+  margin: var(--sp-control) 0 0; padding: 14px 16px; list-style: none; display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-card); background: var(--bg2); counter-reset: step;
+  font-size: var(--fs-help); line-height: 1.5; color: var(--dim); align-self: stretch;
 }
-.st-cols.is-solo .composer:focus-within { border-color: var(--accent); }
+.opening-steps li { display: flex; gap: 10px; align-items: flex-start; counter-increment: step; }
+.opening-steps li::before {
+  content: counter(step); flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--border-strong); color: var(--text); font-size: 11px; font-weight: 700;
+}
+.opening-steps li:first-child::before { background: var(--prim-bg); color: var(--prim-ink); }
+.opening-steps b { color: var(--text); font-weight: var(--fw-semi); }
+.st-convo-body .opening .starters { margin-top: var(--sp-control); align-self: stretch; }
+/* The design card is in the studio: one quiet line in the thread says so. */
+.ask-pointer { color: var(--accent-text); }
 
 /* ── Start from your Library (StarterWorkflows) ───────────────────────────────────────────── */
 .sw { width: 100%; max-width: 720px; margin: 28px auto 0; }

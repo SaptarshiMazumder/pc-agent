@@ -1,46 +1,42 @@
-/* The stage: what the agent made, beside the conversation that made it.
+/* The studio: the creation as a pipeline of stages, beside the conversation that drives it.
  *
- * TWO TABS, TWO SCOPES (creative-studio redesign, Sep 2026):
+ *   CreationHeader    what it is, where it stands (Design → Set up → Run), its inputs, the balance
+ *   StagePipeline     one card per stage of the design, and "Workflow & files"
+ *   the body          Design: the agent's card (AskPanel) and the inputs it declared
+ *                     Set up / Run: the stage on screen — results | inspector — and its carry bar
+ *                     Workflow & files: outputs, the workflow pair, the folder tree
+ *   FileViewer        beside the body whenever a file is picked — from a tile, a slot, the tree
+ *                     or a thumbnail in the conversation
  *
- *   Workspace   THIS chat's files, on one scroll of sections —
- *                 Inputs     the reference slots the agent asked for (ReferenceSlots, unchanged)
- *                 Outputs    the renders, as a grid of thumbnails (OutputsGrid)
- *                 Workflow   the reusable setup: the workflow pair, its installer, Save to Library
- *                 All files  the full folder tree, tick-to-delete, Add to Library (FileExplorer,
- *                            unchanged), folded by default
- *   Library     what the person kept, shared by EVERY chat (LibraryPanel, unchanged), including
- *               a slot's From Library door.
+ * A chat with nothing said yet shows the new-creation setup instead (NewCreationSetup).
  *
- * ONE VIEWER. Opening anything — a render, a reference, the graph, a file in the tree, or a
- * thumbnail clicked in the conversation — shows it in the same FileViewer on the right, and the
- * sections narrow to a column beside it, exactly as the old rail did. Nothing opens by itself
- * (the thumbnail rule, agentd/artifacts.ts): the original bytes load only on a click.
+ * ONE VIEWER, as before: nothing opens by itself (the thumbnail rule, agentd/artifacts.ts); the
+ * original bytes load only on a click.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import type { LibrarySaveOutcome } from '../../agentd/library'
 
-import { ApiKeysSection } from './ApiKeysSection'
-
 import type { Artifact } from '../../agentd/artifacts'
+import type { ThreadItem } from '../../agentd/chat'
+import { pendingAsk, phaseOf } from '../../agentd/creation-phase'
 import type { LibraryItem } from '../../agentd/library'
 import type { Slot } from '../../agentd/reference-slots'
-import { useApp } from '../../state/store'
-import { ActiveRunStrip } from './ActiveRunStrip'
-import { FileExplorer } from './FileExplorer'
-import { LibraryPanel } from '../library/LibraryPanel'
-import { ReferenceSlots } from './ReferenceSlots'
-import { StagePlan } from './StagePlan'
 import { useStagePlan } from '../../agentd/stage-plan'
-import { FileViewer } from './FileViewer'
-import { OutputsGrid } from './OutputsGrid'
-import { WorkflowPanel } from './WorkflowPanel'
-import { WorkspaceSection } from './WorkspaceSection'
-import { StudioTopBar, type StudioPanel } from './StudioTopBar'
-import type { StudioState } from './useStudioState'
+import { useApp, type LibraryTab } from '../../state/store'
 import { collectWorkflows } from '../workflows/WorkflowCard'
+import { ActiveRunStrip } from './ActiveRunStrip'
+import { CreationHeader } from './CreationHeader'
+import { DesignPhase } from './DesignPhase'
+import { FileViewer } from './FileViewer'
+import { NewCreationSetup } from './NewCreationSetup'
+import { ReferenceSlots } from './ReferenceSlots'
+import { StagePipeline, currentStage } from './StagePipeline'
+import { StagePlan, useByRel } from './StagePlan'
+import { installing, type StudioState } from './useStudioState'
+import { WorkflowFilesView } from './WorkflowFilesView'
 
 import './studio.css'
 
@@ -51,6 +47,10 @@ export function StudioDashboard({
   client,
   state,
   running,
+  items,
+  empty,
+  title,
+  workflowName,
   artifacts,
   slots,
   freeReferences,
@@ -63,17 +63,26 @@ export function StudioDashboard({
   deletionDisabled,
   sessionKey,
   workspaceVersion,
-  onUseWorkflow,
   onRunAgain,
-  onUseTemplate,
+  onOpenLibrary,
+  onFromLibrary,
   onSaveTemplate,
   onSend,
+  onDecide,
 }: {
   client: AgentdClient | undefined
   /** The one studio-state poll (App owns it; the install panel reads it too). */
   state: StudioState
   running: boolean
-  /** Everything the agent wrote this session — the Workspace's whole content. */
+  /** The conversation — the design card is read off it (agentd/creation-phase.ts). */
+  items: ThreadItem[]
+  /** Nothing said yet: the new-creation setup instead of a creation. */
+  empty: boolean
+  /** The chat's name, from the rail. */
+  title: string
+  /** The newest workflow this creation emitted. */
+  workflowName: string
+  /** Everything the agent wrote this session — the creation's whole content. */
   artifacts: Artifact[]
   /** The reference slots the agent asked for, with the file filling each (agentd/reference-slots). */
   slots: Slot[]
@@ -88,29 +97,24 @@ export function StudioDashboard({
   /** Add to Library: copies into the shared Library; answers a sentence to show. */
   onAddToLibrary?: (paths: string[]) => Promise<LibrarySaveOutcome>
   deletionDisabled?: string
-  /** The chat the Library's "Use" lands in. */
   sessionKey: string
-  /** Bumped whenever the workspace changes, so the Library re-reads its catalogue. */
+  /** Bumped whenever the workspace changes, so the stage records are re-read. */
   workspaceVersion: number
-  /** Hand a Library workflow to the agent in this chat. */
-  onUseWorkflow: (item: LibraryItem) => void
-  /** Start a new conversation around a Library workflow. */
+  /** Start a new conversation around a Library workflow (the kept workflows on a new creation). */
   onRunAgain: (item: LibraryItem) => void
-  /** Start a new conversation from a Library template. */
-  onUseTemplate: (item: LibraryItem) => void
+  /** Open the Library page on a tab. */
+  onOpenLibrary: (tab: LibraryTab) => void
+  /** A slot's From Library door: the Library page on Inputs, with that role waiting. */
+  onFromLibrary: (role: string) => void
   /** Keep every workflow of this chat as one template (asks for its name first). */
   onSaveTemplate?: () => void
   /** Send a message to this chat — a stage's Run sends the call carrying its approval. */
   onSend: (text: string) => void
+  /** Answer the design card (AskPanel) — the same send the thread's card uses. */
+  onDecide: (reply: string) => void
 }) {
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
-  const selectionSeq = useApp((s) => s.selectionSeq)
-  /* WHICH TAB. Local, not store, state: nothing outside this column reads it. */
-  const [panel, setPanel] = useState<StudioPanel>('workspace')
-  /* A slot that asked for a Library reference (the From Library door on a slot): the Library
-     opens with that role preselected and a line saying what it is waiting for. */
-  const [targetRole, setTargetRole] = useState('')
 
   const made = useMemo(() => artifacts.filter((a) => !inReferences(a)), [artifacts])
   const outputs = useMemo(() => made.filter((a) => MEDIA.has(a.kind)), [made])
@@ -122,183 +126,172 @@ export function StudioDashboard({
 
   // SELECT BY PATH, RESOLVE BY LOOKUP: the same file is re-declared as later turns touch it, and
   // holding the object would pin whichever copy was clicked.
-  const selected = useMemo(
-    () => artifacts.find((a) => a.path === selectedPath) || null,
-    [artifacts, selectedPath],
-  )
+  const selected = useMemo(() => artifacts.find((a) => a.path === selectedPath) || null, [artifacts, selectedPath])
 
   // A selection from another chat does not apply here.
   useEffect(() => {
     if (selectedPath && !artifacts.some((a) => a.path === selectedPath)) setSelectedPath('')
   }, [artifacts, selectedPath, setSelectedPath])
 
-  /* EVERY PICK SHOWS THE PICKED FILE — from the conversation, a slot, a tile or the tree. It is
-     always a Workspace file, so the Workspace comes forward. Keyed to the pick itself
-     (selectionSeq), so a second click on the same file still works from the Library tab. */
-  useEffect(() => {
-    if (selectedPath) setPanel('workspace')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionSeq])
-
-  /* THE AGENT ASKED FOR A PHOTO: the Workspace (where the slot is) comes forward, once, when an
-     empty slot appears. A saved chat's slots arriving with its history are its opening state,
-     not a new ask — `settled` marks the first time this chat had anything to show. */
-  const emptySlots = slots.filter((s) => !s.file).length
-  const seenEmpty = useRef(emptySlots)
-  const settled = useRef(false)
-  useEffect(() => {
-    settled.current = false
-    setTargetRole('')
-    setPanel('workspace')
-  }, [sessionKey])
-  useEffect(() => {
-    if (!settled.current) {
-      if (artifacts.length || slots.length) settled.current = true
-    } else if (emptySlots > seenEmpty.current) {
-      setPanel('workspace')
-    }
-    seenEmpty.current = emptySlots
-  }, [emptySlots, artifacts.length, slots.length, sessionKey])
-
-  const hasInputs = slots.length > 0 || freeReferences.length > 0
-  const filled = slots.length - emptySlots
-  /* THE STEPS of this chat's design, once there is one (agentd/stage-plan.ts). */
+  /* THE STAGES of this chat's design, once there is one (agentd/stage-plan.ts). */
   const plan = useStagePlan(client, sessionKey, workspaceVersion)
+  const byRel = useByRel(artifacts, sessionKey)
+  const ask = useMemo(() => pendingAsk(items), [items])
+  const phase = phaseOf(items, plan, installing(state))
+
+  /* WHICH STAGE IS ON SCREEN. The current one (the first with nothing made), following the
+     creation as it moves — unless the person opened another. "Workflow & files" is the other view. */
+  const current = plan ? currentStage(plan) : ''
+  const [shown, setShown] = useState('')
+  const [all, setAll] = useState(false)
+  const [inputsOpen, setInputsOpen] = useState(false)
+  useEffect(() => {
+    setShown('')
+    setAll(false)
+    setInputsOpen(false)
+  }, [sessionKey])
+  useEffect(() => setShown(''), [current])
+  const show = (name: string): void => {
+    setShown(name)
+    setAll(false)
+  }
+  const stageShown = plan ? (plan.stages.some((s) => s.name === shown) ? shown : current || plan.stages[plan.stages.length - 1].name) : ''
+
+  /* THE AGENT ASKED FOR A PHOTO: the inputs panel opens, once, when an empty slot appears mid-
+     creation. A saved chat's slots arriving with its history are its opening state, not an ask. */
+  const emptySlots = slots.filter((s) => !s.file && !s.fedBy).length
+  const [seenEmpty, setSeenEmpty] = useState(emptySlots)
+  useEffect(() => {
+    if (emptySlots > seenEmpty && phase !== 'design') setInputsOpen(true)
+    setSeenEmpty(emptySlots)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptySlots])
+
+  const open = (a: Artifact): void => setSelectedPath(a.path)
+
+  if (empty)
+    return (
+      <div className="st-dash">
+        <div className="st-body">
+          <div className={`ws${selected ? ' is-narrow' : ''}`}>
+            <NewCreationSetup
+              client={client}
+              workspaceVersion={workspaceVersion}
+              slots={slots}
+              free={freeReferences}
+              referencesDisabled={referencesDisabled}
+              onAddReference={onAddReference}
+              onOpen={open}
+              onFromLibrary={onFromLibrary}
+              onOpenLibrary={onOpenLibrary}
+              onRunAgain={onRunAgain}
+            />
+          </div>
+          {selected && (
+            <main className="st-view">
+              <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
+            </main>
+          )}
+        </div>
+      </div>
+    )
 
   return (
     <div className="st-dash">
-      <StudioTopBar
-        credits={credits}
-        onCredits={onCredits}
-        panel={panel}
-        attention={emptySlots > 0}
-        onPanel={(p) => {
-          setPanel(p)
-          if (p !== 'library') setTargetRole('')
-        }}
-      />
       <ActiveRunStrip state={state} client={client} />
 
       <div className="st-body">
-        {panel === 'library' ? (
-          <LibraryPanel
-            client={client}
-            sessionKey={sessionKey}
+        <div className={`ws${selected ? ' is-narrow' : ''}`}>
+          <CreationHeader
+            title={title}
+            workflowName={workflowName}
+            phase={phase}
             slots={slots}
-            running={running}
-            workspaceVersion={workspaceVersion}
-            targetRole={targetRole}
-            onClearTarget={() => {
-              setTargetRole('')
-              setPanel('workspace')
-            }}
-            onUseWorkflow={onUseWorkflow}
-            onRunAgain={onRunAgain}
-            onUseTemplate={onUseTemplate}
+            inputsOpen={inputsOpen}
+            onToggleInputs={() => setInputsOpen((v) => !v)}
+            credits={credits}
+            onCredits={onCredits}
           />
-        ) : (
-          <>
-            <div className={`ws${selected ? ' is-narrow' : ''}`}>
-              {/* THE ONE SETTING: the Comfy API key every workflow runs on Comfy Cloud with —
-                  folded, saying whether it is saved. */}
-              <ApiKeysSection client={client} />
-              {/* INPUTS FIRST AND ALWAYS: the place to add a face, a product, a keyframe is on
-                  screen before anyone asks for one — a run cannot start while one is missing, and
-                  "attach it in the References panel" pointed at a panel that was not there until
-                  the agent had declared a slot. */}
-              <WorkspaceSection
-                title="Inputs"
-                count={slots.length ? `${filled} of ${slots.length}` : freeReferences.length ? String(freeReferences.length) : undefined}
-                attention={emptySlots > 0}
-              >
-                <ReferenceSlots
-                  slots={slots}
-                  free={freeReferences}
-                  disabled={referencesDisabled}
-                  onAdd={onAddReference}
-                  onOpen={(a) => setSelectedPath(a.path)}
-                  onFromLibrary={(role) => {
-                    setTargetRole(role)
-                    setPanel('library')
-                  }}
-                />
-              </WorkspaceSection>
-              {!artifacts.length && !hasInputs && !plan ? (
-                <div className="op-empty">
-                  <b>Nothing made yet</b>
-                  <p>
-                    This chat&rsquo;s renders and workflow collect here as Penguin works. Add the photos
-                    a job needs — a face, a product, a first frame — under Inputs above.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* THE STEPS: each one's inputs, results and Run — the person drives the run. */}
-                  {plan && (
-                    <WorkspaceSection title="Stages" count={String(plan.stages.length)}>
-                      <StagePlan
-                        client={client}
-                        sessionKey={sessionKey}
-                        plan={plan}
-                        files={artifacts}
-                        slots={slots}
-                        running={running}
-                        onAddReference={onAddReference}
-                        onFromLibrary={(role) => {
-                          setTargetRole(role)
-                          setPanel('library')
-                        }}
-                        onOpen={(a) => setSelectedPath(a.path)}
-                        onSend={onSend}
-                      />
-                    </WorkspaceSection>
-                  )}
-                  <WorkspaceSection title="Outputs" count={outputs.length ? String(outputs.length) : undefined}>
-                    <OutputsGrid
-                      outputs={outputs}
-                      selectedPath={selectedPath}
-                      onOpen={(a) => setSelectedPath(a.path)}
-                      onDelete={onDeleteFiles}
-                      onAddToLibrary={onAddToLibrary}
-                      deletionDisabled={deletionDisabled}
-                    />
-                  </WorkspaceSection>
-                  <WorkspaceSection title="Workflow" count={workflowCount ? String(workflowCount) : undefined}>
-                    <WorkflowPanel
-                      files={workflowSide}
-                      onDelete={onDeleteFiles}
-                      onAddToLibrary={onAddToLibrary}
-                      onSaveTemplate={onSaveTemplate}
-                      onOpen={(a) => setSelectedPath(a.path)}
-                      deletionDisabled={deletionDisabled}
-                    />
-                  </WorkspaceSection>
-                  {/* The references are Inputs above, so the tree lists what the agent MADE:
-                      workflows, renders, installers. Unchanged from the old rail. */}
-                  <WorkspaceSection title="All files" count={made.length ? String(made.length) : undefined} defaultOpen={false}>
-                    <FileExplorer
-                      artifacts={made}
-                      selected={selected}
-                      onSelect={(a) => setSelectedPath(a.path)}
-                      onDelete={onDeleteFiles}
-                      onAddToLibrary={onAddToLibrary}
-                      deletionDisabled={deletionDisabled}
-                    />
-                  </WorkspaceSection>
-                </>
-              )}
-            </div>
+          {inputsOpen && phase !== 'design' && (
+            <section className="ch-inputs">
+              <ReferenceSlots
+                slots={slots}
+                free={freeReferences}
+                disabled={referencesDisabled}
+                onAdd={onAddReference}
+                onOpen={open}
+                onFromLibrary={onFromLibrary}
+              />
+            </section>
+          )}
 
-            {/* THE PANE IS NOT RENDERED WHEN NOTHING IS SELECTED — the sections take the room. */}
-            {selected && (
-              <main className="st-view">
-                {/* KEYED BY PATH, so picking a different file MOUNTS A NEW VIEWER instead of
-                    handing the old one new props — an <img> otherwise goes on painting the
-                    previous render until the new bytes land. */}
-                <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
-              </main>
-            )}
-          </>
+          {plan && (
+            <StagePipeline
+              plan={plan}
+              byRel={byRel}
+              shown={stageShown}
+              all={all}
+              counts={{ workflows: workflowCount, files: made.length }}
+              onShow={show}
+              onAll={() => setAll(true)}
+            />
+          )}
+
+          {all ? (
+            <WorkflowFilesView
+              outputs={outputs}
+              workflowSide={workflowSide}
+              made={made}
+              workflowCount={workflowCount}
+              selected={selected}
+              selectedPath={selectedPath}
+              onOpen={open}
+              onDeleteFiles={onDeleteFiles}
+              onAddToLibrary={onAddToLibrary}
+              onSaveTemplate={onSaveTemplate}
+              deletionDisabled={deletionDisabled}
+            />
+          ) : phase === 'design' ? (
+            <DesignPhase
+              ask={ask}
+              onDecide={onDecide}
+              hasPlan={!!plan}
+              running={running}
+              slots={slots}
+              free={freeReferences}
+              referencesDisabled={referencesDisabled}
+              onAddReference={onAddReference}
+              onOpen={open}
+              onFromLibrary={onFromLibrary}
+            />
+          ) : (
+            plan && (
+              <StagePlan
+                client={client}
+                sessionKey={sessionKey}
+                plan={plan}
+                shown={stageShown}
+                files={artifacts}
+                slots={slots}
+                running={running}
+                onAddReference={onAddReference}
+                onFromLibrary={onFromLibrary}
+                onOpen={open}
+                onShow={show}
+                onSend={onSend}
+              />
+            )
+          )}
+        </div>
+
+        {/* THE PANE IS NOT RENDERED WHEN NOTHING IS SELECTED — the body takes the room. KEYED BY
+            PATH, so picking a different file MOUNTS A NEW VIEWER instead of handing the old one
+            new props — an <img> otherwise goes on painting the previous render until the new
+            bytes land. */}
+        {selected && (
+          <main className="st-view">
+            <FileViewer key={selected.path} file={selected} onClose={() => setSelectedPath('')} />
+          </main>
         )}
       </div>
     </div>
