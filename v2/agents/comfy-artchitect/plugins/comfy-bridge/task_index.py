@@ -38,6 +38,9 @@ class TaskDescription:
     gloss: str
     #: The recipe `task` values (t2i, edit, r2v, …) that serve it.
     recipe_tasks: tuple
+    #: What serves it BEFORE any recipe, when that is decided (a realistic still is a Seedream
+    #: stage) — said above the ranking; "" when the ranking decides.
+    first_choice: str = ""
 
 
 class TaskIndex:
@@ -67,7 +70,8 @@ class TaskIndex:
                 for i, r in enumerate(rows) if isinstance(r, dict) and r.get("family")
             ]
         described = {
-            str(task): TaskDescription(str(m.get("gloss") or ""), tuple(str(t) for t in m.get("recipe_tasks") or ()))
+            str(task): TaskDescription(str(m.get("gloss") or ""), tuple(str(t) for t in m.get("recipe_tasks") or ()),
+                                       str(m.get("first_choice") or ""))
             for task, m in (data.get("task_meta") or {}).items() if isinstance(m, dict)
         }
         return cls(tasks, {k: v for k, v in data.items() if k not in ("tasks", "task_meta")}, described)
@@ -78,6 +82,10 @@ class TaskIndex:
     def gloss(self, task: str) -> str:
         d = self.described.get(task)
         return d.gloss if d else ""
+
+    def first_choice(self, task: str) -> str:
+        d = self.described.get(task)
+        return d.first_choice if d else ""
 
     def recipe_tasks(self, task: str) -> tuple:
         """The recipe kinds that serve `task`; a task the file does not describe is its own kind."""

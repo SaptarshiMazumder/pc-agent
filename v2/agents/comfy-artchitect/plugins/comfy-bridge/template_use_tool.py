@@ -36,8 +36,7 @@ import studio_state
 from fixed_design_shape import FixedDesignShape
 from library_index import LibraryIndex
 from library_template import LibraryTemplate, TemplateInput
-from template_about import TemplateAbout
-from template_setup_guide import FILE as SETUP_FILE, TemplateSetupGuide
+from template_guide import FILE as GUIDE_FILE, TemplateGuide
 from workflow_summary import WorkflowSummary
 
 
@@ -48,8 +47,9 @@ class TemplateUseTool(Tool):
         "Bring a Library TEMPLATE (a whole saved setup: several workflows, their installers and "
         "the inputs they need) into this chat. Every workflow is copied in under its role and "
         "its reference slots are declared, so the Inputs tab shows what to add. Returns the "
-        "template's description, its steps in run order and the inputs. A template's steps run "
-        "without ask_user or comfy_validate — see the result for what to do next."
+        "template's runbook: what it makes, its steps, the inputs, the SETTINGS a run may change "
+        "(template_set — nothing else), and how to run it. A template's steps run without ask_user "
+        "or comfy_validate — follow the runbook. Only version-2 templates are usable."
     )
     parameters = {
         "type": "object",
@@ -124,34 +124,14 @@ class TemplateUseTool(Tool):
             steps_text.append(f"{n}. {role}  ({folder}/{role}.api.json)")
             brought.append({"role": role, "api": f"{folder}/{role}.api.json"})
 
-        # THE SETUP GUIDE comes along, for template_setup to install from. A template without one
-        # (saved before guides existed) is set up the normal way — the only time the agent works
-        # its sources out itself.
-        guide, no_guide = TemplateSetupGuide.load(template.folder)
-        (dest / SETUP_FILE).unlink(missing_ok=True)
-        if guide is not None:
-            shutil.copyfile(template.folder / SETUP_FILE, dest / SETUP_FILE)
-        setup = (
-            "comfy_price each step (by its path) for the credits one run costs"
-            if guide is not None else
-            f"this template has NO setup guide ({no_guide}): comfy_price each step"
-        )
-        on_go = (
-            "ON GO: template_setup (it installs every node pack and model from the template's "
-            "setup guide, and names any gap), then comfy_run each step in order, as it is. Work "
-            "out ONLY the gaps template_setup names — never a link, a model or a node it already set up."
-            if guide is not None else
-            "ON GO: this template has no setup guide, so for each step in order: comfy_validate, "
-            "comfy_install exactly what it names (no ask), comfy_run."
-        )
-
-        # THE ABOUT, for the agent to answer "can it do three characters?" from — not to recite:
-        # the brief stays short. A template without one is answered from its workflows.
-        about, _ = TemplateAbout.load(template.folder)
-        about_text = (
-            "\n\nABOUT THIS TEMPLATE (answer the user's questions from this; do not recite it in the brief):\n"
-            + about.text()
-        ) if about is not None else ""
+        # THE GUIDE comes along: template_setup imports from it, template_set changes only what it
+        # lists. A version-2 template without one is not a template that runs as it is.
+        guide, no_guide = TemplateGuide.load(template.folder)
+        if guide is None:
+            raise ValueError(f"the template's guide is unusable: {no_guide}")
+        (dest / GUIDE_FILE).unlink(missing_ok=True)
+        (dest / "setup.json").unlink(missing_ok=True)  # a version-1 template's, from before
+        shutil.copyfile(template.folder / GUIDE_FILE, dest / GUIDE_FILE)
 
         # A template saved before its chat declared inputs still has slots in its graphs.
         inputs = template.inputs or [TemplateInput(role=r) for r in all_slots]
@@ -159,17 +139,21 @@ class TemplateUseTool(Tool):
             "\n".join(f"  @{i.role}" + (f" — {i.what}" if i.what else "") for i in inputs)
             if inputs else "  none — it runs as it is"
         )
+        limits = "".join(f"\n  - {x}" for x in guide.limits)
         return ToolResult.text(
-            f"brought template '{template.name}' into this chat — {len(template.steps)} workflow(s), in run order:\n"
+            f"brought template '{template.name}' into this chat — {len(template.steps)} step(s), in run order:\n"
             + "\n".join(steps_text)
-            + (f"\n\nwhat it makes: {template.description}" if template.description else "")
-            + f"\n\ninputs the user fills on the Inputs tab (comfy_run refuses while any is empty):\n{inputs_text}"
-            + about_text
-            + f"\n\nNOW: {setup}. Then tell the "
-            "user in a few short lines: what the template makes, the inputs to add on the Inputs tab, "
-            "and the credits a run costs — and that they add the inputs and say go, or say what to "
-            "change. No models, nodes or settings unless they ask. End the turn.\n"
-            + on_go + " No ask_user. NEVER comfy_emit a template step to get it running — a step is "
-            "rewritten only when the user asks for a change, and then through the normal protocol, ask included.",
+            + f"\n\nWHAT IT MAKES: {guide.makes or template.description}"
+            + (f"\nHOW IT WORKS (answer questions from this; do not recite it): {guide.how_it_works}"
+               if guide.how_it_works else "")
+            + f"\n\nINPUTS the user fills on the Inputs tab (comfy_run refuses while any is empty):\n{inputs_text}"
+            + "\n\nSETTINGS — the ONLY things a run changes, with template_set (no settings = see their values):\n"
+            + guide.settings_text()
+            + (f"\n\nLIMITS:{limits}" if limits else "")
+            + f"\n\nHOW TO RUN IT (the template's own instructions — follow them):\n{guide.run}"
+            + "\n\nTHE TOOLS: template_setup (imports the models Comfy Cloud lacks, from the guide), "
+            "template_set (the settings above), comfy_price, comfy_run each step in order. No ask_user, no "
+            "comfy_validate, and NEVER comfy_emit or stage tools on a template step — a template is changed "
+            "only through its settings; a change beyond them is a new design, through the normal protocol.",
             details={"template": item_id, "workflows": brought, "inputs": [i.role for i in inputs]},
         )

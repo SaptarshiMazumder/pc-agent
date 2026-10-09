@@ -32,6 +32,8 @@ import { ActiveRunStrip } from './ActiveRunStrip'
 import { FileExplorer } from './FileExplorer'
 import { LibraryPanel } from '../library/LibraryPanel'
 import { ReferenceSlots } from './ReferenceSlots'
+import { StagePlan } from './StagePlan'
+import { useStagePlan } from '../../agentd/stage-plan'
 import { FileViewer } from './FileViewer'
 import { OutputsGrid } from './OutputsGrid'
 import { WorkflowPanel } from './WorkflowPanel'
@@ -65,6 +67,7 @@ export function StudioDashboard({
   onRunAgain,
   onUseTemplate,
   onSaveTemplate,
+  onSend,
 }: {
   client: AgentdClient | undefined
   /** The one studio-state poll (App owns it; the install panel reads it too). */
@@ -97,6 +100,8 @@ export function StudioDashboard({
   onUseTemplate: (item: LibraryItem) => void
   /** Keep every workflow of this chat as one template (asks for its name first). */
   onSaveTemplate?: () => void
+  /** Send a message to this chat — a stage's Run sends the call carrying its approval. */
+  onSend: (text: string) => void
 }) {
   const selectedPath = useApp((s) => s.selectedArtifactPath)
   const setSelectedPath = useApp((s) => s.selectArtifact)
@@ -157,6 +162,8 @@ export function StudioDashboard({
 
   const hasInputs = slots.length > 0 || freeReferences.length > 0
   const filled = slots.length - emptySlots
+  /* THE STEPS of this chat's design, once there is one (agentd/stage-plan.ts). */
+  const plan = useStagePlan(client, sessionKey, workspaceVersion)
 
   return (
     <div className="st-dash">
@@ -195,34 +202,54 @@ export function StudioDashboard({
               {/* THE ONE SETTING: the Comfy API key every workflow runs on Comfy Cloud with —
                   folded, saying whether it is saved. */}
               <ApiKeysSection client={client} />
-              {!artifacts.length && !hasInputs ? (
+              {/* INPUTS FIRST AND ALWAYS: the place to add a face, a product, a keyframe is on
+                  screen before anyone asks for one — a run cannot start while one is missing, and
+                  "attach it in the References panel" pointed at a panel that was not there until
+                  the agent had declared a slot. */}
+              <WorkspaceSection
+                title="Inputs"
+                count={slots.length ? `${filled} of ${slots.length}` : freeReferences.length ? String(freeReferences.length) : undefined}
+                attention={emptySlots > 0}
+              >
+                <ReferenceSlots
+                  slots={slots}
+                  free={freeReferences}
+                  disabled={referencesDisabled}
+                  onAdd={onAddReference}
+                  onOpen={(a) => setSelectedPath(a.path)}
+                  onFromLibrary={(role) => {
+                    setTargetRole(role)
+                    setPanel('library')
+                  }}
+                />
+              </WorkspaceSection>
+              {!artifacts.length && !hasInputs && !plan ? (
                 <div className="op-empty">
-                  <b>Nothing here yet</b>
+                  <b>Nothing made yet</b>
                   <p>
-                    This chat&rsquo;s photos, renders and workflow collect here as Penguin works. When
-                    it needs a photo — a face, a product, a first frame — it asks for it here.
+                    This chat&rsquo;s renders and workflow collect here as Penguin works. Add the photos
+                    a job needs — a face, a product, a first frame — under Inputs above.
                   </p>
                 </div>
               ) : (
                 <>
-                  {/* INPUTS FIRST, because a run cannot start while one is missing — and only
-                      once the agent has asked for something, never as an empty upload box. */}
-                  {hasInputs && (
-                    <WorkspaceSection
-                      title="Inputs"
-                      count={slots.length ? `${filled} of ${slots.length}` : String(freeReferences.length)}
-                      attention={emptySlots > 0}
-                    >
-                      <ReferenceSlots
+                  {/* THE STEPS: each one's inputs, results and Run — the person drives the run. */}
+                  {plan && (
+                    <WorkspaceSection title="Stages" count={String(plan.stages.length)}>
+                      <StagePlan
+                        client={client}
+                        sessionKey={sessionKey}
+                        plan={plan}
+                        files={artifacts}
                         slots={slots}
-                        free={freeReferences}
-                        disabled={referencesDisabled}
-                        onAdd={onAddReference}
-                        onOpen={(a) => setSelectedPath(a.path)}
+                        running={running}
+                        onAddReference={onAddReference}
                         onFromLibrary={(role) => {
                           setTargetRole(role)
                           setPanel('library')
                         }}
+                        onOpen={(a) => setSelectedPath(a.path)}
+                        onSend={onSend}
                       />
                     </WorkspaceSection>
                   )}

@@ -36,11 +36,50 @@ RECORD = ".slots.json"
 _SLOT_FIELDS = frozenset({"image", "video", "audio", "file", "clip", "images"})
 
 
+#: FILES NAMED INSIDE A JSON INPUT. Some nodes take their pictures as file names inside one text
+#: input rather than from loaders — LTXDirector's `timeline_data` lists each storyboard keyframe as
+#: `{"type": "image", "imageFile": "<name in ComfyUI's input folder>"}`. A token there
+#: (`"imageFile": "@keyframe_1"`) is a slot like a loader's: filled, uploaded and named the same way.
+_EMBEDDED_FILE_KEYS = frozenset({"imageFile", "audioFile"})
+
+
 def role_of(value) -> str | None:
     """The role a value declares, or None when it is not a token."""
     if isinstance(value, str) and value.startswith(TOKEN) and len(value) > 1:
         return value[1:].strip()
     return None
+
+
+def _embedded_doc(value):
+    """A JSON input that names a slot inside it, parsed — or None."""
+    if not (isinstance(value, str) and value.lstrip().startswith(("{", "[")) and f'"{TOKEN}' in value):
+        return None
+    try:
+        return json.loads(value)
+    except ValueError:
+        return None
+
+
+def _walk_embedded(doc, visit) -> None:
+    """Call visit(container, key, role) for every token under an embedded file key."""
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            role = role_of(v) if k in _EMBEDDED_FILE_KEYS else None
+            if role is not None:
+                visit(doc, k, role)
+            else:
+                _walk_embedded(v, visit)
+    elif isinstance(doc, list):
+        for v in doc:
+            _walk_embedded(v, visit)
+
+
+def _embedded_roles(value) -> list[str]:
+    found: list[str] = []
+    doc = _embedded_doc(value)
+    if doc is not None:
+        _walk_embedded(doc, lambda _c, _k, role: found.append(role))
+    return found
 
 
 def roles_in(graph: dict) -> dict[str, list[tuple[str, str]]]:
@@ -51,8 +90,8 @@ def roles_in(graph: dict) -> dict[str, list[tuple[str, str]]]:
             continue
         for field, value in (entry.get("inputs") or {}).items():
             role = role_of(value)
-            if role is not None:
-                out.setdefault(role, []).append((str(nid), str(field)))
+            for r in ([role] if role is not None else _embedded_roles(value)):
+                out.setdefault(r, []).append((str(nid), str(field)))
     return out
 
 
@@ -66,7 +105,8 @@ def bad_roles(graph: dict) -> list[str]:
                 "starting with a letter (e.g. @model, @garment, @start_frame)"
             )
         for nid, field in uses:
-            if field not in _SLOT_FIELDS:
+            value = ((graph.get(nid) or {}).get("inputs") or {}).get(field)
+            if field not in _SLOT_FIELDS and role not in _embedded_roles(value):
                 problems.append(
                     f"node {nid}.{field} = '{TOKEN}{role}': a slot token belongs on a loader's "
                     f"file input ({', '.join(sorted(_SLOT_FIELDS))}), not on '{field}'"
@@ -186,6 +226,14 @@ def bind(graph: dict, server_names: dict[str, str]) -> dict:
             role = role_of(value)
             if role is not None and role in server_names:
                 entry["inputs"][field] = server_names[role]
+                continue
+            doc = _embedded_doc(value)
+            if doc is not None:
+                def put(container, key, r):
+                    if r in server_names:
+                        container[key] = server_names[r]
+                _walk_embedded(doc, put)
+                entry["inputs"][field] = json.dumps(doc, ensure_ascii=False)
     return out
 
 

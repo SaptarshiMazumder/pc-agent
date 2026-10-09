@@ -999,6 +999,7 @@ export default function App() {
                   onRunAgain={onRunAgain}
                   onUseTemplate={onUseTemplate}
                   onSaveTemplate={chatWorkflows.length ? openTemplatePrompt : undefined}
+                  onSend={(text) => void send(text)}
                   /* Not mid-run: a delete landing between an emit and its run is the one case
                      worth refusing outright, so it waits rather than queues. */
                   deletionDisabled={

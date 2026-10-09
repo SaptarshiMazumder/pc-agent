@@ -103,11 +103,11 @@ export function ReferenceSlots({
      with two of them waiting on renders would read as two files missing. */
   const theirs = slots.filter((s) => !s.fedBy)
   const filled = theirs.filter((s) => s.file).length
-  /* NOTHING DECLARED AND NOTHING ADDED => NO SECTION AT ALL, not an empty one inviting an upload.
-     The rail simply starts at the file tree until the agent asks for something. This owns its own
-     border-bottom, so the separator leaves with it rather than dangling above the tree. */
-  if (!slots.length && !free.length) return null
-
+  /* THE UPLOAD IS ALWAYS HERE (Oct 2026). It used to appear only once the agent had declared a
+     slot, so a workflow whose images the agent had not wired yet left the person told to "attach
+     them in the References panel" with no panel on screen. A file added with no slot goes under
+     Other with its own name; the agent gives it a role (comfy_reference_assign), or the person
+     drops it on a slot once one exists. */
   return (
     <section
       className={`refs${overPanel ? ' is-over' : ''}`}
@@ -127,7 +127,23 @@ export function ReferenceSlots({
             </span>
           )}
         </span>
+        <button
+          type="button"
+          className="refs-slot-btn"
+          disabled={disabled || !!busy}
+          title="Add photos, videos or audio for this chat's workflow — or drop them here"
+          onClick={() => pick(null)}
+        >
+          {busy === '*' ? 'Adding…' : (
+            <>
+              <Upload size={15} strokeWidth={2} /> Upload
+            </>
+          )}
+        </button>
       </header>
+      {!slots.length && !free.length && (
+        <p className="refs-empty">Drop photos, videos or audio here, or press Upload. Name who or what each one is in the chat.</p>
+      )}
 
       {slots.map((s) =>
         s.fedBy ? (

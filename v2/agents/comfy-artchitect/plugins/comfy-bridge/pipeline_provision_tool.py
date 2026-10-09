@@ -134,6 +134,8 @@ class PipelineProvisionTool(Tool):
     async def _check(self, ctx: PipelineToolContext, pipeline: Pipeline, abort) -> _LiveState:
         state = _LiveState()
         for stage in pipeline.stages:
+            if stage.seedream:
+                continue  # made by the provider, not Comfy Cloud: nothing to check or import there
             res = await self._validate(ctx.store.stage_rel(stage.name), abort, None)
             text = res.content[0].text if res.content else ""
             # comfy_validate says "without a GPU" exactly when no box answered; any other refusal

@@ -91,3 +91,14 @@ label    = "Your Civitai API key"
 kind     = "secret"
 required = false
 help     = "Lets Comfy Penguin import Civitai models and LoRAs that need a login. Civitai → Account settings → API keys."
+
+# SEEDREAM 5 PRO (image_generation/, the agent's own image making) on Higgsfield, with fal as the
+# fallback — the platform's keys (FAL_KEY, HIGGSFIELD_ACCESS_TOKEN / HIGGSFIELD_REFRESH_TOKEN in the
+# machine's global Settings, the same ones Ad Studio uses); the person pays in platform credits.
+# usd_per_credit = the Higgsfield plan's price over its monthly credits (Plus: $59 / 1200 = 0.049).
+# With a client_id the plugin refreshes the access token from the refresh token itself; empty, it
+# uses HIGGSFIELD_ACCESS_TOKEN as is (it lives ~24 h). `workspace` is discovered when empty.
+[plugins.comfy-bridge.providers.higgsfield]
+usd_per_credit = 0.049
+client_id = ""
+workspace = ""

@@ -25,6 +25,9 @@ from pipeline_store import PipelineStore
 from pipeline_validator import PipelineReport, PipelineValidator
 from pipeline_workflow_assembler import PipelineWorkflowAssembler
 from stage_builder import StageBuilder
+from image_generation.seedream_wiring import SeedreamWiring
+from stage_fact_reader import StageFactReader
+from stage_plan_view import StagePlanView
 from task_index import TaskIndex
 from workflow_file_writer import WorkflowFileWriter
 
@@ -36,6 +39,8 @@ class PipelineToolContext:
     task_index: TaskIndex | None
     builder: StageBuilder
     store: PipelineStore
+    #: What each stage will do, read off its graph — the card's and the Stages panel's numbers.
+    facts: StageFactReader
     rules: FamilyRuleValidator
     catalogue: dict
     catalogue_source: str
@@ -51,11 +56,12 @@ class PipelineToolContext:
         # NO BOX RECORD ON COMFY CLOUD: nothing is rented, so no instance version is ever written. The
         # version is then the node list's own — captured from Comfy Cloud itself. A fixed "0.35.0"
         # here marked every recipe newer than 0.35 (Qwen Image 2.1, the head swap) "NOT AVAILABLE".
+        facts = StageFactReader(builder, catalog, OutputSizeEstimator(builder), SeedreamWiring().estimator().usd)
         store = PipelineStore(workspace, builder, WorkflowFileWriter(workspace, catalogue),
-                              PipelineWorkflowAssembler(builder, catalogue))
+                              PipelineWorkflowAssembler(builder, catalogue), StagePlanView(facts))
         return cls(
             workspace=Path(workspace), catalog=catalog, task_index=TaskIndex.load(KNOWLEDGE_BASE),
-            builder=builder, store=store,
+            builder=builder, store=store, facts=facts,
             rules=FamilyRuleValidator(catalog, FamilyStructuralChecks()), catalogue=catalogue,
             catalogue_source=source, catalogue_version=listed, comfyui_version=NodeRegistryCache.version_key(version) or listed,
         )

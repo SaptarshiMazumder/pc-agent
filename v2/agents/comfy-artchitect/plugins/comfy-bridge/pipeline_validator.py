@@ -29,6 +29,7 @@ from lora_compatibility import LoraCompatibility
 from pipeline import Pipeline, Stage
 from pipeline_design_checks import PipelineDesignChecks
 from recipe import version_tuple
+from seedream_stage import SeedreamStage
 from stage_builder import StageBuildError, StageBuilder
 
 
@@ -40,6 +41,8 @@ class StageVerdict:
     rules: RuleReport | None = None
     problems: list[str] = field(default_factory=list)  # build / binding errors for this stage
     unjudged: list[str] = field(default_factory=list)  # what the node list here is too old to judge
+    #: What makes it, when that is not a knowledge-base family (a Seedream stage).
+    maker: str = ""
 
     @property
     def errors(self) -> list[str]:
@@ -123,6 +126,14 @@ class PipelineValidator:
             v = StageVerdict(stage.name)
             verdicts.append(v)
             graph = graphs.get(stage.name) or {}
+            if stage.seedream:
+                # MADE BY THE PROVIDER: its own rules and its wiring; no graph, nodes or model files.
+                v.maker = "Seedream 5 Pro, by the provider"
+                v.problems += SeedreamStage(stage).problems() + self._binding_problems(pipeline, stage, {})
+                for i in stage.inputs:
+                    if not i.producer:
+                        user_inputs.setdefault(i.role, f"stage {stage.name}: {i.name}")
+                continue
             try:
                 recipe = None if stage.custom else self._builder.recipe_of(stage)
                 v.problems += self._binding_problems(pipeline, stage, graph)
@@ -232,7 +243,7 @@ def render_report(report: PipelineReport) -> str:
         lines.append(f"  ✗ {p}")
     n = 0
     for v in report.stages:
-        fams = ", ".join(v.rules.families) if v.rules and v.rules.families else "no known family"
+        fams = v.maker or (", ".join(v.rules.families) if v.rules and v.rules.families else "no known family")
         lines.append(f"stage {v.stage} [{fams}]: " + ("OK" if not v.errors else f"{len(v.errors)} error(s)"))
         lines += [f"  ✗ {e}" for e in v.errors]
         lines += [f"  · {u}" for u in v.unjudged]  # information, not a question

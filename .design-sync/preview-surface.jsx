@@ -20,6 +20,11 @@ export function PreviewSurface({ children }) {
            it bleeds past the surface onto the card's white chrome */
         overflow: 'hidden',
         position: 'relative',
+        /* ...and some of those glows (`.thread::before`) and every overlay backdrop are
+           `position: fixed`, which escapes `overflow` entirely. A transform makes this surface
+           their containing block, so they paint inside the cell like the window paints them
+           inside the viewport. */
+        transform: 'translateZ(0)',
       }}
     >
       {children}

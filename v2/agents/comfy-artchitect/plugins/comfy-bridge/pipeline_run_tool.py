@@ -8,23 +8,36 @@ collected by calling again, which uses comfy_run_status), downloads the outputs 
 
 At a REVIEW stage it stops: the person sees the result before anything slower spends their GPU
 time. Re-running a stage (`stage` given, after a change) marks the stages after it stale.
+
+EVERY STAGE RUNS ON THE PERSON'S CLICK: Run on the stage in the Stages panel records a one-time
+approval, and the window sends the call carrying it (StageRunApprovals). An earlier stage's result
+is handed on as the person PICKED it there (StagePicks); the latest when nothing is picked.
 """
 
 from __future__ import annotations
 
 import re
+import secrets
 import shutil
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import current_workspace
 
+import chat_paths
 import reference_slots
 import studio_state
 from pipeline import Pipeline, Stage
 from pipeline_run_record import DONE, RENDERING, PipelineRunRecord
 from pipeline_tool_context import PipelineToolContext
+from image_generation.budget_exceeded import BudgetExceeded
+from image_generation.provider_refused import ProviderRefused
+from image_generation.seedream_image_service import SeedreamImageService
+from seedream_stage import SeedreamStage
+from stage_picks import StagePicks
+from stage_run_approvals import StageNotApproved, StageRunApprovals
 
 Run = Callable[[str, dict, object, object], Awaitable[ToolResult]]  # (workflow_path, fed, abort, on_update)
 RunStatus = Callable[[str, object, object], Awaitable[ToolResult]]  # (prompt_id, abort, on_update)
@@ -51,15 +64,24 @@ class PipelineRunTool(Tool):
         "type": "object",
         "properties": {
             "stage": {"type": "string", "description": "Run this stage (again). Omit for the next one."},
+            "approval": {"type": "string",
+                         "description": "The token from the person's Run click, exactly as the window sent it. "
+                                        "Not needed to collect a stage that is already rendering."},
         },
     }
 
     def __init__(self, run: Run, run_status: RunStatus, download: Download,
-                 context: Callable[[], PipelineToolContext] | None = None) -> None:
+                 context: Callable[[], PipelineToolContext] | None = None,
+                 approvals: Callable[[Path], StageRunApprovals] | None = None,
+                 picks: Callable[[Path], StagePicks] | None = None,
+                 images: Callable[[], SeedreamImageService] | None = None) -> None:
         self._run = run
         self._run_status = run_status
         self._download = download
         self._context = context or (lambda: PipelineToolContext.for_workspace(Path(current_workspace(".") or ".")))
+        self._approvals = approvals or (lambda ws: StageRunApprovals(ws, lambda: secrets.token_hex(8)))
+        self._picks = picks or StagePicks
+        self._images = images  # Seedream stages; None = not set up (the run says so)
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
@@ -91,13 +113,28 @@ class PipelineRunTool(Tool):
                         f"stage {name} was submitted but its job id was not recorded, so it is not submitted "
                         "again: pipeline_status shows the job; when it has finished, pipeline_run brings it in.",
                         is_error=True)
+                fed = dict(pending.get("fed") or {})
                 res = await self._run_status(pending["prompt_id"], abort, on_update)
             else:
-                problem, fed = self._hand_over(ctx, pipeline, stage, record)
+                problem, fed = self._hand_over(ctx, pipeline, stage, record, self._picks(ctx.workspace))
                 if problem:
                     return ToolResult.text(problem, is_error=True)
+                # THE PERSON PRESSES RUN ON EVERY STAGE (StageRunApprovals). Checked last before the
+                # submit, so a stage that cannot run yet does not use up the click; collecting a render
+                # already going needs no new click.
+                try:
+                    self._approvals(ctx.workspace).admit(chat_paths.chat_folder(), name,
+                                                         str(params.get("approval") or "").strip())
+                except StageNotApproved:
+                    return ToolResult.text(
+                        f"Nothing ran. Stage {name} runs when the person presses Run on it in the Stages "
+                        "panel; the window then sends you pipeline_run with the approval. Tell them in one "
+                        f"line that {name} is ready to run there — do not call pipeline_run again until they do.",
+                        is_error=True)
                 if asked:
                     record.stale_after(pipeline, name)
+                if stage.seedream:
+                    return self._seedream(ctx, pipeline, stage, record, fed)
                 res = await self._run(ctx.store.stage_rel(stage.name), fed, abort, on_update)
             text = res.content[0].text if res.content else ""
             if res.is_error:
@@ -105,11 +142,11 @@ class PipelineRunTool(Tool):
                 return ToolResult.text(f"stage {name} failed:\n{text}", is_error=True)
             if text.startswith("still rendering"):
                 m = _PROMPT_ID.search(text)
-                record.rendering(name, (m.group(1) or m.group(2)) if m else "")
+                record.rendering(name, (m.group(1) or m.group(2)) if m else "", fed)
                 return ToolResult.text(
                     f"stage {name} is still rendering (one job on Comfy Cloud). pipeline_run collects it — "
                     "calling it again only checks on this render, it never starts another.")
-            return await self._collect(ctx, pipeline, stage, record, res, abort, on_update)
+            return await self._collect(ctx, pipeline, stage, record, res, fed, abort, on_update)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"pipeline_run failed: {type(e).__name__}: {e}", is_error=True)
 
@@ -117,11 +154,14 @@ class PipelineRunTool(Tool):
 
     @staticmethod
     def _hand_over(ctx: PipelineToolContext, pipeline: Pipeline, stage: Stage,
-                   record: PipelineRunRecord) -> tuple[str, dict[str, str]]:
+                   record: PipelineRunRecord, picks: StagePicks) -> tuple[str, dict[str, str]]:
         """(problem or '', {role: the earlier stage's recorded output}). The run uploads the RECORDED
         file — the host downloaded it, so the host can send it. The copy into the slot folder is for
         the References panel only: on a microVM it is made inside the sandbox and reaches the host
-        after the call, too late for an upload made during it."""
+        after the call, too late for an upload made during it.
+
+        WHICH OF ITS RESULTS: the one the person picked in the Stages panel, when it is one the
+        stage made; otherwise the latest."""
         folder = reference_slots.folder(ctx.workspace)
         fed: dict[str, str] = {}
         for inp in stage.inputs:
@@ -133,21 +173,65 @@ class PipelineRunTool(Tool):
             files = record.output_files(prod[0], prod[1])
             if not files:
                 return f"stage {prod[0]} ran but produced no '{prod[1]}' — check its result before going on.", {}
-            src = ctx.workspace / files[0]
+            picked = picks.picked(prod[0])
+            chosen = picked if picked in record.results(prod[0], prod[1]) else files[0]
+            src = ctx.workspace / chosen
             if not src.is_file():
-                return f"{files[0]} (stage {prod[0]}'s {prod[1]}) is not in the workspace any more — run {prod[0]} again.", {}
+                return f"{chosen} (stage {prod[0]}'s {prod[1]}) is not in the workspace any more — run {prod[0]} again.", {}
             folder.mkdir(parents=True, exist_ok=True)
             for old in folder.iterdir():  # one file per role
                 if old.is_file() and old.stem == inp.role:
                     old.unlink()
             shutil.copyfile(src, folder / f"{inp.role}{src.suffix.lower()}")
-            fed[inp.role] = files[0]
+            fed[inp.role] = chosen
         return "", fed
+
+    # ------------------------------------------------------------------ seedream
+
+    def _seedream(self, ctx, pipeline: Pipeline, stage: Stage, record: PipelineRunRecord,
+                  fed: dict[str, str]) -> ToolResult:
+        """A Seedream stage: its pictures made by the provider, not Comfy Cloud — the references in
+        the order they are bound (the person's files from their slots, earlier results as handed
+        over), the credits checked before and charged after (SeedreamImageService)."""
+        if self._images is None:
+            return ToolResult.text("Seedream image making is not set up in this agent.", is_error=True)
+        filled, missing = reference_slots.status(ctx.workspace, [i.role for i in stage.inputs if not i.producer])
+        if missing:
+            return ToolResult.text(f"stage {stage.name} is waiting for: {', '.join(missing)} — the person adds them "
+                                   "on the Inputs tab. Say which, in one line, and end the turn.", is_error=True)
+        references = [fed[i.role] if i.producer else filled[i.role] for i in stage.inputs]
+        s = SeedreamStage(stage)
+        out_stem = f"{chat_paths.chat_rel(chat_paths.OUTPUTS)}/{stage.name}-{int(time.time())}"
+        try:
+            made = self._images().generate(s.prompt, references, s.aspect_ratio, s.count, out_stem)
+        except BudgetExceeded as e:
+            record.failed(stage.name, str(e))
+            return ToolResult.text(f"stage {stage.name} did not run — not enough credits: {e}. Tell the person; "
+                                   "they can top up on the Credits page.", is_error=True)
+        except ProviderRefused as e:
+            record.failed(stage.name, str(e))
+            return ToolResult.text(f"stage {stage.name}: {e}. The same pictures and prompt would be refused again — "
+                                   "say why in one line and suggest what to change.", is_error=True)
+        except Exception as e:  # noqa: BLE001 — said as it is
+            record.failed(stage.name, f"{type(e).__name__}: {e}")
+            return ToolResult.text(f"stage {stage.name} failed: {type(e).__name__}: {e}", is_error=True)
+        paths = [m.path for m in made.media]
+        record.done(stage.name, {"image": paths}, fed)
+        nxt = record.next_to_run(pipeline)
+        notes = "".join(f"\n  {n}" for n in made.notes)
+        tail = (f"REVIEW POINT — show them and ask in one line whether they are right before "
+                f"{'the next step (' + nxt + ')' if nxt else 'finishing'}." if stage.review else
+                f"next: {nxt} — it runs when the person presses Run on it in the Stages panel; say it is ready."
+                if nxt else "that was the last stage — show the result and ask whether it is what they wanted.")
+        return ToolResult.text(
+            f"stage {stage.name} done on Seedream 5 Pro ({made.backend.provider}): {', '.join(paths)} — "
+            f"${made.cost_usd:.2f} of credits{notes}\n{tail}",
+            details={"stage": stage.name, "outputs": {"image": paths}}, artifacts=paths)
 
     # ------------------------------------------------------------------ collect
 
     async def _collect(self, ctx, pipeline: Pipeline, stage: Stage, record: PipelineRunRecord,
-                       res: ToolResult, abort, on_update) -> ToolResult:
+                       res: ToolResult, fed: dict[str, str], abort, on_update) -> ToolResult:
         entry = res.details if isinstance(res.details, dict) else {}
         produced = _files_by_node(entry.get("outputs") or {})
         outputs = stage.outputs if stage.custom else ctx.builder.recipe_of(stage).outputs
@@ -162,7 +246,7 @@ class PipelineRunTool(Tool):
             # THE RENDER IS KEPT. Recorded as nothing, the stage read as never run and the retry
             # submitted it again — a second FLUX.2 job, billed, for a file already rendered.
             # Kept as its job, the next call fetches the finished job and only downloads.
-            record.rendering(stage.name, str(entry.get("prompt_id") or ""))
+            record.rendering(stage.name, str(entry.get("prompt_id") or ""), fed)
             return ToolResult.text(f"stage {stage.name} rendered, but its outputs did not come back:\n"
                                    + dl.content[0].text + "\nThe render is kept: pipeline_run again "
                                    "downloads it, it does not render again.", is_error=True)
@@ -172,14 +256,14 @@ class PipelineRunTool(Tool):
             out: [by_name[f["filename"]] for f in produced.get(str(spec.get("node")), []) if f["filename"] in by_name]
             for out, spec in outputs.items()
         }
-        record.done(stage.name, recorded)
+        record.done(stage.name, recorded, fed)
         nxt = record.next_to_run(pipeline)
         if stage.review:
             tail = (f"REVIEW POINT — show these (they are in the chat) and ask in one line whether they "
                     f"are right before {'the next step (' + nxt + ')' if nxt else 'finishing'}. A change: "
-                    "stage_set, then pipeline_run with this stage.")
+                    "stage_set; the person then presses Run on this stage again.")
         elif nxt:
-            tail = f"next: pipeline_run ({nxt})."
+            tail = f"next: {nxt} — it runs when the person presses Run on it in the Stages panel; say it is ready."
         else:
             tail = "that was the last stage — show the result and ask whether it is what they wanted."
         return ToolResult.text(f"stage {stage.name} done: " + ", ".join(saved) + "\n" + tail,

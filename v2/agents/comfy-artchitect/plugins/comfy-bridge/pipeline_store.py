@@ -29,6 +29,7 @@ import reference_slots
 from pipeline import Pipeline, Stage
 from pipeline_workflow_assembler import PipelineWorkflowAssembler
 from stage_builder import StageBuilder
+from stage_plan_view import StagePlanView
 from workflow_file_writer import WorkflowFileWriter, WrittenWorkflow
 
 PIPELINE_FILE = "pipeline.json"
@@ -37,11 +38,12 @@ STAGES = chat_paths.STAGES
 
 class PipelineStore:
     def __init__(self, workspace: Path, builder: StageBuilder, writer: WorkflowFileWriter,
-                 assembler: PipelineWorkflowAssembler) -> None:
+                 assembler: PipelineWorkflowAssembler, view: StagePlanView) -> None:
         self._ws = Path(workspace)
         self._builder = builder
         self._writer = writer
         self._assembler = assembler
+        self._view = view
 
     @property
     def folder(self) -> Path:
@@ -87,10 +89,17 @@ class PipelineStore:
         for stage in pipeline.stages:
             if only is not None and stage.name not in only:
                 continue
-            base = custom_graphs.get(stage.name) or (self.graph(stage) if stage.custom else None)
-            graph = self._builder.build(stage, base)
             whats = {i.role: self._what(pipeline, stage, i) for i in stage.inputs}
             fed_by = {i.role: f"{i.producer[0]}.{i.producer[1]}" for i in stage.inputs if i.producer}
+            if stage.seedream:
+                # NO GRAPH: the provider makes it. Its inputs are still slots — the Inputs tab lists
+                # them and the run reads them — so they are recorded as a workflow's would be.
+                for folder in (self.folder / STAGES, self.folder):
+                    (folder / f"{stage.name}.api.json").unlink(missing_ok=True)
+                reference_slots.record(self._ws, stage.name, [i.role for i in stage.inputs], whats, fed_by=fed_by)
+                continue
+            base = custom_graphs.get(stage.name) or (self.graph(stage) if stage.custom else None)
+            graph = self._builder.build(stage, base)
             written[stage.name] = self._writer.write(stage.name, graph, whats, fed_by=fed_by, subfolder=STAGES)
         self._drop_old_design(old, pipeline)
         # IN stages/, NOT BESIDE THE WORKFLOW: the window lists every .json in the chat's folder as
@@ -102,6 +111,8 @@ class PipelineStore:
         tmp.write_text(json.dumps(pipeline.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         os.replace(tmp, stages / PIPELINE_FILE)
         (self.folder / PIPELINE_FILE).unlink(missing_ok=True)  # where a chat from before kept it
+        # THE STAGES PANEL'S VIEW follows every save, so what it shows is the design that runs.
+        self._view.write(stages, pipeline, {s.name: self.graph(s) for s in pipeline.stages})
         return written
 
     @staticmethod

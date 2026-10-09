@@ -25,7 +25,7 @@ class OutputSizeEstimator:
         return out
 
     def _size(self, stage: Stage, graph: dict, earlier: dict[str, Size | None]) -> Size | None:
-        if stage.custom:
+        if stage.custom or stage.seedream:
             return None
         try:
             ports = self._builder.recipe_of(stage).ports

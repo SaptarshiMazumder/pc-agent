@@ -29,7 +29,7 @@ class LoraCompatibility:
         """(problems, questions) for the stage's LoRAs against its built graph."""
         problems: list[str] = []
         questions: list[str] = []
-        if not stage.loras or stage.custom:
+        if not stage.loras or stage.custom or stage.seedream:
             return problems, questions
         fam = self._catalog.families.get(stage.family)
         targets = StageLoraSplicer.targets(fam.lora if fam else {}, graph, stage.declared_bases())

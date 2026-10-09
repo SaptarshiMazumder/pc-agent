@@ -1,22 +1,36 @@
-/* TextControl — the commit-on-blur input the settings rows use. */
+/* TextControl — the commit-on-blur input the settings rows use. Its look comes from the
+ * `.settings-page .field input` rule, so it is shown inside a settings row's frame. */
 import { TextControl } from 'agent-app'
 
 const noop = () => {}
 
-export const Text = () => (
-  <div style={{ width: 320 }}>
-    <TextControl type="text" value="claude-sonnet-5" disabled={false} onCommit={noop} />
+const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="settings-page" style={{ width: 460 }}>
+    <div className="settings-card">
+      <div className="field">
+        <div>
+          <label>{label}</label>
+        </div>
+        {children}
+      </div>
+    </div>
   </div>
+)
+
+export const Text = () => (
+  <Row label="Model">
+    <TextControl type="text" value="claude-sonnet-5" disabled={false} onCommit={noop} />
+  </Row>
 )
 
 export const Number = () => (
-  <div style={{ width: 320 }}>
+  <Row label="Max turns per run">
     <TextControl type="number" value="120" disabled={false} onCommit={noop} />
-  </div>
+  </Row>
 )
 
 export const Disabled = () => (
-  <div style={{ width: 320 }}>
-    <TextControl type="text" value="locked by the author" disabled={true} onCommit={noop} />
-  </div>
+  <Row label="Workspace">
+    <TextControl type="text" value="/srv/agentd/workspace" disabled={true} onCommit={noop} />
+  </Row>
 )

@@ -4,9 +4,20 @@
 import { Settings } from 'agent-app'
 
 const CONFIG = {
+  /* A row renders only for a key the daemon exposes (`f.key in values`) — the page opens on
+     General, so its Daemon / Notifications / Behaviour keys must be present or those groups
+     draw as empty cards. */
   values: {
+    agent_name: 'Comfy Artchitect',
+    notify_enabled: true,
+    completeness_check: true,
+    execution_contract: true,
+    safe_to_send_check: false,
+    skill_workshop: false,
+    mcp_workshop: false,
     model: 'claude-sonnet-5',
     reasoning_effort: 'medium',
+    max_turns: 40,
     verify_tool: true,
     memory_enabled: true,
   },
@@ -41,6 +52,7 @@ const CONFIG = {
 const client = {
   request: async (method: string) => (method === 'config.get' ? CONFIG : {}),
   on: () => () => {},
+  onStatus: () => () => {},
 }
 
 export const Page = () => <Settings client={client} agentId="comfy-artchitect" />

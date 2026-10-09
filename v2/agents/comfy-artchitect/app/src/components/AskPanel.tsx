@@ -31,11 +31,12 @@
  * too. `sent` covers the moment between the click and that message landing.
  */
 
-import { Check } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ThreadItem } from '../agentd/chat'
 import { askOf } from '../agentd/chat'
+import { lengthText, picturesText, type StageFacts } from '../agentd/stage-plan'
 
 type ToolItem = Extract<ThreadItem, { kind: 'tool' }>
 
@@ -53,6 +54,8 @@ interface Question {
 interface Workflow {
   name: string
   does: string
+  /** pipeline_present's steps carry what the stage will do, read off its graph. */
+  facts: StageFacts | null
 }
 interface Reference {
   role: string
@@ -107,8 +110,21 @@ export function AskPanel({
     text(r.question) ? { question: text(r.question), default: text(r.default) } : null,
   )
   const workflows = rows<Workflow>(args.workflows, (r) =>
-    text(r.name) ? { name: text(r.name), does: text(r.does) } : null,
+    text(r.name)
+      ? {
+          name: text(r.name),
+          does: text(r.does),
+          facts: r.facts && typeof r.facts === 'object' ? (r.facts as StageFacts) : null,
+        }
+      : null,
   )
+  /* A PIPELINE CARD (pipeline_present): its steps carry facts, so the card is drawn as short lines
+     of what will run — inputs, size, length, model — with no paragraph above them. */
+  const factual = workflows.some((w) => w.facts)
+  const delivers = text(args.delivers)
+  const results = text(args.results)
+  const imports = text(args.imports)
+  const spend = text(args.spend)
   const references = rows<Reference>(args.references, (r) =>
     text(r.role) ? { role: text(r.role).replace(/^@/, ''), what: text(r.what) } : null,
   )
@@ -122,6 +138,8 @@ export function AskPanel({
      What they type goes to the agent verbatim as "Instead: …", which the protocol treats as
      design input (research it, price it, ask once more). */
   const [other, setOther] = useState('')
+  /** An answered card is folded to one line; this opens it again. */
+  const [unfolded, setUnfolded] = useState(false)
   const closed = sent || answered || !onDecide
 
   /* THE STEPS, in the order they are built: the workflows' order first, then any step the
@@ -201,23 +219,35 @@ export function AskPanel({
           ? 'Build with these answers'
           : 'Keep the defaults and build'
 
-  const row = (s: Service, i: number) => (
-    <label key={i} className={`approve-row${picked.has(i) ? ' is-on' : ''}`}>
-      <input
-        type={s.step ? 'radio' : 'checkbox'}
-        name={s.step ? `step-${item.id}-${s.step}` : undefined}
-        checked={picked.has(i)}
-        onChange={() => toggle(i)}
-        onClick={() => s.step && picked.has(i) && toggle(i)}
-        disabled={closed}
-      />
-      <span className="approve-text">
-        <span className="approve-name">{s.name}</span>
-        {s.purpose && <span className="approve-for">{s.purpose}</span>}
-      </span>
-      <span className={`approve-price${s.credits > 0 ? '' : ' is-free'}`}>{price(s)}</span>
-    </label>
-  )
+  /* CLAUDE'S QUESTION STYLE (Oct 2026). Every choice is a ROW — a round marker (a square one when
+     several may be ticked), its name in bold, one dim line under it; the picked row is lit. Each
+     decision is its own block with a bold question. Once answered the card FOLDS to one line,
+     "Answered · N questions", and opens again on a click — the thread stays readable, and what
+     was decided is one click away. Nothing about what is asked or sent changed; only the look. */
+  const row = (s: Service, i: number) => {
+    const on = picked.has(i)
+    return (
+      <label key={i} className={`cq-opt${on ? ' is-on' : ''}`}>
+        <input
+          className="cq-input"
+          type={s.step ? 'radio' : 'checkbox'}
+          name={s.step ? `step-${item.id}-${s.step}` : undefined}
+          checked={on}
+          onChange={() => toggle(i)}
+          onClick={() => s.step && picked.has(i) && toggle(i)}
+          disabled={closed}
+        />
+        <span className={`cq-mark${s.step ? '' : ' is-box'}`} aria-hidden="true" />
+        <span className="cq-text">
+          <span className="cq-label">
+            {s.name}
+            <span className={`cq-price${s.credits > 0 ? '' : ' is-free'}`}>{price(s)}</span>
+          </span>
+          {s.purpose && <span className="cq-desc">{s.purpose}</span>}
+        </span>
+      </label>
+    )
+  }
 
   /* A STEP WITHOUT A PICK IS AN UNANSWERED QUESTION — the answer is not sent with one open,
      unless the person wrote something else instead (the Other box is always an answer). */
@@ -227,112 +257,156 @@ export function AskPanel({
      shows, added up so the decision reads as one number. */
   const tickedCredits = services.reduce((n, s, i) => (picked.has(i) ? n + s.credits : n), 0)
 
+  const head = factual
+    ? [title, `${workflows.length} step${workflows.length === 1 ? '' : 's'}`, delivers && `delivers ${delivers}`, results]
+        .filter(Boolean)
+        .join(' · ')
+    : title || 'Before anything is built:'
+
+  const extras = services.some((s) => !s.step)
+  const asked = Math.max(1, stepNames.length + (extras ? 1 : 0) + questions.length)
+  const words = (s: string): string => s.replace(/_/g, ' ')
+
+  if (closed && !unfolded) {
+    return (
+      <button type="button" className="cq-folded" onClick={() => setUnfolded(true)} aria-expanded={false}>
+        {sent && !answered ? 'Sent' : 'Answered'} · {asked} question{asked === 1 ? '' : 's'}
+        <ChevronDown size={14} />
+      </button>
+    )
+  }
+
   return (
-    <div className="approve ask plan-card" role="group" aria-label="Before anything is built">
-      <div className="plan-card-head">
-        <span className="plan-card-label">The plan</span>
-        <p className="ask-title">{title || 'Before anything is built:'}</p>
-      </div>
-      {services.length > 0 && (
-        <div className="plan-card-sec">
-          <p className="ask-section">Models</p>
-          <p className="approve-head">
-            These models use more credits. Tick the ones you want — the agent builds around your
-            answer.
-          </p>
-          {stepNames.map((n, k) => (
-            <div key={n} className="ask-step">
-              <p className="ask-step-head">
-                <span>
-                  Step {k + 1} · {stepLabel(n)} — pick one
-                </span>
-                <span className={`ask-step-req${missing.includes(n) ? ' is-missing' : ''}`}>required</span>
+    <div className="cq" role="group" aria-label="Before anything is built">
+      {closed && (
+        <button type="button" className="cq-folded is-open" onClick={() => setUnfolded(false)} aria-expanded>
+          {sent && !answered ? 'Sent' : 'Answered'} · {asked} question{asked === 1 ? '' : 's'}
+          <ChevronUp size={14} />
+        </button>
+      )}
+      <div className="cq-body">
+        <p className="cq-head">{head}</p>
+
+        {stepNames.map((n) => (
+          <div key={n} className="cq-q">
+            <p className="cq-title">
+              {stepLabel(n)} — which model?
+              {!closed && missing.includes(n) && <span className="cq-req">pick one</span>}
+            </p>
+            {services.map((s, i) => (s.step === n ? row(s, i) : null))}
+          </div>
+        ))}
+        {extras && (
+          <div className="cq-q">
+            <p className="cq-title">{stepNames.length ? 'Optional extras' : 'Which of these should it use?'}</p>
+            {services.map((s, i) => (s.step ? null : row(s, i)))}
+          </div>
+        )}
+
+        {factual &&
+          workflows.map((w, i) => (
+            <div key={i} className="cq-q">
+              <p className="cq-title">
+                {i + 1}. {words(w.name)}
+                {w.facts && <span className="cq-chip">{w.facts.model}</span>}
               </p>
-              {services.map((s, i) => (s.step === n ? row(s, i) : null))}
+              {w.facts && <StepFacts facts={w.facts} />}
             </div>
           ))}
-          {services.some((s) => !s.step) && (
-            <div className="ask-step">
-              {stepNames.length > 0 && <p className="ask-step-head">Optional extras</p>}
-              {services.map((s, i) => (s.step ? null : row(s, i)))}
-            </div>
-          )}
-        </div>
-      )}
-      {questions.length > 0 && (
-        <div className="plan-card-sec">
-          <p className="ask-section">The brief — change anything, or keep the defaults</p>
-          {questions.map((q, i) => (
-            <label key={i} className="ask-q">
-              <span className="ask-q-label">{q.question}</span>
-              <input
-                type="text"
-                value={answers[i] ?? q.default}
-                onChange={(e) => setAnswers((prev) => ({ ...prev, [i]: e.target.value }))}
-                disabled={closed}
-              />
+        {!factual && workflows.length > 0 && (
+          <div className="cq-q">
+            <p className="cq-title">What gets built, in order</p>
+            <ol className="cq-list">
+              {workflows.map((w, i) => (
+                <li key={i}>
+                  <b>{w.name}</b>
+                  {w.does ? ` — ${w.does}` : ''}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {questions.map((q, i) => {
+          const value = answers[i] ?? q.default
+          const edit = (v: string) => setAnswers((prev) => ({ ...prev, [i]: v }))
+          const long = q.default.length > 80 || q.default.includes('\n')
+          return (
+            <label key={i} className="cq-q">
+              <span className="cq-title">{q.question}</span>
+              {/* A PROMPT IS A PARAGRAPH: a one-line box showed forty words of a thousand. */}
+              {long ? (
+                <textarea className="cq-field" rows={3} value={value} onChange={(e) => edit(e.target.value)} disabled={closed} />
+              ) : (
+                <input className="cq-field" type="text" value={value} onChange={(e) => edit(e.target.value)} disabled={closed} />
+              )}
             </label>
+          )
+        })}
+
+        {references.length > 0 &&
+          (factual ? (
+            <p className="cq-note">Add your files in the Workspace: {references.map((r) => words(r.role)).join(', ')}</p>
+          ) : (
+            <div className="cq-q">
+              <p className="cq-title">Photos it needs — add them on the Inputs tab</p>
+              <ol className="cq-list">
+                {references.map((r, i) => (
+                  <li key={i}>
+                    <b>{r.role}</b>
+                    {r.what ? ` — ${r.what}` : ''}
+                  </li>
+                ))}
+              </ol>
+            </div>
           ))}
-        </div>
-      )}
-      {workflows.length > 0 && (
-        <div className="plan-card-sec">
-          <p className="ask-section">What gets built, in order</p>
-          <ol className="ask-wf">
-            {workflows.map((w, i) => (
-              <li key={i}>
-                <b>{w.name}</b>
-                {w.does ? ` — ${w.does}` : ''}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {references.length > 0 && (
-        <div className="plan-card-sec">
-          <p className="ask-section">Photos it needs — add them on the Inputs tab</p>
-          <ol className="ask-wf">
-            {references.map((r, i) => (
-              <li key={i}>
-                <b>{r.role}</b>
-                {r.what ? ` — ${r.what}` : ''}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      <div className="plan-card-sec">
-        <label className="ask-q ask-other">
-          <span className="ask-q-label">Something else?</span>
+
+        <label className="cq-q">
+          <span className="cq-title">Changes?</span>
           <textarea
+            className="cq-field"
             rows={2}
-            placeholder="Want a different model or provider, something cheaper, or free / open-source models only? Say so here."
+            placeholder="A different model, size, length, something cheaper, free models only…"
             value={other}
             onChange={(e) => setOther(e.target.value)}
             disabled={closed}
           />
         </label>
       </div>
-      <div className="plan-card-foot">
-        {services.length > 0 && (
-          <span className="plan-card-total">
-            {picked.size ? (
-              <>
-                Ticked <b>{tickedCredits.toLocaleString()} credits</b>
-              </>
-            ) : (
-              'Nothing ticked'
-            )}
-          </span>
+
+      <div className="cq-foot">
+        <span className="cq-total">
+          {[spend, !services.length ? imports : '', services.length ? (picked.size ? `Ticked ${tickedCredits.toLocaleString()} credits` : 'Nothing ticked') : '']
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+        {!closed && blocked && <span className="ask-missing">Pick one for: {missing.map(stepLabel).join(', ')}</span>}
+        {!closed && (
+          <button className="approve-go" onClick={confirm} disabled={blocked}>
+            <Check size={14} strokeWidth={2.2} />
+            {label}
+          </button>
         )}
-        {!closed && blocked && (
-          <span className="ask-missing">Pick one for: {missing.map(stepLabel).join(', ')}</span>
-        )}
-        <button className="approve-go" onClick={confirm} disabled={closed || blocked}>
-          <Check size={14} strokeWidth={2.2} />
-          {label}
-        </button>
       </div>
     </div>
+  )
+}
+
+/** One step's facts as short lines: what it reads, its size and length, its LoRAs. */
+function StepFacts({ facts }: { facts: StageFacts }) {
+  const words = (s: string): string => s.replace(/_/g, ' ')
+  const inputs = facts.inputs.map(
+    (i) =>
+      `${words(i.role)} (${i.from === 'you' ? 'yours' : `from ${words(i.from)}`}` +
+      `${i.frame ? `, ${i.frame === 'first' ? 'opens on it' : 'ends on it'}` : ''})`,
+  )
+  const shape = [picturesText(facts), facts.size, lengthText(facts)].filter(Boolean).join(' · ')
+  return (
+    <ul className="ask-facts">
+      {inputs.length > 0 && <li>Inputs: {inputs.join(', ')}</li>}
+      {shape && <li>{shape}</li>}
+      {facts.loras.length > 0 && <li>LoRA: {facts.loras.join(', ')}</li>}
+      {facts.review && <li>You see it before the next step</li>}
+    </ul>
   )
 }

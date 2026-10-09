@@ -659,6 +659,49 @@
         "S-HF-SDPOSE"
       ],
       "bytes_src": "HF X-Linked-Size, 2026-10-02"
+    },
+    {
+      "name": "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 620285592,
+      "size_gb": 0.62,
+      "precision": "bf16",
+      "variant": "turbo",
+      "url": "https://huggingface.co/drbaph/MiniMax-H3-Turbo-Lora-ComfyUI/resolve/main/minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "larryvrh's H3 turbo LoRA v4 step 600 (EMA), pruned for ComfyUI: 8-step sampling, the best skin of the speed LoRAs per the community workflow; preinstalled on Comfy Cloud. Used by r2v-ref2va-people-turbo8.",
+      "src": [
+        "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora",
+        "https://huggingface.co/drbaph/MiniMax-H3-Turbo-Lora-ComfyUI"
+      ],
+      "bytes_src": "HF tree API size, 2026-10-07"
+    },
+    {
+      "name": "h3-realism-people-t2v-i2v-r2v.safetensors",
+      "role": "lora",
+      "folder": "loras",
+      "bytes": 131229656,
+      "size_gb": 0.13,
+      "precision": "bf16",
+      "variant": "people",
+      "url": "https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA/resolve/main/h3-realism-people-t2v-i2v-r2v.safetensors",
+      "vram": {
+        "fits_gb": null,
+        "evidence": "NOT FOUND",
+        "class": "not-found",
+        "src": null
+      },
+      "quality": "fal's MiniMax H3 Realism People LoRA (t2v / i2v / r2v): faces, skin and expressions of real people; trigger 'r34l1sm' at the very start of the prompt; 1.0 intended, 0.6-0.8 lighter. Used by r2v-ref2va-people-turbo8 at 0.8.",
+      "src": [
+        "https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA"
+      ],
+      "bytes_src": "HF tree API size, 2026-10-07"
     }
   ],
   "lora": {
@@ -1484,7 +1527,9 @@
         "S-TPL-T2V",
         "S-DOCS-H3-NATIVE",
         "S-KIJAI-D5"
-      ]
+      ],
+      "unless_file": "minimax_h3_turbo_v4_step600",
+      "unless_note": "the EMA-600 turbo LoRA samples 8 steps with euler (the community workflow's settings, tested 2026-10-07 in r2v-ref2va-people-turbo8)"
     },
     {
       "id": "scheduler-for-references",

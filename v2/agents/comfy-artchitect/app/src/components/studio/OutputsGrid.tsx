@@ -22,7 +22,8 @@ import { saveLabel, useSaveFeedback } from '../library/use-save-feedback'
 import { DeleteFilePrompt } from '../creations/DeleteFilePrompt'
 import { MediaKindTag } from '../media/MediaKindTag'
 
-function OutputThumb({ file }: { file: Artifact }) {
+/** A render as a bounded preview — shared with the Stages panel's results and input picker. */
+export function OutputThumb({ file }: { file: Artifact }) {
   const [failed, setFailed] = useState(false)
   if (file.kind === 'image' && !failed) {
     return <img src={thumbnailUrl(file.path)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />

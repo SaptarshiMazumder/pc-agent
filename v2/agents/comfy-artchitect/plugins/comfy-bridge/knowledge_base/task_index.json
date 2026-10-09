@@ -9,7 +9,8 @@
       "recipe_tasks": [
         "edit",
         "reference"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "control": {
       "gloss": "image guided by edges/depth/pose of another image",
@@ -35,7 +36,8 @@
         "edit",
         "reference",
         "style-ref"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "flf2v": {
       "gloss": "video between a first and a last frame: morph or transition from one image to the next, keyframes",
@@ -78,7 +80,8 @@
       "gloss": "the same subject or character from other camera angles: views, turnaround, angle sheet, front side back",
       "recipe_tasks": [
         "multi-angle"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "outpaint": {
       "gloss": "extend an image beyond its borders",
@@ -91,14 +94,16 @@
       "recipe_tasks": [
         "t2i",
         "edit"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "product-on-model": {
       "gloss": "a given person wearing or holding a given product (jacket, shirt, watch, headphones, bag): product ad, ad shot, lookbook, try-on, model with product, at an exact size or aspect ratio",
       "recipe_tasks": [
         "edit",
         "reference"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "reference-video": {
       "gloss": "video of a subject/product/sheet read as a reference (not as a frame)",
@@ -130,7 +135,8 @@
       "gloss": "photographic image from text",
       "recipe_tasks": [
         "t2i"
-      ]
+      ],
+      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
     },
     "t2i-text": {
       "gloss": "image with legible text (posters, signs, packaging)",
@@ -1346,6 +1352,23 @@
     "reference-video": [
       {
         "family": "minimax-h3",
+        "recipe": "r2v-ref2va-people-turbo8",
+        "recipe_hint": "minimax-h3 r2v-ref2va + EMA-600 turbo + Realism People LoRA, 8 steps",
+        "why": "a REAL PERSON (photoreal) moving and talking, from their locked still (person-from-reference's swapped still as the one reference): tested 2026-10-07 against the official 20-step recipe and the community Singularity build and picked — her face, glasses and outfit held, lively motion, 86 s of GPU.",
+        "evidence": [
+          {
+            "src": "Comfy Cloud test, pink-corset influencer, 2026-10-07",
+            "date": "2026-10-07",
+            "class": "TESTED"
+          }
+        ],
+        "constraints": [
+          "photoreal people only — for products, illustration or anime take the next pick",
+          "one reference: the person's locked still"
+        ]
+      },
+      {
+        "family": "minimax-h3",
         "recipe_hint": "minimax-h3 ref2va",
         "why": "Up to 9 ref images + 3 videos + 3 audio; strongest open video model overall",
         "evidence": [
@@ -1394,6 +1417,23 @@
       }
     ],
     "talking-head": [
+      {
+        "family": "minimax-h3",
+        "recipe": "r2v-ref2va-people-turbo8",
+        "recipe_hint": "minimax-h3 r2v-ref2va + EMA-600 turbo + Realism People LoRA, 8 steps",
+        "why": "a REAL PERSON (photoreal) moving and talking, from their locked still (person-from-reference's swapped still as the one reference): tested 2026-10-07 against the official 20-step recipe and the community Singularity build and picked — her face, glasses and outfit held, lively motion, 86 s of GPU.",
+        "evidence": [
+          {
+            "src": "Comfy Cloud test, pink-corset influencer, 2026-10-07",
+            "date": "2026-10-07",
+            "class": "TESTED"
+          }
+        ],
+        "constraints": [
+          "photoreal people only — for products, illustration or anime take the next pick",
+          "one reference: the person's locked still"
+        ]
+      },
       {
         "family": "minimax-h3",
         "recipe_hint": "minimax-h3 ref2va-audio",
@@ -1983,7 +2023,7 @@
         "family": "qwen-image",
         "recipe": "t2i-2-1-person-from-reference",
         "recipe_hint": "route: Qwen Image 2.1 still at the delivery size, with the body read off their photo -> Qwen Image 2.1 BFS head swap with their photo",
-        "why": "ANY job that recreates a real person from their photoreal photo: a still, angles, an ad, a video. The body is read off the photo (ethnicity, skin, body size, bust, belly, age, hair), so the shot is free and the body stays theirs; the head swap puts their own face on it, keeping the shot's gaze and expression. Both render at 1024x1536, fixed (smaller or larger, the face came out long and narrow; a video model resizes its first frame by itself) — no upscale and no realism pass after them: a Z-Image pass changed her face and made the skin plastic, an upscaler added nothing a native render lacks. Every later step reads the swapped still. Tested on Comfy Cloud 2026-10-07: the only route here that kept her face and figure; edits of her photo (Qwen 2511, FLUX.2 klein) changed her face or body.",
+        "why": "ANY job that recreates a real person from their photoreal photo: a still, angles, an ad, a video. The body is read off the photo (ethnicity, skin, body size, bust, belly, age, hair), so the shot is free and the body stays theirs; the head swap puts their own face on it, keeping the shot's gaze and expression. Both render at 1024x1536, fixed (smaller or larger, the face came out long and narrow; a video model resizes its first frame by itself) — no upscale and no realism pass after them: a Z-Image pass changed her face and made the skin plastic, an upscaler added nothing a native render lacks. Every later step reads the swapped still. Tested on Comfy Cloud 2026-10-07: the only route here that kept her face and figure; edits of her photo (Qwen 2511, FLUX.2 klein) changed her face or body. A video of them: minimax-h3 r2v-ref2va-people-turbo8 with the swapped still as its one reference (task reference-video ranks it first for people).",
         "evidence": [
           {
             "src": "Comfy Cloud test, red-jacket influencer case, 2026-10-07",

@@ -121,6 +121,8 @@ class KbLookupTool(Tool):
         for n, task in sorted(scored, key=lambda x: (-x[0], x[1]))[:5]:
             top = (ctx.task_index.ranked(task) or [None])[0] if ctx.task_index else None
             pick = f" — top pick: {top.family}/{top.recipe}" if top and top.recipe else ""
+            if index.first_choice(task):
+                pick = " — FIRST CHOICE: a Seedream stage"
             lines.append(f"  {task}: {index.gloss(task)}{pick}")
         lines.append("Then kb_lookup task=<one of these> for the ranked picks, and family+recipe for the detail.")
         return "\n".join(lines)
@@ -144,6 +146,10 @@ class KbLookupTool(Tool):
     def _task(self, ctx: PipelineToolContext, task: str) -> str:
         wanted = ctx.task_index.recipe_tasks(task) if ctx.task_index else (task,)
         lines = [f"best free models for {task}, best first:"]
+        first = ctx.task_index.first_choice(task) if ctx.task_index else ""
+        if first:
+            lines = [f"FIRST CHOICE for {task}: {first}", "", f"ComfyUI recipes for {task} (stylized looks, or when the "
+                     "person asks for a free / ComfyUI model), best first:"]
         ranked = ctx.task_index.ranked(task) if ctx.task_index else []
         cloud = ctx.cloud_files()
         listed = set()

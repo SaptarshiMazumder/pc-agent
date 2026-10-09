@@ -482,7 +482,9 @@ class ComfyNodeSpecTool(Tool):
             node_class = str(params.get("node_class") or "").strip()
             if not node_class:
                 return ToolResult.text("node_class is required", is_error=True)
-            res = _get(f"/api/object_info/{node_class}")
+            # THE WHOLE LIST, NOT /object_info/<class>: Comfy Cloud answers the per-class path 404
+            # ("use /api/object_info instead"), and this tool then had nothing to repair from.
+            res = _get("/api/object_info", timeout_s=60.0)
             offline_note = ""
             if res.ok:
                 body = res.json()
@@ -972,7 +974,7 @@ def _execution_error_help(messages) -> str:
             node_type = str(err.get("node_type") or "")
             if not node_type:
                 continue
-            res = _get(f"/api/object_info/{node_type}")
+            res = _get("/api/object_info", timeout_s=60.0)  # the per-class path is 404 on Comfy Cloud
             spec = (res.json() or {}).get(node_type) if res.ok else None
             if not isinstance(spec, dict):
                 continue
@@ -1120,23 +1122,28 @@ def _api_node_flags(prompt: dict) -> dict[str, bool]:
     own reference-conditioning node, and matched as "Flux" it priced a local Qwen graph as a
     $7.72 BFL video job — refused by the credit gate three chats running, with the model told to
     "offer a free alternative" to a graph that was already free. Every partner node's spec
-    carries `api_node: true`; the core nodes do not. One small GET per unique class — the same
-    calls the leak check below always made for the classes the table did not price.
+    carries `api_node: true`; the core nodes do not.
+
+    ONE READ OF THE WHOLE NODE LIST. This used one GET per class at /object_info/<class>, which
+    Comfy Cloud answers 404 — so no class had a flag, the prefix judged everything, and a free
+    `FluxResolutionNode` (a size picker) priced an LTX storyboard as a $31 BFL video upscale.
 
     A class whose spec cannot be read is absent from the result — neither free nor paid — so
     the table's prefix still judges it, which errs toward charging."""
     flags: dict[str, bool] = {}
     classes = sorted({str(nd.get("class_type") or "") for nd in (prompt or {}).values()
                       if isinstance(nd, dict)} - {""})
+    res = _get("/api/object_info", timeout_s=60.0)
+    if not res.ok:
+        return flags
+    try:
+        info = res.json() or {}
+    except ValueError:
+        return flags
     for cls in classes:
-        res = _get(f"/api/object_info/{cls}")
-        if not res.ok:
-            continue  # an unknown class fails validation on its own terms; not this gate's job
-        try:
-            spec = (res.json() or {}).get(cls) or {}
-        except ValueError:
-            continue
-        flags[cls] = bool(spec.get("api_node"))
+        spec = info.get(cls)
+        if isinstance(spec, dict):  # an unknown class fails validation on its own terms
+            flags[cls] = bool(spec.get("api_node"))
     return flags
 
 
@@ -1588,14 +1595,6 @@ class ComfyInstallTool(Tool):
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"comfy_install failed: {type(e).__name__}: {e}", is_error=True)
-
-
-async def _no_node_packs(repos: list[str], abort, on_update) -> ToolResult:
-    """Comfy Cloud runs only the node packs it has preinstalled — none can be added."""
-    return ToolResult.text(
-        "Comfy Cloud runs only the node packs it has preinstalled, so these cannot be installed: "
-        + ", ".join(repos) + ". The design must use nodes Comfy Cloud has (its node list is what "
-        "comfy_validate checks against).", is_error=True)
 
 
 class ComfyStudioStateTool(Tool):
@@ -2187,10 +2186,12 @@ def register(api, ctx):
     # links the template's setup guide carries — see template_setup_tool.
     api.register_tool(TemplateSetupTool(
         object_info=_machine_nodes,
-        install_packs=_no_node_packs,
         install_models=lambda files, abort, on_update: ComfyInstallTool().execute(
             "", {"files": files}, abort, on_update),
     ))
+    # A VERSION-2 TEMPLATE IS CHANGED ONLY THROUGH ITS GUIDE'S SETTINGS — see template_set_tool.
+    from template_set_tool import TemplateSetTool
+    api.register_tool(TemplateSetTool())
     api.register_tool(TemplateSetupGuideTool())
     api.register_tool(TemplateAboutDraftTool(ctx.config))
     # PHASE 1 — THE DESIGN, WITH NO GPU: the knowledge base, the pipeline of stages, and the checks.
@@ -2203,6 +2204,7 @@ def register(api, ctx):
     from pipeline_present_tool import PipelinePresentTool
     from pipeline_provision_tool import PipelineProvisionTool
     from pipeline_run_tool import PipelineRunTool
+    from image_generation.seedream_wiring import SeedreamWiring
     from pipeline_status_tool import PipelineStatusTool
     from pipeline_validate_tool import PipelineValidateTool
     from stage_bind_tool import StageBindTool
@@ -2238,5 +2240,10 @@ def register(api, ctx):
         run_status=lambda prompt_id, abort, upd: ComfyRunStatusTool().execute(
             "", {"prompt_id": prompt_id, "timeout_s": _RUN_WAIT_CAP_S}, abort, upd),
         download=lambda files, abort, upd: ComfyDownloadTool().execute("", {"files": files}, abort, upd),
+        # SEEDREAM STAGES: made by the provider (Higgsfield, fal as fallback), charged in credits.
+        images=lambda: SeedreamWiring(ctx.config).service(),
     ))
     api.register_tool(PipelineStatusTool())
+    # THE RUN BUTTON on a stage in the Stages panel — a window call, refused from a turn.
+    from stage_run_approve_tool import StageRunApproveTool
+    api.register_tool(StageRunApproveTool())

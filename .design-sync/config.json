@@ -13,7 +13,8 @@
     "source-kit.mjs": "app package: synth entry re-exports default-exported components, skips the createRoot bootstrap, and imports the tokens/theme/styles CSS layers the bootstrap carried"
   },
   "extraEntries": [
-    "../../../../../../.design-sync/preview-surface.jsx"
+    "../../../../../../.design-sync/preview-surface.jsx",
+    "../../../../../../v2/agents/comfy-artchitect/app/src/state/store.ts"
   ],
   "provider": {
     "component": "PreviewSurface"
@@ -22,6 +23,21 @@
     "SignIn": {
       "cardMode": "single",
       "viewport": "760x820"
+    },
+    "Thread": {
+      "cardMode": "column"
+    },
+    "AskPanel": {
+      "cardMode": "column",
+      "viewport": "900x960"
+    },
+    "ChatMenu": {
+      "cardMode": "single",
+      "viewport": "480x420"
+    },
+    "StudioDashboard": {
+      "cardMode": "column",
+      "viewport": "900x2100"
     }
   },
   "readmeHeader": ".design-sync/conventions.md"

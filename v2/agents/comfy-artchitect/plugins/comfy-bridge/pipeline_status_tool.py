@@ -31,7 +31,8 @@ class PipelineStatusTool(Tool):
             record = PipelineRunRecord(ctx.workspace)
             lines = [f"{pipeline.name}:"]
             for s in pipeline.stages:
-                model = f"{s.family}/{s.recipe}" if not s.custom else "custom graph"
+                model = ("Seedream 5 Pro (provider)" if s.seedream
+                         else f"{s.family}/{s.recipe}" if not s.custom else "custom graph")
                 rec = record.stage(s.name)
                 status = rec.get("status") or "not run"
                 made = ", ".join(f for fs in (rec.get("outputs") or {}).values() for f in fs)

@@ -354,6 +354,9 @@
 .refs-size { color: var(--faint); }
 .refs-free { display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 0; }
 .refs-sub { font-size: var(--fs-tiny); color: var(--faint); }
+/* The standing Upload sits at the head's end and never squeezes the "1 of 3" count. */
+.refs-head .refs-slot-btn { flex: none; margin-left: auto; }
+.refs-empty { margin: 4px 0 8px; font-size: var(--fs-small); color: var(--faint); line-height: 1.45; }
 
 /* ── select-for-deletion ───────────────────────────────────────────────────────────────── */
 /* A tick beside each file row, and a bar that appears only while something is ticked. The bar
@@ -502,7 +505,10 @@
 .ws-sec-body { padding: 0 16px 16px; }
 .ws-empty { margin: 0; font-size: var(--fs-small); line-height: 1.55; color: var(--faint); }
 /* The sections carry the headings, so the panels inside them drop their own. */
-.ws-sec .refs-head, .ws-sec .fx-head { display: none; }
+.ws-sec .fx-head { display: none; }
+/* Inside a section the section's own head carries the title and count — but the Upload button stays. */
+.ws-sec .refs-heading { display: none; }
+.ws-sec .refs-head { padding: 0 0 6px; justify-content: flex-end; }
 .ws-sec .refs { padding: 0; border-bottom: 0; }
 .ws-sec .fx-tree { margin: 0 -8px; }
 .ws-sec .fx-delete { margin: 0 0 8px; }

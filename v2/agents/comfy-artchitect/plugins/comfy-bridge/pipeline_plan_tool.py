@@ -40,6 +40,10 @@ class PipelinePlanTool(Tool):
         "`loras` puts LoRAs on a recipe stage's model (a style, a character, an effect) — lora_search "
         "finds ones trained for that model. "
         "A model no recipe covers: give `nodes` (API format) and `outputs` instead of a recipe. "
+        "REALISTIC PICTURES (people, products, places — anything not stylized) are a SEEDREAM stage: "
+        "`family: \"seedream\"`, `recipe: \"seedream-5-pro\"`, `ports: {prompt, aspect_ratio "
+        "(9:16|16:9|1:1|4:5|3:4), count (1-4)}`, `inputs: {reference_1: …, reference_2: …}` — made by "
+        "the provider, not ComfyUI; its output is `image`. "
         "Returns the validation report; fix with stage_set / stage_bind / stage_edit_graph until it "
         "holds."
     )
@@ -56,8 +60,8 @@ class PipelinePlanTool(Tool):
                     "required": ["name", "note"],
                     "properties": {
                         "name": {"type": "string", "description": "lowercase_with_underscores, e.g. character_sheet"},
-                        "family": {"type": "string"},
-                        "recipe": {"type": "string"},
+                        "family": {"type": "string", "description": "a knowledge-base family, or 'seedream' for a Seedream 5 Pro image stage"},
+                        "recipe": {"type": "string", "description": "the family's recipe id ('seedream-5-pro' for a seedream stage)"},
                         "ports": {"type": "object", "description": "{port: value} — only what differs from the recipe"},
                         "inputs": {"type": "object", "description": "{input: 'user:<role>' | 'stage:<name>.<output>'}"},
                         "loras": LORAS_SCHEMA,
@@ -125,7 +129,7 @@ class PipelinePlanTool(Tool):
                 stale = PipelineRunRecord(ctx.workspace).stale_from(pipeline, pipeline.stages[0].name)
                 report = ctx.validate(pipeline)
                 design_note = ctx.store.write_design(pipeline)
-                files = [w.api_rel for w in written.values()]
+                files = [w.api_rel for w in written.values()]  # a Seedream stage writes no workflow
                 return ToolResult.text(
                     render_report(report) + "\nstage workflows: " + ", ".join(files)
                     + (f"\n! {design_note}" if design_note else "")

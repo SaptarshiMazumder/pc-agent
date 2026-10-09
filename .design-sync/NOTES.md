@@ -48,9 +48,29 @@ to run; the converter synthesizes the entry from `src/`).
 - Media artifacts (image kind) would hit the daemon's `/file` endpoint — previews use
   `kind: 'file'` cards only.
 
+- **The window reads its records through `/file`, not only `client.request`**: the Library
+  (`readIndex`, `readTemplate`) and the Stages panel (`useStagePlan`) list a folder with
+  `workspace.list`, then `fetch` the JSON. Previews of StudioDashboard, StarterWorkflows,
+  LibraryPanel and LibraryTemplateCard therefore wrap `window.fetch` at module scope and answer
+  ONLY the exact `/file` paths their stub client lists; every other URL passes through. Each
+  preview is its own `_preview/<Name>.js` page, so nothing leaks between cards.
+- Gallery has no offline placeholder glyph: its preview patches `Element.prototype.setAttribute`
+  on its own page to swap `/thumbnail`/`/file` image URLs for painted SVG stand-ins.
+- LibraryPanel seeds its first frame from sessionStorage `comfy-library-v1`; its preview clears it.
+- ChatMenu portals to `document.body` (position fixed) — its card is `single` and the preview
+  measures a real SessionItem row for the anchor.
+- StudioDashboard's mid-run cell is ~1990px tall (run strip, Inputs, two Stages, Outputs,
+  Workflow, All files) — hence `cardMode: column, viewport 900x2100`.
+- AskPanel's pipeline card (facts per step) needs `column, 900x960` or the model-pick cell clips.
+- Interaction-only states are not cells (menus armed, delete prompts, hover rows, drag-over, the
+  lightbox, the template's About panel); each preview's header comment lists its skips.
+
 ## Known render warns
 
-- (none currently — render check clean at last full run)
+- ChatResizer is transparent at rest by design (a 6px drag handle) — its preview shows it over a
+  two-column backdrop.
+- Image tiles show the component's offline placeholder glyph (no daemon /thumbnail) — expected.
+
 
 ## Re-sync risks
 
@@ -69,3 +89,10 @@ to run; the converter synthesizes the entry from `src/`).
 - `comfy-artchitect/app` is regenerated tooling territory: if the agent's window is ever
   re-scaffolded from the skeleton template, previews keep working only while component names
   and props stay compatible.
+
+- Stage and ask fixtures (StagePlan, StagePanel, InputPicker, AskPanel, StudioDashboard) inline
+  the shapes of `agentd/stage-plan.ts` and `agentd/chat.ts` — a renamed field there renders
+  those cards empty or wrong; re-check them whenever those types change.
+- The `/file` fetch stubs match exact paths built from each preview's stub workspace; a change
+  to `fileUrl`'s query format breaks them silently (cards fall back to empty).
+- 2026-10 the app had no type build, so every emitted `.d.ts` is still the empty stub (see above).

@@ -48,7 +48,14 @@ import {
 } from './library'
 
 export const TEMPLATE_FORMAT = 'comfy-penguin-template'
+/** What "Save as template" writes. Version 2 (Comfy Cloud, one `guide.json` the agent runs from)
+ *  is read here and written by hand for now; the save writes it once it can build a guide. */
 export const TEMPLATE_VERSION = 1
+/** The newest manifest this window reads. */
+export const TEMPLATE_VERSION_READ = 2
+/** A version-2 template's runbook for the agent: models with links, the settings it may change,
+ *  how to run it (plugins/comfy-bridge/template_guide.py). */
+export const TEMPLATE_GUIDE = 'guide.json'
 export const TEMPLATE_MANIFEST = 'template.json'
 const WORKFLOWS_DIR = 'workflows'
 
@@ -81,6 +88,8 @@ export interface TemplateManifest {
   setup?: string
   /** The about's file (TEMPLATE_ABOUT). Absent on a template saved before abouts. */
   about?: string
+  /** Version 2: the agent's runbook (TEMPLATE_GUIDE). */
+  guide?: string
   inputs: TemplateInput[]
   steps: TemplateStep[]
 }
@@ -101,7 +110,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
   const m = raw as Partial<TemplateManifest> | null
   if (!m || typeof m !== 'object') return 'template.json is not an object'
   if (m.format !== TEMPLATE_FORMAT) return `not a ${TEMPLATE_FORMAT} (format is ${String(m.format)})`
-  if (Number(m.version) > TEMPLATE_VERSION) return `made by a newer app (version ${m.version})`
+  if (Number(m.version) > TEMPLATE_VERSION_READ) return `made by a newer app (version ${m.version})`
   if (!m.name || !String(m.name).trim()) return 'the template has no name'
   if (!Array.isArray(m.steps) || !m.steps.length) return 'the template has no workflows'
   const steps: TemplateStep[] = []
@@ -128,6 +137,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
     ...(m.thumbnail && safeRel(String(m.thumbnail)) ? { thumbnail: String(m.thumbnail) } : {}),
     ...(m.setup === TEMPLATE_SETUP ? { setup: TEMPLATE_SETUP } : {}),
     ...(m.about === TEMPLATE_ABOUT ? { about: TEMPLATE_ABOUT } : {}),
+    ...(m.guide === TEMPLATE_GUIDE ? { guide: TEMPLATE_GUIDE } : {}),
     inputs: Array.isArray(m.inputs)
       ? m.inputs
           .map((i) => ({ role: String(i?.role || '').replace(/^@/, '').trim(), what: String(i?.what || '') }))
@@ -141,7 +151,7 @@ export function parseManifest(raw: unknown): TemplateManifest | string {
  *  absolute path, nothing that would land outside its own folder when unpacked. */
 function safeRel(rel: string): boolean {
   if (!rel || rel.startsWith('/') || rel.includes('\\') || rel.split('/').includes('..')) return false
-  return rel === TEMPLATE_MANIFEST || rel === TEMPLATE_SETUP || rel === TEMPLATE_ABOUT || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
+  return rel === TEMPLATE_MANIFEST || rel === TEMPLATE_SETUP || rel === TEMPLATE_ABOUT || rel === TEMPLATE_GUIDE || /^thumb\.[a-z0-9]+$/i.test(rel) || /^workflows\/[^/]+\.(json|py)$/i.test(rel)
 }
 
 function templateDir(item: LibraryItem): string {
@@ -369,6 +379,7 @@ function manifestFiles(manifest: TemplateManifest): string[] {
     ...(manifest.thumbnail ? [manifest.thumbnail] : []),
     ...(manifest.setup ? [manifest.setup] : []),
     ...(manifest.about ? [manifest.about] : []),
+    ...(manifest.guide ? [manifest.guide] : []),
   ]
 }
 

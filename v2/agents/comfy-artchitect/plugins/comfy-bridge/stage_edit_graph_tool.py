@@ -70,6 +70,10 @@ class StageEditGraphTool(Tool):
                 stage = pipeline.stage(str(params.get("stage") or ""))
                 if stage is None:
                     return ToolResult.text(f"no stage '{params.get('stage')}'", is_error=True)
+                if stage.seedream:
+                    return ToolResult.text(f"stage {stage.name} is a Seedream image stage — it has no graph. Change "
+                                           "its prompt, aspect_ratio or count with stage_set, its pictures with "
+                                           "stage_bind.", is_error=True)
                 as_ports = None if stage.custom else self._as_ports(ctx.builder.recipe_of(stage), params.get("ops") or [])
                 if as_ports:
                     stage.ports.update(as_ports)

@@ -20,8 +20,10 @@ one; any other file has nothing to bring — it is read with library_read.
 
 AN EDITOR-ONLY WORKFLOW IS CONVERTED BY THE MACHINE'S OWN COMFYUI (EditorGraphConverter) — what
 most tutorials ship is the editor save, and a run needs the API format. The machine can only
-convert nodes it has, so a workflow needing node packs Comfy Cloud lacks names them — Comfy
-Cloud runs only its preinstalled packs, so such a workflow cannot run there as it is.
+convert nodes it has. A missing node with an exact built-in stand-in (EditorNodeSubstitutes) is
+rewritten into it first, in this chat's copy, and the swap is said; a workflow still needing node
+packs Comfy Cloud lacks names them — Comfy Cloud runs only its preinstalled packs, so such a
+workflow cannot run there as it is.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ import library_paths
 import reference_slots
 import studio_state
 from editor_graph_converter import EditorGraphConverter
+from editor_node_substitutes import EditorNodeSubstitutes
 from fixed_design_shape import FixedDesignShape
 from library_index import LibraryIndex, LibraryItem
 from workflow_reference_repository import WorkflowReferenceRepository
@@ -62,8 +65,9 @@ class LibraryUseTool(Tool):
         "the slot you name in `as` (the window copies the file); it then counts as filled. "
         "A file that is a ComfyUI graph is treated as a workflow; other files are only read "
         "(library_read). A workflow saved only in EDITOR format is converted by the machine's "
-        "ComfyUI; if it needs node packs Comfy Cloud lacks, this names them — Comfy Cloud runs "
-        "only its preinstalled packs, so it cannot run there as it is."
+        "ComfyUI; a missing node with an exact built-in stand-in is swapped for it (said in the "
+        "result — tell the user); if it still needs node packs Comfy Cloud lacks, this names them — "
+        "Comfy Cloud runs only its preinstalled packs, so it cannot run there as it is."
     )
     parameters = {
         "type": "object",
@@ -85,9 +89,10 @@ class LibraryUseTool(Tool):
         "required": ["item"],
     }
 
-    def __init__(self, converter=None) -> None:
+    def __init__(self, converter=None, substitutes: EditorNodeSubstitutes | None = None) -> None:
         #: () -> EditorGraphConverter | None: the machine's ComfyUI, or None when there is none.
         self._converter = converter or (lambda: None)
+        self._substitutes = substitutes or EditorNodeSubstitutes()
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         ws = Path(current_workspace(".") or ".")
@@ -147,7 +152,12 @@ class LibraryUseTool(Tool):
             )
         try:
             ui = json.loads(ui_src.read_text(encoding="utf-8"))
+            swapped: list[str] = []
             missing = converter.missing_classes(ui)
+            if missing:
+                # A NODE WITH AN EXACT BUILT-IN STAND-IN is rewritten into it (EditorNodeSubstitutes),
+                # rather than the whole workflow refused over one resize helper.
+                ui, swapped, missing = self._substitutes.apply(ui, missing)
             if missing:
                 # WHAT THE USER'S WORKFLOW NEEDS is the evidence for the packs, exactly as a
                 # validation's unknown classes are: recorded under this workflow's name.
@@ -155,15 +165,20 @@ class LibraryUseTool(Tool):
                 studio_state.mark_validated(name, [], missing)
                 return ToolResult.text(
                     f"library_use: {item.name} is saved in EDITOR format and uses node types this "
-                    "ComfyUI does not have: " + ", ".join(missing) + ". Comfy Cloud runs only its "
-                    "preinstalled node packs, so this workflow cannot run there as it is — tell the "
-                    "user which nodes are missing.",
+                    "ComfyUI does not have, with no built-in stand-in: " + ", ".join(missing)
+                    + ". Comfy Cloud runs only its preinstalled node packs, so this workflow cannot run "
+                    "there as it is — tell the user which nodes are missing.",
                     is_error=True,
                 )
             api, dropped = converter.convert(ui)
         except ValueError as e:
             return ToolResult.text(f"library_use: {item.name}: {e}", is_error=True)
-        result = self._workflow(ws, item, api, ui_src, as_)
+        result = self._workflow(ws, item, api, ui if swapped else ui_src, as_)
+        if swapped and not result.is_error:
+            note = ("\nNodes Comfy Cloud does not have were replaced by built-in nodes that do the same, "
+                    "wired the same (this chat's copy only; the Library item is unchanged): "
+                    + "; ".join(swapped) + ". Say this to the user in one line.")
+            result = ToolResult.text(result.content[0].text + note, details=result.details)
         if dropped and not result.is_error:
             note = ("\nConverted by the machine's ComfyUI. Dropped links into inputs the installed "
                     "node packs no longer have (their pack changed since the workflow was made — "
@@ -172,8 +187,9 @@ class LibraryUseTool(Tool):
             result = ToolResult.text(result.content[0].text + note, details=result.details)
         return result
 
-    def _workflow(self, ws: Path, item: LibraryItem, api_src, ui_src: Path | None, as_: str):
-        """`api_src`: the API graph's file, or the graph itself (converted from the editor save)."""
+    def _workflow(self, ws: Path, item: LibraryItem, api_src, ui_src: Path | dict | None, as_: str):
+        """`api_src`: the API graph's file, or the graph itself (converted from the editor save).
+        `ui_src`: the editor graph's file, or the graph itself when stand-ins rewrote it."""
         name = _slug(as_ or item.name)
         if isinstance(api_src, dict):
             api = api_src
@@ -196,7 +212,10 @@ class LibraryUseTool(Tool):
         ui_rel = ""
         if ui_src is not None:
             ui_path = dest / f"{name}.json"
-            shutil.copyfile(ui_src, ui_path)
+            if isinstance(ui_src, dict):  # an editor graph rewritten here (built-in stand-ins)
+                ui_path.write_text(json.dumps(ui_src, ensure_ascii=False), encoding="utf-8")
+            else:
+                shutil.copyfile(ui_src, ui_path)
             ui_rel = f"{folder}/{ui_path.name}"
         api_rel = f"{folder}/{api_path.name}"
         # THE DESIGN NOW EXISTS, exactly as after comfy_emit: inventory unlocks, and the

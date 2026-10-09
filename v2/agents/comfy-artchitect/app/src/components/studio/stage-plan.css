@@ -1,0 +1,98 @@
+/* The Stages section — one compact panel per step. Tokens only (theme.css / tokens.css). */
+
+.sp-list { display: flex; flex-direction: column; gap: 10px; }
+
+.sp {
+  border: 1px solid var(--border); border-radius: var(--r-card); background: var(--bg2);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.sp.is-failed { border-color: var(--danger); }
+
+.sp-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sp-num {
+  flex: none; width: 20px; height: 20px; border-radius: var(--r-pill); display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-tiny); font-weight: var(--fw-semi);
+}
+.sp-name { font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); white-space: nowrap; }
+.sp-model {
+  flex: none; font-size: var(--fs-tiny); color: var(--dim); background: var(--bg3);
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 1px 8px;
+}
+.sp-hint { font-size: var(--fs-tiny); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-grow { flex: 1; }
+.sp-run {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px;
+  border: 0; border-radius: var(--r-control); background: var(--prim-bg); color: var(--prim-ink);
+  font: inherit; font-size: var(--fs-small); font-weight: var(--fw-semi); cursor: pointer;
+}
+.sp-run:hover:not(:disabled) { background: var(--prim-bg-h); }
+.sp-run:disabled { opacity: .45; cursor: default; }
+
+.sp-facts {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px;
+  font-size: var(--fs-small); color: var(--dim);
+}
+.sp-facts li::before { content: "•"; margin-right: 5px; color: var(--faint); }
+
+.sp-inputs { display: flex; flex-direction: column; gap: 4px; }
+.sp-input-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-small); }
+.sp-role { flex: none; width: 96px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-file { flex: 1; min-width: 0; color: var(--text); }
+.sp-file.is-missing { color: var(--warn); }
+.sp-file-btn {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.sp-file-btn:hover .sp-file-name { text-decoration: underline; }
+.sp-file-thumb {
+  flex: none; width: 26px; height: 26px; border-radius: var(--r-sm); overflow: hidden; background: var(--bg3);
+}
+.sp-file-thumb img, .sp-file-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sp-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-src { flex: none; color: var(--faint); font-size: var(--fs-tiny); white-space: nowrap; }
+
+.sp-link {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 0;
+  border-radius: var(--r-sm); background: none; color: var(--accent-text); font: inherit;
+  font-size: var(--fs-small); cursor: pointer;
+}
+.sp-link:hover:not(:disabled) { background: var(--accent-soft); }
+.sp-link:disabled { opacity: .45; cursor: default; }
+
+.sp-picker {
+  margin: 6px 0 4px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-control);
+  background: var(--bg);
+}
+.sp-picker-grid, .sp-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.sp-picker-none { margin: 0; font-size: var(--fs-small); color: var(--faint); }
+.sp-picker-doors { display: flex; gap: 6px; margin-top: 6px; }
+
+.sp-tile {
+  position: relative; display: block; padding: 0; aspect-ratio: 1; overflow: hidden;
+  border: 2px solid transparent; border-radius: var(--r-sm); background: var(--bg3); cursor: pointer;
+}
+.sp-tile.is-picked { border-color: var(--accent); }
+.sp-tile img, .sp-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sp-tile .op-thumb-blank { display: grid; place-items: center; width: 100%; height: 100%; color: var(--faint); }
+.sp-tile-name {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 10px; color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .7)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sp-tile-pick { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
+.sp-tile-open {
+  position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; display: grid; place-items: center;
+  border: 0; border-radius: var(--r-sm); background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; opacity: 0;
+}
+.sp-tile:hover .sp-tile-open { opacity: 1; }
+
+.sp-prompt {
+  display: flex; gap: 6px; align-items: flex-start; width: 100%; padding: 0; border: 0; background: none;
+  text-align: left; font: inherit; font-size: var(--fs-small); color: var(--dim); cursor: pointer;
+}
+.sp-prompt span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap;
+}
+.sp-prompt.is-open span { display: block; -webkit-line-clamp: unset; }
+.sp-prompt svg { flex: none; margin-top: 2px; }
+
+.sp-error { font-size: var(--fs-small); color: var(--danger); }

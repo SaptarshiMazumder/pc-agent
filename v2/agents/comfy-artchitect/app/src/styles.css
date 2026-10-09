@@ -1521,10 +1521,85 @@ h2 { font-size: var(--fs-lead); }
 
 /* The ask (AskPanel) — `ask_user` drawn as checkboxes, answer boxes and a list, in the approve
    panel's clothes: `.approve-row`/`.approve-go` above are shared with it. */
+/* THE HEAD IS ONE PLAIN LINE — the job, its steps, what it delivers. It was a 19px display
+   paragraph of the agent's reasons, read before the facts and harder to read than them. */
 .ask-title {
-  margin: 5px 0 0; font-family: var(--display); font-size: 19px; font-weight: 700;
-  letter-spacing: -0.01em; line-height: 1.25; color: var(--text); text-wrap: pretty;
+  margin: 0; font-size: var(--fs-row); font-weight: var(--fw-semi);
+  line-height: 1.4; color: var(--text); text-wrap: pretty;
 }
+.ask-steps { margin: 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 8px; }
+.ask-step-line { margin: 0; display: flex; align-items: center; gap: 8px; font-size: var(--fs-row); color: var(--text); }
+.ask-step-line b { font-weight: var(--fw-semi); }
+.ask-step-model {
+  font-size: var(--fs-tiny); color: var(--dim); background: var(--bg3);
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 1px 8px;
+}
+.ask-facts { margin: 3px 0 0; padding: 0 0 0 16px; font-size: var(--fs-small); color: var(--dim); line-height: 1.5; }
+.ask-note { font-size: var(--fs-small); color: var(--dim); }
+
+/* THE ASK IN CLAUDE'S QUESTION STYLE (AskPanel): a quiet panel, one block per decision with a bold
+   question, each choice a row — round marker, bold name, one dim line — the picked row lit. An
+   answered card folds to one line ("Answered · 2 questions") that opens it again. */
+.cq {
+  margin-top: 10px; overflow: hidden;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-card);
+}
+.cq-folded {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 3px 2px;
+  border: 0; background: none; color: var(--dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.cq-folded:hover { color: var(--text); }
+.cq-folded.is-open { margin: 10px 16px 0; }
+.cq-body { display: flex; flex-direction: column; gap: 18px; padding: 14px 16px 8px; }
+.cq-head { margin: 0; font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); line-height: 1.4; }
+.cq-q { display: flex; flex-direction: column; gap: 6px; }
+.cq-title {
+  margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text); line-height: 1.4;
+}
+.cq-chip {
+  font-size: var(--fs-tiny); font-weight: var(--fw-normal); color: var(--dim); background: var(--bg3);
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 1px 8px;
+}
+.cq-req { font-size: var(--fs-tiny); font-weight: var(--fw-normal); color: var(--warn); }
+.cq-opt {
+  position: relative; display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
+  padding: 8px 10px; border-radius: var(--r-control); cursor: pointer; transition: background .12s;
+}
+.cq-opt:hover { background: var(--bg3); }
+.cq-input { position: absolute; opacity: 0; pointer-events: none; }
+.cq-mark {
+  width: 16px; height: 16px; margin-top: 2px; box-sizing: border-box;
+  border: 1.5px solid var(--border-strong); border-radius: 50%;
+}
+.cq-mark.is-box { border-radius: 4px; }
+.cq-opt.is-on .cq-mark { border-color: var(--accent); background: radial-gradient(circle, var(--accent) 0 3.5px, transparent 4px); }
+.cq-opt.is-on .cq-mark.is-box { background: var(--accent); }
+.cq-input:focus-visible + .cq-mark { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cq-text { min-width: 0; }
+.cq-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: var(--fs-row); font-weight: var(--fw-semi); color: var(--text);
+}
+.cq-opt:not(.is-on) .cq-label { color: var(--dim); }
+.cq-price { flex: none; font: 500 12px var(--mono); color: var(--accent-text); white-space: nowrap; }
+.cq-price.is-free { font-family: var(--sans); color: var(--ok); }
+.cq-desc { display: block; margin-top: 2px; font-size: var(--fs-small); color: var(--faint); line-height: 1.45; text-wrap: pretty; }
+.cq-field {
+  width: 100%; box-sizing: border-box; padding: 7px 9px; resize: vertical;
+  background: var(--bg3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--r-control);
+  font: inherit; font-size: var(--fs-control); line-height: 1.45;
+}
+.cq-field:focus { outline: none; border-color: var(--accent); }
+.cq-field:disabled { opacity: .6; }
+.cq-list { margin: 0; padding-left: 20px; font-size: var(--fs-small); color: var(--dim); line-height: 1.5; }
+.cq-note { margin: 0; font-size: var(--fs-small); color: var(--dim); }
+.cq .ask-facts { margin: 0; padding-left: 18px; }
+.cq-foot {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px;
+  padding: 10px 16px 12px; border-top: 1px solid var(--row-line);
+}
+.cq-total { margin-right: auto; font-size: var(--fs-small); color: var(--faint); }
 .ask-section {
   margin: 0 0 6px; font-size: var(--fs-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
   color: var(--faint); font-weight: 700;

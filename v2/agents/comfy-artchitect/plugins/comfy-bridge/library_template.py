@@ -9,7 +9,11 @@ shipped by the app as a suggested template. All three are the same folder:
     <template>/thumb.<ext>          optional
 
 `template.json`: {format, version, name, description, inputs:[{role, what}],
-steps:[{role, api, ui?, installer[], slots[]}]} with step paths relative to the folder.
+steps:[{role, api, ui?, installer[], slots[]}], guide} with step paths relative to the folder.
+
+VERSION 2 ONLY. A version-2 template runs on Comfy Cloud from its `guide.json` (TemplateGuide):
+the models with their links, the settings a run may change, how to run it. Version 1 (a setup guide
+for a machine of one's own, and an about for people) is the old kind, and is refused in words.
 This module only READS it — the Library's one writer is the window — and refuses a manifest it
 does not understand in words, rather than half-loading it.
 """
@@ -21,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 FORMAT = "comfy-penguin-template"
-VERSION = 1
+VERSION = 2
 MANIFEST = "template.json"
 
 
@@ -65,6 +69,9 @@ class LibraryTemplate:
             return None, f"{MANIFEST} is not a {FORMAT}"
         if int(m.get("version") or 0) > VERSION:
             return None, f"this template was made by a newer app (version {m.get('version')})"
+        if int(m.get("version") or 0) < VERSION:
+            return None, ("it is an old-format template (version 1, from before templates ran on Comfy "
+                          "Cloud from a guide) and cannot be used")
         steps: list[TemplateStep] = []
         for s in m.get("steps") or []:
             if not isinstance(s, dict):

@@ -21,6 +21,7 @@ from __future__ import annotations
 import copy
 
 import reference_slots
+import seedream_stage
 from api_graph import ApiGraph
 from knowledge_base_catalog import KnowledgeBaseCatalog
 from pipeline import Stage
@@ -40,6 +41,8 @@ class StageBuilder:
         self._catalog = catalog
 
     def recipe_of(self, stage: Stage) -> Recipe:
+        if stage.seedream:
+            raise StageBuildError(f"stage {stage.name} is a Seedream image stage — it has no ComfyUI recipe")
         r = self._catalog.recipe(stage.family, stage.recipe)
         if r is None:
             fams = sorted(self._catalog.families)
@@ -53,6 +56,8 @@ class StageBuilder:
 
     def build(self, stage: Stage, custom_graph: dict | None = None) -> dict:
         """The stage's API graph. `custom_graph` is the current graph of a custom stage."""
+        if stage.seedream:
+            raise StageBuildError(f"stage {stage.name} is a Seedream image stage — it has no ComfyUI graph")
         if stage.custom:
             if not custom_graph:
                 raise StageBuildError(f"stage {stage.name} has no recipe and no graph")
@@ -148,6 +153,8 @@ class StageBuilder:
 
     def input_types(self, stage: Stage, graph: dict | None = None) -> dict[str, str]:
         """{input name: media type} the stage reads."""
+        if stage.seedream:  # every input is a reference picture, named as the design binds it
+            return {i.name: "IMAGE" for i in stage.inputs}
         if not stage.custom:
             return {n: str(s.get("type") or "") for n, s in self.recipe_of(stage).inputs.items()}
         out = {}
@@ -161,6 +168,8 @@ class StageBuilder:
 
     def output_specs(self, stage: Stage) -> dict[str, dict]:
         """{output name: {node, type}} — which node of the stage's graph saves each result."""
+        if stage.seedream:
+            return dict(seedream_stage.OUTPUTS)
         return dict(stage.outputs if stage.custom else self.recipe_of(stage).outputs)
 
     def output_types(self, stage: Stage) -> dict[str, str]:

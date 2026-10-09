@@ -42,11 +42,20 @@ class PipelineRunRecord:
     def output_files(self, name: str, output: str) -> list[str]:
         return list(((self._data.get(name) or {}).get("outputs") or {}).get(output) or [])
 
-    def rendering(self, name: str, prompt_id: str) -> None:
-        self._set(name, {"status": RENDERING, "prompt_id": prompt_id, "outputs": {}})
+    def rendering(self, name: str, prompt_id: str, fed: dict[str, str] | None = None) -> None:
+        self._set(name, {"status": RENDERING, "prompt_id": prompt_id, "outputs": {}, "fed": dict(fed or {})})
 
-    def done(self, name: str, outputs: dict[str, list[str]]) -> None:
-        self._set(name, {"status": DONE, "prompt_id": "", "outputs": outputs})
+    def done(self, name: str, outputs: dict[str, list[str]], fed: dict[str, str] | None = None) -> None:
+        """`fed`: {role: the file each input was given} — the Stages panel compares it with what is
+        picked now, to say a stage's result was made from different inputs."""
+        # EVERY RESULT IS KEPT, not just the last run's: the person picks which one goes on.
+        results = [*((self._data.get(name) or {}).get("results") or []), {"at": time.time(), "outputs": outputs}]
+        self._set(name, {"status": DONE, "prompt_id": "", "outputs": outputs, "fed": dict(fed or {}),
+                         "results": results})
+
+    def results(self, name: str, output: str) -> list[str]:
+        """Every file this stage has made for `output`, oldest first."""
+        return [f for r in (self._data.get(name) or {}).get("results") or [] for f in (r.get("outputs") or {}).get(output) or []]
 
     def failed(self, name: str, why: str) -> None:
         self._set(name, {"status": FAILED, "prompt_id": "", "outputs": {}, "why": why[:500]})
@@ -88,6 +97,8 @@ class PipelineRunRecord:
 
     def _set(self, name: str, entry: dict) -> None:
         entry["at"] = time.time()
+        # The results so far outlive a new run's status (rendering, failed).
+        entry.setdefault("results", list((self._data.get(name) or {}).get("results") or []))
         self._data[name] = entry
         self._save()
 

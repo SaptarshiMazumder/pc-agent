@@ -35,6 +35,9 @@ class PipelineDesignChecks:
     def check(self, pipeline: Pipeline, graphs: dict[str, dict]) -> list[str]:
         out: list[str] = []
         for stage in pipeline.stages:
+            if stage.seedream:
+                out += self._same_file_twice(stage, {})
+                continue
             try:
                 takes = self._builder.input_types(stage, graphs.get(stage.name))
                 makes = self._builder.output_types(stage)
@@ -62,6 +65,11 @@ class PipelineDesignChecks:
             try:
                 recipe = self._builder.recipe_of(stage)
             except StageBuildError:
+                continue
+            # A FIXED recipe's prompt is its tested value, not an example to replace: asking for "this
+            # job's prompt" there is what had the agent reword the head-swap prompt in every chat.
+            fixed = recipe.meta.get("fixed")
+            if isinstance(fixed, dict) and "prompt" not in (fixed.get("ports") or []):
                 continue
             spec = recipe.ports.get("prompt") or {}
             nid = spec.get("node") or (spec.get("nodes") or [None])[0]

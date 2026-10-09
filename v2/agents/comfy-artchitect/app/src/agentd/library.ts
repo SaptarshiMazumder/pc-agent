@@ -131,6 +131,24 @@ export function looksLikeGraph(text: string): boolean {
   }
 }
 
+/** The node ids of an API-format graph that have no `class_type` — what an "Export (API)" from a
+ *  ComfyUI WITHOUT a node's pack writes (its inputs come out as UNKNOWN, UNKNOWN_1…). [] for a
+ *  sound graph or for anything that is not an API graph. */
+export function brokenGraphNodes(text: string): string[] {
+  try {
+    const g = JSON.parse(text) as Record<string, unknown>
+    if (!g || typeof g !== 'object' || Array.isArray((g as { nodes?: unknown }).nodes)) return []
+    const entries = Object.entries(g)
+    const typed = entries.filter(([, v]) => !!v && typeof v === 'object' && 'class_type' in (v as object))
+    if (!typed.length) return []
+    return entries
+      .filter(([, v]) => !!v && typeof v === 'object' && 'inputs' in (v as object) && !('class_type' in (v as object)))
+      .map(([k]) => k)
+  } catch {
+    return []
+  }
+}
+
 /** The slot roles an API-format graph declares — `LoadImage.image = "@model"` and the like. */
 export function slotsInGraph(text: string): string[] {
   const out = new Set<string>()
@@ -488,6 +506,21 @@ export async function kindOfUpload(file: File): Promise<LibraryKind> {
 
 /** Put files from the person's machine into `library/uploaded/`. */
 export async function uploadToLibrary(client: AgentdClient, files: File[]): Promise<LibraryItem[]> {
+  /* A BROKEN EXPORT IS SAID, NOT FILED. An API export with nodes that lost their type is a
+     workflow that cannot run; filed as a plain file it showed no Use button and no reason why.
+     Checked for every file before anything is written, so a refusal leaves nothing half-added. */
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith('.json') || file.size >= 8 * 1024 * 1024) continue
+    const broken = brokenGraphNodes(await file.text())
+    if (broken.length) {
+      throw new Error(
+        `${file.name} is a workflow export with ${broken.length === 1 ? 'a node' : 'nodes'} that lost ` +
+          `${broken.length === 1 ? 'its' : 'their'} type (node ${broken.join(', ')}): it was exported from a ComfyUI ` +
+          `without that node's pack. Upload the editor file (the normal Save) instead, or export it from a ` +
+          `ComfyUI that has the pack.`,
+      )
+    }
+  }
   const index = await readIndex(client)
   const at = nowIso()
   const added: LibraryItem[] = []

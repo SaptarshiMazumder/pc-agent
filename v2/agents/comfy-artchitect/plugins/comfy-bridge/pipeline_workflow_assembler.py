@@ -73,8 +73,10 @@ class PipelineWorkflowAssembler:
         spec = (specs.get(prod_stage) or {}).get(prod_output) or {}
         saver = ids[prod_stage].get(str(spec.get("node")))
         tensor = self._saved_tensor(out.graph, saver) if saver else None
-        loaders = [nid for nid in ids[consumer].values()
-                   if any(v == reference_slots.TOKEN + role for v in out.graph[nid]["inputs"].values())]
+        # A stage fed by TWO earlier stages is wired twice: the first hand-over already removed its
+        # loader, so the second must not look it up again.
+        loaders = [nid for nid in ids[consumer].values() if nid in out.graph
+                   and any(v == reference_slots.TOKEN + role for v in out.graph[nid]["inputs"].values())]
         for loader in loaders:
             kind = self._output_type(out.graph[loader]["class_type"], 0)
             used_slots = {v[1] for n in out.graph.values() for v in n["inputs"].values()

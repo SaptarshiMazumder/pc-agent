@@ -29,6 +29,8 @@ from stage_model_file import StageModelFile
 
 USER = "user"
 STAGE = "stage"
+#: The family of a stage that makes pictures on Seedream 5 Pro, outside ComfyUI (seedream_stage).
+SEEDREAM = "seedream"
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
 _SOURCE = re.compile(r"^(user):([a-z][a-z0-9_-]{0,31})$|^(stage):([a-z][a-z0-9_]{0,23})\.([a-z][a-z0-9_]{0,23})$")
 
@@ -76,6 +78,11 @@ class Stage:
     @property
     def custom(self) -> bool:
         return not self.recipe
+
+    @property
+    def seedream(self) -> bool:
+        """Made on Seedream 5 Pro by the provider, not by a ComfyUI graph (seedream_stage)."""
+        return self.family == SEEDREAM
 
     def input(self, name: str) -> StageInput | None:
         return next((i for i in self.inputs if i.name == name), None)

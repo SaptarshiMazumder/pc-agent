@@ -1,0 +1,19 @@
+{
+  "_about": "Seedream 5 Pro on Higgsfield (the default image model). Copied from Ad Studio; the model list is limited to Seedream on purpose.",
+  "seedream_v5_pro": {
+    "kind": "image",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_references",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k"
+    },
+    "max_references": 14,
+    "source": "job_types/seedream_v5_pro",
+    "label": "Seedream 5 Pro (Higgsfield)",
+    "price_note": "2.5 cr",
+    "credits_per_image": 2.5
+  }
+}

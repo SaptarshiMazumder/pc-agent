@@ -13,12 +13,23 @@ description = "Design ComfyUI workflows, check them against Comfy Cloud, run the
 [sandbox]
 # Comfy Cloud, and the platform's address as a NAME the host folds in (comfy_price reads the
 # credit rate there).
-net     = ["https://cloud.comfy.org", "${AGENTD_ACCOUNTS_URL}"]
+net     = [
+  "https://cloud.comfy.org", "${AGENTD_ACCOUNTS_URL}",
+  # SEEDREAM 5 PRO, the agent's own image making (image_generation/): Higgsfield's developer API,
+  # its upload bucket, result CDNs and Clerk for the token refresh; then fal's queue and media
+  # hosts, the fallback.
+  "fnf-api-gw.higgsfield.ai", "upload.higgsfield.ai", "cdn.higgsfield.ai", "*.cloudfront.net", "clerk.higgsfield.ai",
+  "queue.fal.run", "fal.run", "*.fal.media", "fal.media",
+]
 # USER_COMFY_API_KEY: the person's Comfy key — every Comfy Cloud call carries it (X-API-Key), and a
 # paid partner node in a run is paid with it. HF_TOKEN / CIVITAI_TOKEN: comfy_research reads a gated
 # model page with the platform's token, only ever on that site's own host.
 # USER_CIVITAI_TOKEN: the person's Civitai key — only ever inside a civitai.com download link.
-secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "USER_COMFY_API_KEY", "USER_CIVITAI_TOKEN"]
+# FAL_KEY / HIGGSFIELD_*: the PLATFORM's provider keys (the machine's global Settings, as for Ad
+# Studio) — Seedream images are paid with them and charged to the person in platform credits
+# (AGENTD_PLATFORM_TOKEN reads the balance and posts the debit; see image_generation/).
+secrets = ["HF_TOKEN", "CIVITAI_TOKEN", "USER_COMFY_API_KEY", "USER_CIVITAI_TOKEN",
+           "FAL_KEY", "HIGGSFIELD_ACCESS_TOKEN", "HIGGSFIELD_REFRESH_TOKEN", "AGENTD_PLATFORM_TOKEN"]
 # WHAT ITS TOOLS READ FROM THE WORKSPACE — and so what a microVM is shipped per call. The
 # workspace is the account's: every chat's reference photos and every render ever downloaded
 # live in it, and shipping all of it (140 MB, four calls at once) is what OOM-killed the hosted
