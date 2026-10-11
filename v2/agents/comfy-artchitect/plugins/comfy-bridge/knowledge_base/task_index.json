@@ -10,7 +10,11 @@
         "edit",
         "reference"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "control": {
       "gloss": "image guided by edges/depth/pose of another image",
@@ -28,7 +32,12 @@
       "gloss": "change an image by instruction",
       "recipe_tasks": [
         "edit"
-      ]
+      ],
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "edit-identity": {
       "gloss": "keep a person/character/product while changing the rest",
@@ -37,7 +46,11 @@
         "reference",
         "style-ref"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "flf2v": {
       "gloss": "video between a first and a last frame: morph or transition from one image to the next, keyframes",
@@ -56,7 +69,12 @@
       "gloss": "video starting from an image, animate a photo",
       "recipe_tasks": [
         "i2v"
-      ]
+      ],
+      "first_choice": {
+        "label": "minimax-h3/r2v-ref2va-people-turbo8 for a real person",
+        "detail": "a REAL PERSON (photoreal) moving in a video from their photo: family 'minimax-h3', recipe 'r2v-ref2va-people-turbo8', their photo as ref_image_1 — the one reference. The photo is READ, not opened on: the shot is written fresh (pose, turn, camera) and their face, figure and outfit hold. Tested on Comfy Cloud 2026-10-07 and picked over the official 20-step recipe: 8 steps, turbo + Realism People LoRAs, 768x1344 native. When the job puts them in a different outfit or place than the photo shows, a Seedream still of that comes first (review: true) and is the reference instead.",
+        "others": "a subject that is not a person — a product, a place, an animal — or when the person wants the clip to open on that exact photo"
+      }
     },
     "inpaint": {
       "gloss": "repaint a masked part of an image",
@@ -81,7 +99,11 @@
       "recipe_tasks": [
         "multi-angle"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "outpaint": {
       "gloss": "extend an image beyond its borders",
@@ -95,7 +117,11 @@
         "t2i",
         "edit"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "product-on-model": {
       "gloss": "a given person wearing or holding a given product (jacket, shirt, watch, headphones, bag): product ad, ad shot, lookbook, try-on, model with product, at an exact size or aspect ratio",
@@ -103,7 +129,11 @@
         "edit",
         "reference"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "reference-video": {
       "gloss": "video of a subject/product/sheet read as a reference (not as a frame)",
@@ -129,14 +159,23 @@
       "gloss": "any image from text",
       "recipe_tasks": [
         "t2i"
-      ]
+      ],
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "t2i-photoreal": {
       "gloss": "photographic image from text",
       "recipe_tasks": [
         "t2i"
       ],
-      "first_choice": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2)."
+      "first_choice": {
+        "label": "a Seedream stage",
+        "detail": "a SEEDREAM stage — family 'seedream', recipe 'seedream-5-pro', ports {prompt, aspect_ratio, count}, inputs reference_1.. (the person's photos, earlier results). Seedream 5 Pro, made by the provider and paid in credits: the default for every realistic still — people, a real person, products, places, ad shots, video keyframes. Name each reference by its place in the prompt (image 1, image 2). UNLESS the look is stylized — anime, cartoon, illustration, painting: then the ComfyUI recipes below, with the look in the stage's `style`. A photographic look (film still, cinematic, a realism LoRA) is not a style.",
+        "others": "stylized looks, or when the person asks for a free / ComfyUI model"
+      }
     },
     "t2i-text": {
       "gloss": "image with legible text (posters, signs, packaging)",

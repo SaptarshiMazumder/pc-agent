@@ -4,7 +4,7 @@ Each stage can be correct on its own and the job still be designed badly: a vide
 the person's own photo with nothing they approve first, the same file wired into two inputs, a review
 point with nothing after it. These are `?` findings — the agent fixes the design or says in one line
 why it is right for this job — never errors, because a plain text-to-video job legitimately has one
-stage and no review.
+stage and no review. The exception is `refusals`: the person's standing rules, which are errors.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ class PipelineDesignChecks:
             out += self._raw_into_prepared(stage, self._prepared(stage))
             out += self._map_into_raw(pipeline, stage)
             out += self._hand_written_but_covered(stage, graphs.get(stage.name) or {})
+        out += self._cast_not_carried(pipeline)
         out += self._review_with_nothing_after(pipeline)
         out += self._made_but_never_read(pipeline)
         out += self._short_of_delivery(pipeline, graphs)
@@ -153,6 +154,55 @@ class PipelineDesignChecks:
         return [f"stage {stage.name} is written by hand, but the knowledge base has recipes built from the same "
                 f"nodes: {', '.join(sorted(hits)[:6])}. Use the recipe (kb_lookup family=<id> recipe=<id>) unless "
                 "none of them does this job."]
+
+    def refusals(self, pipeline: Pipeline) -> list[str]:
+        """The person's standing rules: errors, not questions. A `?` let the agent wave the Seedream
+        rule off with a reason of its own (a film-still LoRA as "a style") — twice."""
+        return [self._still_not_seedream(s) for s in pipeline.stages
+                if not s.seedream and not s.style and self._makes_a_picture(s)]
+
+    @staticmethod
+    def _still_not_seedream(stage: Stage) -> str:
+        """A STILL MADE IN COMFYUI with no stylized look declared. Realistic stills are Seedream stages;
+        a ComfyUI recipe makes a still only for a look Seedream is not for, or when the person asked."""
+        return (f"stage {stage.name} makes a still on ComfyUI ({stage.family}). Realistic stills — people, products, "
+                "places, video keyframes — are Seedream stages (family 'seedream', recipe 'seedream-5-pro'). A "
+                "ComfyUI still needs `style` on the stage: the stylized look (anime, cartoon, watercolor, pixel art) "
+                "or 'asked' when the person named a free / ComfyUI model. A photographic look — film still, "
+                "cinematic, a realism LoRA — is not a style.")
+
+    def _cast_not_carried(self, pipeline: Pipeline) -> list[str]:
+        """WHAT RECURS IS CARRIED. Pictures made from nothing each invent their own people, products
+        and places; a prompt describing the subject again does not keep its identity. Asked, not
+        refused: pictures of different subjects (a character sheet and a background) are fine."""
+        unlinked = [s.name for s in pipeline.stages if self._makes_a_picture(s) and not self._takes_a_picture(s)]
+        if len(unlinked) < 2:
+            return []
+        return [f"stages {', '.join(unlinked)} each make a picture from nothing, so each invents its own people, "
+                "products and places. Whatever recurs — the same person, product, place or look in more than one "
+                "stage — is carried: its first appearance (or the person's upload) is the anchor, and every later "
+                "stage that shows it takes the anchor as an input (stage:<anchor>.image); a Seedream stage also "
+                "takes the previous picture. Keep them unlinked only if they show different subjects, and say so."]
+
+    def _makes_a_picture(self, stage: Stage) -> bool:
+        """A stage whose job is the picture itself — Seedream, or a ComfyUI text-to-image / edit recipe.
+        An upscale, a control map, a cut-out are tools on a picture, not one."""
+        if stage.seedream:
+            return True
+        if stage.custom:
+            return False
+        try:
+            return (self._builder.recipe_of(stage).task in ("t2i", "edit")
+                    and set(self._builder.output_types(stage).values()) == {_STILL})
+        except StageBuildError:
+            return False
+
+    def _takes_a_picture(self, stage: Stage) -> bool:
+        try:
+            takes = self._builder.input_types(stage)
+        except StageBuildError:
+            return False
+        return any(takes.get(i.name) == _STILL for i in stage.inputs)
 
     def _types(self, stage: Stage) -> set[str]:
         try:

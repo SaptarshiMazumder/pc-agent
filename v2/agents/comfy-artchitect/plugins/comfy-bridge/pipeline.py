@@ -69,6 +69,9 @@ class Stage:
     outputs: dict = field(default_factory=dict)  # custom stages only: {name: {node, type}}
     review: bool = False  # Phase 3 stops after this stage and shows its output
     note: str = ""
+    #: Why a still is made on ComfyUI and not Seedream: the stylized look it is ("anime", "oil
+    #: painting"), or "asked" when the person named a free / ComfyUI model. "" for everything else.
+    style: str = ""
     #: LoRAs on top of the recipe's model, applied in order (StageBuilder splices them in).
     loras: list[StageLora] = field(default_factory=list)
     #: Model files a port swaps in that the knowledge base does not list (a Pony checkpoint), with
@@ -146,6 +149,7 @@ class Pipeline:
                     "name": s.name, "family": s.family, "recipe": s.recipe, "ports": s.ports,
                     "inputs": {i.name: i.source for i in s.inputs}, "outputs": s.outputs,
                     "review": s.review, "note": s.note,
+                    **({"style": s.style} if s.style else {}),
                     **({"loras": [lo.to_dict() for lo in s.loras]} if s.loras else {}),
                     **({"models": [m.to_dict() for m in s.models]} if s.models else {}),
                 }
@@ -164,7 +168,7 @@ class Pipeline:
                 recipe=str(raw.get("recipe") or ""), ports=dict(raw.get("ports") or {}),
                 inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
                 outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
-                note=str(raw.get("note") or ""),
+                note=str(raw.get("note") or ""), style=str(raw.get("style") or ""),
                 loras=[StageLora.from_dict(lo) for lo in raw.get("loras") or []],
                 models=[StageModelFile.from_dict(m) for m in raw.get("models") or []],
             ))

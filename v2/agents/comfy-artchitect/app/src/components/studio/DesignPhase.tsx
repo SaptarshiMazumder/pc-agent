@@ -18,6 +18,7 @@ export function DesignPhase({
   onDecide,
   hasPlan,
   running,
+  showInputs = true,
   slots,
   free,
   referencesDisabled,
@@ -30,6 +31,8 @@ export function DesignPhase({
   onDecide: (reply: string) => void
   hasPlan: boolean
   running: boolean
+  /** False while the header's inputs panel is open above — one inputs list on screen, not two. */
+  showInputs?: boolean
   slots: Slot[]
   free: Artifact[]
   referencesDisabled: boolean
@@ -63,10 +66,12 @@ export function DesignPhase({
         </section>
       )}
 
-      <section className="dp-inputs">
-        <span className="stg-label">Inputs the design reads</span>
-        <ReferenceSlots slots={slots} free={free} disabled={referencesDisabled} onAdd={onAddReference} onOpen={onOpen} onFromLibrary={onFromLibrary} />
-      </section>
+      {showInputs && (
+        <section className="dp-inputs">
+          <span className="stg-label">Inputs the design reads</span>
+          <ReferenceSlots slots={slots} free={free} disabled={referencesDisabled} onAdd={onAddReference} onOpen={onOpen} onFromLibrary={onFromLibrary} />
+        </section>
+      )}
     </div>
   )
 }

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement, type React
 import { ArrowDown } from 'lucide-react'
 import type { ThreadItem } from '../agentd/chat'
 import { askOf } from '../agentd/chat'
+import { designCard } from '../agentd/creation-phase'
 import { dayLabel, sameDay } from '../lib/timefmt'
 import MessageItem from './MessageItem'
 import { isFoldableStep, StepsGroup } from './StepsGroup'
@@ -45,14 +46,12 @@ export function Thread({
    *  page and the studio is a drawer. */
   askInStudio?: boolean
 }) {
-  /* The latest card no user message has answered — the one the studio is showing. */
+  /* The design card no user message has answered — the one the studio is showing. Any other card
+     (a question mid-run) is answered here, as before. */
   const pendingAsk = (() => {
     if (!askInStudio) return -1
-    for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].kind === 'user') return -1
-      if (askOf(items[i])) return i
-    }
-    return -1
+    const card = designCard(items)
+    return card ? items.indexOf(card) : -1
   })()
   const boxRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)

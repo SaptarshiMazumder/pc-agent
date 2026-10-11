@@ -71,6 +71,11 @@ class PipelinePlanTool(Tool):
                                  "What this step makes, in plain words for the person — no model, "
                                  "node or file names (e.g. 'a character sheet of you from your photo'). "
                                  "It is the step's line on the approval card."},
+                        "style": {"type": "string", "description":
+                                  "ONLY for a still made on ComfyUI instead of Seedream: the stylized look it "
+                                  "is ('anime', 'watercolor', 'pixel art'), or 'asked' when the person named a "
+                                  "free / ComfyUI model. A photographic look (film still, cinematic, a realism "
+                                  "LoRA) is not a style — that is a Seedream stage. Leave it out otherwise."},
                         "nodes": {"type": "array", "description": "custom stage only: [{id, class_type, inputs}]"},
                         "outputs": {"type": "object", "description": "custom stage only: {name: {node, type}}"},
                     },
@@ -100,7 +105,8 @@ class PipelinePlanTool(Tool):
                         recipe=str(raw.get("recipe") or "").strip(), ports=dict(raw.get("ports") or {}),
                         inputs=[StageInput(str(k), str(v)) for k, v in (raw.get("inputs") or {}).items()],
                         outputs=dict(raw.get("outputs") or {}), review=bool(raw.get("review")),
-                        note=str(raw.get("note") or ""), loras=loras, models=models,
+                        note=str(raw.get("note") or ""), style=str(raw.get("style") or "").strip(),
+                        loras=loras, models=models,
                     )
                     if not stage.note.strip():
                         return ToolResult.text(f"stage {stage.name or '?'}: `note` is required — what this step "

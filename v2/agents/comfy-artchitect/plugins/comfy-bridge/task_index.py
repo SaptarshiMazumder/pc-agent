@@ -33,14 +33,32 @@ class RankedChoice:
 
 
 @dataclass(frozen=True)
+class FirstChoice:
+    """What serves a task BEFORE the ranking, when that is decided — a realistic still is a Seedream
+    stage, a real person's video is the tested people recipe. Each says its own words: a lookup
+    that wrote "a Seedream stage" for every first choice would misname any other."""
+    #: A few words for the task list ("a Seedream stage").
+    label: str
+    #: The full instruction, said above the ranking.
+    detail: str
+    #: When the ranked recipes below it apply instead ("stylized looks, or when the person asks…").
+    others: str
+
+    @classmethod
+    def from_dict(cls, raw) -> "FirstChoice | None":
+        if not isinstance(raw, dict) or not raw.get("detail"):
+            return None
+        return cls(str(raw.get("label") or ""), str(raw["detail"]), str(raw.get("others") or ""))
+
+
+@dataclass(frozen=True)
 class TaskDescription:
     #: What the task is FOR, in the words a brief uses — what a search by words matches.
     gloss: str
     #: The recipe `task` values (t2i, edit, r2v, …) that serve it.
     recipe_tasks: tuple
-    #: What serves it BEFORE any recipe, when that is decided (a realistic still is a Seedream
-    #: stage) — said above the ranking; "" when the ranking decides.
-    first_choice: str = ""
+    #: None when the ranking decides.
+    first_choice: FirstChoice | None = None
 
 
 class TaskIndex:
@@ -71,7 +89,7 @@ class TaskIndex:
             ]
         described = {
             str(task): TaskDescription(str(m.get("gloss") or ""), tuple(str(t) for t in m.get("recipe_tasks") or ()),
-                                       str(m.get("first_choice") or ""))
+                                       FirstChoice.from_dict(m.get("first_choice")))
             for task, m in (data.get("task_meta") or {}).items() if isinstance(m, dict)
         }
         return cls(tasks, {k: v for k, v in data.items() if k not in ("tasks", "task_meta")}, described)
@@ -83,9 +101,9 @@ class TaskIndex:
         d = self.described.get(task)
         return d.gloss if d else ""
 
-    def first_choice(self, task: str) -> str:
+    def first_choice(self, task: str) -> FirstChoice | None:
         d = self.described.get(task)
-        return d.first_choice if d else ""
+        return d.first_choice if d else None
 
     def recipe_tasks(self, task: str) -> tuple:
         """The recipe kinds that serve `task`; a task the file does not describe is its own kind."""

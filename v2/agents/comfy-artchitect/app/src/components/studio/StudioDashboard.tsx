@@ -14,14 +14,14 @@
  * original bytes load only on a click.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentdClient } from '@agentd/client'
 import type { LibrarySaveOutcome } from '../../agentd/library'
 
 import type { Artifact } from '../../agentd/artifacts'
 import type { ThreadItem } from '../../agentd/chat'
-import { pendingAsk, phaseOf } from '../../agentd/creation-phase'
+import { designCard, phaseOf } from '../../agentd/creation-phase'
 import type { LibraryItem } from '../../agentd/library'
 import type { Slot } from '../../agentd/reference-slots'
 import { useStagePlan } from '../../agentd/stage-plan'
@@ -136,8 +136,9 @@ export function StudioDashboard({
   /* THE STAGES of this chat's design, once there is one (agentd/stage-plan.ts). */
   const plan = useStagePlan(client, sessionKey, workspaceVersion)
   const byRel = useByRel(artifacts, sessionKey)
-  const ask = useMemo(() => pendingAsk(items), [items])
-  const phase = phaseOf(items, plan, installing(state))
+  const ask = useMemo(() => designCard(items), [items])
+  // A template's or a kept workflow's chat has no stage plan: its workflow is what puts it in Run.
+  const phase = phaseOf(items, plan, installing(state), running, workflowCount > 0)
 
   /* WHICH STAGE IS ON SCREEN. The current one (the first with nothing made), following the
      creation as it moves — unless the person opened another. "Workflow & files" is the other view. */
@@ -151,6 +152,13 @@ export function StudioDashboard({
     setInputsOpen(false)
   }, [sessionKey])
   useEffect(() => setShown(''), [current])
+  /* A NEW DESIGN CARD COMES TO THE FRONT: the files view or a stage the person opened would
+     otherwise cover it while the thread says "answer it in the studio" — the card on neither. */
+  useEffect(() => {
+    if (!ask) return
+    setAll(false)
+    setShown('')
+  }, [ask?.id])
   const show = (name: string): void => {
     setShown(name)
     setAll(false)
@@ -158,14 +166,23 @@ export function StudioDashboard({
   const stageShown = plan ? (plan.stages.some((s) => s.name === shown) ? shown : current || plan.stages[plan.stages.length - 1].name) : ''
 
   /* THE AGENT ASKED FOR A PHOTO: the inputs panel opens, once, when an empty slot appears mid-
-     creation. A saved chat's slots arriving with its history are its opening state, not an ask. */
+     creation. A saved chat's slots arriving with its history are its opening state, not an ask —
+     `settled` marks the first time this chat had anything to show, as the old studio did. */
   const emptySlots = slots.filter((s) => !s.file && !s.fedBy).length
   const [seenEmpty, setSeenEmpty] = useState(emptySlots)
+  const settled = useRef(false)
   useEffect(() => {
-    if (emptySlots > seenEmpty && phase !== 'design') setInputsOpen(true)
+    settled.current = false
+  }, [sessionKey])
+  useEffect(() => {
+    if (!settled.current) {
+      if (artifacts.length || slots.length) settled.current = true
+    } else if (emptySlots > seenEmpty && phase !== 'design') {
+      setInputsOpen(true)
+    }
     setSeenEmpty(emptySlots)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emptySlots])
+  }, [emptySlots, artifacts.length, slots.length, sessionKey])
 
   const open = (a: Artifact): void => setSelectedPath(a.path)
 
@@ -212,7 +229,7 @@ export function StudioDashboard({
             credits={credits}
             onCredits={onCredits}
           />
-          {inputsOpen && phase !== 'design' && (
+          {inputsOpen && (
             <section className="ch-inputs">
               <ReferenceSlots
                 slots={slots}
@@ -251,18 +268,35 @@ export function StudioDashboard({
               onSaveTemplate={onSaveTemplate}
               deletionDisabled={deletionDisabled}
             />
-          ) : phase === 'design' ? (
+          ) : phase === 'design' && !shown ? (
             <DesignPhase
               ask={ask}
               onDecide={onDecide}
               hasPlan={!!plan}
               running={running}
+              showInputs={!inputsOpen}
               slots={slots}
               free={freeReferences}
               referencesDisabled={referencesDisabled}
               onAddReference={onAddReference}
               onOpen={open}
               onFromLibrary={onFromLibrary}
+            />
+          ) : !plan ? (
+            /* NO STAGE PLAN — a template's or a kept workflow's chat: its outputs and files are
+               the job, so they ARE the body (there is no stage card to reach them from). */
+            <WorkflowFilesView
+              outputs={outputs}
+              workflowSide={workflowSide}
+              made={made}
+              workflowCount={workflowCount}
+              selected={selected}
+              selectedPath={selectedPath}
+              onOpen={open}
+              onDeleteFiles={onDeleteFiles}
+              onAddToLibrary={onAddToLibrary}
+              onSaveTemplate={onSaveTemplate}
+              deletionDisabled={deletionDisabled}
             />
           ) : (
             plan && (

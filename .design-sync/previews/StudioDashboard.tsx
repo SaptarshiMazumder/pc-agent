@@ -304,3 +304,31 @@ export const FreshChat = () => (
     />
   </Stage>
 )
+
+/* ── a template's chat: no stage plan, its workflow and renders ARE the job ─────────────────── */
+
+const TEMPLATE_CHAT = 'chat-1728419920-t4mp'
+const TEMPLATE_FILES = [
+  file(TEMPLATE_CHAT, 'workflows', 'storyboard_video.api.json', 'file', 'application/json', 33_100, 1500),
+  file(TEMPLATE_CHAT, 'outputs', 'storyboard_00001.png', 'image', 'image/png', 1_980_000, 300),
+]
+
+export const TemplateChat = () => (
+  <Stage>
+    <StudioDashboard
+      {...common}
+      sessionKey={TEMPLATE_CHAT}
+      items={[{ kind: 'user' as const, text: 'Use the template "LTX 2.3 Storyboard Director".', ts: now * 1000 - 900_000 }] as never[]}
+      empty={false}
+      title="LTX 2.3 Storyboard Director"
+      workflowName="storyboard_video.api.json"
+      state={{ runs: RUNS }}
+      running={false}
+      artifacts={TEMPLATE_FILES}
+      slots={[]}
+      freeReferences={[]}
+      credits={12400}
+      onSaveTemplate={noop}
+    />
+  </Stage>
+)

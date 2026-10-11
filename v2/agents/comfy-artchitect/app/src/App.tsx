@@ -392,6 +392,11 @@ export default function App() {
   const chatCollapsed = useApp((s) => s.chatCollapsed)
   const libraryTab = useApp((s) => s.libraryTab)
   const libraryTarget = useApp((s) => s.libraryTarget)
+  /* A SLOT'S "FROM LIBRARY" BELONGS TO ITS CHAT. Switching chats drops it — left standing, the
+     Library's "Pick a reference for @role" banner filled that role in whichever chat was open. */
+  useEffect(() => {
+    useApp.getState().clearLibraryTarget()
+  }, [currentKey])
   const libraryFlash = useLibraryFlash()
   const oversizeImages = useApp((s) => s.oversizeImages)
   const setOversizeImages = useApp((s) => s.setOversizeImages)

@@ -166,6 +166,7 @@ class PipelineValidator:
                 warnings.append(f"stage {stage.name}: model files no knowledge-base family describes — "
                                 f"their wiring is unchecked by the family rules: {', '.join(unknown)}")
         warnings += self._design.check(pipeline, graphs)
+        problems += self._design.refusals(pipeline)
         setup_notes: list[str] = []
         return PipelineReport(verdicts, problems, warnings, user_inputs, files, sorted(set(packs)), self._source,
                               setup_notes, dict(self._catalog.broken))

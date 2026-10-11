@@ -126,6 +126,9 @@ def ctx_payload(ctx, plugin_id: str = "") -> dict:
         # GPU on the caller's behalf needs to name them, and the contextvar that normally
         # answers that question does not cross this boundary.
         "account_id": getattr(ctx, "account_id", ""),
+        # WHO is calling: the window's own tools.invoke, not the model. A plugin gates the
+        # person's buttons (Run, approve) on it — drop it and every click reads as the agent's.
+        "direct_invoke": bool(getattr(ctx, "direct_invoke", False)),
         # The tenant fence travels with the run: a plugin that resolves paths through the
         # shared funnel (check_read/check_write) must answer the same on both sides of the
         # process boundary. The GRANT stays the sandbox's own enforcement; this is the

@@ -3,7 +3,7 @@
  *   Templates       whole setups: theirs (saved from a chat, uploaded) and the app's suggested ones
  *   Workflows       kept from a chat or uploaded — run again, or use in a chat
  *   Inputs          faces, products, clips to reuse — use one in a slot
- *   Saved renders   what Add to Library / Save to Library kept from chats
+ *   Saved           what Add to Library / Save to Library kept from chats (renders, workflows, files)
  *   Uploads         what came from this computer
  *
  * It replaces three doors that led to the same shelf: the Library page, the studio's Library tab
@@ -23,7 +23,7 @@ const TABS: { id: LibraryTab; label: string }[] = [
   { id: 'templates', label: 'Templates' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'inputs', label: 'Inputs' },
-  { id: 'renders', label: 'Saved renders' },
+  { id: 'renders', label: 'Saved' },
   { id: 'uploads', label: 'Uploads' },
 ]
 const SHOW: Record<LibraryTab, LibraryShow> = {
