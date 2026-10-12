@@ -1,6 +1,8 @@
 {
   "name": "Text ad",
   "title": "Text ad — a poster with the product and your words on it",
+  "summary": "A poster: the product with your words on it.",
+  "auto_pick": false,
   "covers": "a static designed ad with text — a headline, an offer, a call to action — for ANY product: sale posters, launch announcements, feed ads; chosen by the user, never matched automatically",
   "auto": false,
   "brief": "poster",
@@ -35,7 +37,20 @@
     {
       "id": "brief",
       "title": "Copy & design",
-      "action": "brief"
+      "action": "brief",
+      "settings": [
+        {
+          "key": "aspect_ratio",
+          "options": [
+            "4:5",
+            "1:1",
+            "9:16"
+          ],
+          "suggested": "4:5"
+        },
+        "background",
+        "mood"
+      ]
     },
     {
       "id": "design",
@@ -44,7 +59,7 @@
       "scene": "s1",
       "cast": false,
       "shows_product": true,
-      "model": "higgsfield/ideogram_4_5"
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
     }
   ]
 }

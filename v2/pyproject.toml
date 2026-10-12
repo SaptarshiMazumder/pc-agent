@@ -64,6 +64,12 @@ dependencies = [
     # every developer machine kept working — the worst possible split.
     "pyjwt>=2.8,<3",
     "cryptography>=42",
+    # AD STUDIO'S MEDIA. Face crops and clip frames use OpenCV (it reached the dev venv only
+    # through rapidocr — the same failure class as Pillow above); post rendering (speed, fades,
+    # animated text) runs ffmpeg, shipped as imageio-ffmpeg's static binary so neither the
+    # desktop runtime nor the daemon image needs a system install.
+    "opencv-python>=4.9",
+    "imageio-ffmpeg>=0.5",
 ]
 
 [project.optional-dependencies]

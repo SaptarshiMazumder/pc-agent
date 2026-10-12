@@ -3,17 +3,18 @@
  *
  * Click a result to PICK it — instant, no agent turn: it is what the step carries forward (a video
  * step starts from its source step's pick). It is also selected, so a typed message is about it.
- * Hovering shows what else it can do: images — Fix, More like this; clips — Edit, Extend. Every
- * tile opens full screen. */
+ * Hovering shows what else it can do: images — Fix, More like this, and Redo with fixes when the
+ * accuracy check found the product wrong; clips — Edit, Extend; both — Compare with the product.
+ * Every tile opens full screen. */
 
-import { Clapperboard, FastForward, ImagePlus, Loader2, Type, Wand2 } from 'lucide-react'
+import { Clapperboard, Columns2, FastForward, ImagePlus, Loader2, RefreshCcw, Type, Wand2 } from 'lucide-react'
 
 import { isVideo, type CampaignStep, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { MediaTileActions } from './MediaTileActions'
 import { viewerItem } from './ViewableMedia'
 
-export type TileAction = 'fix' | 'like' | 'edit' | 'extend' | 'text'
+export type TileAction = 'fix' | 'like' | 'edit' | 'extend' | 'text' | 'redo' | 'compare'
 
 const ACTION: Record<TileAction, { icon: JSX.Element; text: string; title: string }> = {
   fix: { icon: <Wand2 size={12} />, text: 'Fix', title: 'Change one thing in this image' },
@@ -21,6 +22,8 @@ const ACTION: Record<TileAction, { icon: JSX.Element; text: string; title: strin
   edit: { icon: <Clapperboard size={12} />, text: 'Edit', title: 'The same clip with one thing changed' },
   extend: { icon: <FastForward size={12} />, text: 'Extend', title: 'Continue this clip' },
   text: { icon: <Type size={12} />, text: 'Edit text', title: 'Change the words on this design' },
+  redo: { icon: <RefreshCcw size={12} />, text: 'Redo with fixes', title: 'The check found the product wrong — fix exactly what it found' },
+  compare: { icon: <Columns2 size={12} />, text: 'Compare', title: 'Side by side with the product photos' },
 }
 
 export function ResultGrid({
@@ -54,7 +57,15 @@ export function ResultGrid({
         const picked = r.path === step.pick
         const item = { path: r.path, kind: video ? ('video' as const) : ('image' as const), campaign, shot: step.id, src: media(r.path) }
         const failed = r.passed === false
-        const offered = actions.filter((a) => (video ? a === 'edit' || a === 'extend' : a === 'fix' || a === 'like' || a === 'text'))
+        const offered = actions.filter((a) =>
+          a === 'compare'
+            ? true
+            : a === 'redo'
+              ? !video && failed && r.problems.length > 0
+              : video
+                ? a === 'edit' || a === 'extend'
+                : a === 'fix' || a === 'like' || a === 'text',
+        )
         return (
           <div
             key={r.path}

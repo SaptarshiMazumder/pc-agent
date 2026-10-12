@@ -15,8 +15,8 @@ class CollectionImportTool(Tool):
     plugin = PLUGIN
     description = (
         "Add the user's own images and clips (uploads, made outside Ad Studio) to a collection for a post: "
-        "`files` [{path, product, note?}] — `product` is the name of the product it shows; `collection` an "
-        "existing collection's name, or with `new` the name of one to make."
+        "`files` [{path, product?, note?}] — `product` is the name of the product it shows, when known; "
+        "`collection` an existing collection's name, or with `new` the name of one to make."
     )
     parameters = {
         "type": "object",
@@ -24,7 +24,7 @@ class CollectionImportTool(Tool):
         "properties": {
             "collection": {"type": "string"},
             "new": {"type": "boolean"},
-            "files": {"type": "array", "items": {"type": "object"}, "description": "[{path, product, note?}]"},
+            "files": {"type": "array", "items": {"type": "object"}, "description": "[{path, product?, note?}]"},
         },
     }
 

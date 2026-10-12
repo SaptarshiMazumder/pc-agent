@@ -1,0 +1,88 @@
+{
+  "name": "Ethnic-wear shoot",
+  "title": "Ethnic-wear shoot — sarees, lehengas and suits on a model, in an Indian setting",
+  "summary": "Sarees, lehengas, kurtis and suits worn by your model in a setting you choose: stills, then a short clip.",
+  "auto_pick": false,
+  "covers": "Indian ethnic wear: sarees, lehengas, kurtis, salwar suits, anarkalis, sharara and palazzo sets, dupattas",
+  "formats": [
+    "lookbook-turn",
+    "street-walk",
+    "mirror-try-on"
+  ],
+  "aspect_ratio": "9:16",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "scene",
+      "direction": "The model wearing the garment in the chosen place, framed so the whole garment reads — full length or three-quarter, never cropped through the border or the hem. The drape, border, pallu or dupatta fall exactly as the product photos show them; every motif, colour and zari tone matches. She moves naturally — a step, a turn, the pallu lifting — and looks toward the camera.",
+      "cast": true,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 3,
+  "resolution": "720p",
+  "budget_usd": 15,
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief",
+      "settings": [
+        "cast",
+        {
+          "key": "aspect_ratio",
+          "options": [
+            "9:16",
+            "4:5",
+            "1:1"
+          ],
+          "suggested": "9:16"
+        },
+        {
+          "key": "location",
+          "source": "locations",
+          "help": "A place from the library, or your own words."
+        },
+        {
+          "key": "pose",
+          "label": "Pose & drape",
+          "kind": "choice",
+          "source": "category_poses",
+          "help": "How it is worn and how she stands. Leave empty and the brief decides."
+        },
+        {
+          "key": "wardrobe",
+          "label": "Jewellery & styling with it",
+          "help": "What she wears with it — the blouse, jewellery, hair. Leave empty and the brief decides."
+        },
+        "time_of_day",
+        "mood"
+      ]
+    },
+    {
+      "id": "sheet",
+      "title": "Shoot sheet",
+      "action": "sheet",
+      "cast": true,
+      "shows_product": true
+    },
+    {
+      "id": "stills",
+      "title": "Stills",
+      "action": "images",
+      "scene": "s1",
+      "cast": true,
+      "shows_product": true
+    },
+    {
+      "id": "clip",
+      "title": "Clip",
+      "action": "video",
+      "scene": "s1",
+      "source": "stills",
+      "cast": true,
+      "shows_product": true
+    }
+  ]
+}

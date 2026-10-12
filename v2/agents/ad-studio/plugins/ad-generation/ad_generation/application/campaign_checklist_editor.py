@@ -8,8 +8,10 @@ from __future__ import annotations
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.recipe_library import RecipeLibrary
+from ad_generation.application.template_setting_sources import TemplateSettingSources
 from ad_generation.application.step_media import StepMedia
 from ad_generation.domain.campaign_step import CampaignStep
+from ad_generation.domain.step_choices import StepChoices
 from ad_generation.domain.generated_media import GeneratedMedia
 
 # The images a user can bring in as a step's result.
@@ -20,8 +22,10 @@ _EDITABLE = ("title", "prompt", "references", "scene", "source", "status", "cast
 
 class CampaignChecklistEditor:
     def __init__(
-        self, store: CampaignStore, recipes: RecipeLibrary, loader: CampaignChecklistLoader, media: StepMedia
+        self, store: CampaignStore, recipes: RecipeLibrary, loader: CampaignChecklistLoader, media: StepMedia,
+        sources: TemplateSettingSources,
     ) -> None:
+        self._sources = sources
         self._store = store
         self._recipes = recipes
         self._loader = loader
@@ -75,6 +79,22 @@ class CampaignChecklistEditor:
         checklist.add(step, after)
         self._store.save_checklist(campaign_id, checklist)
         return step
+
+    def choose(self, campaign_id: str, step_id: str, values: dict) -> CampaignStep:
+        """The user's choices for a step's settings (key -> value; "" clears one). Free."""
+        checklist = self._loader.load(campaign_id)
+        step = StepChoices.apply(self._recipes.get(checklist.recipe_key), checklist, step_id, values, self._sources.words)
+        self._store.save_checklist(campaign_id, checklist)
+        return step
+
+    def set_auto(self, campaign_id: str, on: bool, step_id: str = "", inherit: bool = False) -> None:
+        """The Auto switch: the campaign's, or one step's own (`inherit` = follow the campaign's)."""
+        checklist = self._loader.load(campaign_id)
+        if step_id:
+            checklist.put(checklist.step(step_id).with_(auto=None if inherit else on))
+        else:
+            checklist.auto_pick = on
+        self._store.save_checklist(campaign_id, checklist)
 
     def update(self, campaign_id: str, step_id: str, changes: dict) -> CampaignStep:
         """Change a step in place — its title, prompt, references, scene, source, status (skip it,

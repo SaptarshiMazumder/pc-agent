@@ -1,8 +1,10 @@
 /* The foot of a stage: what it hands on — its pick — and the way to the next stage. Following the
  * recipe is opening each stage and generating; this makes the next one a click away. On the last
- * stage it says so. The pick itself is changed in the results (a click on any of them). */
+ * stage it says so. The pick itself is changed in the results (a click on any of them). It sits at
+ * the end of the stage, under everything else — never over it — and × hides it for this stage. */
 
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, X } from 'lucide-react'
+import { useState } from 'react'
 
 import { isVideo, type CampaignDetail, type CampaignStep, type Media } from '../agentd/campaigns'
 
@@ -20,6 +22,8 @@ export function CarryForwardBar({
   const index = campaign.steps.findIndex((s) => s.id === step.id)
   const next = campaign.steps.slice(index + 1).find((s) => s.status !== 'skipped')
   const name = step.pick.split('/').pop() || step.pick
+  const [hidden, setHidden] = useState(false)
+  if (hidden) return null
 
   return (
     <div className="carry-bar">
@@ -55,6 +59,9 @@ export function CarryForwardBar({
       ) : (
         <span className="carry-last">Last stage</span>
       )}
+      <button className="ref-x carry-hide" title="Hide this" onClick={() => setHidden(true)}>
+        <X size={11} />
+      </button>
     </div>
   )
 }

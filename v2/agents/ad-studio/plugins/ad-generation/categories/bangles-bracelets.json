@@ -1,0 +1,22 @@
+{
+  "name": "Bangles and bracelets",
+  "kind": "jewellery",
+  "covers": "bangles, kadas, bracelets, chooda, kangan, cuffs",
+  "template": "jewellery-model",
+  "checks": [
+    "how many bangles are in the set, and their order and widths",
+    "the colours, stones or enamel on each",
+    "the metal finish and any engraving pattern"
+  ],
+  "shot": "Hands and wrists close, at their real size; the set worn as sold.",
+  "locations": [
+    "studio-beige",
+    "diwali-living-room",
+    "marigold-mandap"
+  ],
+  "poses": [
+    "hands crossed at the wrist",
+    "one hand at the cheek, the wrist toward the camera",
+    "adjusting a dupatta, the bangles catching the light"
+  ]
+}

@@ -18,7 +18,7 @@ class CollectionItem:
     path: str  # workspace path of the image or clip
     kind: str  # "image" | "video"
     campaign: str  # the campaign it was made in; "" for the user's own file
-    product: str  # that campaign's product name — what the post says it is
+    product: str  # that campaign's product name — what the post says it is; "" when not known yet
     note: str = ""  # the user's note on it ("the best drape shot")
 
     def __post_init__(self) -> None:

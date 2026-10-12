@@ -1,0 +1,25 @@
+{
+  "name": "Lehenga",
+  "kind": "wear",
+  "covers": "lehengas, lehenga cholis, ghagras, chaniya cholis, bridal and party lehengas",
+  "template": "ethnic-wear",
+  "checks": [
+    "the skirt: its colour, flare and panels, the embroidery's pattern and density",
+    "the choli: its colour, neckline and sleeves",
+    "the dupatta: its colour, border and how it is worn",
+    "the embellishment: zari, sequins, mirror or gota work, in the right tone and placement"
+  ],
+  "shot": "Full length so the whole flare reads; a twirl or a step that opens the skirt; the dupatta draped as in the photos.",
+  "locations": [
+    "udaipur-ghat",
+    "marigold-mandap",
+    "jaipur-haveli",
+    "diwali-living-room"
+  ],
+  "poses": [
+    "mid-twirl, the skirt flared",
+    "standing, dupatta over both arms",
+    "walking toward the camera, holding the skirt lightly",
+    "seated, the skirt spread in a circle"
+  ]
+}

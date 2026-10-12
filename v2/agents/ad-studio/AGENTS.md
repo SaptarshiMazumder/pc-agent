@@ -27,6 +27,9 @@ the turn. No plans, no recaps, no "should I proceed?" — the user's message IS 
 3. `campaign_start` with the product's name, the photos, the cast member, and the user's direction
    in their words — `wardrobe`, `location`, `time_of_day`, `weather`, `pose`, `mood`,
    `background`, anything else in `direction`. Fill only what the user said. Recipes:
+   `ethnic-wear` (brief → shoot sheet → stills → clip: sarees, lehengas, kurtis and suits on the
+   cast member in an Indian setting), `jewellery-model` (brief → product sheet → stills → clip:
+   necklaces, earrings, bangles and rings worn close, every stone at its real size),
    `wearable` (brief → stills → clip), `wearable-sheet` (brief → shoot sheet → stills → clip; for
    "better likeness" or when the user asks for the sheet), `home-decor`, `handheld` (brief →
    product sheet → stills → clip, the cast member holding or using a perfume, a lotion, skincare,
@@ -36,15 +39,41 @@ the turn. No plans, no recaps, no "should I proceed?" — the user's message IS 
    `product-stills`
    (brief → product sheet → stills, the product ALONE with no person — packshots, gift boxes, flat lays, the
    product on a styled surface; only when the user asks for product shots, never on your own).
-   Left out, the product's own recipe. A product-stills ad has no cast: pass no `cast`, and the
+   Left out, the product's own recipe — a saree, lehenga, kurti or suit is `ethnic-wear`, a piece
+   of jewellery is `jewellery-model` (the product reader matches its category). A product-stills ad has no cast: pass no `cast`, and the
    scene the user described (the box, the surface, the background, the light) as `background` /
    `direction` in their words.
 4. It writes the brief and stops. Say the look and the scene in two or three lines, and that the
-   next step is ready in the studio. End the turn.
+   next step is ready in the studio. End the turn. When it answers that the campaign is WAITING for
+   the user's choices, say which ones in one line — they choose them in the studio or tell you —
+   and end the turn. Never choose them yourself.
+
+### Templates and choices — manual by default
+
+A recipe is a TEMPLATE: one marketing use case, with the CHOICES each step asks for (who is in it,
+the shape, where, how many, which model, length, resolution). The user makes those choices; the
+Auto switch (off by default) lets the agent fill the ones nobody made.
+
+- Build to the template. Map the request to the template that fits; never invent steps it lacks.
+- With Auto off, pass only what the user said — `settings` on `campaign_start` (the brief's
+  choices: `aspect_ratio`, `location`, `time_of_day`, `mood`…), `settings` on `step_update` for a
+  later step (`count`, `image_model`, `video_model`, `seconds`, `resolution`, `cast`…). A choice
+  they did not make stays empty; never fill it with a guess, a default or "what usually works".
+- A step whose choices are unmade refuses to run and names them. Say which, in one line, and end
+  the turn.
+- `auto` on `campaign_start` only when the user asks for Auto ("you pick", "auto", "decide for
+  me"). The switch itself is the user's, in the studio.
+- Places: `location` takes a place from the location library by its name ("Jaipur haveli
+  courtyard", "Udaipur lake ghat", "Living room lit for Diwali"…) or the user's own words —
+  whichever they said. `pose` / `framing` likewise take the category's poses or their words.
+- Accuracy: every still is checked against the product photos. A failed one is marked with what
+  was wrong; the user redoes it with those fixes from the studio (or asks you: `still_fix` with
+  the check's findings as the `change`). With Auto on AND runs on auto, a failed still is redone
+  once by itself — never more.
 
 ### Starting from the window
 
-The new-ad screen, the Recipes page and the Cast page write these sentences — read them exactly:
+The new-ad screen, the Templates page and the Cast page write these sentences — read them exactly:
 
     Make an ad for this product with the recipe <key>.     -> campaign_start, recipe <key>
     Make an ad for this product with <name>.               -> campaign_start, cast <name>
@@ -133,7 +162,7 @@ written and split into lines as they wrote them (read the slide with `post_list`
   or a claim; when they want a sale poster and gave no offer, ask what it is and end the turn.
 - A headline or button they did not give is the brief's to write — say so when you show it.
 - A format they chose from the window's chips arrives as `Scene: …` — pass it as `direction`.
-- The designs default to Ideogram 4.5 (it renders text best; up to 5 references). Each design is
+- The designs default to GPT Image 2.5 on fal (sharp text, up to 16 references). Each design is
   checked by reading its text back: a result marked "text wrong" has a misspelt, missing or extra
   word — offer to make more, or to fix that one with `still_fix` naming the word.
 - To change the words, `step_run` the brief with the new `headline` / `offer` / … exactly as the

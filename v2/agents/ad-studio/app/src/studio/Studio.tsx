@@ -27,6 +27,7 @@ import { PostOpening } from './PostOpening'
 import { PostPanel } from './PostPanel'
 import { StagePipeline } from './StagePipeline'
 import { StepPanel } from './StepPanel'
+import { useStartData } from './useStartData'
 import { useCampaign } from './useCampaign'
 import { usePost } from './usePost'
 
@@ -67,6 +68,8 @@ export function Studio({
      most often a daemon still running older Ad Studio code (restart it). */
   const [lists, setLists] = useState<ModelLists | null>(null)
   const [listsError, setListsError] = useState('')
+  // The cast, for a stage that asks who is in it.
+  const { cast } = useStartData(client)
   // Loaded when the connection opens — and tried again on every studio refresh until it works: a
   // window that opened before the socket did used to stay without dropdowns for good.
   useEffect(() => {
@@ -112,7 +115,7 @@ export function Studio({
 
       {error && <div className="studio-error">Could not read the campaign: {error}</div>}
 
-      <CastProposals client={client} lists={lists} running={running} onSend={onAnswer} />
+      <CastProposals client={client} connected={connected} lists={lists} running={running} onSend={onAnswer} />
 
       {postError && <div className="studio-error">Could not read the post: {postError}</div>}
       {post ? (
@@ -154,12 +157,13 @@ export function Studio({
                   step={step}
                   media={media}
                   lists={lists}
+                  cast={cast}
                   busy={running}
                   onSend={onAnswer}
                 />
               )}
               {!campaign.current && <DoneView campaign={campaign} media={media} />}
-              {step && <CarryForwardBar campaign={campaign} step={step} media={media} onShow={show} />}
+              {step && <CarryForwardBar key={`carry:${campaign.campaign_id}:${step.id}`} campaign={campaign} step={step} media={media} onShow={show} />}
             </>
           )}
         </>

@@ -52,13 +52,16 @@ allow = ["ls", "read", "show_files", "web_search", "web_fetch", "browser"]
 # cast_create) and "dreamina-seedance-2-5-260628" (video). Together, because BytePlus's Seedance accepts
 # faces only from images its own models made on the same account
 # (docs.byteplus.com/en/docs/ModelArk/1520757).
+# THE DEFAULTS ARE FAL: an API key made for apps that serve customers, pay per use. Higgsfield
+# (its CLI login, billed to one person's subscription) stays a line away per tool and in the
+# window's dropdowns — Soul 2.0 exists only there.
 [plugins.ad-generation.tools.cast_create]
-provider = "higgsfield"
-model = "seedream_v5_pro"
+provider = "fal"
+model = "bytedance/seedream/v5/pro/edit"
 
 [plugins.ad-generation.tools.images]
-provider = "higgsfield"
-model = "seedream_v5_pro"
+provider = "fal"
+model = "bytedance/seedream/v5/pro/edit"
 
 # IMAGES ON HIGGSFIELD (subscription credits): Seedream 5 Pro 2.5 cr per image for sheets and
 # stills, Nano Banana Pro 2 cr for a fix. fal is a line away per tool, and cheaper in cash for
@@ -69,8 +72,8 @@ model = "seedream_v5_pro"
 # default; the window's Fix model dropdown passes another per fix (Seedream 5 Pro edit,
 # Nano Banana Pro 4K). Every fix is scaled to the still's own size.
 [plugins.ad-generation.tools.still_fix]
-provider = "higgsfield"
-model = "gpt_image_2_5"
+provider = "fal"
+model = "openai/gpt-image-2.5/sunburst/edit"
 
 # CLIPS ON HIGGSFIELD: its developer API bills the subscription's credits at the same prices the
 # web UI shows - Kling 3 std 5 s silent = 6.25 cr, Seedance 2.5 720p 5 s silent = 35 cr - and its
@@ -79,8 +82,8 @@ model = "gpt_image_2_5"
 # (takes reference images: the cast sheet and the other stills ride along), minimax_h3.
 # To go back to fal: provider = "fal", model = "fal-ai/kling-video/v3/standard/image-to-video".
 [plugins.ad-generation.tools.video]
-provider = "higgsfield"
-model = "kling3_0"
+provider = "fal"
+model = "fal-ai/kling-video/v3/standard/image-to-video"
 # Silent ads: music is added in the edit.
 audio = false
 
@@ -89,8 +92,8 @@ audio = false
 # window's dropdown. Extend = the clip continued: Seedance 2.5 continues the clip itself (35 cr);
 # any other clip model starts a new clip on the source's last frame (Kling 3 std, 6.25 cr).
 [plugins.ad-generation.tools.clip_edit]
-provider = "higgsfield"
-model = "kling3_0"
+provider = "fal"
+model = "fal-ai/kling-video/v3/standard/image-to-video"
 
 # RUN APPROVAL: "ask" — nothing is generated until the user approves the run (its model) with a
 # click in the studio; a run the agent starts on its own becomes a proposal there. "auto" —

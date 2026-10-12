@@ -50,8 +50,9 @@ class RunApprovals:
         return token
 
     def admit(self, campaign_id: str, step_id: str, tool: str, args: dict, token: str) -> None:
-        """Let the run go ahead, or raise NeedsApproval. An approval is used up by its run; a run
-        clears its step's proposal."""
+        """Let the run go ahead, or raise NeedsApproval. An approval is used up by its run. The
+        step's proposal stays until the run succeeds (`settle`): a run that fails — a provider's
+        login expired, a model refused — leaves it there, the user's change with it, to try again."""
         checklist = self._loader.load(campaign_id)
         step = checklist.step(step_id)
         if checklist.approval != "auto":
@@ -62,9 +63,15 @@ class RunApprovals:
             if match is None or match.get("args") != self.pinned(args):
                 raise NeedsApproval(f"step {step_id}: the user has not approved this run ({self.pinned(args)})")
             checklist.approvals = [a for a in checklist.approvals if a is not match]
+        self._store.save_checklist(campaign_id, checklist)
+
+    def settle(self, campaign_id: str, step_id: str) -> None:
+        """The run went through: its step's proposal is done."""
+        checklist = self._loader.load(campaign_id)
+        step = checklist.step(step_id)
         if step.proposal:
             checklist.put(step.with_(proposal={}))
-        self._store.save_checklist(campaign_id, checklist)
+            self._store.save_checklist(campaign_id, checklist)
 
     def propose(self, campaign_id: str, step_id: str, tool: str, args: dict) -> None:
         checklist = self._loader.load(campaign_id)

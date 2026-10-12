@@ -1,0 +1,22 @@
+{
+  "name": "Rings",
+  "kind": "jewellery",
+  "covers": "rings, statement rings, cocktail rings, adjustable rings, toe rings",
+  "template": "jewellery-model",
+  "checks": [
+    "the stone: its shape, cut, colour and size relative to the finger",
+    "the band: width and metal finish",
+    "any side stones or detailing on the shoulders"
+  ],
+  "shot": "A hand close-up, the ring at its real size on the ring finger, the fingers relaxed.",
+  "locations": [
+    "studio-beige",
+    "jasmine-garden",
+    "diwali-living-room"
+  ],
+  "poses": [
+    "hand resting on the cheek",
+    "hand holding a teacup",
+    "fingers spread over fabric"
+  ]
+}

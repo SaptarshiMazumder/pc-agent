@@ -30,6 +30,7 @@ from ad_generation.application.collection_service import CollectionService
 from ad_generation.application.design_reference_picker import DesignReferencePicker
 from ad_generation.application.design_reference_service import DesignReferenceService
 from ad_generation.application.design_service import DesignService
+from ad_generation.application.library_service import LibraryService
 from ad_generation.application.design_template_service import DesignTemplateService
 from ad_generation.application.post_page_check import PostPageCheck
 from ad_generation.application.post_planner import PostPlanner
@@ -53,7 +54,10 @@ from ad_generation.infrastructure.cast_file_library import CastFileLibrary
 from ad_generation.infrastructure.collection_file_store import CollectionFileStore
 from ad_generation.infrastructure.design_reference_file_store import DesignReferenceFileStore
 from ad_generation.infrastructure.design_template_file_store import DesignTemplateFileStore
+from ad_generation.infrastructure.fal_video_editor import FalVideoEditor
 from ad_generation.infrastructure.ffmpeg_media_probe import FfmpegMediaProbe
+from ad_generation.infrastructure.library_file_store import LibraryFileStore
+from ad_generation.infrastructure.video_data_uri_encoder import VideoDataUriEncoder
 from ad_generation.infrastructure.ffmpeg_slide_renderer import FfmpegSlideRenderer
 from ad_generation.infrastructure.playwright_design_renderer import PlaywrightDesignRenderer
 from ad_generation.infrastructure.post_file_store import PostFileStore
@@ -79,6 +83,10 @@ from ad_generation.infrastructure.poster_text_file_store import PosterTextFileSt
 from ad_generation.infrastructure.price_calculator import PriceCalculator
 from ad_generation.infrastructure.provider_generator_catalog import ProviderGeneratorCatalog
 from ad_generation.infrastructure.recipe_file_library import RecipeFileLibrary
+from ad_generation.infrastructure.category_file_library import CategoryFileLibrary
+from ad_generation.infrastructure.location_file_library import LocationFileLibrary
+from ad_generation.application.template_autofill import TemplateAutofill
+from ad_generation.application.template_setting_sources import TemplateSettingSources
 from ad_generation.infrastructure.run_workspace import RunWorkspace
 from ad_generation.infrastructure.vision_image_preparer import VisionImagePreparer
 from ad_generation.infrastructure.yunet_face_crops import YuNetFaceCrops
@@ -99,6 +107,10 @@ from ad_generation.presentation.cast_list_tool import CastListTool
 from ad_generation.presentation.brand_profile_tool import BrandProfileTool
 from ad_generation.presentation.cast_approval_tool import CastApprovalTool
 from ad_generation.presentation.collection_add_tool import CollectionAddTool
+from ad_generation.presentation.library_list_tool import LibraryListTool
+from ad_generation.presentation.library_remove_tool import LibraryRemoveTool
+from ad_generation.presentation.library_to_collection_tool import LibraryToCollectionTool
+from ad_generation.presentation.library_upload_tool import LibraryUploadTool
 from ad_generation.presentation.collection_import_tool import CollectionImportTool
 from ad_generation.presentation.collection_list_tool import CollectionListTool
 from ad_generation.presentation.collection_update_tool import CollectionUpdateTool
@@ -163,12 +175,13 @@ def register(api, ctx):
             "higgsfield": HiggsfieldImageGenerator(higgs, higgs_session, specs, downloader, _IMAGE_TIMEOUT_S),
         },
         videos={
-            "fal": FalVideoGenerator(fal, specs, encoder, downloader, prices, _VIDEO_TIMEOUT_S),
+            "fal": FalVideoGenerator(fal, specs, encoder, downloader, prices, workspace, _VIDEO_TIMEOUT_S),
             "byteplus": BytePlusVideoGenerator(ark, specs, encoder, downloader, prices, _VIDEO_TIMEOUT_S),
             "higgsfield": HiggsfieldVideoGenerator(higgs, higgs_session, specs, downloader, workspace, _VIDEO_TIMEOUT_S),
         },
         editors={
             "higgsfield": HiggsfieldVideoEditor(higgs, higgs_session, specs, downloader, _VIDEO_TIMEOUT_S),
+            "fal": FalVideoEditor(fal, specs, encoder, VideoDataUriEncoder(workspace), downloader, _VIDEO_TIMEOUT_S),
         },
     )
     store = CampaignFileStore(workspace)
@@ -176,22 +189,26 @@ def register(api, ctx):
     cast = CastFileLibrary(workspace)
     formats = FormatFileLibrary(root / "formats")
     recipes = RecipeFileLibrary(root / "recipes")
+    # The shop's product categories and the places to shoot in: data, like the recipes.
+    categories = CategoryFileLibrary(root / "categories")
+    sources = TemplateSettingSources(LocationFileLibrary(root / "locations"))
+    autofill = TemplateAutofill(sources)
     loader = CampaignChecklistLoader(store, recipes)
     faces = YuNetFaceCrops(workspace, root / "models" / "face_detection_yunet_2023mar.onnx")
     defaults = StepDefaults(store, cast, faces, PillowSheetPanels(workspace), _MAX_PRODUCT_PHOTOS)
     previews = PillowMediaPreviewer(workspace, _PREVIEW_MAX_SIDE, _PREVIEW_JPEG_QUALITY)
     media = StepMedia(store)
-    editor = CampaignChecklistEditor(store, recipes, loader, media)
+    editor = CampaignChecklistEditor(store, recipes, loader, media, sources)
     approvals = RunApprovals(store, loader, lambda: secrets.token_hex(12))
     cast_approvals = OneTimeApprovals(ProposalFileStore(workspace, "cast/proposals.json"), lambda: secrets.token_hex(12))
     poster_texts = PosterTextFileStore(workspace)
     poster_text = PosterTextService(store, poster_texts, PillowPosterTypesetter(workspace, root / "fonts"))
-    views = CampaignViewService(store, recipes, cast, loader, defaults, media, poster_texts)
+    views = CampaignViewService(store, recipes, cast, loader, defaults, media, poster_texts, categories, sources)
     keyframes = KeyframeService(generators, store, defaults, prompt("photo_style_person"), prompt("photo_style_product"))
     animation = AnimationService(generators, store, defaults)
 
     def analysis(reasoner):
-        return ProductAnalysisService(reasoner, store, recipes, prompt("product_analysis"))
+        return ProductAnalysisService(reasoner, store, recipes, categories, prompt("product_analysis"))
 
     composer = PromptComposer(
         prompt("keyframe_cast"), prompt("keyframe_product"), prompt("motion_cast"), prompt("motion_product")
@@ -229,6 +246,7 @@ def register(api, ctx):
             product_sheets(check_reasoner),
             keyframes, animation,
             checks(check_reasoner), frames, store, recipes, loader, defaults, poster_text, progress,
+            categories, sources, autofill, still_fix(check_reasoner),
         )
 
     vision_images = VisionImagePreparer(workspace, _VISION_MAX_SIDE, _VISION_JPEG_QUALITY)
@@ -237,6 +255,8 @@ def register(api, ctx):
     # agent's model from the playbook, rendered with Pillow + ffmpeg (no generation, nothing paid).
     collection_files = CollectionFileStore(workspace)
     collections = CollectionService(collection_files, store)
+    # The library: every campaign's generations and the user's own uploads, picked into collections.
+    library = LibraryService(store, LibraryFileStore(workspace), collections)
     brand_files = BrandFileStore(workspace)
     media_probe = FfmpegMediaProbe(workspace, imageio_ffmpeg.get_ffmpeg_exe())
     slide_renderer = FfmpegSlideRenderer(workspace, root / "fonts", imageio_ffmpeg.get_ffmpeg_exe(), media_probe)
@@ -264,7 +284,7 @@ def register(api, ctx):
     validator = GenerationChoiceValidator(specs)
     # A campaign: started from its recipe, then any step run, re-run, added, changed, picked.
     api.register_tool(CampaignStartTool(config, steps, views, vision_images))
-    api.register_tool(StepRunTool(config, steps, loader, views, validator, previews, approvals, vision_images))
+    api.register_tool(StepRunTool(config, steps, loader, views, validator, previews, approvals, vision_images, recipes))
     api.register_tool(StepPickTool(editor))
     api.register_tool(PosterTextTool(poster_text))
     api.register_tool(StepImportTool(editor))
@@ -274,7 +294,7 @@ def register(api, ctx):
     api.register_tool(ClipEditTool(config, clip_edit, store, approvals, vision_images))
     # The studio's own controls: approve a run (window only), and the approval switch (window only).
     api.register_tool(RunApprovalTool(approvals))
-    api.register_tool(CampaignSettingsTool(approvals))
+    api.register_tool(CampaignSettingsTool(approvals, editor))
     api.register_tool(MediaCheckTool(config, checks, loader, frames, vision_images))
     api.register_tool(CastCreateTool(config, CastService(generators, cast, prompt("cast_sheet")), cast_approvals))
     api.register_tool(CastApprovalTool(cast_approvals))
@@ -287,6 +307,10 @@ def register(api, ctx):
     api.register_tool(CollectionImportTool(collections))
     api.register_tool(CollectionListTool(collections, workspace))
     api.register_tool(CollectionUpdateTool(collections))
+    api.register_tool(LibraryListTool(library, workspace))
+    api.register_tool(LibraryUploadTool(library))
+    api.register_tool(LibraryRemoveTool(library))
+    api.register_tool(LibraryToCollectionTool(library))
     api.register_tool(BrandProfileTool(BrandService(brand_files)))
     api.register_tool(PostStartTool(config, posts, vision_images))
     api.register_tool(PostReplanTool(config, posts, vision_images))

@@ -17,6 +17,7 @@ from __future__ import annotations
 from ad_generation.application.animation_service import AnimationService
 from ad_generation.application.brief_service import BriefService
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
+from ad_generation.application.interfaces.category_library import CategoryLibrary
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.clip_frames import ClipFrames
 from ad_generation.application.interfaces.progress_reporter import ProgressReporter
@@ -29,11 +30,16 @@ from ad_generation.application.product_analysis_service import ProductAnalysisSe
 from ad_generation.application.quality_check_service import QualityCheckService
 from ad_generation.application.shoot_sheet_service import ShootSheetService
 from ad_generation.application.step_defaults import StepDefaults
+from ad_generation.application.still_fix_service import StillFixService
+from ad_generation.application.template_autofill import TemplateAutofill
+from ad_generation.application.template_setting_sources import TemplateSettingSources
 from ad_generation.domain.campaign_checklist import CampaignChecklist
 from ad_generation.domain.creative_direction import CreativeDirection
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.generation_backends import GenerationBackends
 from ad_generation.domain.media_verdict import MediaVerdict
+from ad_generation.domain.category_profile import CategoryProfile
+from ad_generation.domain.step_choices import StepChoices
 from ad_generation.domain.step_run import StepRun
 
 
@@ -55,7 +61,15 @@ class CampaignStepService:
         defaults: StepDefaults,
         poster_text: PosterTextService,
         progress: ProgressReporter,
+        categories: CategoryLibrary,
+        sources: TemplateSettingSources,
+        autofill: TemplateAutofill,
+        fixer: StillFixService,
     ) -> None:
+        self._categories = categories
+        self._sources = sources
+        self._autofill = autofill
+        self._fixer = fixer
         self._analysis = analysis
         self._briefs = briefs
         self._posters = posters
@@ -83,18 +97,33 @@ class CampaignStepService:
         recipe_key: str,
         session: str,
         approval: str = "ask",
+        auto_pick: bool | None = None,
+        settings: dict | None = None,
     ) -> tuple[str, CampaignChecklist]:
-        """Read the product, copy its recipe's steps, and run the first one (the brief)."""
+        """Read the product, copy its template's steps with the user's choices, and write the brief —
+        once every choice the brief needs is made. With Auto off and a required choice (who, where,
+        the shape) unmade, the campaign waits at the brief for the user to choose."""
         self._progress.say(f"reading {name}")
         campaign_id, profile = self._analysis.analyze(name, photos, direction.notes)
         recipe = self._recipes.get(recipe_key or profile.recipe)
-        self._progress.say(f"{campaign_id}: {profile.category} -> recipe {recipe.key}; writing the brief")
-        brief = self._writer(recipe).write_for_recipe(campaign_id, recipe, cast_name, direction)
-        cast = next((s.cast[0] for s in brief.shots if s.cast), "")
-        checklist = recipe.new_checklist(cast, direction.given(), session, approval)
+        checklist = recipe.new_checklist(cast_name, direction.given(), session, approval, auto_pick)
         first = checklist.first("brief")
-        if first:
-            checklist.put(first.with_(status="done"))
+        if first is not None:
+            StepChoices.seed(recipe, checklist, direction.given())
+            if settings:
+                StepChoices.apply(recipe, checklist, first.id, settings, self._sources.words)
+            if checklist.auto_for(first):
+                self._auto_choose(recipe, checklist, first.id, self._category_of(profile.category_key))
+            unmade = StepChoices.missing(recipe, checklist, checklist.step(first.id))
+            if unmade and not checklist.auto_for(first):
+                self._progress.say(f"{campaign_id}: {recipe.key}; waiting for: " + ", ".join(s.label for s in unmade))
+                self._store.save_checklist(campaign_id, checklist)
+                return campaign_id, checklist
+        self._progress.say(f"{campaign_id}: {profile.category} -> recipe {recipe.key}; writing the brief")
+        brief = self._writer(recipe).write_for_recipe(campaign_id, recipe, checklist.cast_name, CreativeDirection(**checklist.direction))
+        checklist.cast_name = next((s.cast[0] for s in brief.shots if s.cast), "") or checklist.cast_name
+        if first is not None:
+            checklist.put(checklist.step(first.id).with_(status="done"))
         self._store.save_checklist(campaign_id, checklist)
         return campaign_id, checklist
 
@@ -107,7 +136,11 @@ class CampaignStepService:
         checklist = self._loader.load(campaign_id)
         if budget_usd:
             checklist.budget_usd = budget_usd
+        recipe = self._recipes.get(checklist.recipe_key)
+        if checklist.auto_for(checklist.step(step_id)):
+            self._auto_choose(recipe, checklist, step_id, self._category_of(self._store.profile(campaign_id).category_key))
         step = checklist.step(step_id)
+        StepChoices.require(recipe, checklist, step, run)
         if step.action == "brief":
             made, verdicts = self._brief(campaign_id, checklist, run), []
         elif step.action == "sheet":
@@ -132,9 +165,11 @@ class CampaignStepService:
         given = {**checklist.direction, **run.direction}
         if run.change.strip():
             given["notes"] = "; ".join(n for n in (given.get("notes", ""), run.change.strip()) if n)
-        self._progress.say("rewriting the brief" + (" with the changes" if run.change.strip() else ""))
-        self._writer(recipe).write_for_recipe(campaign_id, recipe, checklist.cast_name, CreativeDirection(**given))
+        self._progress.say("writing the brief" + (" with the changes" if run.change.strip() else ""))
+        brief = self._writer(recipe).write_for_recipe(campaign_id, recipe, checklist.cast_name, CreativeDirection(**given))
         checklist.direction = given  # the next rewrite builds on this one's change
+        # With Auto on and nobody chosen, the brief cast the model: that is the campaign's cast now.
+        checklist.cast_name = checklist.cast_name or next((s.cast[0] for s in brief.shots if s.cast), "")
         return []
 
     def _sheet(self, campaign_id, checklist, step, run, backends) -> tuple[list[GeneratedMedia], list[MediaVerdict]]:
@@ -159,7 +194,7 @@ class CampaignStepService:
 
     def _images(self, campaign_id, checklist, step, run, backends) -> tuple[list[GeneratedMedia], list[MediaVerdict]]:
         provider, model = self._choice(run.model or step.model, backends.image)
-        count = run.count or step.count or 1
+        count = run.count or step.count or self._recipes.get(checklist.recipe_key).variants
         self._progress.say(f"{step.title}: making {count} image(s) on {provider}/{model}")
         if step.text == "overlay" and not (step.scene and self._defaults.copy_lines(campaign_id, step)):
             raise ValueError(f"step {step.id} sets a text ad's words in real fonts, and it makes no text-ad design")
@@ -172,7 +207,31 @@ class CampaignStepService:
                 self._poster_text.typeset(campaign_id, m, step.scene)
         verdicts = [self._check(campaign_id, checklist, step, m.path, "") for m in made]
         checklist.put(step.with_(model=f"{provider}/{model}", count=count))
+        if checklist.auto_for(step) and checklist.approval == "auto":
+            redone = self._redo_failed(campaign_id, step, made, verdicts, backends)
+            made, verdicts = made + [m for m, _ in redone], verdicts + [v for _, v in redone]
         return made, verdicts
+
+    def _redo_failed(self, campaign_id, step, made, verdicts, backends) -> list[tuple[GeneratedMedia, MediaVerdict]]:
+        """Auto, with runs on auto: each still the accuracy check failed is redone ONCE with the
+        check's fixes. A redo that fails again stays, marked, for the user — never a loop."""
+        redone = []
+        for m, v in zip(made, verdicts):
+            if v.passed or not v.problems:
+                continue
+            self._progress.say(f"{m.path.rsplit('/', 1)[-1]} missed the product; redoing it once with the fixes")
+            redone.append(self._fixer.fix(campaign_id, step.id, m.path, "; ".join(v.problems), *backends.fix))
+        return redone
+
+    def _auto_choose(self, recipe, checklist: CampaignChecklist, step_id: str, category: CategoryProfile | None) -> None:
+        """Auto: the template's required choices nobody made, picked and stored like the user's."""
+        picks = self._autofill.fill(recipe, checklist, checklist.step(step_id), category)
+        if picks:
+            self._progress.say("Auto picked: " + ", ".join(f"{k} {v}" for k, v in picks.items()))
+            StepChoices.apply(recipe, checklist, step_id, picks, self._sources.words)
+
+    def _category_of(self, key: str) -> CategoryProfile | None:
+        return self._categories.get(key) if key else None
 
     def _video(self, campaign_id, checklist, step, run, backends) -> tuple[list[GeneratedMedia], list[MediaVerdict]]:
         first_frame = run.first_frame or checklist.step(step.source).pick

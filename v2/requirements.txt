@@ -21,6 +21,8 @@ import-linter>=2.0
 # The tool degrades to "disabled" if these are missing.
 pyautogui>=0.9.54
 Pillow>=10
+opencv-python>=4.9      # ad-studio: face crops, clip frames
+imageio-ffmpeg>=0.5     # ad-studio: post rendering (static ffmpeg binary)
 google-genai>=0.3
 # MCP client (optional; only needed when mcp_servers are configured).
 # MCP degrades to "disabled" if this is missing.

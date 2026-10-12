@@ -1,0 +1,24 @@
+{
+  "name": "Kurti and suit sets",
+  "kind": "wear",
+  "covers": "kurtis, kurtas, salwar suits, anarkalis, co-ord sets, palazzo and sharara sets",
+  "template": "ethnic-wear",
+  "checks": [
+    "the print or embroidery: its motif, scale and colours",
+    "the cut: length, neckline, sleeves and silhouette (straight, A-line, anarkali flare)",
+    "the bottoms and dupatta, when they are part of the set: colour and print"
+  ],
+  "shot": "Full or three-quarter length so the cut and length read; natural, everyday movement.",
+  "locations": [
+    "north-kolkata-house",
+    "jasmine-garden",
+    "mumbai-deco-balcony",
+    "studio-beige"
+  ],
+  "poses": [
+    "walking, relaxed",
+    "standing, hands loosely clasped",
+    "three-quarter turn, looking over the shoulder",
+    "seated on a cane chair"
+  ]
+}

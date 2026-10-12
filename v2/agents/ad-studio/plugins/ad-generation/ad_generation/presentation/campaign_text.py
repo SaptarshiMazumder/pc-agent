@@ -47,8 +47,9 @@ class CampaignText:
             lines.append(f"made {path} · {r.get('provider', '')}/{r.get('model', '')} · ${r.get('cost_usd', 0):.3f} · {score}{advice}")
         current = detail.get("current") or ""
         lines.append(
-            "NEXT: tell the user in a line or two what was made (the checker's score is advice — "
-            "they decide), then end the turn. "
+            "NEXT: tell the user in a line or two what was made and what the check said (its score is "
+            "advice — they decide). Describe a picture ONLY by what the check said about it — never from "
+            "what the user asked for. Then end the turn. "
             + (f"The next step is '{current}'; run it when the user says." if current else "Every step is done.")
         )
         return ToolResult.text("\n".join(lines), details={"campaign": detail, "made": new}, artifacts=attach or [])

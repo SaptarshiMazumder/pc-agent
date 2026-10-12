@@ -29,6 +29,11 @@ class CampaignChecklist:
     approval: str = "ask"
     # One-time approvals the studio recorded for runs it is about to send: [{token, step, tool, args}].
     approvals: list[dict] = field(default_factory=list)
+    # The Auto switch: False = the user makes every choice (who, where, how many, size, model);
+    # True = the agent fills the choices nobody made. A step can override it (CampaignStep.auto).
+    auto_pick: bool = False
+    # The user's choices for settings that fill the creative direction, one by one (StepChoices).
+    choices: dict = field(default_factory=dict)
 
     def step(self, step_id: str) -> CampaignStep:
         for s in self.steps:
@@ -61,6 +66,10 @@ class CampaignChecklist:
             candidate = f"{base}-{n}"
         return candidate
 
+    def auto_for(self, step: CampaignStep) -> bool:
+        """Whether the agent fills this step's unchosen settings."""
+        return self.auto_pick if step.auto is None else step.auto
+
     def current(self) -> CampaignStep | None:
         return next((s for s in self.steps if s.status == "todo"), None)
 
@@ -77,6 +86,8 @@ class CampaignChecklist:
             "steps": [s.to_dict() for s in self.steps],
             "approval": self.approval,
             "approvals": list(self.approvals),
+            "auto_pick": self.auto_pick,
+            "choices": dict(self.choices),
         }
 
     @classmethod
@@ -90,4 +101,7 @@ class CampaignChecklist:
             steps=[CampaignStep.from_dict(s) for s in data.get("steps") or []],
             approval=str(data.get("approval") or "ask"),
             approvals=[dict(a) for a in data.get("approvals") or []],
+            # Campaigns made before the switch existed were made the automatic way.
+            auto_pick=bool(data.get("auto_pick", True)),
+            choices={str(k): str(v) for k, v in (data.get("choices") or {}).items()},
         )

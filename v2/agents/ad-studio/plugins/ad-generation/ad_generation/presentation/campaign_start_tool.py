@@ -36,7 +36,9 @@ class CampaignStartTool(Tool):
             "name": {"type": "string", "description": "The product's name."},
             "photos": {"type": "array", "items": {"type": "string"}, "description": "Workspace paths of the product photos (1-4)."},
             "cast": {"type": "string", "description": "The cast member to use; empty lets the brief pick from the cast."},
-            "recipe": {"type": "string", "description": "Force a recipe; empty uses the one the product matches."},
+            "recipe": {"type": "string", "description": "The template (recipe) to use; empty uses the one the product matches."},
+            "settings": {"type": "object", "description": "The user's choices for the brief's settings, by key (aspect_ratio, location, time_of_day, mood…) — only what the user chose."},
+            "auto": {"type": "boolean", "description": "Only when the user asked for Auto: let the agent pick what they did not choose. Default off."},
             **CreativeDirectionParams.SCHEMA,
         },
     }
@@ -73,8 +75,18 @@ class CampaignStartTool(Tool):
                 str(params.get("recipe") or ""),
                 str(getattr(current_run_context(), "session_key", "") or ""),
                 str(plugin_setting(self.config, "generation_approval", "ask")),
+                bool(params["auto"]) if "auto" in params else None,
+                dict(params.get("settings") or {}),
             )
             detail = self._views.detail(campaign_id)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"campaign_start: {type(e).__name__}: {e}", is_error=True)
+        brief = next((s for s in detail["steps"] if s["action"] == "brief"), None)
+        waiting = [s["label"] for s in (brief or {}).get("settings", []) if s["missing"]] if brief and brief["status"] == "todo" else []
+        if waiting:
+            return ToolResult.text(
+                f"campaign {campaign_id} is set up and waiting for the user's choices before the brief: {', '.join(waiting)}. "
+                "They choose them in the studio (or say them); nothing was written or paid yet.",
+                details={"campaign": detail},
+            )
         return CampaignText.result(detail, "brief", [])

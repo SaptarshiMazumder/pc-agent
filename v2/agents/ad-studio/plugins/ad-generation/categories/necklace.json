@@ -1,0 +1,25 @@
+{
+  "name": "Necklace",
+  "kind": "jewellery",
+  "covers": "necklaces, chokers, haar, rani haar, mangalsutra, pendant sets, temple jewellery necklaces, kundan and polki sets",
+  "template": "jewellery-model",
+  "checks": [
+    "the number, shape and colour of the stones, in their real order",
+    "the metal finish: gold, antique gold, oxidised silver, rose gold",
+    "the pendant or centrepiece: its shape and size relative to the neck",
+    "the length: where it sits (choker at the throat, princess at the collarbone, long haar on the chest)",
+    "drops, pearls or ghungroos hanging from it: their count and length"
+  ],
+  "shot": "Close, from just below the chin to the chest, so the necklace fills the frame at its real size; a plain or low neckline so nothing covers it.",
+  "locations": [
+    "studio-beige",
+    "jaipur-haveli",
+    "marigold-mandap",
+    "diwali-living-room"
+  ],
+  "poses": [
+    "close portrait, chin slightly raised",
+    "fingertips touching the necklace",
+    "three-quarter turn, the necklace catching the light"
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "name": "Jewellery on model",
+  "title": "Jewellery on model — necklaces, earrings, bangles and rings worn close-up",
+  "summary": "Necklaces, earrings, bangles and rings worn by your model, close enough that every stone reads: stills, then a short clip.",
+  "auto_pick": false,
+  "covers": "Indian and fashion jewellery worn on the body: necklaces, chokers, haar, mangalsutra, jhumkas, chandbalis, studs, hoops, bangles, kadas, bracelets, rings",
+  "formats": [
+    "macro-detail",
+    "mirror-try-on",
+    "in-hand-closeup"
+  ],
+  "aspect_ratio": "4:5",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "scene",
+      "direction": "The model wearing the piece, framed close so it fills the frame at its REAL size against her neck, ear, wrist or hand — never enlarged, never shrunk. Every stone's count, shape and colour and the metal finish match the product photos exactly. Skin and fabric around it are soft and simple so the piece is the brightest thing in the frame. Over the clip only a small motion: a turn of the head, a hand settling, the light moving across the stones.",
+      "cast": true,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 3,
+  "resolution": "720p",
+  "budget_usd": 15,
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief",
+      "settings": [
+        "cast",
+        {
+          "key": "aspect_ratio",
+          "options": [
+            "4:5",
+            "9:16",
+            "1:1"
+          ],
+          "suggested": "4:5"
+        },
+        {
+          "key": "location",
+          "source": "locations",
+          "help": "A place from the library, or your own words."
+        },
+        {
+          "key": "framing",
+          "label": "Framing",
+          "kind": "choice",
+          "home": "direction",
+          "field": "pose",
+          "required": true,
+          "source": "category_poses",
+          "help": "How close, and how she holds herself so the piece shows."
+        },
+        {
+          "key": "wardrobe",
+          "label": "Outfit with it",
+          "help": "What she wears — a plain neckline shows a necklace best. Leave empty and the brief decides."
+        },
+        "time_of_day",
+        "mood"
+      ]
+    },
+    {
+      "id": "product-sheet",
+      "title": "Product sheet",
+      "action": "product_sheet",
+      "cast": false,
+      "shows_product": true,
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
+    },
+    {
+      "id": "stills",
+      "title": "Stills",
+      "action": "images",
+      "scene": "s1",
+      "cast": true,
+      "shows_product": true,
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
+    },
+    {
+      "id": "clip",
+      "title": "Clip",
+      "action": "video",
+      "scene": "s1",
+      "source": "stills",
+      "cast": true,
+      "shows_product": true
+    }
+  ]
+}

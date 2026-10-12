@@ -11,7 +11,7 @@ import type { AgentdClient } from '@agentd/client'
 import { Film, Loader2, RotateCcw, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, dismissProposal, isVideo, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, command, dismissProposal, isVideo, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { MediaTileActions } from './MediaTileActions'
 import { ModelSelect } from './ModelSelect'
@@ -43,19 +43,29 @@ export function VideoGeneratePanel({
   const proposed = step.proposal?.tool === 'step_run' ? step.proposal.args || {} : null
   const [frame, setFrame] = useState<string>(proposed?.first_frame || '')
   const [prompt, setPrompt] = useState<string>(proposed?.prompt || step.defaults.prompt)
+  // The change the user asked for in the chat, added to the step's prompt — shown, editable, and sent.
+  const [change, setChange] = useState<string>(String(proposed?.change || ''))
   const [refs, setRefs] = useState<string[]>(proposed?.references || step.defaults.references)
-  const [model, setModel] = useState<string>(proposed?.model || step.model || lists?.video.default || '')
-  const [seconds, setSeconds] = useState<number>(Number(proposed?.seconds) || step.seconds || step.defaults.seconds || 5)
-  const [res, setRes] = useState<string>(proposed?.resolution || step.resolution)
+  const [model, setModel] = useState<string>(proposed?.model || startValue(step, 'model', lists?.video.default || ''))
+  const [seconds, setSeconds] = useState<number>(Number(proposed?.seconds) || Number(startValue(step, 'seconds', String(step.defaults.seconds || ''))) || 0)
+  const [res, setRes] = useState<string>(proposed?.resolution || startValue(step, 'resolution'))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
 
-  const chosen = model || lists?.video.default || ''
+  const chosen = model || (step.auto_on ? lists?.video.default || '' : '')
   const spec = lists?.video.models.find((m) => m.id === chosen)
   const range = spec?.durations || null
   const resolutions = Object.keys(spec?.resolutions || {})
-  const resolution = resolutions.length === 1 ? resolutions[0] : resolutions.includes(res) ? res : resolutions.includes('720p') ? '720p' : resolutions[0] || res
-  const lengthOk = !range || (seconds >= range.min && seconds <= range.max)
+  // One resolution on the model is no choice; otherwise the user's (or, with Auto on, 720p).
+  const resolution =
+    resolutions.length === 1
+      ? resolutions[0]
+      : resolutions.includes(res)
+        ? res
+        : step.auto_on
+          ? resolutions.includes('720p') ? '720p' : resolutions[0] || res
+          : !resolutions.length ? res : ''
+  const lengthOk = seconds > 0 && (!range || (seconds >= range.min && seconds <= range.max))
 
   const sourcePick = source?.pick || ''
   const firstFrame = frame || sourcePick
@@ -94,6 +104,7 @@ export function VideoGeneratePanel({
             resolution,
             ...(ownFrame ? { first_frame: ownFrame } : {}),
             ...(ownPrompt ? { prompt: prompt.trim() } : {}),
+            ...(change.trim() ? { change: change.trim() } : {}),
             ...(ownRefs ? { references: refs } : {}),
             approval,
           },
@@ -149,6 +160,12 @@ export function VideoGeneratePanel({
         )}
       </div>
       <textarea className="gen-prompt" rows={3} value={prompt} disabled={busy} placeholder="Describe the motion — what she does, how the camera moves" onChange={(e) => setPrompt(e.target.value)} />
+      {(proposed?.change || change) && (
+        <label className="gen-change">
+          <span className="strip-label">Change — added to the prompt</span>
+          <textarea rows={2} value={change} disabled={busy} placeholder="What to change — empty for none" onChange={(e) => setChange(e.target.value)} />
+        </label>
+      )}
       <ReferenceTray value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
       <div className="model-pick">
         {lists && (
@@ -156,6 +173,7 @@ export function VideoGeneratePanel({
             label="Model"
             value={chosen}
             models={lists.video.models}
+            placeholder={step.auto_on ? undefined : 'Choose a model…'}
             disabled={busy}
             onChange={(m) => {
               setModel(m)
@@ -166,7 +184,12 @@ export function VideoGeneratePanel({
         <label className="model-field">
           <span className="strip-label">Resolution</span>
           <select value={resolution} disabled={busy || resolutions.length < 2} onChange={(e) => setRes(e.target.value)}>
-            {(resolutions.length ? resolutions : [resolution || '720p']).map((r) => (
+            {!resolution && (
+              <option value="" disabled>
+                Choose…
+              </option>
+            )}
+            {(resolutions.length ? resolutions : resolution ? [resolution] : []).map((r) => (
               <option key={r} value={r}>
                 {r}
                 {spec?.resolutions?.[r] ? ` — ${spec.resolutions[r]}` : ''}
@@ -176,12 +199,12 @@ export function VideoGeneratePanel({
         </label>
         <label className="model-field">
           <span className="strip-label">Length (s)</span>
-          <input type="number" min={range?.min} max={range?.max} value={seconds} disabled={busy} onChange={(e) => setSeconds(Number(e.target.value) || 0)} />
-          {!lengthOk && range && <span className="field-err">{range.min}–{range.max} s on this model</span>}
+          <input type="number" min={range?.min} max={range?.max} value={seconds || ''} placeholder="Choose" disabled={busy} onChange={(e) => setSeconds(Number(e.target.value) || 0)} />
+          {!lengthOk && range && seconds > 0 && <span className="field-err">{range.min}–{range.max} s on this model</span>}
         </label>
         <button
           className="prime-btn gen-go"
-          disabled={busy || sending || !client || !firstFrame || !prompt.trim() || !chosen || !lengthOk}
+          disabled={busy || sending || !client || !firstFrame || !prompt.trim() || !chosen || !lengthOk || !resolution}
           onClick={() => void generate()}
           title={`Approve ${chosen} and generate`}
         >

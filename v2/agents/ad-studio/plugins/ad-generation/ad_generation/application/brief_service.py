@@ -79,7 +79,7 @@ class BriefService:
         composed = {
             t.id: self._compose(look, specs[t.id], cast_member if t.cast else "", profile) for t in recipe.shots
         }
-        brief = recipe.build_brief(answer, look, composed, cast_member)
+        brief = recipe.build_brief(answer, look, composed, cast_member, aspect_ratio=direction.aspect_ratio)
         self._store.save_brief(campaign_id, brief)
         return brief
 

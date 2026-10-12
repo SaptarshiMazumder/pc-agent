@@ -11,7 +11,7 @@
  */
 
 import { useEffect } from 'react'
-import { Images, Megaphone, Palette, Users } from 'lucide-react'
+import { Images, LayoutTemplate, Library, Megaphone, Palette, Users } from 'lucide-react'
 
 import { campaignStatus, selectionBlock, START } from './agentd/campaigns'
 import { AGENT_ID, useClient } from './agentd/client'
@@ -29,9 +29,11 @@ import { Thread } from './components/Thread'
 import { BrandKitPage } from './pages/BrandKitPage'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CastPage } from './pages/CastPage'
+import { TemplatesPage } from './pages/TemplatesPage'
 import { ChatResizer } from './studio/ChatResizer'
 import { MediaViewer } from './studio/MediaViewer'
 import { StartSummary } from './studio/StartSummary'
+import { LibraryPage } from './pages/LibraryPage'
 import { PostsPage } from './pages/PostsPage'
 import { POST_START, type Post } from './agentd/posts'
 import { SelectionChips } from './studio/SelectionChips'
@@ -188,6 +190,8 @@ export default function App() {
         sharedGroupLabel="Account"
         extraDestinations={[
           { id: 'campaigns', label: 'Ads', icon: <Images size={15} /> },
+          { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={15} /> },
+          { id: 'library', label: 'Library', icon: <Library size={15} /> },
           { id: 'posts', label: 'Posts', icon: <Megaphone size={15} /> },
           { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
           { id: 'brand-kit', label: 'Brand kit', icon: <Palette size={15} /> },
@@ -203,8 +207,19 @@ export default function App() {
           client && <Settings client={client} agentId={AGENT_ID} />
         ) : view === 'campaigns' ? (
           <CampaignsPage client={client} onOpen={(id) => void openCampaign(id)} />
+        ) : view === 'templates' ? (
+          <TemplatesPage client={client} onUse={(r) => newAdWith({ recipe: r.key }, START.recipe(r.key, r.start_text))} />
         ) : view === 'brand-kit' ? (
           <BrandKitPage client={client} />
+        ) : view === 'library' ? (
+          <LibraryPage
+            client={client}
+            onMakePost={(c) => {
+              const key = newSession()
+              setStart(key, { mode: 'post', collection: c.slug })
+              seedComposer(POST_START(c.name) + ' ')
+            }}
+          />
         ) : view === 'posts' ? (
           <PostsPage
             client={client}

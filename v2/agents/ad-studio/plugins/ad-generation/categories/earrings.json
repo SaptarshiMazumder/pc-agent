@@ -1,0 +1,23 @@
+{
+  "name": "Earrings",
+  "kind": "jewellery",
+  "covers": "earrings: jhumkas, chandbalis, studs, hoops, drops, ear cuffs, earring sets",
+  "template": "jewellery-model",
+  "checks": [
+    "the shape and size relative to the ear and jaw",
+    "the stones or enamel: colours and placement",
+    "the metal finish",
+    "drops, pearls or bells hanging from it: their count and length"
+  ],
+  "shot": "A close portrait with the ear and jaw in frame, hair tucked behind the ear; both earrings at their real size.",
+  "locations": [
+    "studio-beige",
+    "jasmine-garden",
+    "jaipur-haveli"
+  ],
+  "poses": [
+    "side profile, hair tucked behind the ear",
+    "head tilted, one hand at the jaw",
+    "looking over the shoulder, the earring swinging"
+  ]
+}

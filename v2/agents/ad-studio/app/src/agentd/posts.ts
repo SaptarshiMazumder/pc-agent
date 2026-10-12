@@ -171,13 +171,14 @@ export interface Brand {
 export const HEADING_FONTS = ['cormorant', 'playfair', 'oswald', 'inter']
 export const LABEL_FONTS = ['manrope', 'manrope-bold', 'inter']
 
-async function invoke(client: AgentdClient, name: string, params: Record<string, unknown>): Promise<any> {
+/** A post or library tool, called directly; its `details` back (a failure throws, with its reason). */
+export async function invoke(client: AgentdClient, name: string, params: Record<string, unknown>): Promise<any> {
   const res: any = await client.request('tools.invoke', { name, params })
   if (!res?.details) throw new Error(res?.text || `${name} returned no data`)
   return res.details
 }
 
-function mediaFor(root: string): Media {
+export function mediaFor(root: string): Media {
   const base = root.replace(/[\\/]+$/, '')
   return (rel) => (rel ? fileUrl(/^[a-zA-Z]:[\\/]|^\//.test(rel) ? rel : `${base}/${rel}`) : '')
 }

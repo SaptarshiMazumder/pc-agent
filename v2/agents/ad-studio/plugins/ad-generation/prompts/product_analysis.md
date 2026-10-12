@@ -21,10 +21,18 @@ Answer with ONE JSON object and nothing else:
   "colors": ["exact colour names, e.g. 'cognac brown', 'off-white', not just 'brown'"],
   "audience": "who buys this, in a few words",
   "price_tier": "budget | mid | premium | luxury — from what the photos and notes show",
-  "recipe": "the key of the ONE recipe in FACTS.recipes whose 'covers' fits this product"
+  "recipe": "the key of the ONE recipe in FACTS.recipes whose 'covers' fits this product",
+  "category_key": "the key of the ONE category in FACTS.categories whose 'covers' fits this product — \"\" when none does"
 }
 
-FACTS holds the name and notes the user gave, and the recipes to choose from.
+FACTS holds the name and notes the user gave, the recipes to choose from, and the shop's
+categories (saree, lehenga, necklace, earrings…).
+
+- category_key: only a category whose 'covers' clearly fits. When one fits, its 'checks' are what
+  a faithful picture of this kind of product keeps: turn each check that applies into a specific
+  must_keep item from what THESE photos show (e.g. the check "the border: its width, motif and
+  colour" becomes "a 4-inch gold zari border of paisley buttas along the whole length"). Skip a
+  check the photos do not show.
 
 Rules:
 - Describe only what the photos show. Never invent a logo, a material or a detail you cannot see.

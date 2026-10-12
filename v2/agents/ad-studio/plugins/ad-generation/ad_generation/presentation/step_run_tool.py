@@ -10,8 +10,10 @@ from agent_runtime.application.tool_models import brain_model, resolve_tool_mode
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.campaign_view_service import CampaignViewService
 from ad_generation.application.interfaces.media_previewer import MediaPreviewer
+from ad_generation.application.interfaces.recipe_library import RecipeLibrary
 from ad_generation.application.run_approvals import RunApprovals
 from ad_generation.domain.campaign_step import CampaignStep
+from ad_generation.domain.step_choices import StepChoices
 from ad_generation.domain.step_run import StepRun
 from ad_generation.infrastructure.model_access_reasoner import ModelAccessReasoner
 from ad_generation.infrastructure.vision_image_preparer import VisionImagePreparer
@@ -71,8 +73,10 @@ class StepRunTool(Tool):
         previews: MediaPreviewer,
         approvals: RunApprovals,
         images: VisionImagePreparer,
+        recipes: RecipeLibrary,
     ) -> None:
         self.config = config
+        self._recipes = recipes
         self._service_factory = service_factory
         self._loader = loader
         self._views = views
@@ -128,8 +132,11 @@ class StepRunTool(Tool):
         step_id = str(params.get("step") or "")
         try:
             backends = GenerationBackendResolver(self.config).backends()
-            step = self._loader.load(campaign).step(step_id)
+            checklist = self._loader.load(campaign)
+            step = checklist.step(step_id)
             run = self._run(params, step, backends)
+            # Unmade choices refuse the run before anything is proposed or paid.
+            StepChoices.require(self._recipes.get(checklist.recipe_key), checklist, step, run)
             if step.action != "brief":  # a brief is text: nothing to approve
                 default = backends.video if step.action == "video" else backends.image
                 model = run.model or step.model or "/".join(default)
@@ -154,6 +161,7 @@ class StepRunTool(Tool):
             made, _ = await asyncio.to_thread(
                 service.run, campaign, step_id, run, backends, float(params.get("budget_usd") or 0)
             )
+            self._approvals.settle(campaign, step_id)
             detail = self._views.detail(campaign)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"step_run: {type(e).__name__}: {e}", is_error=True)

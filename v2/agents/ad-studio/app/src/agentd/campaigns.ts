@@ -44,6 +44,26 @@ export interface StepResult {
   editable?: boolean
 }
 
+/** One choice a template's step asks for (TemplateSetting), with its value on this campaign. */
+export interface StepSetting {
+  key: string
+  label: string
+  kind: 'cast' | 'choice' | 'text' | 'number' | 'model' | 'aspect' | 'resolution'
+  /** Where it lives: the cast member, the creative direction, or the step's own field. */
+  home: 'cast' | 'direction' | 'count' | 'model' | 'seconds' | 'resolution'
+  field: string
+  options: string[]
+  required: boolean
+  /** What Auto puts there when nothing was chosen — never used with Auto off. */
+  suggested: string
+  help: string
+  minimum: number
+  maximum: number
+  /** On a campaign: the value chosen ("" = none) and whether a required one is still unchosen. */
+  value?: string
+  missing?: boolean
+}
+
 export interface CampaignStep {
   id: string
   title: string
@@ -72,6 +92,12 @@ export interface CampaignStep {
   proposal: { tool?: CommandTool; args?: Record<string, any> }
   /** A text ad's designs: 'overlay' = words set in real fonts (editable); '' = drawn by the model. */
   text?: '' | 'overlay'
+  /** The choices this step asks for, with their values. */
+  settings: StepSetting[]
+  /** This step's own Auto switch: null = the campaign's. */
+  auto: boolean | null
+  /** Whether the agent fills this step's unchosen settings (its own switch, else the campaign's). */
+  auto_on: boolean
 }
 
 export interface BriefShot {
@@ -118,6 +144,8 @@ export interface CampaignDetail {
   current: string
   /** "ask": every run needs the user's click (which approves its model); "auto": the agent runs it. */
   approval: 'ask' | 'auto'
+  /** The Auto switch: false = the user makes every choice; true = the agent fills unchosen ones. */
+  auto_pick: boolean
   steps: CampaignStep[]
 }
 
@@ -244,7 +272,12 @@ export interface Recipe {
   aspect_ratio: string
   budget_usd: number
   covers: string
-  steps: { id: string; title: string; action: StepAction }[]
+  /** One line on what it is for. */
+  summary: string
+  /** Whether a campaign from it starts with Auto on (off unless the template says so). */
+  auto_pick: boolean
+  examples: string[]
+  steps: { id: string; title: string; action: StepAction; settings: StepSetting[] }[]
   needs_cast: boolean
   variants: number
   /** Scenes to offer when it is chosen (product stills: "In an open gift box, from above"…). */
@@ -338,6 +371,24 @@ export async function dismissProposal(client: AgentdClient, campaign: string, st
 
 export async function setApproval(client: AgentdClient, campaign: string, approval: 'ask' | 'auto'): Promise<void> {
   await invoke(client, 'campaign_settings', { campaign, approval })
+}
+
+/** The Auto switch — the campaign's, or one step's (`inherit` = follow the campaign's again). Free. */
+export async function setAutoPick(client: AgentdClient, campaign: string, on: boolean, step = '', inherit = false): Promise<void> {
+  await invoke(client, 'campaign_settings', { campaign, auto_pick: on, ...(step ? { step } : {}), ...(inherit ? { inherit } : {}) })
+}
+
+/** The user's choices for a step's settings (key -> value; '' clears one) — free and instant. */
+export async function chooseSettings(client: AgentdClient, campaign: string, step: string, settings: Record<string, string>): Promise<void> {
+  await invoke(client, 'step_update', { campaign, step, settings })
+}
+
+/** What a run starts with for one of the step's own settings: the value chosen, else — with Auto
+ *  on — the template's suggestion, else nothing (the user chooses). */
+export function startValue(step: CampaignStep, home: StepSetting['home'], autoDefault = ''): string {
+  const s = step.settings.find((x) => x.home === home)
+  if (s?.value) return s.value
+  return step.auto_on ? s?.suggested || autoDefault : ''
 }
 
 /** Change a step in place (skip it, open it again) — free and instant, no agent turn. */

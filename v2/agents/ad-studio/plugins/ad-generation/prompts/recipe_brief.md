@@ -8,6 +8,9 @@ FACTS holds the product (with its must_keep details), the cast you may choose fr
 (playbooks) this recipe allows, the fixed shots (each with its `direction`), and the user's
 `direction`.
 
+When the product has a `shot_guidance` (its category's framing — how a saree, a necklace, a
+pair of earrings is shot so it reads), every shot follows it.
+
 THE USER'S DIRECTION IS A REQUIREMENT. Every field present in FACTS.direction (wardrobe,
 location, time_of_day, weather, pose, mood, background, notes) must be honoured exactly — use
 the user's wording for it. Where it is absent, you choose what suits the product and the format.

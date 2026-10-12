@@ -96,7 +96,7 @@ export function PostsPage({
           </div>
           {data && !data.posts.length && (
             <div className="ref-none">
-              No posts yet. Gather pictures in a collection (Collections tab, or a campaign's Generations → Add to collection), then press New post.
+              No posts yet. In the Library, select pictures and clips (yours or any campaign's) and add them to a collection — then Make a post.
             </div>
           )}
         </>
@@ -105,7 +105,7 @@ export function PostsPage({
       {tab === 'collections' && (
         <>
           <p className="page-note">
-            Pictures and clips gathered for posts — from any campaign (its Generations tab → select → Add to collection) or your own files.
+            Pictures and clips gathered for posts. Fill one from the Library (any campaign's generations and your own uploads → select → Add to collection), or start one from your own files here.
           </p>
           <div className="page-actions">
             <NewCollection client={client} />
@@ -114,7 +114,7 @@ export function PostsPage({
             {(data?.collections || []).map((c) => (
               <CollectionCard key={c.slug} client={client} collection={c} media={data!.media} onPost={onPost} />
             ))}
-            {data && !data.collections.length && <div className="ref-none">No collections yet.</div>}
+            {data && !data.collections.length && <div className="ref-none">No collections yet — add pictures to one from the Library.</div>}
           </div>
         </>
       )}

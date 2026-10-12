@@ -37,6 +37,7 @@ class StepUpdateTool(Tool):
             "cast": {"type": "boolean"},
             "shows_product": {"type": "boolean"},
             "count": {"type": "integer"},
+            "settings": {"type": "object", "description": "The user's choices for this step's settings, by key (cast, aspect_ratio, location, count, image_model, video_model, seconds, resolution…) — only what the user chose; \"\" clears one."},
         },
     }
 
@@ -46,9 +47,13 @@ class StepUpdateTool(Tool):
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
             changes = {k: params[k] for k in _FIELDS if k in params}
-            if not changes:
+            campaign, step_id = str(params.get("campaign") or ""), str(params.get("step") or "")
+            if not changes and not params.get("settings"):
                 raise ValueError("say what to change")
-            step = self._editor.update(str(params.get("campaign") or ""), str(params.get("step") or ""), changes)
+            step = self._editor.choose(campaign, step_id, dict(params["settings"])) if params.get("settings") else None
+            if changes:
+                step = self._editor.update(campaign, step_id, changes)
+            changes = {**changes, **({"settings": params["settings"]} if params.get("settings") else {})}
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"step_update: {type(e).__name__}: {e}", is_error=True)
         return ToolResult.text(f"step '{step.id}' changed: {', '.join(changes)}", details={"step": step.to_dict()})

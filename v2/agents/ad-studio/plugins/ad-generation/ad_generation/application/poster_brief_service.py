@@ -51,7 +51,7 @@ class PosterBriefService:
                 {"key": f.key, "title": f.title, "guide": f.guide} for f in (self._formats.get(k) for k in recipe.formats)
             ],
             "shots": [t.to_dict() for t in recipe.shots],
-            "aspect_ratio": recipe.aspect_ratio,
+            "aspect_ratio": (direction.aspect_ratio or recipe.aspect_ratio),
             "copy_given": {k: v for k, v in given.to_dict().items() if v},
             "direction": {k: v for k, v in direction.given().items() if k not in given.to_dict()},
         }
@@ -72,12 +72,12 @@ class PosterBriefService:
         composed = {}
         for t in recipe.shots:
             keyframe, motion, overlay = self._composer.compose(
-                specs[t.id], copy, profile, recipe.aspect_ratio, str(answer.get("format_key") or "")
+                specs[t.id], copy, profile, (direction.aspect_ratio or recipe.aspect_ratio), str(answer.get("format_key") or "")
             )
             composed[t.id] = {
                 "keyframe_prompt": keyframe, "motion_prompt": motion, "overlay_prompt": overlay, "spec": specs[t.id],
             }
-        brief = recipe.build_brief(answer, {}, composed, "", copy.to_dict())
+        brief = recipe.build_brief(answer, {}, composed, "", copy.to_dict(), aspect_ratio=direction.aspect_ratio)
         self._store.save_brief(campaign_id, brief)
         return brief
 

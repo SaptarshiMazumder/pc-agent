@@ -22,6 +22,7 @@ class CreativeDirection:
     mood: str = ""
     background: str = ""
     notes: str = ""
+    aspect_ratio: str = ""  # the ad's shape, when the user chose one; empty = the template's
     # a text ad's copy, in the user's exact words
     headline: str = ""
     subline: str = ""

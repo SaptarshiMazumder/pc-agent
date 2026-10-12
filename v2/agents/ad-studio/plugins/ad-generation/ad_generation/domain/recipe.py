@@ -1,8 +1,14 @@
-"""A recipe: the default way an ad is made for a kind of product — DATA, a JSON file.
+"""A recipe — a TEMPLATE: one marketing use case, the default way it is made — DATA, a JSON file.
 
-Two things, both plain lists:
+Three things, all plain lists:
   scenes (`shots`)  what the brief writes a prompt for: framing, who appears, the product shown
   steps             the default checklist: which actions, in which order
+  settings          per step, the CHOICES it asks the user for (who, where, how many, what size,
+                    which model) — a standard name or a full declaration (TemplateSetting)
+
+Manual by default (`auto_pick` false): the user makes every required choice. With Auto on, the
+agent fills the choices nobody made (each setting's `suggested`, or the brief's pick for who and
+where).
 
 A campaign starts with a copy of the steps and owns it from then on — the user adds, skips and
 re-runs steps freely (CampaignChecklist). Nothing here runs anything.
@@ -10,13 +16,14 @@ re-runs steps freely (CampaignChecklist). Nothing here runs anything.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ad_generation.domain.campaign_checklist import CampaignChecklist
 from ad_generation.domain.campaign_step import CampaignStep
 from ad_generation.domain.creative_brief import CreativeBrief
 from ad_generation.domain.shot import Shot
 from ad_generation.domain.shot_template import ShotTemplate
+from ad_generation.domain.template_setting import BY_ACTION, TemplateSetting, resolve
 
 
 @dataclass(frozen=True)
@@ -41,6 +48,14 @@ class Recipe:
     brief: str = "scene"
     # Added to the window's start sentence — blanks for what the user should say (a text ad's copy).
     start_text: str = ""
+    # Per step id, the settings it asks for; a step not listed asks for its action's standard ones.
+    settings: tuple[tuple[str, tuple[TemplateSetting, ...]], ...] = ()
+    # A new campaign's Auto switch: False = the user makes every choice (the default).
+    auto_pick: bool = False
+    # Pictures of what it makes, for the template gallery (paths inside the plugin's templates/).
+    examples: tuple[str, ...] = ()
+    # One line on what it is for, for the gallery card.
+    summary: str = ""
 
     @classmethod
     def from_dict(cls, key: str, data: dict) -> "Recipe":
@@ -52,6 +67,9 @@ class Recipe:
         steps = tuple(CampaignStep.from_dict(s) for s in data.get("steps") or [])
         if not steps:
             raise ValueError(f"recipe {key} has no steps")
+        settings = tuple(
+            (str(s["id"]), tuple(resolve(e) for e in s["settings"])) for s in data["steps"] if s.get("settings") is not None
+        )
         scenes = {s.id for s in shots}
         stray = [s.id for s in steps if s.scene and s.scene not in scenes]
         if stray:
@@ -77,21 +95,30 @@ class Recipe:
             scene_options=tuple(str(o) for o in data.get("scene_options") or ()),
             brief=brief,
             start_text=str(data.get("start_text") or ""),
+            settings=settings,
+            auto_pick=bool(data.get("auto_pick", False)),
+            examples=tuple(str(e) for e in data.get("examples") or ()),
+            summary=str(data.get("summary") or ""),
         )
 
     def needs_cast(self) -> bool:
         return any(s.cast for s in self.shots)
 
-    def new_checklist(self, cast_name: str, direction: dict, session: str, approval: str = "ask") -> CampaignChecklist:
-        """A campaign's own copy of the steps, each image step making the recipe's count."""
+    def new_checklist(
+        self, cast_name: str, direction: dict, session: str, approval: str = "ask", auto_pick: bool | None = None
+    ) -> CampaignChecklist:
+        """A campaign's own copy of the steps. With Auto on, each image step makes the recipe's count
+        and each clip its resolution; with Auto off they stay empty until the user chooses."""
+        auto = self.auto_pick if auto_pick is None else auto_pick
         return CampaignChecklist(
             recipe_key=self.key,
             cast_name=cast_name,
             direction=dict(direction),
             session=session,
             budget_usd=self.budget_usd,
-            steps=[self._defaulted(s) for s in self.steps],
+            steps=[self._defaulted(s) if auto else s for s in self.steps],
             approval=approval,
+            auto_pick=auto,
         )
 
     def _defaulted(self, step: CampaignStep) -> CampaignStep:
@@ -102,6 +129,17 @@ class Recipe:
             return step.with_(resolution=step.resolution or self.resolution)
         return step
 
+    def settings_for(self, step: CampaignStep) -> tuple[TemplateSetting, ...]:
+        """What a step asks the user to choose: its template's declaration, else its action's
+        standard settings. A recipe with no person in it never asks who."""
+        declared = dict(self.settings).get(step.id)
+        found = declared if declared is not None else tuple(resolve(k) for k in BY_ACTION.get(step.action, ()))
+        if step.action == "brief" and not self.needs_cast():
+            found = tuple(s for s in found if s.home != "cast")
+        # What Auto suggests comes from this template: its image count, clip resolution and shape.
+        own = {"count": str(self.variants), "resolution": self.resolution, "aspect_ratio": self.aspect_ratio}
+        return tuple(replace(s, suggested=own[s.key]) if s.key in own else s for s in found)
+
     def template(self, shot_id: str) -> ShotTemplate:
         for s in self.shots:
             if s.id == shot_id:
@@ -109,7 +147,7 @@ class Recipe:
         raise KeyError(f"recipe {self.key} has no scene '{shot_id}'")
 
     def build_brief(
-        self, header: dict, look: dict, composed: dict, cast_member: str, copy: dict | None = None
+        self, header: dict, look: dict, composed: dict, cast_member: str, copy: dict | None = None, aspect_ratio: str = ""
     ) -> CreativeBrief:
         """The brief, with the recipe's structure enforced: the writer supplies only the scene of
         each fixed shot (composed into `composed[id]` = keyframe_prompt, motion_prompt, spec),
@@ -142,7 +180,7 @@ class Recipe:
             format_key=str(header["format_key"]),
             concept=str(header.get("concept") or ""),
             hook=str(header.get("hook") or ""),
-            aspect_ratio=self.aspect_ratio,
+            aspect_ratio=aspect_ratio or self.aspect_ratio,
             shots=shots,
             caption=str(header.get("caption") or ""),
             look=dict(look),

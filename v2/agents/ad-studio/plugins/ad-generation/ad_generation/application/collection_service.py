@@ -35,13 +35,12 @@ class CollectionService:
         return found
 
     def import_files(self, collection: str, files: list[dict], new: bool = False) -> Collection:
-        """The user's own images and clips, made elsewhere: `files` [{path (an upload), product,
-        note?}] are copied into the collection, each under the product it shows."""
+        """The user's own images and clips, made elsewhere: `files` [{path (an upload), product?,
+        note?}] are copied into the collection, each under the product it shows when the user said
+        (else none yet — the post planner looks at it, and asks when it cannot tell)."""
         found = self._target(collection, new)
         for f in files:
             src, product = str(f.get("path") or ""), str(f.get("product") or "").strip()
-            if not product:
-                raise ValueError(f"{src}: say which product it shows")
             if not src.lower().endswith(_MEDIA):
                 raise ValueError(f"{src}: use an image (png, jpg, webp) or a clip (mp4, mov, webm)")
             path = self._collections.import_file(found.slug, src)

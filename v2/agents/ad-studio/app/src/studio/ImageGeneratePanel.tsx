@@ -10,7 +10,7 @@ import type { AgentdClient } from '@agentd/client'
 import { ImagePlus, Loader2, RotateCcw, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, dismissProposal, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, command, dismissProposal, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { ModelSelect } from './ModelSelect'
 import { ReferenceTray } from './ReferenceTray'
@@ -40,14 +40,16 @@ export function ImageGeneratePanel({
   const bump = useApp((s) => s.bumpStudio)
   const proposed = step.proposal?.tool === 'step_run' ? step.proposal.args || {} : null
   const [prompt, setPrompt] = useState<string>(proposed?.prompt || step.defaults.prompt)
+  // The change the user asked for in the chat, added to the step's prompt — shown, editable, and sent.
+  const [change, setChange] = useState<string>(String(proposed?.change || ''))
   const [refs, setRefs] = useState<string[]>(proposed?.references || step.defaults.references)
-  const [count, setCount] = useState<number>(Number(proposed?.count) || step.count || 3)
-  const [model, setModel] = useState<string>(proposed?.model || step.model || lists?.image.default || '')
+  const [count, setCount] = useState<number>(Number(proposed?.count) || Number(startValue(step, 'count')) || 0)
+  const [model, setModel] = useState<string>(proposed?.model || startValue(step, 'model', lists?.image.default || ''))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   // An image step needs the person AND the product: models that take one reference are left out.
   const models = (lists?.image.models || []).filter((m) => m.max_references === null || m.max_references >= 2)
-  const chosen = model || lists?.image.default || ''
+  const chosen = model || (step.auto_on ? lists?.image.default || '' : '')
   const ownPrompt = prompt.trim() !== step.defaults.prompt.trim()
   const ownRefs = refs.join('|') !== step.defaults.references.join('|')
   const likeIt = like || proposed?.like || ''
@@ -68,6 +70,7 @@ export function ImageGeneratePanel({
             count,
             model: chosen,
             ...(ownPrompt ? { prompt: prompt.trim() } : {}),
+            ...(change.trim() ? { change: change.trim() } : {}),
             ...(ownRefs ? { references: refs } : {}),
             ...(likeIt ? { like: likeIt } : {}),
             approval,
@@ -108,6 +111,12 @@ export function ImageGeneratePanel({
         placeholder="Describe the image — who, what, where, the light"
         onChange={(e) => setPrompt(e.target.value)}
       />
+      {(proposed?.change || change) && (
+        <label className="gen-change">
+          <span className="strip-label">Change — added to the prompt</span>
+          <textarea rows={2} value={change} disabled={busy} placeholder="What to change — empty for none" onChange={(e) => setChange(e.target.value)} />
+        </label>
+      )}
       <ReferenceTray value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
       {likeIt && (
         <div className="like-chip">
@@ -118,16 +127,24 @@ export function ImageGeneratePanel({
         </div>
       )}
       <div className="model-pick">
-        {lists && <ModelSelect label="Model" value={chosen} models={models} disabled={busy} onChange={setModel} />}
+        {lists && <ModelSelect label="Model" value={chosen} models={models} placeholder={step.auto_on ? undefined : 'Choose a model…'} disabled={busy} onChange={setModel} />}
         <label className="model-field">
           <span className="strip-label">Images</span>
-          <input type="number" min={1} max={4} value={count} disabled={busy} onChange={(e) => setCount(Math.max(1, Math.min(4, Number(e.target.value) || 1)))} />
+          <input
+            type="number"
+            min={1}
+            max={4}
+            value={count || ''}
+            placeholder="How many?"
+            disabled={busy}
+            onChange={(e) => setCount(e.target.value === '' ? 0 : Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+          />
         </label>
         <button
           className="prime-btn gen-go"
-          disabled={busy || sending || !client || !prompt.trim() || !chosen}
+          disabled={busy || sending || !client || !prompt.trim() || !chosen || !count}
           onClick={() => void generate()}
-          title={busy ? 'Wait for the agent to finish its turn' : `Approve ${chosen} and generate`}
+          title={busy ? 'Wait for the agent to finish its turn' : !chosen || !count ? 'Choose the model and how many first' : `Approve ${chosen} and generate`}
         >
           {sending ? <Loader2 size={14} className="spin" /> : likeIt ? <ImagePlus size={14} /> : <Sparkles size={14} />} Generate
         </button>

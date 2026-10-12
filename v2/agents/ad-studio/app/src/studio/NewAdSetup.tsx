@@ -1,4 +1,4 @@
-/* The studio side of a new ad: three choices on one page — the product photos, the recipe, and who
+/* The studio side of a new ad: three choices on one page — the product photos, the template, and who
  * is in it (or, for a product-only recipe with scene choices, the scene).
  *
  * Every click adds its sentence to the composer (useStartChoice) — the sentences the agent reads
@@ -43,9 +43,12 @@ export function NewAdSetup({
       <header className="new-ad-head">
         <span className="eyebrow-red">Start an ad</span>
         <h2>What are we making?</h2>
-        <p className="page-note">Three choices — then the agent writes the brief and works through the recipe's stages with you.</p>
+        <p className="page-note">
+          Three choices to start. Then each stage asks for its own — the shape, where, how many, the model — and waits for you, unless you
+          switch Auto on.
+        </p>
       </header>
-      {error && <div className="studio-error">Could not load the recipes and cast: {error}</div>}
+      {error && <div className="studio-error">Could not load the templates and cast: {error}</div>}
 
       <section className="new-ad-section">
         <h3 className="new-ad-h">
@@ -88,7 +91,7 @@ export function NewAdSetup({
 
       <section className="new-ad-section">
         <h3 className="new-ad-h">
-          <span className={`new-ad-n${start.recipe ? ' done' : ''}`}>2</span> The recipe
+          <span className={`new-ad-n${start.recipe ? ' done' : ''}`}>2</span> The template
           <span className="new-ad-hint">The stages it runs. Any stage can be re-run, skipped or added to later.</span>
         </h3>
         <RecipeCards recipes={offered} chosen={start.recipe} onPick={(key) => pickRecipe(key, recipes.find((r) => r.key === key)?.start_text)} />
@@ -112,7 +115,7 @@ export function NewAdSetup({
                 <p className="page-note">Or describe your own — the background, the surface, the light — in your message.</p>
               </>
             ) : (
-              <p className="new-ad-none">This recipe has no model in it — nothing to choose here.</p>
+              <p className="new-ad-none">This template has no model in it — nothing to choose here.</p>
             )}
           </>
         ) : (

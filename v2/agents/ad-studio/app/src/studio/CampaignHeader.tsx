@@ -5,7 +5,7 @@
 import type { AgentdClient } from '@agentd/client'
 import { useState } from 'react'
 
-import { money, setApproval, type CampaignDetail, type Media } from '../agentd/campaigns'
+import { money, setApproval, setAutoPick, type CampaignDetail, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { CampaignAssets } from './CampaignAssets'
 
@@ -42,6 +42,28 @@ export function CampaignHeader({ client, campaign, media }: { client: AgentdClie
         </div>
 
         <div className="camp-controls">
+          <div className="camp-control">
+            <span className="strip-label">Choices</span>
+            <div className="seg-switch" role="radiogroup" aria-label="Who makes the choices">
+              {([false, true] as const).map((on) => (
+                <button
+                  key={String(on)}
+                  role="radio"
+                  aria-checked={campaign.auto_pick === on}
+                  className={campaign.auto_pick === on ? 'on' : ''}
+                  disabled={!client}
+                  onClick={() => client && void setAutoPick(client, campaign.campaign_id, on).then(bump)}
+                  title={
+                    on
+                      ? 'The agent fills any choice you leave empty — who, where, how many, the model, the size'
+                      : 'You make every choice; a stage waits until its choices are made'
+                  }
+                >
+                  {on ? 'Agent picks' : 'I choose'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="camp-control">
             <span className="strip-label">Before generating</span>
             <div className="seg-switch" role="radiogroup" aria-label="Model approval">

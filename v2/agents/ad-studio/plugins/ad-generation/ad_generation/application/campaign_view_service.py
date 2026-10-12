@@ -6,15 +6,20 @@ from __future__ import annotations
 
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.interfaces.campaign_store import CampaignStore
+from ad_generation.application.interfaces.category_library import CategoryLibrary
 from ad_generation.application.interfaces.cast_library import CastLibrary
 from ad_generation.application.interfaces.poster_text_store import PosterTextStore
 from ad_generation.application.interfaces.recipe_library import RecipeLibrary
 from ad_generation.application.step_defaults import StepDefaults
 from ad_generation.application.step_media import StepMedia
+from ad_generation.application.template_setting_sources import TemplateSettingSources
+from ad_generation.domain.category_profile import CategoryProfile
 from ad_generation.domain.campaign_checklist import CampaignChecklist
 from ad_generation.domain.campaign_step import CampaignStep
 from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.media_verdict import MediaVerdict
+from ad_generation.domain.recipe import Recipe
+from ad_generation.domain.step_choices import StepChoices
 
 
 class CampaignViewService:
@@ -27,8 +32,12 @@ class CampaignViewService:
         defaults: StepDefaults,
         media: StepMedia,
         texts: PosterTextStore,
+        categories: CategoryLibrary,
+        sources: TemplateSettingSources,
     ) -> None:
         self._texts = texts
+        self._categories = categories
+        self._sources = sources
         self._store = store
         self._recipes = recipes
         self._cast = cast
@@ -42,6 +51,7 @@ class CampaignViewService:
         checklist = self._loader.load(campaign_id)
         profile = self._store.profile(campaign_id)
         recipe = self._recipes.get(checklist.recipe_key)
+        category = self._categories.get(profile.category_key) if profile.category_key else None
         verdicts = self._store.verdicts(campaign_id)
         by_step = self._media.by_step(campaign_id, checklist)
         member = self._cast.get(checklist.cast_name) if checklist.cast_name else None
@@ -52,6 +62,7 @@ class CampaignViewService:
             brief = None
         return {
             "campaign_id": campaign_id,
+            "auto_pick": checklist.auto_pick,
             "recipe_key": checklist.recipe_key,
             "recipe_title": recipe.title,
             "recipe_name": recipe.name,
@@ -66,7 +77,7 @@ class CampaignViewService:
             "current": current.id if current else "",
             "approval": checklist.approval,
             "steps": [
-                self._step_view(campaign_id, checklist, s, by_step.get(s.id, []), verdicts) for s in checklist.steps
+                self._step_view(campaign_id, checklist, s, by_step.get(s.id, []), verdicts, recipe, category) for s in checklist.steps
             ],
         }
 
@@ -114,8 +125,8 @@ class CampaignViewService:
         return [m.to_dict() for m in self._cast.all()]
 
     def recipes(self) -> list[dict]:
-        """Every recipe, for the window to start an ad from: what it is for, its steps in order,
-        and whether it casts a model (then the window offers the cast next)."""
+        """Every recipe (template), for the window to start an ad from: what it is for, its steps in
+        order with the choices each asks for, and whether it casts a model."""
         return [
             {
                 "key": r.key,
@@ -124,7 +135,16 @@ class CampaignViewService:
                 "aspect_ratio": r.aspect_ratio,
                 "budget_usd": r.budget_usd,
                 "covers": r.covers,
-                "steps": [{"id": s.id, "title": s.title, "action": s.action} for s in r.steps],
+                "summary": r.summary,
+                "auto_pick": r.auto_pick,
+                "examples": list(r.examples),
+                "steps": [
+                    {
+                        "id": s.id, "title": s.title, "action": s.action,
+                        "settings": [{**t.to_dict(), "options": list(self._sources.options(t, None))} for t in r.settings_for(s)],
+                    }
+                    for s in r.steps
+                ],
                 "needs_cast": r.needs_cast(),
                 "variants": r.variants,
                 "scene_options": list(r.scene_options),
@@ -143,6 +163,8 @@ class CampaignViewService:
         step: CampaignStep,
         results: list[GeneratedMedia],
         verdicts: dict[str, MediaVerdict],
+        recipe: Recipe,
+        category: CategoryProfile | None,
     ) -> dict:
         rows = [self._result(m, verdicts.get(m.path)) for m in results]
         rows.sort(key=lambda r: r["made_at"], reverse=True)
@@ -160,7 +182,15 @@ class CampaignViewService:
             source_pick = checklist.step(step.source).pick
             made_from = next((r["first_frame"] for r in rows if r["path"] == step.pick), "")
             stale = bool(source_pick and made_from and made_from != source_pick)
-        return {**step.to_dict(), "defaults": defaults, "results": rows, "stale": stale}
+        settings = [
+            {**row, "options": list(self._sources.options(s, category))}
+            for s, row in zip(recipe.settings_for(step), StepChoices.view(recipe, checklist, step))
+        ]
+        return {
+            **step.to_dict(), "defaults": defaults, "results": rows, "stale": stale,
+            # what it asks the user to choose, with each value; Auto fills unchosen ones when on
+            "settings": settings, "auto_on": checklist.auto_for(step),
+        }
 
     def _result(self, media: GeneratedMedia, verdict: MediaVerdict | None) -> dict:
         return {

@@ -9,4 +9,5 @@ from dataclasses import dataclass
 class GenerationBackends:
     image: tuple[str, str]  # (provider, model)
     video: tuple[str, str]  # (provider, model)
+    fix: tuple[str, str]  # (provider, model): the image editor a "redo with fixes" uses
     audio: bool

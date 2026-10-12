@@ -1,6 +1,8 @@
 {
   "name": "Home decor",
   "title": "Home decor",
+  "summary": "Things for the home, styled in a room: stills and a short clip.",
+  "auto_pick": false,
   "covers": "things for the home: vases, lamps, candles, cushions and throws, rugs, mirrors, wall art and prints, ceramics, tableware, planters, small furniture, decorative objects",
   "formats": [
     "interior-styling",

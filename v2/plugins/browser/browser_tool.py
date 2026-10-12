@@ -3,7 +3,7 @@
 The dispatcher over a BrowserProvider. Faithful port of OpenClaw's browser tool,
 at capability parity (and beyond on durable aria refs):
   actions: navigate | snapshot | act | screenshot | tabs | open | focus | close |
-           console | pdf | dialog | upload | status | doctor | profiles
+           console | pdf | dialog | upload | download | status | doctor | profiles
   act kinds: click | clickCoords | type | fill | press | select | hover |
              scrollIntoView | drag | wait | evaluate | resize
 
@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
+from agent_runtime.application.run_context import current_workspace
 from agent_runtime.infrastructure.tools.browser.snapshot import resolve_snapshot_plan
 
 _MODIFIER_ALIASES = {
@@ -48,6 +49,13 @@ _COVER_CHECK_JS = r"""el => {
 }"""
 
 
+def _in_workspace(path: str) -> Path:
+    """A relative path is the running agent's WORKSPACE-relative (the convention every file tool
+    follows); an absolute one is left alone."""
+    p = Path(path)
+    return p if p.is_absolute() else Path(current_workspace(".") or ".") / p
+
+
 class BrowserTool(Tool):
     name = "browser"
     default_timeout_sec = 180.0
@@ -58,7 +66,10 @@ class BrowserTool(Tool):
         "web_search/web_fetch tools can't reach (login-walled, crawler-blocked, or JS-only "
         "pages) — e.g. reading your own messages, private dashboards, or social networks.\n"
         "Control a web browser. Actions: navigate, snapshot, act, screenshot, tabs, open, "
-        "focus, close, console, pdf, dialog, upload, status, doctor, profiles.\n"
+        "focus, close, console, pdf, dialog, upload, download, status, doctor, profiles.\n"
+        "upload: paths (workspace-relative or absolute) into the page's file input. download: "
+        "click what starts a download (ref, x/y, or selector), wait for the file and save it into "
+        "the workspace folder `to` (default downloads/) — returns its path.\n"
         "snapshot returns the page as an accessibility tree with durable [ref=eN] markers; "
         'params: mode="efficient" (compact, faster on big pages), depth, max_chars, urls '
         "(include link targets), labels (add [box] coords for clickCoords), selector/frame "
@@ -99,6 +110,7 @@ class BrowserTool(Tool):
                     "pdf",
                     "dialog",
                     "upload",
+                    "download",
                     "status",
                     "doctor",
                     "profiles",
@@ -244,6 +256,11 @@ class BrowserTool(Tool):
                 "description": "dialog: text to enter for a prompt() dialog.",
             },
             # upload
+            "to": {
+                "type": "string",
+                "description": "download: the workspace folder to save the file in (default downloads). "
+                "screenshot: a workspace folder to save it in (default: the browser's own screenshots folder).",
+            },
             "paths": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -345,6 +362,9 @@ class BrowserTool(Tool):
 
         if action == "upload":
             return await self._upload(params)
+
+        if action == "download":
+            return await self._download(params)
 
         return ToolResult.text(f"Unknown action: {action}", is_error=True)
 
@@ -522,7 +542,9 @@ class BrowserTool(Tool):
     async def _screenshot(self, params) -> ToolResult:
         mgr = self.manager
         page = mgr.resolve_target(self._target(params))
-        shots = Path(self.config.state_dir) / "screenshots"
+        # Into the workspace when asked (`to`), so the agent's other tools can use it — a design
+        # reference, a page to show; else the browser's own folder, as before.
+        shots = _in_workspace(str(params["to"])) if params.get("to") else Path(self.config.state_dir) / "screenshots"
         shots.mkdir(parents=True, exist_ok=True)
         ext = "jpeg" if params.get("image_type") == "jpeg" else "png"
         path = shots / f"shot-{int(time.time() * 1000)}.{ext}"
@@ -546,7 +568,9 @@ class BrowserTool(Tool):
     async def _upload(self, params) -> ToolResult:
         mgr = self.manager
         page = mgr.resolve_target(self._target(params))
-        paths = params.get("paths") or []
+        # Workspace-relative, like every other file a tool names (`uploads/photo.png`); an
+        # absolute path is used as given.
+        paths = [str(_in_workspace(p)) for p in params.get("paths") or []]
         if not paths:
             return ToolResult.text("upload requires paths", is_error=True)
         ref = params.get("input_ref") or params.get("ref")
@@ -562,6 +586,34 @@ class BrowserTool(Tool):
         return ToolResult.text(
             f"Uploaded {len(paths)} file(s).\n\n" + await self._snapshot_text(params)
         )
+
+    async def _download(self, params) -> ToolResult:
+        """Click what starts a download and keep the file: the only way an export a site hands
+        to the BROWSER (a design tool's "Download") reaches the agent's workspace."""
+        mgr = self.manager
+        page = mgr.resolve_target(self._target(params))
+        mgr.active_page = page
+        ref, sel = params.get("ref"), params.get("selector")
+        has_xy = params.get("x") is not None and params.get("y") is not None
+        if not (ref or sel or has_xy):
+            return ToolResult.text("download requires what to click: ref, selector, or x and y", is_error=True)
+        timeout = int(params.get("timeout_ms") or 180000)  # an export can take minutes to prepare
+        async with page.expect_download(timeout=timeout) as info:
+            if ref:
+                await mgr.resolve_ref(ref, page).click()
+            elif sel:
+                await page.locator(sel).click()
+            else:
+                await page.mouse.click(float(params["x"]), float(params["y"]))
+        download = await info.value
+        folder = _in_workspace(str(params.get("to") or "downloads"))
+        folder.mkdir(parents=True, exist_ok=True)
+        name = Path(download.suggested_filename or "download").name
+        target, n = folder / name, 2
+        while target.exists():
+            target, n = folder / f"{Path(name).stem} ({n}){Path(name).suffix}", n + 1
+        await download.save_as(str(target))
+        return ToolResult.text(f"Downloaded {target.name} -> {target}", details={"path": str(target), "name": target.name})
 
     async def _tabs(self, action, params) -> ToolResult:
         mgr = self.manager

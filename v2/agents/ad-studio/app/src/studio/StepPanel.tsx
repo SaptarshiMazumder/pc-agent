@@ -13,7 +13,7 @@ import type { AgentdClient } from '@agentd/client'
 import { RotateCcw, SkipForward } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { pickResult, updateStep, type CampaignDetail, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { pickResult, updateStep, type CampaignDetail, type CampaignStep, type CastMember, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { StageInspector } from './StageInspector'
 import { StageResults, type ActionBox } from './StageResults'
@@ -25,6 +25,7 @@ export function StepPanel({
   step,
   media,
   lists,
+  cast,
   busy,
   onSend,
 }: {
@@ -33,6 +34,7 @@ export function StepPanel({
   step: CampaignStep
   media: Media
   lists: ModelLists | null
+  cast: CastMember[]
   /** The agent is mid-turn: a message now would land in the middle of it. */
   busy: boolean
   onSend: (text: string) => void
@@ -88,7 +90,7 @@ export function StepPanel({
   }
 
   return (
-    <div className="stage">
+    <div className="stage-panel">
       <div className="stage-head">
         <div className="stage-head-title">
           <h3>
@@ -99,9 +101,11 @@ export function StepPanel({
               ? `done · ${step.results.length} made${step.pick ? ' · one picked' : ''} — run it again any time`
               : step.status === 'skipped'
                 ? 'skipped'
-                : step.action === 'brief'
-                  ? 'not written yet'
-                  : 'not made yet'}
+                : step.settings.some((s) => s.missing) && !step.auto_on
+                  ? 'waiting for your choices'
+                  : step.action === 'brief'
+                    ? 'not written yet'
+                    : 'not made yet'}
           </span>
         </div>
         {step.action !== 'brief' && (
@@ -140,6 +144,8 @@ export function StepPanel({
         <StageInspector
           client={client}
           campaign={id}
+          detail={campaign}
+          cast={cast}
           step={step}
           source={source}
           media={media}

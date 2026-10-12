@@ -49,6 +49,8 @@ class CampaignStep:
     # A text ad's design step: "overlay" = the picture without text, the words set on it in real
     # fonts as editable layers; "" = the image model draws the words.
     text: str = ""
+    # This step's Auto switch: None = the campaign's; True / False = this step's own.
+    auto: bool | None = None
 
     def __post_init__(self) -> None:
         if self.action not in ACTIONS:
@@ -82,6 +84,7 @@ class CampaignStep:
             "resolution": self.resolution,
             "proposal": dict(self.proposal),
             "text": self.text,
+            "auto": self.auto,
         }
 
     @classmethod
@@ -104,4 +107,5 @@ class CampaignStep:
             resolution=str(data.get("resolution") or ""),
             proposal=dict(data.get("proposal") or {}),
             text=str(data.get("text") or ""),
+            auto=None if data.get("auto") is None else bool(data.get("auto")),
         )

@@ -89,6 +89,7 @@ class ClipEditTool(Tool):
                 made, verdict = await asyncio.to_thread(
                     service.extend, campaign, step_id, clip, change, seconds, provider, model
                 )
+            self._approvals.settle(campaign, step_id)
             spent = self._store.spent(campaign)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"clip_edit: {type(e).__name__}: {e}", is_error=True)

@@ -116,6 +116,21 @@
     },
     "resolutions": {
       "1080p": "$0.112/s"
+    },
+    "edit": {
+      "endpoint": "fal-ai/kling-video/o3/pro/video-to-video/edit",
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_url",
+        "references": "image_urls"
+      },
+      "max_references": 4,
+      "price": {
+        "per_second": {
+          "any": 0.168
+        }
+      },
+      "price_note": "$0.168/s of the clip"
     }
   },
   "fal-ai/kling-video/v3/standard/image-to-video": {
@@ -142,6 +157,477 @@
     },
     "resolutions": {
       "720p": "$0.084/s"
+    },
+    "edit": {
+      "endpoint": "fal-ai/kling-video/o3/standard/video-to-video/edit",
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_url",
+        "references": "image_urls"
+      },
+      "max_references": 4,
+      "price": {
+        "per_second": {
+          "any": 0.126
+        }
+      },
+      "price_note": "$0.126/s of the clip"
+    }
+  },
+  "fal-ai/nano-banana-pro/edit@4k": {
+    "kind": "image",
+    "endpoint": "fal-ai/nano-banana-pro/edit",
+    "without_references": "fal-ai/nano-banana-pro",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_urls",
+      "count": "num_images",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "4K",
+      "output_format": "png"
+    },
+    "max_count": 4,
+    "max_references": 14,
+    "price": {
+      "per_image": 0.3
+    },
+    "label": "Nano Banana Pro 4K (fal)",
+    "price_note": "$0.30",
+    "source": "https://fal.ai/models/fal-ai/nano-banana-pro/edit/llms.txt"
+  },
+  "openai/gpt-image-2.5/sunburst/edit": {
+    "kind": "image",
+    "without_references": "openai/gpt-image-2.5/sunburst/text-to-image",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_urls",
+      "count": "num_images",
+      "size": "image_size"
+    },
+    "sizes": {
+      "9:16": {
+        "width": 1152,
+        "height": 2048
+      },
+      "16:9": {
+        "width": 2048,
+        "height": 1152
+      },
+      "1:1": {
+        "width": 1536,
+        "height": 1536
+      },
+      "4:5": {
+        "width": 1024,
+        "height": 1280
+      },
+      "3:4": {
+        "width": 1152,
+        "height": 1536
+      },
+      "4:3": {
+        "width": 1536,
+        "height": 1152
+      },
+      "2:3": {
+        "width": 1024,
+        "height": 1536
+      },
+      "3:2": {
+        "width": 1536,
+        "height": 1024
+      }
+    },
+    "fixed": {
+      "quality": "high",
+      "output_format": "png"
+    },
+    "max_count": 4,
+    "max_references": 16,
+    "price": {
+      "per_image": 0.06
+    },
+    "label": "GPT Image 2.5 Sunburst (fal)",
+    "price_note": "~$0.06 (token-billed)",
+    "source": "https://fal.ai/models/openai/gpt-image-2.5/sunburst/edit/llms.txt"
+  },
+  "openai/gpt-image-2.5/flare/edit": {
+    "kind": "image",
+    "without_references": "openai/gpt-image-2.5/flare/text-to-image",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_urls",
+      "count": "num_images",
+      "size": "image_size"
+    },
+    "sizes": {
+      "9:16": {
+        "width": 1152,
+        "height": 2048
+      },
+      "16:9": {
+        "width": 2048,
+        "height": 1152
+      },
+      "1:1": {
+        "width": 1536,
+        "height": 1536
+      },
+      "4:5": {
+        "width": 1024,
+        "height": 1280
+      },
+      "3:4": {
+        "width": 1152,
+        "height": 1536
+      },
+      "4:3": {
+        "width": 1536,
+        "height": 1152
+      },
+      "2:3": {
+        "width": 1024,
+        "height": 1536
+      },
+      "3:2": {
+        "width": 1536,
+        "height": 1024
+      }
+    },
+    "fixed": {
+      "quality": "high",
+      "output_format": "png"
+    },
+    "max_count": 4,
+    "max_references": 16,
+    "price": {
+      "per_image": 0.05
+    },
+    "label": "GPT Image 2.5 Flare — faster (fal)",
+    "price_note": "~$0.05 (token-billed)",
+    "source": "https://fal.ai/models/openai/gpt-image-2.5/flare/edit/llms.txt"
+  },
+  "ideogram/v4.5/edit": {
+    "kind": "image",
+    "without_references": "ideogram/v4.5",
+    "fields": {
+      "prompt": "prompt",
+      "first_reference": "image_url",
+      "references": "reference_image_urls",
+      "count": "num_images",
+      "size": "image_size"
+    },
+    "sizes": {
+      "9:16": {
+        "width": 1152,
+        "height": 2048
+      },
+      "16:9": {
+        "width": 2048,
+        "height": 1152
+      },
+      "1:1": {
+        "width": 1536,
+        "height": 1536
+      },
+      "4:5": {
+        "width": 1024,
+        "height": 1280
+      },
+      "3:4": {
+        "width": 1152,
+        "height": 1536
+      },
+      "4:3": {
+        "width": 1536,
+        "height": 1152
+      },
+      "2:3": {
+        "width": 1024,
+        "height": 1536
+      },
+      "3:2": {
+        "width": 1536,
+        "height": 1024
+      }
+    },
+    "fixed": {
+      "quality": "medium"
+    },
+    "max_count": 4,
+    "max_references": 5,
+    "price": {
+      "per_image": 0.06
+    },
+    "label": "Ideogram 4.5 — best for text (fal; edits the first reference)",
+    "price_note": "$0.06",
+    "source": "https://fal.ai/models/ideogram/v4.5/edit/llms.txt"
+  },
+  "blackforestlabs/flux-3/edit-image": {
+    "kind": "image",
+    "without_references": "blackforestlabs/flux-3/text-to-image",
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_urls",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "fixed": {
+      "resolution": "2k",
+      "output_format": "png"
+    },
+    "max_count": 1,
+    "max_references": 10,
+    "price": {
+      "per_image": 0.096
+    },
+    "label": "FLUX 3 — good text, 10 references (fal)",
+    "price_note": "~$0.10 at 2K",
+    "source": "https://fal.ai/models/blackforestlabs/flux-3/edit-image/llms.txt"
+  },
+  "fal-ai/kling-video/v3/4k/image-to-video": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "start_image_url",
+      "duration": "duration",
+      "audio": "generate_audio"
+    },
+    "duration_type": "string",
+    "price": {
+      "per_second": {
+        "any": 0.42
+      }
+    },
+    "durations": {
+      "min": 3,
+      "max": 15
+    },
+    "resolutions": {
+      "4K": "$0.42/s"
+    },
+    "label": "Kling 3 · 4K (fal)",
+    "price_note": "$0.42/s",
+    "source": "https://fal.ai/models/fal-ai/kling-video/v3/4k/image-to-video/llms.txt",
+    "edit": {
+      "endpoint": "fal-ai/kling-video/o3/4k/video-to-video/edit",
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_url",
+        "references": "image_urls"
+      },
+      "max_references": 4,
+      "price": {
+        "per_second": {
+          "any": 0.42
+        }
+      },
+      "price_note": "$0.42/s of the clip"
+    }
+  },
+  "bytedance/seedance-2.5/reference-to-video": {
+    "kind": "video",
+    "first_frame_in_references": true,
+    "fields": {
+      "prompt": "prompt",
+      "references": "image_urls",
+      "resolution": "resolution",
+      "duration": "duration",
+      "audio": "generate_audio",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "aspect_ratios": [
+      "21:9",
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16"
+    ],
+    "duration_type": "string",
+    "max_references": 30,
+    "price": {
+      "per_second": {
+        "480p": 0.2205,
+        "720p": 0.473,
+        "1080p": 1.164
+      }
+    },
+    "durations": {
+      "min": 4,
+      "max": 30
+    },
+    "resolutions": {
+      "480p": "$0.22/s",
+      "720p": "$0.47/s",
+      "1080p": "$1.16/s"
+    },
+    "label": "Seedance 2.5 with the cast's references (fal)",
+    "price_note": "$0.47/s at 720p",
+    "source": "https://fal.ai/models/bytedance/seedance-2.5/reference-to-video/llms.txt",
+    "edit": {
+      "fixed": {
+        "task": "editing"
+      },
+      "video_list": true,
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_urls",
+        "references": "image_urls"
+      },
+      "max_references": 30,
+      "price": {
+        "per_second": {
+          "any": 0.2838
+        }
+      },
+      "price_note": "$0.28/s of the clip"
+    },
+    "extend": {
+      "fixed": {
+        "task": "extension"
+      },
+      "video_list": true,
+      "duration_type": "string",
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_urls",
+        "duration": "duration"
+      },
+      "price": {
+        "per_second": {
+          "any": 0.2838
+        }
+      },
+      "price_note": "$0.28/s added"
+    }
+  },
+  "minimax/h3/image-to-video": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "image_url",
+      "resolution": "resolution",
+      "duration": "duration"
+    },
+    "price": {
+      "per_second": {
+        "480P": 0.05,
+        "768P": 0.06,
+        "2K": 0.13,
+        "4K": 0.16
+      }
+    },
+    "durations": {
+      "min": 5,
+      "max": 15
+    },
+    "resolutions": {
+      "768P": "$0.06/s",
+      "2K": "$0.13/s",
+      "4K": "$0.16/s",
+      "480P": "$0.05/s"
+    },
+    "label": "MiniMax H3 (fal)",
+    "price_note": "$0.06/s at 768P",
+    "source": "https://fal.ai/models/minimax/h3/image-to-video/llms.txt"
+  },
+  "minimax/h3-max/image-to-video": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "image_url",
+      "resolution": "resolution",
+      "duration": "duration"
+    },
+    "price": {
+      "per_second": {
+        "480P": 0.05,
+        "768P": 0.08,
+        "1080P": 0.16
+      }
+    },
+    "durations": {
+      "min": 1,
+      "max": 15
+    },
+    "resolutions": {
+      "768P": "$0.08/s",
+      "1080P": "$0.16/s",
+      "480P": "$0.05/s"
+    },
+    "label": "MiniMax H3 Max (fal)",
+    "price_note": "$0.08/s at 768P",
+    "source": "https://fal.ai/models/minimax/h3-max/image-to-video/llms.txt",
+    "extend": {
+      "endpoint": "minimax/h3-max/extend-video",
+      "fixed": {
+        "output": "extended",
+        "resolution": "768P"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_url",
+        "duration": "duration"
+      },
+      "price": {
+        "per_second": {
+          "any": 0.08
+        }
+      },
+      "price_note": "$0.08/s added"
+    }
+  },
+  "google/gemini-omni-flash/v1.1/image-to-video": {
+    "kind": "video",
+    "fields": {
+      "prompt": "prompt",
+      "first_frame": "image_url",
+      "resolution": "resolution",
+      "duration": "duration",
+      "aspect_ratio": "aspect_ratio"
+    },
+    "aspect_ratios": [
+      "16:9",
+      "9:16"
+    ],
+    "price": {
+      "per_second": {
+        "360p": 0.03,
+        "720p": 0.1,
+        "1080p": 0.15,
+        "4k": 0.3
+      }
+    },
+    "durations": {
+      "min": 3,
+      "max": 10
+    },
+    "resolutions": {
+      "720p": "$0.10/s",
+      "1080p": "$0.15/s",
+      "4k": "$0.30/s",
+      "360p": "$0.03/s"
+    },
+    "label": "Gemini Omni Flash 1.1 (fal; always with sound)",
+    "price_note": "$0.10/s at 720p",
+    "source": "https://fal.ai/models/google/gemini-omni-flash/v1.1/image-to-video/llms.txt",
+    "edit": {
+      "endpoint": "google/gemini-omni-flash/v1.1/edit",
+      "fixed": {
+        "resolution": "720p"
+      },
+      "fields": {
+        "prompt": "prompt",
+        "video": "video_url"
+      },
+      "price": {
+        "per_second": {
+          "any": 0.1
+        }
+      },
+      "price_note": "$0.10/s of the clip (no references)"
     }
   }
 }

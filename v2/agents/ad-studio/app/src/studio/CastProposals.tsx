@@ -14,11 +14,14 @@ import { ViewableMedia, viewerItem } from './ViewableMedia'
 
 export function CastProposals({
   client,
+  connected,
   lists,
   running,
   onSend,
 }: {
   client: AgentdClient | null
+  /** Read only once the connection is open — before that every call fails with "not connected". */
+  connected: boolean
   lists: ModelLists | null
   running: boolean
   onSend: (text: string) => void
@@ -27,14 +30,14 @@ export function CastProposals({
   const [data, setData] = useState<{ proposed: CastProposal[]; media: Media } | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
-    if (!client) return
+    if (!client || !connected) return
     listCast(client)
       .then((d) => {
         setData({ proposed: d.proposed, media: d.media })
         setError('')
       })
       .catch((e) => setError(String(e?.message || e)))
-  }, [client, tick])
+  }, [client, connected, tick])
 
   if (error) return <div className="studio-error">Could not read the proposed cast: {error}</div>
   if (!data?.proposed.length) return null

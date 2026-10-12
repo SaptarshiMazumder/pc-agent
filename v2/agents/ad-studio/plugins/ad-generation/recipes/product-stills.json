@@ -1,6 +1,8 @@
 {
   "name": "Product stills",
   "title": "Product stills — the product alone, in natural light",
+  "summary": "The product alone in natural light, for listings and feed posts.",
+  "auto_pick": false,
   "covers": "product-only still images of ANY product, with no person in them: packshots, gift boxes, flat lays, the product on a styled surface — chosen by the user, never matched automatically",
   "auto": false,
   "formats": [
@@ -32,7 +34,25 @@
     {
       "id": "brief",
       "title": "Brief",
-      "action": "brief"
+      "action": "brief",
+      "settings": [
+        {
+          "key": "aspect_ratio",
+          "options": [
+            "3:4",
+            "4:5",
+            "1:1",
+            "9:16"
+          ],
+          "suggested": "3:4"
+        },
+        {
+          "key": "background",
+          "required": true
+        },
+        "time_of_day",
+        "mood"
+      ]
     },
     {
       "id": "product-sheet",
@@ -40,7 +60,7 @@
       "action": "product_sheet",
       "cast": false,
       "shows_product": true,
-      "model": "higgsfield/gpt_image_2_5"
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
     },
     {
       "id": "stills",

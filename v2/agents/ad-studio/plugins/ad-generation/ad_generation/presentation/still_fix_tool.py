@@ -88,6 +88,7 @@ class StillFixTool(Tool):
                 model,
                 tuple(str(t) for t in params.get("text") or ()),
             )
+            self._approvals.settle(campaign, step_id)
             spent = self._store.spent(campaign)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"still_fix: {type(e).__name__}: {e}", is_error=True)

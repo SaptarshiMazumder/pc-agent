@@ -1,4 +1,15 @@
-"""Images on fal. The request's fields come from the model's spec (model_specs/fal.json)."""
+"""Images on fal. The request's fields come from the model's spec (model_specs/fal.json):
+
+    "endpoint"            the fal endpoint, when it differs from the spec's key (one endpoint
+                          offered twice — Nano Banana Pro at 2K and at 4K)
+    "without_references"  the endpoint to call when no reference image is given
+    fields.first_reference
+                          a model that EDITS a source image (Ideogram): the first reference is
+                          sent as that image, the rest as its references
+    fields.size / sizes   a size in pixels per aspect ratio, for models that take no ratio
+    fields.count          absent when a model makes one image per call — then it is called once
+                          per image wanted
+"""
 
 from __future__ import annotations
 
@@ -34,14 +45,21 @@ class FalImageGenerator:
     def generate(self, request: ImageRequest) -> list[GeneratedMedia]:
         spec = self._specs.spec(PROVIDER, request.model, "image")
         fields = spec["fields"]
-        model = request.model
+        endpoint = str(spec.get("endpoint") or request.model)
         payload = dict(spec.get("fixed") or {})
         payload[fields["prompt"]] = request.prompt
-        if request.references:
-            payload[fields["references"]] = [self._encoder.encode(r) for r in request.references]
+        refs = list(request.references)
+        if spec.get("max_references"):
+            refs = refs[: int(spec["max_references"])]
+        if refs:
+            if "first_reference" in fields:
+                payload[fields["first_reference"]] = self._encoder.encode(refs[0])
+                refs = refs[1:]
+            if refs:
+                payload[fields["references"]] = [self._encoder.encode(r) for r in refs]
         else:
             # The edit endpoints require an input image; the spec names the endpoint without one.
-            model = spec.get("without_references") or model
+            endpoint = str(spec.get("without_references") or endpoint)
         if "aspect_ratio" in fields:
             payload[fields["aspect_ratio"]] = request.aspect_ratio
         if "size" in fields:
@@ -49,21 +67,27 @@ class FalImageGenerator:
             if request.aspect_ratio not in sizes:
                 raise ValueError(f"{request.model} has no size for {request.aspect_ratio} (has: {', '.join(sizes)})")
             payload[fields["size"]] = sizes[request.aspect_ratio]
-        if request.variants > int(spec.get("max_count", 1)):
+        if request.variants > int(spec.get("max_count", 1)) and "count" in fields:
             raise ValueError(f"{request.model} makes at most {spec.get('max_count', 1)} images per call")
-        payload[fields["count"]] = request.variants
 
         each = self._prices.image(spec, len(request.references))
         if request.max_usd and each * request.variants > request.max_usd:
             raise BudgetExceeded(request.model, each * request.variants, request.max_usd)
-        result = self._queue.run(model, payload, self._timeout_s)
-        images = result.get("images") or []
-        if not images:
-            raise RuntimeError(f"fal returned no image for {model}: {str(result)[:300]}")
+        if "count" in fields:
+            payload[fields["count"]] = request.variants
+            calls = [payload]
+        else:
+            calls = [payload] * request.variants
+        images = []
+        for call in calls:
+            result = self._queue.run(endpoint, call, self._timeout_s)
+            images += result.get("images") or []
+            if not result.get("images"):
+                raise RuntimeError(f"fal returned no image for {endpoint}: {str(result)[:300]}")
         out = []
         for n, image in enumerate(images, 1):
             path = self._downloader.save(image["url"], f"{request.out_stem}-{n}", image.get("content_type", ""), ".png")
             out.append(
-                GeneratedMedia(path=path, kind="image", provider=PROVIDER, model=model, cost_usd=each, cost_basis="estimate")
+                GeneratedMedia(path=path, kind="image", provider=PROVIDER, model=request.model, cost_usd=each, cost_basis="estimate")
             )
         return out

@@ -865,7 +865,8 @@ button.stage-btn:hover { border-color: var(--border2); }
 .stage-all.on { color: var(--text); border-color: var(--accent); }
 
 /* one stage: its results | the form that makes more */
-.stage { display: flex; flex-direction: column; gap: 14px; }
+/* not `.stage`: the app shell's styles.css owns that name (its chat stage grid) */
+.stage-panel { flex: none; display: flex; flex-direction: column; gap: 14px; }
 .stage-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
 .stage-head-title { flex: 1 1 240px; display: flex; flex-direction: column; gap: 3px; }
 .stage-head-title h3 { margin: 0; font: var(--fw-bold) 26px/1.05 var(--display); letter-spacing: .02em; text-transform: uppercase; color: var(--text); }
@@ -887,7 +888,7 @@ button.stage-btn:hover { border-color: var(--border2); }
 
 /* the foot of a stage: its pick, and the way on */
 .carry-bar {
-  position: sticky; bottom: -28px; z-index: 3; margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  position: static; margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
   padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-panel);
   box-shadow: 0 -10px 24px -12px rgba(0,0,0,.8);
 }
@@ -927,3 +928,67 @@ button.stage-btn:hover { border-color: var(--border2); }
   .filmstrip { flex-direction: row; overflow-x: auto; }
   .filmstrip li { flex: none; width: 76px; }
 }
+
+/* the library */
+.library-page { position: relative; }
+.library-page.dragging { outline: 2px dashed var(--accent); outline-offset: -10px; }
+.library-upload { align-items: center; margin-bottom: 14px; }
+.library-campaign { margin-left: 8px; }
+.library-grid { margin-top: 12px; padding-bottom: 70px; }
+.library-grid .gen-media { aspect-ratio: 4 / 5; }
+.library-grid .tile-select { display: grid; place-items: center; color: #fff; }
+.library-grid .tile-select.on { background: var(--accent); border-color: var(--accent); }
+.library-remove { align-self: flex-start; }
+.library-bar { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 12px; background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--r-panel); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.library-bar .decision-input { max-width: 240px; }
+.carry-hide { flex: none; }
+.gen-change { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.gen-change textarea { width: 100%; resize: vertical; font: inherit; background: var(--bg3); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-control); padding: 6px 8px; }
+
+/* ── a stage's choices (StepSettingsForm) ─────────────────────────────────────────────────── */
+.step-choices { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; margin-bottom: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel); }
+.step-choices-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.step-choices-none { margin: 0; color: var(--dim); font-size: var(--fs-small); }
+.step-choices-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 12px; }
+.step-choice { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.step-choice input, .step-choice select {
+  width: 100%; min-width: 0; padding: 7px 9px; border-radius: var(--r-control); border: 1px solid var(--border);
+  background: var(--bg4); color: var(--text); font: inherit; font-size: var(--fs-small);
+}
+.step-choice input:focus, .step-choice select:focus { outline: none; border-color: var(--accent); }
+.step-choice.needed input, .step-choice.needed select, .step-choice.needed .seg-switch { border-color: var(--accent); }
+.choice-needed { color: var(--accent); text-transform: none; letter-spacing: 0; }
+.step-choice .model-field { min-width: 0; }
+.seg-switch.small button { padding: 4px 9px; font-size: var(--fs-small); }
+.recipe-summary-line { color: var(--text); font-size: var(--fs-small); }
+
+/* ── the Templates page ───────────────────────────────────────────────────────────────────── */
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.template-card { display: flex; flex-direction: column; gap: 12px; padding: 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel); }
+.template-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.template-summary { margin: 0; color: var(--text); font-size: var(--fs-help); }
+.template-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.template-stages li { display: grid; grid-template-columns: auto 1fr; align-items: start; column-gap: 8px; row-gap: 4px; }
+.template-stage-title { font-weight: var(--fw-semi); color: var(--text); font-size: var(--fs-small); }
+.template-stage-choices { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+.template-choice { padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--dim); font-size: 11px; }
+.template-choice.required { color: var(--text); border-color: var(--text); }
+.template-card-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 640px) { .template-grid { grid-template-columns: 1fr; } }
+
+/* ── compare with the product (CompareView) ───────────────────────────────────────────────── */
+.compare-view { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.78); }
+.compare-body { display: flex; flex-direction: column; gap: 12px; width: min(1200px, 100%); max-height: 100%; padding: 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-panel); overflow: auto; }
+.compare-head { display: flex; align-items: center; justify-content: space-between; }
+.compare-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-height: 0; }
+.compare-pane { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.compare-pane figcaption { color: var(--dim); font-size: var(--fs-small); }
+.compare-pane > img, .compare-pane > video { width: 100%; max-height: 66vh; object-fit: contain; background: var(--bg4); border-radius: var(--r-control); }
+.compare-thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+.compare-thumbs button { padding: 0; width: 52px; height: 52px; border: 2px solid transparent; border-radius: var(--r-control); overflow: hidden; background: none; cursor: pointer; }
+.compare-thumbs button.on { border-color: var(--accent); }
+.compare-thumbs img { width: 100%; height: 100%; object-fit: cover; }
+.compare-findings { display: flex; flex-direction: column; gap: 8px; }
+.compare-findings ul { margin: 0; padding-left: 18px; color: var(--text); font-size: var(--fs-small); }
+.compare-findings .prime-btn { align-self: flex-start; }
+@media (max-width: 720px) { .compare-panes { grid-template-columns: 1fr; } }

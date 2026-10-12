@@ -11,8 +11,9 @@
 import type { AgentdClient } from '@agentd/client'
 import { AlertTriangle, Type } from 'lucide-react'
 
-import { posterText, updateStep, type CampaignDetail, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { isVideo, posterText, updateStep, type CampaignDetail, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { BriefView } from './BriefView'
+import { CompareView } from './CompareView'
 import { ModelTextEdit } from './ModelTextEdit'
 import { PosterTextEditor } from './PosterTextEditor'
 import { ResultActionBox, type ChangeAction } from './ResultActionBox'
@@ -115,15 +116,25 @@ export function StageResults({
             media={media}
             picking={picking}
             onPick={onPick}
-            actions={poster ? ['text', 'fix', 'like'] : ['fix', 'like']}
+            actions={poster ? ['redo', 'text', 'fix', 'like', 'compare'] : ['redo', 'fix', 'like', 'compare']}
             active={box}
             onAction={onAction}
           />
         </UploadImages>
       ) : (
-        <ResultGrid campaign={id} step={step} media={media} picking={picking} onPick={onPick} actions={['edit', 'extend']} active={box} onAction={onAction} />
+        <ResultGrid campaign={id} step={step} media={media} picking={picking} onPick={onPick} actions={['edit', 'extend', 'compare']} active={box} onAction={onAction} />
       )}
       {empty}
+
+      {box?.action === 'compare' && boxResult && (
+        <CompareView
+          result={boxResult}
+          photos={campaign.product.photos}
+          media={media}
+          onRedo={boxResult.passed === false && !isVideo(boxResult.path) ? () => onAction('redo', boxResult.path) : undefined}
+          onClose={onCloseBox}
+        />
+      )}
 
       {box?.action === 'text' && boxResult?.editable && (
         <PosterTextEditor key={box.path} client={client} campaign={id} step={step.id} design={box.path} picked={step.pick === box.path} media={media} onClose={onCloseBox} />
@@ -180,14 +191,21 @@ export function StageResults({
         </div>
       )}
 
-      {box && box.action !== 'like' && box.action !== 'text' && (
+      {box && box.action !== 'like' && box.action !== 'text' && box.action !== 'compare' && (
         <ResultActionBox
           key={`${box.action}:${box.path}:${JSON.stringify(proposal || {})}`}
           client={client}
-          proposed={proposedBox && proposedBox.path === box.path && proposedBox.action === box.action ? proposal?.args : null}
+          proposed={
+            // Redo with fixes: the fix box, pre-filled with what the accuracy check found.
+            box.action === 'redo'
+              ? { change: (boxResult?.problems || []).join('; ') }
+              : proposedBox && proposedBox.path === box.path && proposedBox.action === box.action
+                ? proposal?.args
+                : null
+          }
           campaign={id}
           step={step.id}
-          action={box.action as ChangeAction}
+          action={(box.action === 'redo' ? 'fix' : box.action) as ChangeAction}
           path={box.path}
           media={media}
           lists={lists}

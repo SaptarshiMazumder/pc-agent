@@ -1,0 +1,26 @@
+{
+  "name": "Saree",
+  "kind": "wear",
+  "covers": "sarees of every weave: Banarasi, Kanjeevaram, Chanderi, Tussar, cotton, georgette, organza, printed and embroidered sarees",
+  "template": "ethnic-wear",
+  "checks": [
+    "the border: its width, motif and colour, along the whole length",
+    "the pallu: its motif, colour and how densely it is woven or printed",
+    "the body: its colour, and the size and spacing of any butis or print",
+    "the zari or embroidery: its metal tone (gold, silver, copper) and where it sits",
+    "the fabric's sheen and fall (silk shine, cotton matte, organza sheer)"
+  ],
+  "shot": "Full length or three-quarter, so the drape, the border and the pallu all read; the pallu spread or falling over the shoulder toward the camera; the blouse simple and matching unless the user says otherwise.",
+  "locations": [
+    "jaipur-haveli",
+    "temple-corridor",
+    "north-kolkata-house",
+    "udaipur-ghat"
+  ],
+  "poses": [
+    "standing, pallu falling over the left shoulder",
+    "walking, the pallu flowing behind",
+    "pallu held open in one hand to show its motif",
+    "seated on steps, the border spread around her"
+  ]
+}

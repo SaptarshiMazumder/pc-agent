@@ -32,6 +32,7 @@ def provider_settings(config, provider: str) -> dict:
 # fix and extension reads its default from them.
 IMAGES = "images"
 VIDEO = "video"
+FIX = "still_fix"
 
 
 def plugin_setting(config, key: str, default):
@@ -53,6 +54,7 @@ class GenerationBackendResolver:
         return GenerationBackends(
             image=self.resolve(IMAGES, "", ""),
             video=self.resolve(VIDEO, "", ""),
+            fix=self.resolve(FIX, "", ""),
             audio=bool(tool_config(self._config, PLUGIN, VIDEO, "audio", False)),
         )
 

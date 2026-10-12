@@ -31,6 +31,10 @@ class ProductProfile:
     # The words printed on the product, exactly, as far as they read on a phone screen — what an
     # image model garbles first and a checker reads back. Empty when it has none.
     label_text: tuple[str, ...] = ()
+    # The category it was matched to (categories/<key>.json); "" when none fits.
+    category_key: str = ""
+    # That category's framing — how a picture of one is shot so it reads (the brief follows it).
+    shot_guidance: str = ""
 
     @classmethod
     def from_dict(cls, data: dict, photos: tuple[str, ...]) -> "ProductProfile":
@@ -50,6 +54,8 @@ class ProductProfile:
             recipe=str(data.get("recipe") or "").strip(),
             size=str(data.get("size") or "").strip(),
             label_text=_texts(data.get("label_text")),
+            category_key=str(data.get("category_key") or "").strip(),
+            shot_guidance=str(data.get("shot_guidance") or "").strip(),
         )
 
     @classmethod

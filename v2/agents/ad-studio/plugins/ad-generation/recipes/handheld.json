@@ -1,6 +1,8 @@
 {
   "name": "Handheld",
   "title": "Handheld — beauty, fragrance, small gadgets, held or used in the hand",
+  "summary": "Beauty, fragrance and small gadgets, held or used by a model: stills and a short clip.",
+  "auto_pick": false,
   "covers": "products held in one hand or used on the body: perfume and fragrance, skincare (serums, creams, cleansers), hand and body lotion, cosmetics and makeup (lipstick, compacts, palettes), haircare bottles, bottles, jars and tubes, headphones and earbuds, phones and phone cases, small gadgets and devices",
   "formats": [
     "in-hand-closeup",
@@ -33,7 +35,7 @@
       "action": "product_sheet",
       "cast": false,
       "shows_product": true,
-      "model": "higgsfield/gpt_image_2_5"
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
     },
     {
       "id": "stills",
@@ -42,7 +44,7 @@
       "scene": "s1",
       "cast": true,
       "shows_product": true,
-      "model": "higgsfield/gpt_image_2_5"
+      "model": "fal/openai/gpt-image-2.5/sunburst/edit"
     },
     {
       "id": "clip",

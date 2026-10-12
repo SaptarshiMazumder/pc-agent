@@ -32,7 +32,7 @@ export function StartSummary({ client, session }: { client: AgentdClient | null;
         <span className="start-card-title">Your ad, so far</span>
 
         <div className="start-row">
-          <span className="strip-label">Recipe{recipe ? ` · ${recipe.name}` : ''}</span>
+          <span className="strip-label">Template{recipe ? ` · ${recipe.name}` : ''}</span>
           {recipe ? (
             <ol className="start-stages">
               {recipe.steps.map((s, i) => (

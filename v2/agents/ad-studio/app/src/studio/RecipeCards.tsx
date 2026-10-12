@@ -29,6 +29,7 @@ export function RecipeCards({
             <b>{r.name}</b>
             <span className="recipe-out">{output(r)}</span>
           </span>
+          {r.summary && <span className="recipe-summary-line">{r.summary}</span>}
           <span className="recipe-covers-line">{r.covers}</span>
           <span className="recipe-steps">
             {r.steps.map((s, i) => (

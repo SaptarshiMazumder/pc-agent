@@ -13,14 +13,17 @@ import type { AgentdClient } from '@agentd/client'
 import { RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, command, startValue, type CampaignDetail, type CampaignStep, type CastMember, type Media, type ModelLists } from '../agentd/campaigns'
 import { ImageGeneratePanel } from './ImageGeneratePanel'
 import { ModelSelect } from './ModelSelect'
+import { StepSettingsForm } from './StepSettingsForm'
 import { VideoGeneratePanel } from './VideoGeneratePanel'
 
 export function StageInspector({
   client,
   campaign,
+  detail,
+  cast,
   step,
   source,
   media,
@@ -33,6 +36,8 @@ export function StageInspector({
 }: {
   client: AgentdClient | null
   campaign: string
+  detail: CampaignDetail
+  cast: CastMember[]
   step: CampaignStep
   source: CampaignStep | undefined
   media: Media
@@ -50,10 +55,35 @@ export function StageInspector({
   const sheetProposal = isSheet && proposal?.tool === 'step_run' ? proposal.args || {} : null
   const [change, setChange] = useState<string>(sheetProposal?.change || '')
   const [sheetModel, setSheetModel] = useState<string>(sheetProposal?.model || '')
+  // Manual by default: a stage whose required choices are unmade does not run.
+  const unmade = step.settings.filter((s) => s.missing).map((s) => s.label)
+  const waiting = unmade.length > 0 && !step.auto_on
+  const choices = (homes?: CampaignStep['settings'][number]['home'][]) => (
+    <StepSettingsForm client={client} campaign={detail} step={step} cast={cast} lists={lists} busy={busy} homes={homes} direct={direct} />
+  )
+
+  if (step.action === 'brief' && step.status === 'todo')
+    return (
+      <aside className="stage-inspector">
+        {choices()}
+        <div className="gen-panel">
+          <span className="strip-label">{waiting ? `Choose ${unmade.join(', ')} — then write the brief` : 'Write the brief'}</span>
+          <button
+            className="prime-btn gen-go"
+            disabled={busy || waiting}
+            onClick={() => onSend(command(`${campaign} · write the brief`, 'step_run', { campaign, step: step.id }))}
+            title={waiting ? 'Make the choices above first — or switch Auto on' : 'Write the brief with these choices'}
+          >
+            <RotateCcw size={14} /> Write the brief
+          </button>
+        </div>
+      </aside>
+    )
 
   if (step.action === 'brief')
     return (
       <aside className="stage-inspector">
+        {choices()}
         <div className="gen-panel">
           <span className="strip-label">Rewrite the brief</span>
           <textarea
@@ -78,9 +108,11 @@ export function StageInspector({
       </aside>
     )
 
+  const sheetChosen = sheetModel || startValue(step, 'model', lists?.image.default || '')
   if (isSheet)
     return (
       <aside className="stage-inspector">
+        {choices(['cast', 'direction'])}
         <div className={`gen-panel${sheetProposal ? ' proposed' : ''}`}>
           <span className="strip-label">
             {sheetProposal
@@ -106,7 +138,8 @@ export function StageInspector({
             {lists && (
               <ModelSelect
                 label="Model"
-                value={sheetModel || step.model || lists.image.default}
+                value={sheetChosen}
+                placeholder={step.auto_on ? undefined : 'Choose a model…'}
                 models={
                   step.action === 'product_sheet' ? lists.image.models.filter((m) => m.max_references === null || m.max_references >= 2) : lists.image.models
                 }
@@ -116,10 +149,10 @@ export function StageInspector({
             )}
             <button
               className="prime-btn gen-go"
-              disabled={busy || !client}
+              disabled={busy || !client || !sheetChosen}
               onClick={() =>
                 direct(async () => {
-                  const model = sheetModel || step.model || lists?.image.default || ''
+                  const model = sheetChosen
                   const approval = await approveRun(client!, campaign, step.id, 'step_run', { model })
                   onSend(
                     command(`${campaign} · ${step.title} on ${model}${change.trim() ? `: ${change.trim()}` : ''}`, 'step_run', {
@@ -143,9 +176,10 @@ export function StageInspector({
 
   return (
     <aside className="stage-inspector">
+      {choices(['cast', 'direction'])}
       {step.action === 'images' ? (
         <ImageGeneratePanel
-          key={`${step.id}:${step.defaults.prompt}:${step.defaults.references.join('|')}:${JSON.stringify(step.proposal || {})}`}
+          key={`${step.id}:${step.auto_on}:${step.defaults.prompt}:${step.defaults.references.join('|')}:${JSON.stringify(step.proposal || {})}`}
           client={client}
           campaign={campaign}
           step={step}
@@ -161,7 +195,7 @@ export function StageInspector({
         />
       ) : (
         <VideoGeneratePanel
-          key={`${step.id}:${source?.pick || ''}:${step.defaults.prompt}:${JSON.stringify(step.proposal || {})}`}
+          key={`${step.id}:${step.auto_on}:${source?.pick || ''}:${step.defaults.prompt}:${JSON.stringify(step.proposal || {})}`}
           client={client}
           campaign={campaign}
           step={step}
