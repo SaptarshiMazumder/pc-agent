@@ -177,12 +177,20 @@ class HttpRegistryPublisher:
                     f"{self.name} answered the upload request without an upload slot: "
                     f"{slot_response.text[:500]}. Nothing was published.",
                 )
-            stored = httpx.post(
-                str(slot["url"]),
-                data=dict(slot.get("fields") or {}),
-                files={"file": (package.name, package.read_bytes(), "application/octet-stream")},
-                timeout=self._timeout,
-            )
+            method = str(slot.get("method") or "POST").upper()
+            if method == "PUT":
+                # Storage receives the object signature, never the platform session token.
+                stored = httpx.put(str(slot["url"]), content=package.read_bytes(),
+                                   headers={"Content-Type": "application/octet-stream"},
+                                   timeout=self._timeout)
+            elif method == "POST":
+                stored = httpx.post(
+                    str(slot["url"]), data=dict(slot.get("fields") or {}),
+                    files={"file": (package.name, package.read_bytes(), "application/octet-stream")},
+                    timeout=self._timeout,
+                )
+            else:
+                return self._refused(manifest, "unsupported upload method; nothing was published")
             if stored.status_code not in (200, 201, 204):
                 return self._refused(
                     manifest,

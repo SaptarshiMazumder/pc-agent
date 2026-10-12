@@ -78,6 +78,7 @@ jobs:
   # ── Job 1: decide which environment. No AWS, no gate — its ONLY purpose is to produce
   # the env name in the `needs.*` context so Job 2's `environment:` key can read it.
   resolve:
+    if: vars.AGENTD_HOSTING != 'ovh'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}

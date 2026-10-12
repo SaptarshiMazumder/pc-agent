@@ -1,0 +1,48 @@
+name: OVH production images
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: ovh-images-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish immutable production images
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          PLATFORM_HOST: ${{ vars.AGENTD_PROD_PLATFORM_HOST || 'platform.nakamaai.co' }}
+          REGISTRY_BASE: ${{ vars.AGENTD_PROD_REGISTRY_BASE || 'https://registry.nakamaai.co' }}
+        run: |
+          set -euo pipefail
+          prefix="ghcr.io/${REPOSITORY,,}"
+          cd v2
+          build() { docker buildx build --platform linux/amd64 --push -t "$prefix/$1:$COMMIT" -f "$2" "${@:3}" .; }
+          build daemon deploy/docker/Dockerfile
+          build executor services/executor/Dockerfile --build-arg "BASE_IMAGE=$prefix/daemon:$COMMIT"
+          build accounts accounts/Dockerfile
+          build model-proxy model_proxy/Dockerfile
+          build ingest ingest/Dockerfile
+          build builder services/builder/Dockerfile
+          build publish services/publish/Dockerfile
+          build controller services/runtime_controller/Dockerfile
+          docker buildx build --platform linux/amd64 --push -t "$prefix/web:$COMMIT" -f clients/web/Dockerfile \
+            --build-arg "VITE_AGENTD_PLATFORM_URL=https://$PLATFORM_HOST:4100" \
+            --build-arg "VITE_AGENTD_INGEST_URL=https://$PLATFORM_HOST:4200" clients
+          docker buildx build --platform linux/amd64 --push -t "$prefix/marketplace:$COMMIT" \
+            --build-arg "VITE_AGENTD_CATALOG_URL=$REGISTRY_BASE/catalog.json" -f deploy/ovh/Marketplace.Dockerfile clients
+          docker buildx build --platform linux/amd64 --push -t "$prefix/caddy:$COMMIT" -f deploy/ovh/Caddy.Dockerfile deploy/ovh
+          echo "Use IMAGE_PREFIX=$prefix and IMAGE_TAG=$COMMIT on the host. This workflow does not deploy."

@@ -1,5 +1,7 @@
 # Agentd production resources and migration plan
 
+**Current implementation:** one OVH production host, existing Neon database retained, no staging or GPU. Follow [OVH setup](ovh/README.md). The inventory and alternatives below record the earlier audit; their self-hosted database proposal is superseded.
+
 Updated October 12, 2026. One production environment, with all cloud features enabled and no staging environment.
 
 The user's later single-machine, no-GPU scope is priced in [Single server production](SINGLE-SERVER-PRODUCTION.md). Use that plan for the current purchasing decision; the two-server configuration below remains the separate-worker alternative and complete feature inventory.

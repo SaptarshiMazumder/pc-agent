@@ -347,9 +347,9 @@ class MicrovmPluginSandbox:
             if payload.get("job_id") and payload.get("op") in ("run", "shell", "enumerate"):
                 try:
                     async with httpx.AsyncClient(timeout=15) as client:
-                        await asyncio.shield(client.post(f"{self._url}/executor", json={
+                        await asyncio.shield(client.post(f"{self._url}/executor", json=self._owned_payload({
                             "op": "cancel", "job_id": payload["job_id"],
-                        }, headers=self._headers()))
+                        }), headers=self._headers()))
                 except Exception:
                     log.warning("sandbox cancellation could not be delivered; external deadline remains active")
             raise
@@ -872,7 +872,7 @@ async def _apply_changes_guarded(backend, changes_url: str, root: Path, before: 
 class _NoChanges:
     """A command that only deleted: stands in for an empty changes zip."""
 
-    def __enter__(self) -> "_NoChanges":
+    def __enter__(self) -> _NoChanges:
         return self
 
     def __exit__(self, *exc) -> None:

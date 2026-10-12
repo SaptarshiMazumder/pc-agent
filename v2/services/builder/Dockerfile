@@ -20,7 +20,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-pip zip ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && pip3 install --no-cache-dir --break-system-packages awslambdaric boto3
+ && pip3 install --no-cache-dir --break-system-packages awslambdaric boto3 'fastapi>=0.115,<1' 'uvicorn>=0.30,<1'
 
 # ── the baked skeleton ───────────────────────────────────────────────────────────────────────
 # 1. deps first (their own layer, keyed on the lockfile)
@@ -49,6 +49,8 @@ RUN ln -s /opt/skeleton/node_modules /opt/skeleton/ref/node_modules \
 COPY services/builder/handler.py /var/task/handler.py
 COPY services/executor/fargate_dispatch.py services/executor/fargate_runner.py /var/task/
 COPY services/executor/runtime_leases.py /var/task/
+COPY services/executor/egress_proxy.py /var/task/
+COPY services/common /var/task/services/common
 WORKDIR /var/task
 RUN python3 -c "import handler; print('handler imports OK')"
 

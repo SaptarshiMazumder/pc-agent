@@ -44,6 +44,7 @@ COPY identity /app/identity
 # it out is a container that exits before serving a byte — not a missing feature. It needs no
 # requirements of its own: the module is stdlib plus the FastAPI already installed above.
 COPY vast /app/vast
+COPY services/common /app/services/common
 WORKDIR /app
 USER app
 ENV AGENTD_SERVICE=accounts \

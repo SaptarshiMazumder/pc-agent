@@ -46,6 +46,7 @@ jobs:
   # Same two-job shape as redeploy.yml: the job's `environment:` gate is evaluated before
   # steps run, so the input travels through a job output for the reviewer rules to fire.
   resolve:
+    if: vars.AGENTD_HOSTING != 'ovh'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}

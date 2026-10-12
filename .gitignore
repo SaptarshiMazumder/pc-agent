@@ -92,3 +92,8 @@ plantuml-*.jar
 *.trace.jsonl
 /marketing
 /tmp
+/v2/deploy/ovh/operator-input.json
+/v2/deploy/ovh/.env
+/v2/deploy/ovh/state/
+/v2/deploy/ovh/import.json
+/v2/infra/environments/*/tfplan

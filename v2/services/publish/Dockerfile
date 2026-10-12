@@ -48,7 +48,7 @@ RUN echo "85e03805f90f72257dd41bfdaa186237218bbb0ec410ad3b6576a88ea11dccb9  /tmp
 # awslambdaric is what makes an ordinary image a Lambda: it speaks the runtime API and calls the
 # handler. boto3 is NOT in this base (unlike the AWS one), so it is an explicit dependency.
 COPY services/publish/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir awslambdaric boto3 -r /tmp/requirements.txt
+RUN pip install --no-cache-dir awslambdaric boto3 'fastapi>=0.115,<1' 'uvicorn>=0.30,<1' -r /tmp/requirements.txt
 
 ENV LAMBDA_TASK_ROOT=/var/task
 WORKDIR ${LAMBDA_TASK_ROOT}
@@ -59,6 +59,7 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 # produce byte-identical artifacts by construction.
 COPY agent_runtime ${LAMBDA_TASK_ROOT}/agent_runtime
 COPY services/publish/handler.py ${LAMBDA_TASK_ROOT}/handler.py
+COPY services/common ${LAMBDA_TASK_ROOT}/services/common
 
 # Fail the BUILD, not the first publish, if NSIS is missing, the template did not get copied, or
 # the template no longer compiles WITH THE PLUGIN — the smoke-compile is what pins "installers

@@ -99,7 +99,7 @@ def build_plugin_sandbox(config):
                 "sandbox: AGENTD_SANDBOX_BACKEND=microvm but AGENTD_EXECUTOR_URL is empty — "
                 "every untrusted tool call will fail closed until it is set"
             )
-        log.info("sandbox: untrusted plugin tools run OFF-BOX (one microVM per call)")
+        log.info("sandbox: untrusted plugin tools use the isolated executor (deployment controls the runtime)")
         return MicrovmPluginSandbox(config)
     if name == SUBPROCESS:
         log.info("sandbox: untrusted plugin tools run in a SUBPROCESS (one process per call)")

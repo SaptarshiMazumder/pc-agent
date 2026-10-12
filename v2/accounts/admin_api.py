@@ -154,7 +154,7 @@ class AdminDeps:
     settings: Callable[[], AdminSettings]
     #: Page-at-a-time credit balances and purchase totals. Shared with the metrics router so the
     #: two consoles cannot disagree about what an account is worth — see account_balance_reader.
-    balances: "AccountBalanceReader"
+    balances: AccountBalanceReader
 
 
 def _bearer(authorization: str | None) -> str:
@@ -1398,10 +1398,16 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
                 except Exception as e:  # noqa: BLE001
                     creators_view["error"] = str(e)[:200]
 
+        if os.environ.get("PLATFORM_CONTROL_URL") and cfg.publish_url:
+            try:
+                status, view = _proxy("GET", f"{cfg.publish_url}/registry/admin/key-status", _bearer(authorization))
+                creators_view = view if status == 200 else {"configured": True, "error": "publish key status unavailable"}
+            except HTTPException:
+                creators_view = {"configured": True, "error": "publish service unavailable"}
         return {
             "signing_keys": signing,
             "signing_key_kek": bool(os.environ.get("AGENTD_IDENTITY_KEK", "")),
-            "secrets": secrets_view,
+            "secrets": _ovh_secret_metadata() if os.environ.get("PLATFORM_CONTROL_URL") else secrets_view,
             "creator_keys": creators_view,
         }
 
@@ -1449,6 +1455,14 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
             raise HTTPException(status_code=400, detail="name required")
         if not isinstance(value, str) or not value:
             raise HTTPException(status_code=400, detail="a non-empty string value is required")
+        if os.environ.get("PLATFORM_CONTROL_URL"):
+            from services.common.platform_control import call
+            try:
+                result = call("set", {"name": name, "value": value})
+            except Exception:
+                raise HTTPException(status_code=502, detail="could not update the OVH credential") from None
+            count("admin_action_total", outcome="secret_set", _props={"secret": name})
+            return result
         if not cfg.app_secret_id:
             raise HTTPException(
                 status_code=503, detail="no app secret is configured for this deployment"
@@ -1502,3 +1516,11 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         }
 
     return router
+
+
+def _ovh_secret_metadata():
+    from services.common.platform_control import call
+    try:
+        return call("metadata")
+    except Exception:
+        return {"configured": True, "id": "OVH service secret files", "error": "controller unavailable"}

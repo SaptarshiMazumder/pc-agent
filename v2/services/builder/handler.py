@@ -61,6 +61,9 @@ class BuildRefused(Exception):
 
 
 def _s3():
+    if os.environ.get("OBJECT_STORAGE_ENDPOINT"):
+        from services.common.object_storage import s3_client
+        return s3_client()
     import boto3  # imported lazily so the CLI/server modes work without AWS credentials
     from botocore.config import Config
 
@@ -251,8 +254,8 @@ def _guarded_job(params: dict, headers: dict) -> dict:
     try:
         if params.get("op") == "presign":
             return presign_sources(params)
-        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-            from fargate_dispatch import dispatch
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("ISOLATED_RUNTIME"):
+            from services.common.runtime_dispatch import dispatch
 
             return dispatch(params, _s3(), SCRATCH_BUCKET, kind="builder")
         return run_job(params)

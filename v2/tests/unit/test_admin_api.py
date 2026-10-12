@@ -68,6 +68,27 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_ovh_secret_controls_require_admin_and_use_private_controller(stack, monkeypatch):
+    from services.common import platform_control
+
+    client, _ = stack
+    calls = []
+    monkeypatch.setenv("PLATFORM_CONTROL_URL", "http://controller:4600")
+    monkeypatch.setattr(platform_control, "call", lambda action, payload=None:
+                        calls.append((action, payload)) or {"ok": True, "configured": True, "keys": []})
+    ordinary = _token(client, "user@example.com")
+    assert client.post("/admin/keys/secret", headers=_auth(ordinary),
+                       json={"name": "GEMINI_API_KEY", "value": "replacement"}).status_code == 403
+    assert calls == []
+    boss = _token(client, "boss@example.com")
+    changed = client.post("/admin/keys/secret", headers=_auth(boss),
+                          json={"name": "GEMINI_API_KEY", "value": "replacement"})
+    assert changed.status_code == 200
+    assert calls == [("set", {"name": "GEMINI_API_KEY", "value": "replacement"})]
+    assert client.get("/admin/keys", headers=_auth(boss)).json()["secrets"]["configured"]
+    assert calls[-1] == ("metadata", None)
+
+
 @pytest.fixture
 def plain(monkeypatch, tmp_path):
     """A deployment with NO admins configured — the fail-closed baseline."""

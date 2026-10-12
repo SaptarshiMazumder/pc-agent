@@ -17,8 +17,5 @@
 desktop/**
 !desktop/package.json
 
-# marketplace/ is the PUBLIC store page — a separate static site, deployed to S3 + CloudFront by
-# deploy/scripts/deploy-marketplace.ps1, never served by this nginx. Same rule as desktop: the
-# manifest is re-admitted only because npm ci reads every workspace the lockfile declares.
-marketplace/**
-!marketplace/package.json
+# Marketplace sources support the separate OVH static image. The web Dockerfile
+# still copies only its manifest; generated assets and node_modules stay excluded.

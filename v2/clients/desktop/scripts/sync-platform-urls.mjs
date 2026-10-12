@@ -62,8 +62,9 @@ const opt = (name) => {
 }
 const strict = has('strict')
 const checkOnly = has('check')
-const env = opt('env') || (process.env.AGENTD_INFRA_ENV || '').trim() || 'dev'
+const env = opt('ovh-env') ? 'ovh-production' : opt('env') || (process.env.AGENTD_INFRA_ENV || '').trim() || 'dev'
 const envDir = path.join(repoRoot, 'v2', 'infra', 'environments', env)
+const ovhEnv = opt('ovh-env')
 
 const log = (msg) => console.log(`[sync-urls] ${msg}`)
 /** Soft by default (dev must not need terraform); --strict makes any skip fatal. */
@@ -78,16 +79,31 @@ function skip(msg) {
 
 // ---- read the live values from terraform ---------------------------------------------
 // Local state => this is a file read, not an AWS call (fast, works offline).
-if (!fs.existsSync(envDir)) skip(`no infra environment at ${path.relative(repoRoot, envDir)}`)
+if (!ovhEnv && !fs.existsSync(envDir)) skip(`no infra environment at ${path.relative(repoRoot, envDir)}`)
 
 let outputs
 try {
+  if (ovhEnv) {
+    const config = Object.fromEntries(fs.readFileSync(path.resolve(ovhEnv), 'utf-8')
+      .split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith('#'))
+      .map(line => { const at = line.indexOf('='); return [line.slice(0, at).trim(), line.slice(at + 1).trim()] }))
+    const host = config.PLATFORM_HOST
+    if (!host || !/^[a-z0-9.-]+$/i.test(host) || !config.REGISTRY_PUBLIC_BASE?.startsWith('https://')) {
+      throw new Error('OVH env must configure PLATFORM_HOST and HTTPS REGISTRY_PUBLIC_BASE')
+    }
+    outputs = Object.fromEntries(Object.entries({
+      platform_url: `https://${host}:4100`, accounts_url: `https://${host}:4100`,
+      model_proxy_url: `https://${host}:4000`, ingest_url: `https://${host}:4200`,
+      publish_url: `https://${host}:4300`, registry_url: `${config.REGISTRY_PUBLIC_BASE.replace(/\/$/, '')}/index.json`
+    }).map(([key, value]) => [key, { value }]))
+  } else {
   const raw = execFileSync('terraform', [`-chdir=${envDir}`, 'output', '-json'], {
     encoding: 'utf-8',
     timeout: 60_000,
     stdio: ['ignore', 'pipe', 'pipe']
   })
   outputs = JSON.parse(raw)
+  }
 } catch (error) {
   const why = error?.code === 'ENOENT' ? 'terraform not on PATH' : String(error?.stderr || error?.message || error).trim()
   skip(`could not read '${env}' outputs (${why})`)

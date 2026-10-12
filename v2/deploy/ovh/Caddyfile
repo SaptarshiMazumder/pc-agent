@@ -1,0 +1,61 @@
+{
+    email {$TLS_EMAIL}
+    admin off
+}
+
+(certificate) {
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+}
+
+https://{$PLATFORM_HOST}, https://{$ADMIN_HOST}, https://{$BUILDER_HOST}, https://{$COMFY_HOST}, https://*.{$PLATFORM_HOST} {
+    import certificate
+    encode zstd gzip
+    @admin host {$ADMIN_HOST}
+    handle @admin {
+        reverse_proxy web:80
+    }
+    @bridge {
+        host {$PLATFORM_HOST}
+        path /app-session /app-token
+    }
+    handle @bridge {
+        reverse_proxy daemon:8787
+    }
+    @platform host {$PLATFORM_HOST}
+    handle @platform {
+        reverse_proxy web:80
+    }
+    handle {
+        reverse_proxy daemon:8787
+    }
+}
+
+https://{$PLATFORM_HOST}:4100 {
+    import certificate
+    reverse_proxy accounts:4100
+}
+https://{$PLATFORM_HOST}:4000 {
+    import certificate
+    reverse_proxy model-proxy:4000
+}
+https://{$PLATFORM_HOST}:4200 {
+    import certificate
+    reverse_proxy ingest:4200
+}
+https://{$PLATFORM_HOST}:4300 {
+    import certificate
+    reverse_proxy publish:4300
+}
+https://{$PLATFORM_HOST}:8787 {
+    import certificate
+    reverse_proxy daemon:8787
+}
+
+https://{$MARKETPLACE_HOST} {
+    import certificate
+    encode zstd gzip
+    header X-Frame-Options DENY
+    reverse_proxy marketplace:80
+}

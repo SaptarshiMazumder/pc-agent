@@ -171,6 +171,8 @@ class UploadSlot:
     url: str
     fields: dict = field(default_factory=dict)
     expires_in: int = 0
+    method: str = "POST"
+    headers: dict = field(default_factory=dict)
 
 
 @runtime_checkable

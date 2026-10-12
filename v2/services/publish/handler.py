@@ -33,6 +33,7 @@ ADMIN_CREATORS_ROUTE = "/registry/admin/creators"
 ADMIN_ADMIT_ROUTE = "/registry/admin/admit"
 ADMIN_REVOKE_ROUTE = "/registry/admin/revoke"
 ADMIN_UNLIST_ROUTE = "/registry/admin/unlist"
+ADMIN_KEY_STATUS_ROUTE = "/registry/admin/key-status"
 
 
 # ────────────────────────────── composition ──────────────────────────────
@@ -41,11 +42,14 @@ ADMIN_UNLIST_ROUTE = "/registry/admin/unlist"
 def build_services():
     """Wire the intake, admin and upload services from environment. They share every adapter —
     same tables, same store, same lock — because they are doors into one registry."""
+    if os.environ.get("PUBLISH_BACKEND") == "sqlite-r2":
+        return build_sqlite_services()
+    if os.environ.get("PUBLISH_BACKEND") not in (None, "", "aws"):
+        raise RuntimeError("unknown publishing backend")
     import boto3
     from botocore.config import Config
 
     from agent_runtime.application.services.package_upload_service import PackageUploadService
-
     from agent_runtime.application.services.publish_intake_service import PublishIntakeService
     from agent_runtime.application.services.roster_admin_service import RosterAdminService
     from agent_runtime.infrastructure.publish.authenticator import AccountsAuthenticator
@@ -131,6 +135,44 @@ def build_services():
     uploads = PackageUploadService(
         authenticator=authenticator, slots=S3UploadSlots(presigner, bucket)
     )
+    return intake, admin, uploads
+
+
+def build_sqlite_services():
+    from agent_runtime.application.services.package_upload_service import PackageUploadService
+    from agent_runtime.application.services.publish_intake_service import PublishIntakeService
+    from agent_runtime.application.services.roster_admin_service import RosterAdminService
+    from agent_runtime.infrastructure.publish.authenticator import AccountsAuthenticator
+    from agent_runtime.infrastructure.publish.index_store import S3IndexStore
+    from agent_runtime.infrastructure.publish.parked_store import S3ParkedStore
+    from agent_runtime.infrastructure.publish.r2_upload_slots import R2UploadSlots
+    from agent_runtime.infrastructure.publish.sqlite_registry import adapters
+    from services.common.object_storage import s3_client
+
+    def required(name):
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise RuntimeError(f"{name} is required")
+        return value
+
+    database, directory, signer, vault, lock = adapters(
+        required("PUBLISH_DATABASE"), required("PUBLISH_KEY_KEK"))
+    public_bucket, private_bucket = required("REGISTRY_BUCKET"), required("PENDING_BUCKET")
+    if public_bucket == private_bucket:
+        raise RuntimeError("public registry and private submissions must use different R2 buckets")
+    s3 = s3_client()
+    store = S3IndexStore(s3, public_bucket, prefix=os.environ.get("REGISTRY_PREFIX", ""),
+                        public_base=required("REGISTRY_PUBLIC_BASE"))
+    parker = S3ParkedStore(s3, private_bucket)
+    authenticator = AccountsAuthenticator(required("ACCOUNTS_URL"))
+    intake = PublishIntakeService(authenticator=authenticator, creators=directory, signer=signer,
+        index_store=store, lock=lock, product_service=_product_service(store), parker=parker,
+        web_host=required("WEB_HOST"))
+    admin = RosterAdminService(authenticator=authenticator,
+        admins=[a.strip() for a in required("ADMIN_IDENTITIES").split(",") if a.strip()],
+        creators=directory, vault=vault, index_store=store, lock=lock, intake=intake, parker=parker)
+    uploads = PackageUploadService(authenticator=authenticator,
+                                   slots=R2UploadSlots(s3, private_bucket, database))
     return intake, admin, uploads
 
 
@@ -264,6 +306,8 @@ def _upload_slot(event) -> dict:
                 "fields": slot.fields,
                 "key": slot.key,
                 "expires_in": slot.expires_in,
+                "method": slot.method,
+                "headers": slot.headers,
             }
         },
     )
@@ -282,6 +326,7 @@ def _is_admin_route(path: str) -> bool:
             ADMIN_ADMIT_ROUTE,
             ADMIN_REVOKE_ROUTE,
             ADMIN_UNLIST_ROUTE,
+            ADMIN_KEY_STATUS_ROUTE,
         )
     )
 
@@ -294,6 +339,18 @@ def _admin(event, path: str) -> dict:
     token = _bearer(event)
     _, admin, _ = services()
     try:
+        if path.endswith(ADMIN_KEY_STATUS_ROUTE):
+            if _method(event) != "GET":
+                return _json(405, {"message": "GET this route"})
+            refusal = admin.authorize(token)
+            if refusal:
+                return _json(refusal.status, refusal.body())
+            rows = admin._creators.all()
+            public_root = admin._vault.public_key()
+            if public_root:
+                rows.append({"creator_id": "__root__", "name": "platform root key", "state": "root",
+                             "public_key": public_root, "wrapped": True})
+            return _json(200, {"configured": True, "store": "publish service", "keys": rows})
         if path.endswith(ADMIN_PENDING_ROUTE):
             if _method(event) != "GET":
                 return _json(405, {"message": "GET this route"})

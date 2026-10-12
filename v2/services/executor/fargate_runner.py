@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -46,8 +47,19 @@ class ScopedS3:
 def main() -> None:
     input_url = os.environ.pop("SANDBOX_INPUT_URL")
     output_url = os.environ.pop("SANDBOX_OUTPUT_URL")
-    with urllib.request.urlopen(input_url, timeout=30) as response:
-        payload = json.load(response)
+    # A new per-job egress proxy may still be binding when the worker starts.
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            with urllib.request.urlopen(input_url, timeout=10) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError:
+            raise  # An authorization refusal must never become a local fallback.
+        except (urllib.error.URLError, OSError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
     # All remaining environment is public runtime configuration. No controller key,
     # role credentials or caller JWT is ever handed to this task.
     import handler

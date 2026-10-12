@@ -7,6 +7,10 @@
 
 # desktop/terminal clients (incl. the ~1GB bundled CPython runtime) and their builds
 clients/
+deploy/ovh/operator-input.json
+deploy/ovh/import.json
+deploy/ovh/state/
+deploy/ovh/.env
 
 # …EXCEPT the agent-app SDK's source, which the daemon image compiles in its own `sdk` stage
 # (deploy/docker/Dockerfile). Every agent app loads that file, and `clients/` being excluded here

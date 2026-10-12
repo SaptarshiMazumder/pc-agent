@@ -1,0 +1,282 @@
+name: agentd-prod
+
+x-app: &app
+  restart: unless-stopped
+  init: true
+  networks: [backplane, outbound]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  logging: {driver: local, options: {max-size: 10m, max-file: '3'}}
+
+x-storage: &storage
+  OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:?set R2 endpoint}
+  OBJECT_STORAGE_REGION: auto
+
+services:
+  caddy:
+    build: {context: ., dockerfile: Caddy.Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/caddy:${IMAGE_TAG:-ovh}
+    restart: unless-stopped
+    networks: [backplane, outbound]
+    env_file: ['${STATE_ROOT:-/opt/agentd/state}/secrets/caddy.env']
+    environment:
+      PLATFORM_HOST: ${PLATFORM_HOST:-platform.nakamaai.co}
+      ADMIN_HOST: ${ADMIN_HOST:-admin.platform.nakamaai.co}
+      BUILDER_HOST: ${BUILDER_HOST:-builder.platform.nakamaai.co}
+      COMFY_HOST: ${COMFY_HOST:-comfypenguin.com}
+      MARKETPLACE_HOST: ${MARKETPLACE_HOST:-store.nakamaai.co}
+      TLS_EMAIL: ${TLS_EMAIL:?set certificate contact}
+    ports: ['80:80', '443:443', '443:443/udp', '4000:4000', '4100:4100', '4200:4200', '4300:4300', '8787:8787']
+    volumes: ['./Caddyfile:/etc/caddy/Caddyfile:ro', 'caddy-data:/data', 'caddy-config:/config']
+    logging: {driver: local, options: {max-size: 10m, max-file: '3'}}
+    mem_limit: 192m
+
+  accounts:
+    <<: *app
+    build: {context: ../.., dockerfile: accounts/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/accounts:${IMAGE_TAG:-ovh}
+    entrypoint: [python, /app/services/common/secret_entrypoint.py]
+    command: [uvicorn, 'app:app', --host, 0.0.0.0, --port, '4100', --no-access-log, --proxy-headers, --forwarded-allow-ips, '*']
+    environment:
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      AGENTD_APP_SECRET_ID: local
+      AGENTD_REQUIRE_POSTGRES: '1'
+      AGENTD_AUTH_ISSUER: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+      AGENTD_PUBLIC_ACCOUNTS_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+      AGENTD_PUBLIC_WS_URL: wss://${PLATFORM_HOST:-platform.nakamaai.co}:8787
+      AGENTD_PUBLIC_MODEL_PROXY_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4000
+      AGENTD_AUTH_ACCESS_TTL_S: '600'
+      AGENTD_OIDC_PROVIDERS: google
+      AGENTD_ADMIN_IDENTITIES: ${ADMIN_IDENTITIES:?set admin identities}
+      ACCOUNTS_RATE_LIMIT: 30/60
+      ACCOUNTS_CORS_ORIGINS: https://${PLATFORM_HOST:-platform.nakamaai.co},https://${ADMIN_HOST:-admin.platform.nakamaai.co},https://${BUILDER_HOST:-builder.platform.nakamaai.co},https://${COMFY_HOST:-comfypenguin.com}
+      AGENTD_PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-dodo}
+      AGENTD_REGISTRY: ${REGISTRY_PUBLIC_BASE:?set public registry domain}/index.json
+      AGENTD_PUBLISH_URL: http://publish:4300
+      PLATFORM_CONTROL_URL: http://controller:4600
+    volumes:
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets/accounts:/run/service-secrets:ro
+      - ${STATE_ROOT:-/opt/agentd/state}/accounts:/data
+    mem_limit: 768m
+    depends_on: [controller]
+
+  model-proxy:
+    <<: *app
+    build: {context: ../.., dockerfile: model_proxy/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/model-proxy:${IMAGE_TAG:-ovh}
+    entrypoint: [python, /opt/agentd/secret_entrypoint.py]
+    command: [litellm, --config, /app/config.yaml, --port, '4000']
+    environment:
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      ACCOUNTS_URL: http://accounts:4100
+      AGENTD_AUTH_ISSUER: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+      AGENTD_AUTH_JWKS_URI: http://accounts:4100/auth/jwks.json
+      MODEL_PROXY_REQUIRE_CREDITS: '1'
+    volumes:
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets/model-proxy:/run/service-secrets:ro
+      - ../../services/common/secret_entrypoint.py:/opt/agentd/secret_entrypoint.py:ro
+    mem_limit: 1024m
+    depends_on: [accounts]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness',timeout=5)"]
+      interval: 30s
+      start_period: 120s
+
+  daemon:
+    <<: *app
+    build: {context: ../.., dockerfile: deploy/docker/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/daemon:${IMAGE_TAG:-ovh}
+    entrypoint: [python, /opt/agentd/secret_entrypoint.py]
+    command: [agentd-entrypoint]
+    stop_grace_period: 150s
+    environment:
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      AGENTD_HOME: /data
+      AGENTD_STATE_DIR: /data/state
+      AGENTD_WORKSPACE: /data/workspace
+      AGENTD_HOST: 0.0.0.0
+      AGENTD_PORT: '8787'
+      AGENTD_MULTI_TENANT: '1'
+      AGENTD_HOSTED: '1'
+      AGENTD_REQUIRE_STATE_ENCRYPTION: '1'
+      AGENTD_SANDBOX_PLUGINS: '1'
+      AGENTD_SANDBOX_BACKEND: microvm
+      AGENTD_SANDBOX_TRUSTED_AGENTS: cloud-agent-builder,agent-builder
+      AGENTD_HOSTED_AGENTS_ALLOW: agent-builder
+      AGENTD_ADMIN_IDENTITIES: ${ADMIN_IDENTITIES}
+      AGENTD_ACCOUNTS_URL: http://accounts:4100
+      AGENTD_PUBLIC_ACCOUNTS_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+      AGENTD_MODEL_PROXY_URL: http://model-proxy:4000
+      AGENTD_EXECUTOR_URL: http://executor:4500
+      AGENTD_BUILDER_URL: http://builder:4400
+      AGENTD_BUILDER_SCRATCH_BUCKET: ${SCRATCH_BUCKET:?set scratch bucket}
+      AGENTD_PUBLISH_TARGET: http://publish:4300
+      AGENTD_REGISTRY: ${REGISTRY_PUBLIC_BASE}/index.json
+      AGENTD_PUBLISHER_KEY: ${REGISTRY_PUBLISHER_KEY:?preserve existing trust anchor}
+      AGENTD_PUBLIC_HTTP_PROXY: http://public-egress:8080
+      AGENTD_APP_HOST_SUFFIX: ${PLATFORM_HOST:-platform.nakamaai.co}
+      AGENTD_APP_HOSTS: '{"${BUILDER_HOST:-builder.platform.nakamaai.co}":"cloud-agent-builder","${COMFY_HOST:-comfypenguin.com}":"comfy-artchitect"}'
+    volumes:
+      - ${STATE_ROOT:-/opt/agentd/state}/daemon:/data
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets/daemon:/run/service-secrets:ro
+      - ../../services/common/secret_entrypoint.py:/opt/agentd/secret_entrypoint.py:ro
+    mem_limit: 3072m
+    depends_on: [accounts, model-proxy, executor, builder, public-egress]
+
+  publish:
+    <<: *app
+    build: {context: ../.., dockerfile: services/publish/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/publish:${IMAGE_TAG:-ovh}
+    user: '1000:1000'
+    entrypoint: [python, -m, services.common.secret_entrypoint]
+    command: [python, -m, services.common.http_adapter]
+    environment:
+      <<: *storage
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      PORT: '4300'
+      PUBLISH_BACKEND: sqlite-r2
+      PUBLISH_DATABASE: /data/registry.db
+      REGISTRY_BUCKET: ${REGISTRY_BUCKET:?set public bucket}
+      PENDING_BUCKET: ${PENDING_BUCKET:?set private submissions bucket}
+      REGISTRY_PUBLIC_BASE: ${REGISTRY_PUBLIC_BASE}
+      WEB_HOST: https://${PLATFORM_HOST:-platform.nakamaai.co}
+      ACCOUNTS_URL: http://accounts:4100
+      PRODUCT_ACCOUNTS_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+      PRODUCT_MODEL_PROXY_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4000
+      ADMIN_IDENTITIES: ${ADMIN_IDENTITIES}
+    volumes:
+      - ${STATE_ROOT:-/opt/agentd/state}/publish:/data
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets/publish:/run/service-secrets:ro
+    mem_limit: 768m
+    depends_on: [accounts]
+
+  executor:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: services/executor/Dockerfile
+      args: {BASE_IMAGE: '${IMAGE_PREFIX:-agentd}/daemon:${IMAGE_TAG:-ovh}'}
+    image: ${IMAGE_PREFIX:-agentd}/executor:${IMAGE_TAG:-ovh}
+    user: '1000:1000'
+    entrypoint: [python, -m, services.common.secret_entrypoint]
+    command: [python, -m, services.common.http_adapter]
+    environment:
+      <<: *storage
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      PORT: '4500'
+      ISOLATED_RUNTIME: docker
+      EXECUTOR_SCRATCH_BUCKET: ${SCRATCH_BUCKET}
+      RUNTIME_CONTROL_URL: http://controller:4600
+    volumes: ['${STATE_ROOT:-/opt/agentd/state}/secrets/executor:/run/service-secrets:ro']
+    mem_limit: 256m
+    depends_on: [controller]
+
+  builder:
+    <<: *app
+    build: {context: ../.., dockerfile: services/builder/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/builder:${IMAGE_TAG:-ovh}
+    user: '1000:1000'
+    entrypoint: [python3, -m, services.common.secret_entrypoint]
+    command: [python3, -m, services.common.http_adapter]
+    environment:
+      <<: *storage
+      SERVICE_SECRETS_FILE: /run/service-secrets/env.json
+      PORT: '4400'
+      ISOLATED_RUNTIME: docker
+      BUILDER_SCRATCH_BUCKET: ${SCRATCH_BUCKET}
+      RUNTIME_CONTROL_URL: http://controller:4600
+    volumes: ['${STATE_ROOT:-/opt/agentd/state}/secrets/builder:/run/service-secrets:ro']
+    mem_limit: 256m
+    depends_on: [controller]
+
+  controller:
+    <<: *app
+    build: {context: ../.., dockerfile: services/runtime_controller/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/controller:${IMAGE_TAG:-ovh}
+    environment:
+      SERVICE_SECRETS_FILE: /secrets/controller/env.json
+      PLATFORM_SECRETS_ROOT: /secrets
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT}
+      EXECUTOR_IMAGE: ${IMAGE_PREFIX:-agentd}/executor:${IMAGE_TAG:-ovh}
+      BUILDER_IMAGE: ${IMAGE_PREFIX:-agentd}/builder:${IMAGE_TAG:-ovh}
+      SANDBOX_EGRESS_NETWORK: agentd-prod-sandbox-egress
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${STATE_ROOT:-/opt/agentd/state}/runtime:/state
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets:/secrets
+    mem_limit: 192m
+
+  public-egress:
+    <<: *app
+    networks: [backplane, sandbox-egress]
+    image: ${IMAGE_PREFIX:-agentd}/executor:${IMAGE_TAG:-ovh}
+    user: '1000:1000'
+    entrypoint: [python, /var/task/egress_proxy.py]
+    command: []
+    read_only: true
+    mem_limit: 128m
+
+  web:
+    <<: *app
+    build:
+      context: ../../clients
+      dockerfile: web/Dockerfile
+      args:
+        VITE_AGENTD_PLATFORM_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4100
+        VITE_AGENTD_INGEST_URL: https://${PLATFORM_HOST:-platform.nakamaai.co}:4200
+    image: ${IMAGE_PREFIX:-agentd}/web:${IMAGE_TAG:-ovh}
+    # nginx's entrypoint requires chown/setuid when starting its unprivileged workers.
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+    environment: {ADMIN_HOSTNAME: '${ADMIN_HOST:-admin.platform.nakamaai.co}'}
+    mem_limit: 96m
+
+  ingest:
+    <<: *app
+    build: {context: ../.., dockerfile: ingest/Dockerfile}
+    image: ${IMAGE_PREFIX:-agentd}/ingest:${IMAGE_TAG:-ovh}
+    environment: {ACCOUNTS_URL: 'http://accounts:4100', INGEST_RATE_LIMIT: 60/60}
+    mem_limit: 128m
+
+  marketplace:
+    <<: *app
+    build:
+      context: ../../clients
+      dockerfile: ../deploy/ovh/Marketplace.Dockerfile
+      args: {VITE_AGENTD_CATALOG_URL: '${REGISTRY_PUBLIC_BASE}/catalog.json'}
+    image: ${IMAGE_PREFIX:-agentd}/marketplace:${IMAGE_TAG:-ovh}
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+    mem_limit: 96m
+
+  scheduler:
+    <<: *app
+    image: ${IMAGE_PREFIX:-agentd}/controller:${IMAGE_TAG:-ovh}
+    entrypoint: [python, /app/secret_entrypoint.py, python, /opt/agentd/scheduler.py]
+    environment: {SERVICE_SECRETS_FILE: /run/service-secrets/env.json, ACCOUNTS_URL: 'http://accounts:4100'}
+    volumes:
+      - ./scheduler.py:/opt/agentd/scheduler.py:ro
+      - ${STATE_ROOT:-/opt/agentd/state}/secrets/scheduler:/run/service-secrets:ro
+      - ${STATE_ROOT:-/opt/agentd/state}/scheduler:/state
+    mem_limit: 96m
+    depends_on: [accounts]
+
+  reaper:
+    <<: *app
+    profiles: [maintenance]
+    image: ${IMAGE_PREFIX:-agentd}/controller:${IMAGE_TAG:-ovh}
+    environment:
+      REAPER_ONCE: '1'
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT}
+      EXECUTOR_IMAGE: ${IMAGE_PREFIX:-agentd}/executor:${IMAGE_TAG:-ovh}
+      BUILDER_IMAGE: ${IMAGE_PREFIX:-agentd}/builder:${IMAGE_TAG:-ovh}
+      SANDBOX_EGRESS_NETWORK: agentd-prod-sandbox-egress
+    volumes: ['/var/run/docker.sock:/var/run/docker.sock', '${STATE_ROOT:-/opt/agentd/state}/runtime:/state']
+    restart: 'no'
+
+networks:
+  backplane: {internal: true}
+  outbound: {}
+  sandbox-egress: {name: agentd-prod-sandbox-egress}
+
+volumes:
+  caddy-data: {}
+  caddy-config: {}
