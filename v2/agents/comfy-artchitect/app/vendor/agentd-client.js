@@ -117,6 +117,8 @@ async function fetchCookieToken(opts) {
   };
 }
 async function fetchToken(opts = {}) {
+  const appToken = typeof window !== "undefined" ? window.__agentdAppToken : void 0;
+  if (appToken) return { ...appToken, via: "cookie" };
   try {
     const r = await fetch(authUrl("/auth/token", opts), {
       cache: "no-store"
@@ -141,6 +143,10 @@ var TokenFetcher = class {
     this.sig = "";
     /** The one renewal armed for the token in hand — see `armRenewal`. */
     this.renewal = null;
+    if (typeof window !== "undefined") window.addEventListener("agentd:app-token", () => {
+      this.forget();
+      void this.state();
+    });
   }
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client) {

@@ -33,6 +33,7 @@ FOUR RULES, and each exists because of a specific way this goes wrong:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 log = logging.getLogger("agentd")
@@ -46,7 +47,7 @@ class AgentMcpConnector:
         environment is not the application layer's job.
     """
 
-    def __init__(self, connect, read_env, setting_env, oauth=None, read_setting=None):
+    def __init__(self, connect, read_env, setting_env, oauth=None, read_setting=None, scope_key=None):
         self._connect = connect
         self._read_env = read_env
         self._setting_env = setting_env
@@ -55,16 +56,18 @@ class AgentMcpConnector:
         #: back to the process environment, which is right for a desktop and for tests and wrong
         #: for a daemon serving several people — see `_value`.
         self._read_setting = read_setting
+        self._scope_key = scope_key or (lambda agent_id: agent_id)
         #: agent_id -> {server name: list[Tool]} for servers that are UP
         self._tools: dict[str, dict[str, list]] = {}
         #: agent_id -> {server name: why it is not up} — shown to the model, not swallowed
         self._failed: dict[str, dict[str, str]] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     # ---- what the run needs -------------------------------------------------
 
     def tools_for(self, agent_id: str) -> list:
         """Every tool this agent's declared servers currently provide (empty until connected)."""
-        return [t for tools in self._tools.get(agent_id, {}).values() for t in tools]
+        return [t for tools in self._tools.get(self._scope_key(agent_id), {}).values() for t in tools]
 
     def problems_for(self, agent_id: str) -> dict:
         """``{server: reason}`` for declared servers that are NOT up.
@@ -73,7 +76,7 @@ class AgentMcpConnector:
         AWS key is missing" look identical to whoever is using it, and only one of them is
         something they can fix.
         """
-        return dict(self._failed.get(agent_id, {}))
+        return dict(self._failed.get(self._scope_key(agent_id), {}))
 
     async def ensure(self, agent) -> None:
         """Connect whatever this agent declares and has not already settled. Never raises.
@@ -86,16 +89,18 @@ class AgentMcpConnector:
         if not declarations:
             return
         agent_id = agent.id
-        up = self._tools.setdefault(agent_id, {})
-        failed = self._failed.setdefault(agent_id, {})
-        for decl in declarations:
-            if decl.name in up or decl.name in failed:
-                continue  # settled — success is cached, failure is not retried every turn
-            try:
-                await self._bring_up(agent_id, decl, up, failed)
-            except Exception as e:  # noqa: BLE001 — one bad server never breaks the turn
-                failed[decl.name] = f"{type(e).__name__}: {e}"
-                log.warning("agent %s: MCP '%s' failed: %s", agent_id, decl.name, e)
+        key = self._scope_key(agent_id)
+        async with self._locks.setdefault(key, asyncio.Lock()):
+            up = self._tools.setdefault(key, {})
+            failed = self._failed.setdefault(key, {})
+            for decl in declarations:
+                if decl.name in up or decl.name in failed:
+                    continue  # settled — success is cached, failure is not retried every turn
+                try:
+                    await self._bring_up(agent_id, decl, up, failed)
+                except Exception as e:  # noqa: BLE001 — one bad server never breaks the turn
+                    failed[decl.name] = f"{type(e).__name__}: {e}"
+                    log.warning("agent %s: MCP '%s' failed: %s", agent_id, decl.name, e)
 
     async def _bring_up(self, agent_id: str, decl, up: dict, failed: dict) -> None:
         missing = self._missing_settings(agent_id, decl)
@@ -217,8 +222,20 @@ class AgentMcpConnector:
         Called when a setting it uses changes (the running child holds the env it launched with,
         so a new key does nothing until the process is replaced).
         """
-        self._tools.pop(agent_id, None)
-        self._failed.pop(agent_id, None)
+        key = self._scope_key(agent_id)
+        base = key.split("::chat:", 1)[0]
+        keys = [k for k in self._tools.keys() | self._failed.keys()
+                if k == base or k.startswith(base + "::chat:")]
+        for item in keys:
+            old = self._tools.pop(item, None) or {}
+            sessions = {getattr(tool, "_session", None) for tools in old.values() for tool in tools}
+            for session in sessions:
+                if session is not None:
+                    try:
+                        asyncio.get_running_loop().create_task(session.close())
+                    except RuntimeError:
+                        pass
+            self._failed.pop(item, None)
 
     def agents_using(self, agents, names: set[str]) -> list[str]:
         """Which of ``agents`` declare an MCP server referencing any of ``names``."""

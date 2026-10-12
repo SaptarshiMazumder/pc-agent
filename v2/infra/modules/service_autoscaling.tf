@@ -60,6 +60,11 @@ resource "aws_appautoscaling_target" "svc" {
   scalable_dimension = "ecs:service:DesiredCount"
   min_capacity       = each.value.min
   max_capacity       = each.value.max
+  suspended_state {
+    dynamic_scaling_in_suspended  = local.paused
+    dynamic_scaling_out_suspended = local.paused
+    scheduled_scaling_suspended   = local.paused
+  }
 }
 
 # ── what makes it move ───────────────────────────────────────────────────────

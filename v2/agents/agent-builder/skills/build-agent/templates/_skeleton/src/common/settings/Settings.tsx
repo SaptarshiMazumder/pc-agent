@@ -251,7 +251,7 @@ export function Settings({
                 {s.message.text ||
                   (data.keysLocked
                     ? 'Provider keys are managed by the platform on this install.'
-                    : `agentd ${data.version || ''}`)}
+                    : `AgentBear ${data.version || ''}`)}
               </span>
               <button
                 className="prime-btn"

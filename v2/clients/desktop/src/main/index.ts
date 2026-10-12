@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../../ui/src/lib/brand'
 /**
  * Desktop shell main process — window + composition root.
  *
@@ -18,8 +19,16 @@ import { desktopOAuthSignIn } from './oauthLoopback'
 import { connectUrl } from './rendezvous'
 import { Supervisor } from './supervisor'
 
+// The core app's new display name must keep the existing desktop profile.
+// Electron normally derives userData from productName, including saved sign-ins.
+if (app.getName() === APP_NAME) {
+  const profilePath = path.join(app.getPath('appData'), 'agentd')
+  fs.mkdirSync(profilePath, { recursive: true })
+  app.setPath('userData', profilePath)
+}
+
 let flavor: Flavor = {
-  productId: 'agentd', productName: 'agentd', defaultAgent: '', appAgent: '', storeEnabled: true,
+  productId: 'agentd', productName: APP_NAME, defaultAgent: '', appAgent: '', storeEnabled: true,
   preinstalledBundles: [], platformUrl: '', accountsUrl: '', modelProxyUrl: '', sourcePath: '', bundledPackages: [],
   payloadDir: '', iconPath: '', appUserModelId: ''
 }

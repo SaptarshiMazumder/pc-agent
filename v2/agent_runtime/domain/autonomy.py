@@ -36,6 +36,7 @@ class ScheduledTask:
     # writing the SHARED state instead of the creator's, and charging nobody. Stamped by the
     # store at add() time from the creating connection's account.
     account_id: str = ""
+    namespace: str = "personal"
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,9 @@ class ConnectTokenStore:
         self._tokens: dict[str, tuple[str, str, float]] = {}  # token -> (agent, site, expiry)
 
     def mint(self, agent_id: str, site: str) -> str:
+        from agent_runtime.infrastructure import tenancy
+        if tenancy._hosted:
+            agent_id = tenancy.partition(agent_id)
         token = secrets.token_urlsafe(24)  # unguessable, single-use
         self._tokens[token] = (agent_id, site, time.time() + self._ttl)
         return token

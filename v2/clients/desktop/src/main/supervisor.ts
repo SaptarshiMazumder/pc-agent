@@ -137,7 +137,7 @@ function bundledNodeBin(root: string): string {
 
 export class Supervisor {
   private listeners: StatusListener[] = []
-  private status: SupervisorStatus = { phase: 'looking', message: 'looking for agentd…', info: null }
+  private status: SupervisorStatus = { phase: 'looking', message: 'looking for AgentBear…', info: null }
 
   // Circuit-breaker. The renderer reconnects on a backoff and calls ensure() forever;
   // without a ceiling a broken build re-spawns doomed processes on every cycle — a
@@ -184,7 +184,7 @@ export class Supervisor {
    *  which reloads agentd.config.json from scratch. The renderer's gateway auto-reconnects. */
   async restart(): Promise<GatewayInfo> {
     this.consecutiveFailures = 0 // an explicit restart re-arms the circuit-breaker
-    this.set('starting', 'restarting agentd to apply changes…')
+    this.set('starting', 'restarting AgentBear to apply changes…')
     try {
       const info = await readGatewayFile()
       if (info?.pid) {
@@ -205,11 +205,11 @@ export class Supervisor {
   }
 
   private async doEnsure(): Promise<GatewayInfo> {
-    this.set('looking', 'looking for a running agentd…')
+    this.set('looking', 'looking for a running AgentBear runtime…')
     const existing = await findRunning()
     if (existing) {
       this.consecutiveFailures = 0 // a live daemon means we've recovered — re-arm the breaker
-      this.set('running', `agentd ${existing.version} (pid ${existing.pid})`, existing)
+      this.set('running', `AgentBear ${existing.version} (pid ${existing.pid})`, existing)
       return existing
     }
     if (this.consecutiveFailures >= this.maxSpawnFailures) {
@@ -218,9 +218,9 @@ export class Supervisor {
       // doomed processes on every reconnect. An explicit restart() re-arms us.
       this.set(
         'failed',
-        `agentd failed to start ${this.consecutiveFailures} times — not retrying automatically. See the daemon log, then use restart to try again.`
+        `AgentBear failed to start ${this.consecutiveFailures} times — not retrying automatically. See the daemon log, then use restart to try again.`
       )
-      throw new Error('agentd could not start (circuit-breaker open)')
+      throw new Error('AgentBear could not start (circuit-breaker open)')
     }
     await this.evictSquatters()
     return this.spawnDaemon()
@@ -247,11 +247,11 @@ export class Supervisor {
         // Not ours. Say exactly who it is — the honest failure the old message buried.
         this.set(
           'starting',
-          `port ${port} is held by pid ${pid} (${cmd.slice(0, 100) || 'unknown process'}) — not an agentd, leaving it alone`
+          `port ${port} is held by pid ${pid} (${cmd.slice(0, 100) || 'unknown process'}) — not an AgentBear runtime, leaving it alone`
         )
         continue
       }
-      this.set('starting', `evicting an orphaned agentd (pid ${pid}) from port ${port}…`)
+      this.set('starting', `evicting an orphaned AgentBear runtime (pid ${pid}) from port ${port}…`)
       try {
         process.kill(pid)
       } catch {
@@ -342,7 +342,7 @@ export class Supervisor {
 
     let lastError = ''
     for (const command of commandCandidates()) {
-      this.set('starting', `starting agentd (${command[0]})… first start can take a minute`)
+      this.set('starting', `starting AgentBear… first start can take a minute`)
       try {
         const child = spawn(command[0], command.slice(1), {
           detached: true,
@@ -364,15 +364,15 @@ export class Supervisor {
         })
         const info = await Promise.race([this.waitForDaemon(before), spawnFailed])
         this.consecutiveFailures = 0 // it came up — re-arm the breaker
-        this.set('running', `agentd ${info.version} (pid ${info.pid})`, info)
+        this.set('running', `AgentBear ${info.version} (pid ${info.pid})`, info)
         return info
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error)
       }
     }
     this.consecutiveFailures++ // trips the breaker once it reaches maxSpawnFailures
-    this.set('failed', `could not start agentd: ${lastError} — see ${logPath}`)
-    throw new Error(lastError || 'could not start agentd')
+    this.set('failed', `could not start AgentBear: ${lastError} — see ${logPath}`)
+    throw new Error(lastError || 'could not start AgentBear')
   }
 
   /** Wait for a rendezvous that is NOT the one we saw before spawning, with an open port.

@@ -130,6 +130,10 @@ class CreateAgentTool(Tool):
         "type": "object",
         "required": [],
         "properties": {
+            "namespace": {
+                "type": "string",
+                "description": "Hosted definition destination: 'personal' or an organization ID from your memberships. Creating organization agents requires owner/admin permission. Omit for your personal agents.",
+            },
             "confirm_overwrite": {
                 "type": "boolean",
                 "description": "REQUIRED for action='update'. Set true ONLY after the user has "
@@ -229,6 +233,25 @@ class CreateAgentTool(Tool):
         self._announce = announce
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
+        from agent_runtime.application.run_context import current_run_context
+        from agent_runtime.infrastructure import accounts
+        namespace = str(params.get("namespace") or "").strip()
+        if not namespace:
+            return await self._execute_owned(tool_call_id, params, abort, on_update)
+        ctx = current_run_context()
+        if not ctx or not ctx.hosted or not accounts.account_id():
+            return ToolResult.text("namespace selection requires an authenticated hosted account", is_error=True)
+        if namespace != "personal":
+            memberships = (accounts.current_account.get() or {}).get("orgs", [])
+            if not any(org.get("id") == namespace and org.get("role") in ("owner", "admin") for org in memberships):
+                return ToolResult.text("organization administrator required", is_error=True)
+        marker = accounts.current_namespace.set(namespace)
+        try:
+            return await self._execute_owned(tool_call_id, params, abort, on_update)
+        finally:
+            accounts.current_namespace.reset(marker)
+
+    async def _execute_owned(self, tool_call_id, params, abort, on_update=None):
         action = (params.get("action") or "create").strip().lower()
         reg = self._registry
         if action == "list":

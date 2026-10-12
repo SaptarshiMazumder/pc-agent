@@ -39,10 +39,10 @@ def _broker(hosted):
     )
 
 
-def test_hosted_guards_a_typed_url_but_not_the_platform():
+def test_hosted_guards_typed_urls_and_platform_placeholders():
     broker = _broker(hosted=True)
     assert broker._public_only("http://10.0.0.5:8188/api/prompt") is True
-    assert broker._public_only("${AGENTD_ACCOUNTS_URL}/vast/heartbeat") is False
+    assert broker._public_only("${AGENTD_ACCOUNTS_URL}/vast/heartbeat") is True
 
 
 def test_desktop_reaches_localhost():

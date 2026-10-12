@@ -97,6 +97,7 @@ class RunContext:
     #: written the documented way, `text_complete(model=None)`) runs on this rather than on a
     #: guess: an empty name once became "gemini/", a 404 that read as the agent's own bug.
     brain_model: str = ""
+    hosted: bool = False
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("agentd_run_context", default=None)
@@ -200,6 +201,11 @@ def current_setting_value(name: str) -> str:
     import os
 
     ctx = _current.get()
+    if ctx is not None and ctx.hosted:
+        if name.startswith(("AGENTD_", "BUILDER_", "EXECUTOR_")):
+            return ""
+        if name not in (ctx.settings or ()):
+            return ""
     if ctx is None or name not in (ctx.settings or ()):
         # Not this agent's setting: the machine-wide variable it has always been (a provider
         # key, an operator export) — same rule `resolve_setting_env` applies to the name.
@@ -220,6 +226,8 @@ def current_setting_value(name: str) -> str:
 
     from agent_runtime.domain.agent import setting_env_name
 
+    if ctx.hosted:
+        return ""
     return os.environ.get(setting_env_name(ctx.agent_id, name), "")
 
 

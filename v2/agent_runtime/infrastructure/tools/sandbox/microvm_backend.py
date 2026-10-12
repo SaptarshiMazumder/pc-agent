@@ -43,6 +43,8 @@ import time
 import zipfile
 from pathlib import Path
 
+import httpx
+
 from agent_runtime.application.interfaces.tool import OnUpdate, Tool, ToolResult
 from agent_runtime.application.run_context import RunContext
 from agent_runtime.application.write_scope import check_write
@@ -306,7 +308,7 @@ class MicrovmPluginSandbox:
                "_sync": sync_table, "grant": {}, "config": {}}
 
         def ask(payload: dict, timeout: float) -> dict:
-            r = httpx.post(f"{self._url}/executor", json=payload,
+            r = httpx.post(f"{self._url}/executor", json=self._owned_payload(payload),
                            headers=self._headers(), timeout=timeout)
             answer = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
             if not isinstance(answer, dict) or (r.status_code >= 400 and not answer):
@@ -321,7 +323,7 @@ class MicrovmPluginSandbox:
             r = httpx.put(slots["code_put_url"], content=code_zip, timeout=120.0)
             r.raise_for_status()
         answer = ask({"op": "enumerate", "job_id": slots.get("job_id"), "job": job,
-                      "code_key": slots.get("code_key"), "timeout_s": 60}, 120.0)
+                      "code_key": slots.get("code_key"), "timeout_s": 60}, 300.0)
         if not answer.get("ok"):
             raise ExecutorError(str(answer.get("error") or "enumerate failed"))
         return list(answer.get("specs") or [])
@@ -331,8 +333,31 @@ class MicrovmPluginSandbox:
     def _headers(self) -> dict:
         return {"X-Internal-Key": self._key} if self._key else {}
 
+    @staticmethod
+    def _owned_payload(payload: dict) -> dict:
+        from agent_runtime.infrastructure import accounts
+
+        owner = accounts.account_id() or "operator"
+        return {**payload, "tenant_owner": hashlib.sha256(owner.encode()).hexdigest()}
+
     async def _ask(self, payload: dict, timeout_s: float = 60.0, abort=None) -> dict:
+        try:
+            return await self._ask_owned(payload, timeout_s, abort)
+        except (asyncio.CancelledError, ExecutorError, httpx.HTTPError):
+            if payload.get("job_id") and payload.get("op") in ("run", "shell", "enumerate"):
+                try:
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        await asyncio.shield(client.post(f"{self._url}/executor", json={
+                            "op": "cancel", "job_id": payload["job_id"],
+                        }, headers=self._headers()))
+                except Exception:
+                    log.warning("sandbox cancellation could not be delivered; external deadline remains active")
+            raise
+
+    async def _ask_owned(self, payload: dict, timeout_s: float, abort=None) -> dict:
         import httpx
+
+        payload = self._owned_payload(payload)
 
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             request = client.post(f"{self._url}/executor", json=payload, headers=self._headers())
@@ -458,6 +483,7 @@ class MicrovmPluginSandbox:
                         raise ExecutorError(
                             f"changes zip member escapes the workspace: {m.filename}"
                         )
+                    check_write(target)
                 z.extractall(workspace)
 
         async with self._transfer_gate():
@@ -472,15 +498,15 @@ class MicrovmPluginSandbox:
         """One zip carrying the plugin's code and its agent's shipped data, plus the sync table
         that tells the executor which job fields those trees satisfy. Fingerprinted for caching."""
         entries: list[tuple[str, Path, dict]] = []  # (zip prefix, host path, sync entry)
-        if plugin_root and Path(plugin_root).is_dir():
+        if plugin_root and Path(plugin_root).is_dir() and not Path(plugin_root).is_symlink():
             entries.append(("plugin", Path(plugin_root),
                             {"field": "plugin_root", "in": "code", "rel": "plugin"}))
         agent_base = Path(agent_dir) if agent_dir else None
         for i, raw in enumerate(read_paths or ()):
             p = Path(raw)
-            if not p.exists():
+            if not p.exists() or p.is_symlink():
                 continue
-            if plugin_root and str(p.resolve()).startswith(str(Path(plugin_root).resolve())):
+            if plugin_root and p.resolve().is_relative_to(Path(plugin_root).resolve()):
                 continue  # already inside the plugin tree
             rel = f"agent/{i}-{p.name}"
             entries.append((rel, p, {"field": "read_path", "in": "code", "rel": rel}))
@@ -495,13 +521,17 @@ class MicrovmPluginSandbox:
                 if prefix is None:
                     continue  # marker-only entries (agent_dir) ship nothing extra
                 if path.is_file():
+                    if not _archive_file_allowed(path.parent, path):
+                        continue
                     st = path.stat()
                     total += st.st_size
+                    if total > self._max_zip_bytes():
+                        raise OversizeError("the code archive exceeds the sync ceiling")
                     h.update(f"{prefix}|{st.st_size}|{st.st_mtime_ns}\n".encode())
                     z.write(path, prefix)
                     continue
                 for f in sorted(path.rglob("*")):
-                    if not f.is_file():
+                    if not _archive_file_allowed(path, f):
                         continue
                     rel = f.relative_to(path)
                     if any(part in _CODE_SKIP_DIRS for part in rel.parts):
@@ -527,7 +557,7 @@ class MicrovmPluginSandbox:
         base = Path(directory)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
             for f in sorted(base.rglob("*")):
-                if not f.is_file():
+                if not _archive_file_allowed(base, f):
                     continue
                 rel = f.relative_to(base)
                 if any(part in skip for part in rel.parts):
@@ -706,10 +736,28 @@ def _relative_or_empty(cwd: str, root: Path) -> str:
     return "" if str(rel) == "." else rel.as_posix()
 
 
+def _archive_file_allowed(root: Path, path: Path) -> bool:
+    """Never dereference symlinks/junctions while packaging a task's files."""
+    try:
+        if not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
+            return False
+        candidate = path
+        while True:
+            if candidate.is_symlink():
+                return False
+            if candidate == root:
+                return True
+            if candidate == candidate.parent:
+                return False
+            candidate = candidate.parent
+    except OSError:
+        return False
+
+
 def _tree_manifest(root: Path, skip_dirs: frozenset = AUTHORING_SKIP_DIRS, ignore=None) -> dict:
     out: dict = {}
     for f in root.rglob("*"):
-        if not f.is_file() or any(p in skip_dirs for p in f.relative_to(root).parts):
+        if not _archive_file_allowed(root, f) or any(p in skip_dirs for p in f.relative_to(root).parts):
             continue
         if ignore is not None and ignore.matches(f.relative_to(root).as_posix()):
             continue

@@ -15,6 +15,10 @@ log = logging.getLogger("agentd")
 
 
 def build_browser_provider(config):
+    if getattr(config, "hosted", False):
+        from .remote import RemoteBrowserProvider
+
+        return RemoteBrowserProvider(config)
     try:
         cdp_url = browser_knob(config, "cdp_url", None)
         if cdp_url:

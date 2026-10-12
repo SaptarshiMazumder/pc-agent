@@ -601,9 +601,19 @@ def _guarded_job(params: dict, headers: dict) -> dict:
             return {"ok": False, "error": "unauthorized"}
     op = str(params.get("op") or "run")
     fn = _OPS.get(op)
-    if fn is None:
+    if fn is None and op not in ("session", "cancel"):
         return {"ok": False, "error": f"unknown op '{op}'"}
     try:
+        if op == "cancel":
+            from fargate_dispatch import cancel
+
+            return cancel(params, _s3(), SCRATCH_BUCKET)
+        if op != "presign" and os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            from fargate_dispatch import dispatch
+
+            return dispatch(params, _s3(), SCRATCH_BUCKET)
+        if fn is None:
+            raise JobRefused("persistent sessions require the isolated task controller")
         return fn(params)
     except JobRefused as e:
         return {"ok": False, "error": str(e)}

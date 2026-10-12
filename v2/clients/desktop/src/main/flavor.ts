@@ -1,3 +1,4 @@
+import { APP_NAME, productDisplayName } from '../../../ui/src/lib/brand'
 /**
  * Flavor — what THIS RUN of the desktop app is (M6 build flavors, not forks).
  *
@@ -83,7 +84,7 @@ export interface Flavor {
 
 const OPEN: Flavor = {
   productId: 'agentd',
-  productName: 'agentd',
+  productName: APP_NAME,
   defaultAgent: '',
   appAgent: '',
   storeEnabled: true,
@@ -207,7 +208,7 @@ export async function loadFlavor(): Promise<Flavor> {
       const productId = String(product.id || 'agentd')
       return {
         productId,
-        productName: String(product.name || 'agentd'),
+        productName: productDisplayName(String(product.name || '')),
         defaultAgent: String(product.default_agent || ''),
         appAgent: String(product.app_agent || ''),
         storeEnabled: store.enabled !== false,

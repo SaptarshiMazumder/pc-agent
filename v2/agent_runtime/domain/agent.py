@@ -106,7 +106,7 @@ def definition_entries(agent_dir) -> tuple[str, ...]:
         return tuple(
             str(item)
             for item in sorted(Path(agent_dir).iterdir())
-            if item.name not in USER_DATA_DIRS
+            if item.name not in USER_DATA_DIRS and item.name not in USER_DATA_FILES and not item.is_symlink()
         )
     except OSError:
         return ()

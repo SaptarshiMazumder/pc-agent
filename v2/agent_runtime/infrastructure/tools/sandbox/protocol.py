@@ -38,6 +38,7 @@ result instead of destroying it.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from agent_runtime.application.interfaces.tool import ToolResult
@@ -71,6 +72,9 @@ def config_projection(config, plugin_id: str, fields: tuple[str, ...] = ()) -> d
     and the full map would name every other plugin installed for this account.
     """
     names = tuple(fields) or DEFAULT_CONFIG_FIELDS
+    hosted = bool(getattr(config, "hosted", False))
+    if hosted:
+        names = tuple(name for name in names if name in DEFAULT_CONFIG_FIELDS)
     out: dict[str, Any] = {}
     for name in names:
         if not hasattr(config, name):
@@ -83,7 +87,19 @@ def config_projection(config, plugin_id: str, fields: tuple[str, ...] = ()) -> d
         out[name] = value
     own = (getattr(config, "plugins", None) or {}).get(plugin_id)
     out["plugins"] = {plugin_id: own} if isinstance(own, dict) else {}
-    return out
+    return _without_credentials(out) if hosted else out
+
+
+def _without_credentials(value):
+    """Credentials stay in the broker, including nested plugin configuration."""
+    if isinstance(value, dict):
+        return {key: _without_credentials(item) for key, item in value.items()
+                if isinstance(item, (int, float, bool)) or not re.search(
+                    r"(?:^|_)(?:api_?key|password|secrets?|tokens?|authorization|cookies?|credentials?|private_key|env)(?:$|_)",
+                    str(key), re.I)}
+    if isinstance(value, list):
+        return [_without_credentials(item) for item in value]
+    return value
 
 
 def grant_payload(grant: CapabilityGrant) -> dict:
@@ -140,7 +156,7 @@ def ctx_payload(ctx, plugin_id: str = "") -> dict:
         except (TypeError, ValueError):
             own = None  # not transportable => not projected, same rule as config_projection
         if own is not None:
-            payload["plugins"] = {plugin_id: own}
+                payload["plugins"] = {plugin_id: _without_credentials(own) if getattr(ctx, "hosted", False) else own}
     return payload
 
 

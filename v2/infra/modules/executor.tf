@@ -117,6 +117,7 @@ resource "aws_lambda_function" "executor" {
   count = local.executor_enabled ? 1 : 0
 
   function_name = local.executor_name
+  reserved_concurrent_executions = local.paused ? 0 : -1
   role          = aws_iam_role.executor.arn
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.executor.repository_url}:${var.executor_image_tag}"
@@ -136,11 +137,11 @@ resource "aws_lambda_function" "executor" {
   # under the sandbox worker's guard (no net except brokered, no env, no host paths).
 
   environment {
-    variables = {
+    variables = merge({
       EXECUTOR_SCRATCH_BUCKET = aws_s3_bucket.builder_scratch.bucket
       EXECUTOR_INTERNAL_KEY   = random_password.executor_internal_key.result
       LOG_LEVEL               = "INFO"
-    }
+    }, local.sandbox_env["executor"])
   }
 
   depends_on = [aws_cloudwatch_log_group.executor]

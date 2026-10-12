@@ -201,7 +201,10 @@ def main() -> int:
         sys.stdin, bridge, on_unknown=net_bridge.deliver, on_close=net_bridge.fail_all
     )
 
-    denials = child_guard.install(
+    # Fargate owns a fresh kernel, private scratch disk, restricted egress and no IAM
+    # role. Native libraries and child processes stay inside that boundary. Desktop
+    # subprocesses still need the Python guard because they share their host's OS.
+    denials = [] if os.environ.get("AGENTD_ISOLATED_TASK") == "1" else child_guard.install(
         fs_paths=grant.get("fs_paths") or (),
         read_paths=grant.get("read_paths") or (),
         net_allowlist=grant.get("net_allowlist") or (),

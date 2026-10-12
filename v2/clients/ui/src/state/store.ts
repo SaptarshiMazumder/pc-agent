@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 /**
  * App state (zustand) — the renderer's single source of truth.
  *
@@ -379,7 +380,7 @@ export const useApp = create<AppState>((set, get) => {
     if (!error) {
       const st = get()
       if (st.currentSessionKey === sessionKey || st.openTabs.some((t) => t.id === sessionKey)) {
-        desktopNotify(st.flavor?.productName || 'agentd', 'Your agent finished responding.')
+        desktopNotify(productDisplayName(st.flavor?.productName), 'Your agent finished responding.')
       }
     }
   }

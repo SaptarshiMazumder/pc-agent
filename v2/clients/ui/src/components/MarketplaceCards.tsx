@@ -1,3 +1,4 @@
+import { APP_NAME } from '../lib/brand'
 import { Check, Download, Globe } from 'lucide-react'
 
 import type { CatalogBundle } from '../gateway/protocol'
@@ -83,7 +84,7 @@ function unavailable(b: CatalogBundle, os: string): string {
       .map((a) => OS_LABEL[a.platform] || a.platform)
       .join(', ')}.`
   }
-  return 'Available inside the agentd app — install it from the app’s Marketplace.'
+  return `Available inside the ${APP_NAME} app — install it from the app’s Marketplace.`
 }
 
 /** Does this row match a search? Everything a card SHOWS is searchable — a box that ignores what
@@ -148,7 +149,7 @@ export default function MarketplaceCards({
               <span className={`badge ${paid ? 'paid' : 'free'}`}>{b.price || 'free'}</span>
               {b.installed && <span className="badge ok"><Check size={11} />installed</span>}
               {b.updateAvailable && <span className="badge update">update</span>}
-              {onInstall && !b.compatible && <span className="badge paid">needs newer agentd</span>}
+              {onInstall && !b.compatible && <span className="badge paid">needs newer {APP_NAME}</span>}
             </div>
             <p className="card-desc">{b.description || 'No description.'}</p>
             <div className="card-actions">
@@ -170,7 +171,7 @@ export default function MarketplaceCards({
                   title={
                     b.compatible
                       ? `Install ${b.name} ${b.version} into ${installTarget}`
-                      : `${b.name} needs a newer agentd than this one`
+                      : `${b.name} needs a newer ${APP_NAME} than this one`
                   }
                 >
                   {b.updateAvailable ? `Update to ${b.version}` : paid ? `Get — ${b.price}` : 'Install'}
@@ -193,7 +194,7 @@ export default function MarketplaceCards({
                   className="btn ghost"
                   href={installer.url}
                   download
-                  title={`Download the standalone ${OS_LABEL[os] || os} installer for ${b.name} ${b.version}${size ? ` (${size})` : ''} — runs on your own machine, no agentd needed`}
+                  title={`Download the standalone ${OS_LABEL[os] || os} installer for ${b.name} ${b.version}${size ? ` (${size})` : ''} — runs on your own machine, no ${APP_NAME} needed`}
                 >
                   <Download size={15} />
                   {size ? `Download · ${size}` : 'Download'}

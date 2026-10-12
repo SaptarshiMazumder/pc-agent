@@ -1439,7 +1439,7 @@ function AgentsPanel(): ReactNode {
           ) : (
             <Empty>
               No engine is published, so per-agent installers cannot be built — anyone without
-              agentd already installed has no way in.
+              AgentBear already installed has no way in.
             </Empty>
           )}
           <div className="kv-card">

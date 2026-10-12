@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, RotateCcw, Save, ShieldCheck, Loader2, AlertCircle, X, Cpu, Eye, EyeOff, Lock, Plus, Trash2, Plug, ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -1157,7 +1158,7 @@ function RuntimeTab({
   }, [data])
 
   const rows: [string, string][] = [
-    ['Product', `${flavor?.productName || 'agentd'} · shell ${flavor?.version || '?'}`],
+    ['Product', `${productDisplayName(flavor?.productName)} · shell ${flavor?.version || '?'}`],
     ['Daemon', supervisor.message],
     ['Connection', connection],
     ['Gateway', hello?.version || '—'],
@@ -1214,7 +1215,7 @@ function RuntimeTab({
             </>
           ) : (
             <>
-              The full <code>agentd.config.json</code>. Editing here overwrites the file wholesale — a
+              The full runtime configuration file. Editing here overwrites the file wholesale — a
               safety net for knobs not surfaced above. Saving needs a daemon restart to apply.
             </>
           )}
@@ -1273,7 +1274,7 @@ function RestartCard() {
     <div className="settings-group">
       <div className="settings-section">Restart</div>
       <p className="settings-help">
-        Stops agentd and starts it again. Use it after editing an agent&apos;s plugin code or any
+        Stops AgentBear and starts it again. Use it after editing an agent&apos;s plugin code or any
         file the daemon reads at startup — those are loaded once, so a change on disk is ignored
         until it restarts. Conversations are on disk and survive; a run in progress does not.
       </p>
@@ -1281,7 +1282,7 @@ function RestartCard() {
         {note && <span className="settings-help">{note}</span>}
         <button className="btn" onClick={() => void restart()} disabled={busy}>
           {busy ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}
-          {busy ? 'Restarting…' : 'Restart agentd'}
+          {busy ? 'Restarting…' : 'Restart AgentBear'}
         </button>
       </div>
       {/* The supervisor's own words while it happens — "starting agentd…", or the reason it

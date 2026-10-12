@@ -149,13 +149,23 @@ class HeartbeatScheduler:
                 # due so it retries next poll (don't drop a one-shot).
                 if self._task_store is not None and self._fire_task is not None:
                     for task in self._task_store.due(time.time()):
+                        from agent_runtime.infrastructure import accounts
+
+                        account_token = accounts.set_account(
+                            {"account_id": task.account_id} if task.account_id else None
+                        )
+                        namespace_token = accounts.current_namespace.set(task.namespace)
                         try:
-                            fired = await self._fire_task(task)
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("cron fire(%s) failed: %s", task.id, e)
-                            fired = True  # a created-but-failed run still advances (no storm)
-                        if fired:
-                            self._task_store.advance(task.id, time.time())  # reschedule/disable
+                            try:
+                                fired = await self._fire_task(task)
+                            except Exception as e:  # noqa: BLE001
+                                log.warning("cron fire(%s) failed: %s", task.id, e)
+                                fired = True
+                            if fired:
+                                self._task_store.advance(task.id, time.time())
+                        finally:
+                            accounts.current_namespace.reset(namespace_token)
+                            accounts.reset_account(account_token)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

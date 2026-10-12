@@ -68,7 +68,9 @@ class RegistryReloadAdapter:
             result["error"] = f"registry refresh failed: {type(e).__name__}: {e}"
             return result
 
-        if agent_id not in (result.get("known") or []):
+        resolve = getattr(self._registry, "resolve_dir", None)
+        found = resolve(agent_id) is not None if callable(resolve) else agent_id in (result.get("known") or [])
+        if not found:
             # The refresh worked; this agent simply does not exist. Distinct from a failure —
             # the caller must not report "reloaded" for an agent that was never there.
             result["error"] = f"'{agent_id}' is still not in the roster after a refresh"

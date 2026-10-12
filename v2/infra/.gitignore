@@ -16,5 +16,8 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 
+# This release pin contains only image tags and runtime switches, never secrets.
+!environments/production/isolation-release.auto.tfvars.json
+
 # NOTE: .terraform.lock.hcl is deliberately NOT ignored — we DO commit it. It pins
 # the exact provider versions so every machine/CI resolves the identical plugins.

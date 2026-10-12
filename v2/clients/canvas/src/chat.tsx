@@ -1,3 +1,4 @@
+import { APP_NAME } from '../../ui/src/lib/brand'
 /**
  * THE CHAT SURFACE, for an agent app — the shell's own conversation, over the SDK.
  *
@@ -280,7 +281,7 @@ function Composer({
         )}
       </div>
       <div className="composer-hint">
-        <span className="hint-model">{hint || 'agentd'}</span>
+        <span className="hint-model">{hint || APP_NAME}</span>
         <span className="hint-sep"> · </span>
         <span className="hint-note">{running ? 'running — press Stop to interrupt' : 'ready'}</span>
       </div>

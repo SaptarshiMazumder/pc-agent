@@ -50,12 +50,12 @@ export function TerminalDemo() {
   const running = shown < LINES.length
 
   return (
-    <div className="term" role="img" aria-label="A transcript of agentd reading a local file, searching the web, and writing the result back to disk.">
+    <div className="term" role="img" aria-label="A transcript of AgentBear reading a local file, searching the web, and writing the result back to disk.">
       <div className="term__chrome">
         <span className="term__dot" />
         <span className="term__dot" />
         <span className="term__dot" />
-        <span className="term__title">agentd — main</span>
+        <span className="term__title">AgentBear — main</span>
         <span className={`term__status ${running ? 'is-running' : ''}`}>
           {running ? 'working' : 'done'}
         </span>

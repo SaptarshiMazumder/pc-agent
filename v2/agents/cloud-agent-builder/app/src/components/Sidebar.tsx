@@ -255,7 +255,7 @@ export function Sidebar({
             states it is in, because it is the one you use while restarting the daemon. */}
         <span
           className="live"
-          title={`${status}${daemonVersion ? ` · agentd ${daemonVersion}` : ''}`}
+          title={`${status}${daemonVersion ? ` · AgentBear ${daemonVersion}` : ''}`}
         >
           <span className="live-dot" style={{ opacity: status === 'open' ? 1 : 0.3 }} />
           {status === 'open' ? 'live' : status === 'closed' ? 'down' : '…'}

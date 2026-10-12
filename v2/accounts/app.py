@@ -45,14 +45,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import math
+import os
 import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,20 +83,11 @@ except ImportError:  # pragma: no cover
 # image (/app/payments/) and the test run (v2/ is on sys.path). Accounts depends on its
 # INTERFACES and its composition root; it never names Stripe, and it never learns how a card
 # works. See payments/__init__.py for why the dependency inverts at post-processing.
-from payments.application.interfaces.payment_gateway import PurchaseRequest
-from payments.application.services.checkout_service import CheckoutService
-from payments.application.services.payment_event_service import PaymentEventService
-from payments.domain.money import Money
-from payments.domain.payment_intent import PaymentIntent
-from payments.infrastructure.postgres_payment_intent_store import PostgresPaymentIntentStore
-from payments.infrastructure.sqlite_payment_intent_store import SqlitePaymentIntentStore
-from payments.main.payment_gateway_factory import (
-    build_payment_gateway,
-    build_webhook_verifier,
-    charge_display,
-    has_webhook,
-)
-from payments.presentation.payment_router import build_payment_router
+# GPU RENTING, AS A SELF-CONTAINED MODULE. Everything about it — the marketplace, the
+# table, the routes, the key — lives under v2/vast/. This service knows the four calls
+# below and nothing else; see vast/__init__.py. Removing the feature is deleting them
+# and the directory.
+import vast
 
 # IDENTITY (v2/identity/) — who a caller is, as opposed to what their account HAS. Imported the
 # same way payments is: this service depends on the module's INTERFACES and its composition root,
@@ -118,12 +108,20 @@ from identity.infrastructure.sqlite_identity_link_store import SqliteIdentityLin
 from identity.infrastructure.sqlite_refresh_store import SqliteRefreshStore
 from identity.main import identity_factory
 from identity.presentation.auth_router import build_auth_router
-
-# GPU RENTING, AS A SELF-CONTAINED MODULE. Everything about it — the marketplace, the
-# table, the routes, the key — lives under v2/vast/. This service knows the four calls
-# below and nothing else; see vast/__init__.py. Removing the feature is deleting them
-# and the directory.
-import vast
+from payments.application.interfaces.payment_gateway import PurchaseRequest
+from payments.application.services.checkout_service import CheckoutService
+from payments.application.services.payment_event_service import PaymentEventService
+from payments.domain.money import Money
+from payments.domain.payment_intent import PaymentIntent
+from payments.infrastructure.postgres_payment_intent_store import PostgresPaymentIntentStore
+from payments.infrastructure.sqlite_payment_intent_store import SqlitePaymentIntentStore
+from payments.main.payment_gateway_factory import (
+    build_payment_gateway,
+    build_webhook_verifier,
+    charge_display,
+    has_webhook,
+)
+from payments.presentation.payment_router import build_payment_router
 from vast import ChargeOutcome
 
 # Sibling modules. A bare import works under uvicorn (WORKDIR /app is on sys.path) but NOT when
@@ -131,18 +129,18 @@ from vast import ChargeOutcome
 # model_proxy/custom_auth.py's `metering` import — and unlike telemetry these are NOT optional:
 # the ledger is the money, so failing to import must be a hard startup failure, not a no-op.
 try:  # pragma: no cover - exercised by whichever path the runtime takes
-    from account_balance_reader import AccountBalanceReader
     import admin_api
     import admin_metrics_api
     import ledger
     import orgs_api
+    import postgres_connection_pool
+    import postgres_schema as accounts_postgres_schema
+    from account_balance_reader import AccountBalanceReader
     from accounts_post_processor import (
         AccountsPostProcessor,
         PurchaseOrder,
         WebhookPostProcessor,
     )
-    import postgres_connection_pool
-    import postgres_schema as accounts_postgres_schema
     from app_secret_loader import AppSecretLoader, AppSecretUnavailable
     from identity_bridge import SqliteAccountDirectory
     from sqlite_dialect_connection import SqliteDialectConnection
@@ -532,7 +530,7 @@ def _budget_view(c: sqlite3.Connection, account_id: str) -> dict:
 
 # --- app ---------------------------------------------------------------------
 
-app = FastAPI(title="agentd accounts", version="0.1.0")
+app = FastAPI(title="AgentBear Accounts", version="0.1.0")
 # Browsers (the web client, a different origin) sign in via fetch. Local dev default is open;
 # the hosted deploy sets ACCOUNTS_CORS_ORIGINS to the real web origin(s).
 _cors = [o.strip() for o in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",") if o.strip()]
@@ -1108,6 +1106,8 @@ def resolve(authorization: str | None = Header(default=None)) -> dict:
         token = _bearer(authorization)
         with _db() as c:
             row = _account_for_token(c, token)
+            with _auth_service(c) as service:
+                expiry = service.verify_access(token).expires_at
             view = _budget_view(c, row["id"])
             orgs = orgs_api.org_memberships(c, str(row["id"]))
     except HTTPException:
@@ -1118,6 +1118,7 @@ def resolve(authorization: str | None = Header(default=None)) -> dict:
     timing("resolve_ms", (time.perf_counter() - started) * 1000, outcome="ok")
     return {
         "account_id": row["id"],
+        "expires_at": expiry,
         "email": row["email"],
         "budget_usd": row["budget_usd"],
         "spent_usd": view["spent_usd"],
@@ -2735,3 +2736,16 @@ app.include_router(admin_api.build_admin_router(_admin_deps))
 app.include_router(
     admin_metrics_api.build_admin_metrics_router(_admin_deps, _require_admin)
 )
+
+
+@app.get("/internal/runtime-principal")
+def runtime_principal(account_id: str, x_internal_key: str | None = Header(default=None)) -> dict:
+    if not _require_internal(x_internal_key):
+        raise HTTPException(status_code=401, detail="internal key required")
+    with _db() as c:
+        row = c.execute("SELECT id,email,active FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if row is None or not row["active"]:
+            raise HTTPException(status_code=403, detail="account unavailable")
+        memberships = orgs_api.org_memberships(c, account_id)
+        view = _budget_view(c, account_id)
+    return {"account_id": account_id, "email": row["email"], "orgs": [{"id": org, "role": role} for org, role in memberships], **view}

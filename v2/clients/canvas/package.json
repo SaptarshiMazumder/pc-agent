@@ -1,7 +1,7 @@
 {
   "name": "@agentd/canvas",
   "version": "0.1.0",
-  "description": "The agentd canvas as a self-contained bundle for agent apps: the SHELL'S OWN viewers, fabric editor (annotate/vector/PNG), and workspace tree — same source files, mounted over the SDK client. Lives OUTSIDE the clients workspace on purpose (like sdk-js): the ui/desktop/web workspace is load-bearing for electron packaging and is never grown casually.",
+  "description": "The AgentBear canvas as a self-contained bundle for agent apps: the SHELL'S OWN viewers, fabric editor (annotate/vector/PNG), and workspace tree — same source files, mounted over the SDK client. Lives OUTSIDE the clients workspace on purpose (like sdk-js): the ui/desktop/web workspace is load-bearing for electron packaging and is never grown casually.",
   "license": "UNLICENSED",
   "type": "module",
   "private": true,

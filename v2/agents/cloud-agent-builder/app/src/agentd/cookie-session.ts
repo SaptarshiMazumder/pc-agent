@@ -25,6 +25,10 @@ export type CabbieSession = AuthState
 
 const listeners = new Set<() => void>()
 
+function scopedToken(): {accessToken: string; accountId: string; expiresAt: number} | undefined {
+  return (window as any).__agentdAppToken
+}
+
 const manager = new TokenManager({
   // Async is fine — TokenManager awaits this. The daemon in front of the page names its own
   // accounts service, so a local test and the cloud sign in against the right one with no rebuild.
@@ -52,20 +56,16 @@ let restored = false
 export function startSession(): void {
   if (started) return
   started = true
-  manager.start()
-  // Cookie mode: restore() asks the accounts service to mint an access token FROM the cookie, so a
-  // returning visitor is signed in without touching the card. Track when that FIRST probe finishes:
-  // until it does, "not signed in" is IGNORANCE, not a fact, and the app must not send an already
-  // signed-in visitor to the login card on every load. restore() resolving — signed in or not — is
-  // what makes the answer real; the finally re-renders the hook. A failed probe (network) still
-  // "resolves" the question to "sign in", which is the honest answer when we cannot confirm a session.
-  void manager
-    .restore()
-    .catch(() => null)
-    .finally(() => {
-      restored = true
+  if (scopedToken()) {
+    restored = true
+    window.addEventListener('agentd:app-token', () => {
+      forgetIdentityCache()
       listeners.forEach((l) => l())
     })
+    return
+  }
+  // Sign-in lives on the trusted platform origin, where account credentials remain.
+  location.assign('https://' + location.hostname.split('.').slice(1).join('.'))
 }
 
 /** Has the first session probe completed? Before this, treat "signed out" as unknown, not true —
@@ -76,6 +76,7 @@ export function sessionResolved(): boolean {
 
 /** The current access token, refreshed if stale — the credential the daemon socket presents. */
 export function sessionToken(): Promise<string> {
+  if (scopedToken()) return Promise.resolve(scopedToken()!.accessToken)
   return manager.accessToken()
 }
 
@@ -90,16 +91,18 @@ export function subscribeSession(cb: () => void): () => void {
 
 /** The signed-in account id, or '' — the identity OrgView keys its refetch on. */
 export function sessionAccountId(): string {
+  if (scopedToken()) return scopedToken()!.accountId
   return manager.current()?.accountId || ''
 }
 
 function snapshot(): CabbieSession {
   const p = manager.current()
+  const scoped = scopedToken()
   return {
     available: true, // cabbie only exists on a hosted, accounts-mode daemon
-    signedIn: manager.signedIn(),
+    signedIn: scoped ? scoped.expiresAt > Date.now() / 1000 : manager.signedIn(),
     email: p?.email || '',
-    accountId: p?.accountId || '',
+    accountId: scoped?.accountId || p?.accountId || '',
     mode: 'cloud', // runs on the platform's model keys
     modeLocked: true, // hosted: cloud is the only runnable option, no toggle
     canUseCloud: true,
@@ -161,6 +164,10 @@ export function useCabbieSession(onCredentialChange?: () => void): {
   )
 
   const signOut = useCallback(async () => {
+    if (scopedToken()) {
+      location.assign('https://' + location.hostname.split('.').slice(1).join('.'))
+      return
+    }
     await manager.logout()
     onCredentialChange?.()
   }, [onCredentialChange])

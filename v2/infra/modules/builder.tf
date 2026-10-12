@@ -166,6 +166,7 @@ resource "aws_lambda_function" "builder" {
   count = local.builder_enabled ? 1 : 0
 
   function_name = local.builder_name
+  reserved_concurrent_executions = local.paused ? 0 : -1
   role          = aws_iam_role.builder.arn
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.builder.repository_url}:${var.builder_image_tag}"
@@ -186,11 +187,11 @@ resource "aws_lambda_function" "builder" {
   # registry (the delta-install path). Outside the VPC both just work and cold starts are faster.
 
   environment {
-    variables = {
+    variables = merge({
       BUILDER_SCRATCH_BUCKET = aws_s3_bucket.builder_scratch.bucket
       BUILDER_INTERNAL_KEY   = random_password.builder_internal_key.result
       LOG_LEVEL              = "INFO"
-    }
+    }, local.sandbox_env["builder"])
   }
 
   depends_on = [aws_cloudwatch_log_group.builder]

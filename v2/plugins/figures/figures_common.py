@@ -91,9 +91,11 @@ def render_svg_to_png(svg_text: str, out_png: Path, width: int, height: int,
 
     with sync_playwright() as pw:
         try:
-            br = pw.chromium.launch()
+            from agent_runtime.infrastructure.tools.browser.isolated_launch import options
+
+            br = pw.chromium.launch(**options())
         except Exception:
-            br = pw.chromium.launch(channel="msedge")
+            br = pw.chromium.launch(channel="msedge", **options())
         try:
             page = br.new_page(viewport={"width": width, "height": height},
                                device_scale_factor=scale)

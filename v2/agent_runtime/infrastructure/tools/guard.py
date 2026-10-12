@@ -22,6 +22,7 @@ import json
 import socket
 import time
 from dataclasses import dataclass
+from collections import OrderedDict
 
 from agent_runtime.application.run_context import current_run_context
 from agent_runtime.domain.messages import TextContent
@@ -138,6 +139,18 @@ class GuardedTool(Tool):
         self._last_at = 0.0
         self._repeat_count = 0
         self._consec_errors = 0
+        self._scoped_loops = OrderedDict()
+
+    def _scope_state(self):
+        ctx = current_run_context()
+        if ctx is None or not ctx.hosted:
+            return None
+        key = (ctx.account_id, ctx.org_id, ctx.agent_id, ctx.agent_dir, ctx.session_key)
+        state = self._scoped_loops.setdefault(key, [None, 0.0, 0, 0])
+        self._scoped_loops.move_to_end(key)
+        while len(self._scoped_loops) > 10000:
+            self._scoped_loops.popitem(last=False)
+        return state
 
     # --- delegate the contract attributes to the inner tool ----------------
     @property
@@ -200,6 +213,13 @@ class GuardedTool(Tool):
         limit = self._policy.loop_max_repeats
         fp = self._fingerprint(params)
         now = time.monotonic()
+        state = self._scope_state()
+        if state is not None:
+            count = state[2] + 1 if fp == state[0] and now - state[1] <= LOOP_WINDOW_SEC else 1
+            state[:3] = [fp, now, count]
+            if limit and count > limit:
+                return ToolResult.text(f"loop guard: '{self.name}' repeated identical arguments {count} times in this chat", is_error=True)
+            return None
         # A gap this long is not a loop. Anything spinning does it far faster, and anything
         # slower than this had a reason to wait — a user clicked, a turn ended, a run finished.
         if fp != self._last_fp or (now - self._last_at) > LOOP_WINDOW_SEC:
@@ -221,6 +241,12 @@ class GuardedTool(Tool):
     def _loop_annotate(self, result: ToolResult) -> ToolResult:
         """Soft nudge after several consecutive errors from this tool."""
         warn = self._policy.loop_warn_after_errors
+        state = self._scope_state()
+        if state is not None:
+            state[3] = state[3] + 1 if result.is_error else 0
+            if warn and state[3] >= warn:
+                result.content.append(TextContent(text=f"\n\n[loop guard] '{self.name}' has failed {state[3]} times in this chat; change approach."))
+            return result
         self._consec_errors = self._consec_errors + 1 if result.is_error else 0
         if warn and self._consec_errors >= warn:
             result.content.append(

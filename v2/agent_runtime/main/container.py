@@ -10,33 +10,35 @@ HERE, nowhere else.
 from __future__ import annotations
 
 import logging
+import threading
 
-from agent_runtime.application.services.agent_service import AgentService
-from agent_runtime.config import Config
 from agent_runtime.application.interfaces.manager_checkpoints import ManagerRunScope
+from agent_runtime.application.services.agent_service import AgentService
 from agent_runtime.application.services.capability_sheet_assembler import CapabilitySheetAssembler
 from agent_runtime.application.services.manager_checkpoint_service import ManagerCheckpointService
 from agent_runtime.application.services.run_digest_recorder import RunDigestRecorder
 from agent_runtime.application.services.settings_capability_facts import SettingsCapabilityFacts
 from agent_runtime.application.tool_models import brain_model
+from agent_runtime.config import Config
 from agent_runtime.domain.escalation_policy import EscalationPolicy
-from agent_runtime.infrastructure import accounts
+from agent_runtime.infrastructure import accounts, tool_catalog_file
+from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
 from agent_runtime.infrastructure.engine.incomplete_turn import is_runtime_message
+from agent_runtime.infrastructure.engine.native import NativeEngine
+from agent_runtime.infrastructure.llm.litellm import litellm_stream
 from agent_runtime.infrastructure.llm.oneshot import chat_complete
 from agent_runtime.infrastructure.machine_credential_keeper import MachineCredentialKeeper
+from agent_runtime.infrastructure.memory.local_store import SessionStore
 from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
 from agent_runtime.infrastructure.project_manager.llm_project_manager import LlmProjectManager
 from agent_runtime.infrastructure.project_manager.session_manager_ledger_store import (
     SessionManagerLedgerStore,
 )
 from agent_runtime.infrastructure.project_manager.workspace_proof_runner import WorkspaceProofRunner
-from agent_runtime.infrastructure.tools.sandbox.sandbox_capability_facts import SandboxCapabilityFacts
-from agent_runtime.infrastructure import tool_catalog_file
-from agent_runtime.infrastructure.agent_authored_config import AgentAuthoredConfig
-from agent_runtime.infrastructure.engine.native import NativeEngine
-from agent_runtime.infrastructure.llm.litellm import litellm_stream
-from agent_runtime.infrastructure.memory.local_store import SessionStore
 from agent_runtime.infrastructure.prompt import build_system_prompt
+from agent_runtime.infrastructure.tools.sandbox.sandbox_capability_facts import (
+    SandboxCapabilityFacts,
+)
 from agent_runtime.presentation.gateway import Gateway
 
 log = logging.getLogger("agentd")
@@ -259,7 +261,14 @@ def build_service(
     def _wrap(raw_tools: list) -> list:
         out = []
         for t in raw_tools:
-            gt = GuardedTool(t, resolve_policy(config, t))
+            policy = resolve_policy(config, t)
+            from agent_runtime.infrastructure.tools.sandbox.sandboxed_tool import SandboxedTool
+
+            if getattr(config, "hosted", False) and isinstance(t, SandboxedTool) and policy.timeout_sec:
+                from dataclasses import replace
+
+                policy = replace(policy, timeout_sec=policy.timeout_sec + 180)
+            gt = GuardedTool(t, policy)
             gt.source = tool_source(t)  # plugin:<id> / mcp:<server> — tagged for the catalog
             out.append(gt)
         return out
@@ -268,6 +277,9 @@ def build_service(
         """The ONE treatment every tool gets on its way into the live catalog, shared by the
         boot path, hot-reload, and the agent-private tier: global on/off filter, per-tool
         plugin-config filter, then the reliability wrapper + source tag."""
+        if getattr(config, "hosted", False):
+            raw_tools = wrap_untrusted(list(raw_tools), sandbox=plugin_sandbox, resolver=capability_resolver,
+                                       config=config, installed_agent_ids=None)
         kept = apply_enablement(
             list(raw_tools),
             getattr(config, "tools_enabled", None),
@@ -304,10 +316,12 @@ def build_service(
                     continue
                 st = f.stat()
                 h.update(f"{f.relative_to(base).as_posix()}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+                h.update(f.read_bytes())
+            h.update(str(base.resolve()).encode())
             return h.hexdigest()
 
         def load(manifest, agent_dir, agent_id: str):
-            if not plugin_presumed_untrusted(config, agent_id, manifest.id, classify):
+            if not plugin_presumed_untrusted(config, agent_id, manifest.id, classify, str(agent_dir)):
                 return None
             if not callable(enumerate_tools):
                 return None  # local passthrough: no isolation exists for the import to undercut
@@ -357,6 +371,7 @@ def build_service(
             from agent_runtime.infrastructure import user_state as _us
 
             roots += [(layer, True) for _acct, layer in _us.account_agents_layers(state_dir)]
+            roots += [(p, True) for p in Path(state_dir).glob("orgs/*/agents") if p.is_dir()]
         agent_map: dict = {}
         for root, from_overlay in roots:
             if root is None:
@@ -406,7 +421,13 @@ def build_service(
                 )
         return agent_map
 
+    _plugin_reload_lock = threading.Lock()
+
     def register_plugin_live() -> dict:
+        with _plugin_reload_lock:
+            return _register_plugin_live()
+
+    def _register_plugin_live() -> dict:
         service = _late.get("service")
         if service is None:
             return {"ok": False, "error": "catalog not ready"}
@@ -526,8 +547,6 @@ def build_service(
         from agent_runtime.infrastructure.context import WindowContextPolicy
 
         context_policy = WindowContextPolicy(config.context_max_messages)
-    from agent_runtime.application.tool_models import brain_model
-    from agent_runtime.infrastructure import accounts
     from agent_runtime.infrastructure.llm import model_proxy
     from agent_runtime.infrastructure.llm.model_router import build_model_router
 
@@ -535,6 +554,10 @@ def build_service(
     model_proxy.configure(config)
     # hosted identity + per-account metering (default off => the daemon has no notion of accounts)
     accounts.configure(config)
+    from agent_runtime.infrastructure import tenancy
+
+    tenancy.configure(hosted=bool(getattr(config, "hosted", False)),
+                      owner_resolver=(lambda aid: registry.get(aid).owner) if registry else None)
     # PER-ACCOUNT CONFIG. From here on, every model/knob resolution in application/tool_models —
     # the brain, every tool's model and provider, every tool knob — reads the CALLER's config
     # (master ⊕ their overlay) instead of the machine's. One hook, installed once: adding it at
@@ -752,6 +775,9 @@ def build_service(
         """HOSTED: this account's projects root (projects.json + project workspaces live here);
         else the daemon state_dir. Must match gateway._projects_root so reads/writes agree."""
         acct = _accounts.account_id()
+        if acct and config.hosted:
+            from agent_runtime.infrastructure import tenancy
+            return tenancy.namespace_root(config.state_dir, acct)
         return _user_state.account_root(config.state_dir, acct) if acct else config.state_dir
 
     def _tenant_scope(agent, workspace):
@@ -781,6 +807,12 @@ def build_service(
         pid = (read_session_meta(_acct_state_dir(agent), session_id).get("projectId") or "").strip()
         proot = _acct_projects_root()
         if not pid or projects_store.get_project(proot, pid) is None:
+            if config.hosted and _accounts.account_id():
+                from agent_runtime.infrastructure import tenancy
+
+                workspace = tenancy.session_workspace(config.state_dir, _accounts.account_id(), agent.id, session_id)
+                workspace.mkdir(parents=True, exist_ok=True)
+                return str(workspace)
             return _acct_workspace(agent)
         return str(projects_store.project_workspace_dir(proot, pid))
 
@@ -904,13 +936,15 @@ def build_task_store(config: Config):
         return None
     from agent_runtime.infrastructure.tasks import SqliteTaskStore
 
-    return SqliteTaskStore(config.state_dir / "autonomy.sqlite")
+    return SqliteTaskStore(config.state_dir / "autonomy.sqlite", hosted=bool(config.hosted))
 
 
 def build_mcp_provider(config: Config):
     """Build the MCP client provider (external tool connectors), or None if no
     servers are configured / the `mcp` SDK is absent. The gateway discovers its
     tools asynchronously at startup (discovery needs an event loop)."""
+    if config.hosted:
+        return None  # shared operator credentials are never an account's MCP session
     from agent_runtime.infrastructure.tools.mcp import build_mcp_provider as _build
 
     return _build(config)
@@ -940,13 +974,28 @@ def build_oauth_service(config: Config, registry):
         from agent_runtime.domain.agent import PLACEHOLDER_NAMES
 
         return PLACEHOLDER_NAMES.sub(
-            lambda m: os.environ.get(setting_env_name(agent_id, m.group(1)), ""), str(value or "")
+            lambda m: _oauth_setting(agent_id, m.group(1)), str(value or "")
         )
+
+    from agent_runtime.infrastructure import tenancy
+    from agent_runtime.infrastructure.account_settings import LOCAL_ACCOUNT, AccountSettingsStore
+    settings_store = AccountSettingsStore(config.state_dir)
+
+    def _oauth_setting(agent_id: str, name: str) -> str:
+        if config.hosted and name.startswith(("AGENTD_", "AWS_", "BUILDER_", "EXECUTOR_")):
+            return ""
+        values = settings_store.read(_current_account_id() or LOCAL_ACCOUNT, agent_id)
+        if name in values:
+            return values[name]
+        if config.hosted:
+            return ""
+        return os.environ.get(setting_env_name(agent_id, name), "")
 
     service = OAuthService(
         http=HttpxOAuthHttp(),
         store=FileTokenStore(Path(config.state_dir) / "oauth"),
         resolve_setting=_resolve_setting,
+        scope_key=tenancy.partition,
     )
 
     def _decl(agent_id: str, name: str):
@@ -986,15 +1035,15 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
         return None
 
     import os
-    from pathlib import Path
 
     from agent_runtime.application.services.agent_mcp_connector import AgentMcpConnector
     from agent_runtime.domain.agent import setting_env_name
+    from agent_runtime.infrastructure import tenancy
     from agent_runtime.infrastructure.tools.mcp.provider import McpProvider
     from agent_runtime.infrastructure.tools.mcp.session import create_session
     from agent_runtime.presentation.gateway import _guarded_with_source
 
-    provider = McpProvider([], create_session)
+    providers = {}
 
     async def _connect(agent_id: str, decl, env: dict, headers: dict):
         """Declaration + already-resolved credentials -> live, guarded, agent-tagged tools."""
@@ -1014,7 +1063,15 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
             env=env or None,
             headers=headers or None,
         )
-        tools = await provider.add_server(cfg)
+        from agent_runtime.infrastructure import tenancy
+        key = tenancy.partition(agent_id)
+        provider = providers.setdefault(key, McpProvider([], create_session))
+        if config.hosted:
+            from agent_runtime.infrastructure.tools.mcp.isolated import connect_isolated
+
+            tools = await connect_isolated(config, cfg)
+        else:
+            tools = await provider.add_server(cfg)
         for tool in tools:
             # Whose tool this is. The scoped `tools.invoke` check admits a tool when it belongs to
             # the calling agent, which is how an agent's own dashboard reaches it with no chat
@@ -1041,6 +1098,7 @@ def build_agent_mcp_connector(config: Config, registry, oauth_token=None):
         setting_env=setting_env_name,
         oauth=oauth_token,  # for a server declaring auth = "oauth:<name>"
         read_setting=_read_setting,
+        scope_key=tenancy.session_partition,
     )
     return connector
 
@@ -1087,6 +1145,9 @@ def build_gateway(config: Config) -> Gateway:
         account_id=_current_account_id,
         org_layers=_org_agent_layers(config),
     )
+    from agent_runtime.infrastructure import tenancy
+
+    tenancy.configure(hosted=bool(config.hosted), owner_resolver=lambda aid: registry.get(aid).owner)
     task_store = build_task_store(config)  # durable cron ledger (None unless autonomy on)
     memory_bank = build_memory_bank(config)  # long-term memory (None unless memory on)
     # Login vault + connect-token store — built ONCE and SHARED by the simple_login tool
@@ -1113,11 +1174,11 @@ def build_gateway(config: Config) -> Gateway:
         mcp_connector=mcp_connector,
         late=late,
     )
+    from agent_runtime.config import accounts_api_base
     from agent_runtime.infrastructure.events import build_event_log
     from agent_runtime.infrastructure.images import build_image_thumbnail_service
-    from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
-    from agent_runtime.config import accounts_api_base
     from agent_runtime.infrastructure.platform_session import PlatformSession
+    from agent_runtime.infrastructure.safe_to_send import build_safe_to_send_gate
 
     # LOCAL vs CLOUD, asserted at boot. AFTER build_service, which runs model_proxy.configure —
     # this reads that seam to decide whether Cloud is reachable at all. Default is Cloud: a

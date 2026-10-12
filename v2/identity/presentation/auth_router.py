@@ -12,16 +12,16 @@ manager that opens its own ``_db()``, so identity never learns how accounts conn
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from urllib.parse import urlencode
-from typing import Callable
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 
 from identity.application.services.auth_service import AuthService
 from identity.application.services.oauth_flow import OAuthFlowStore
-from identity.domain.return_target_policy import ReturnTargetPolicy
 from identity.domain.errors import (
     AccountDisabled,
     AuthenticationFailed,
@@ -30,6 +30,7 @@ from identity.domain.errors import (
     TokenExpired,
     TokenInvalid,
 )
+from identity.domain.return_target_policy import ReturnTargetPolicy
 
 #: The refresh token's home in COOKIE MODE — the browser client's whole session story.
 #:
@@ -205,6 +206,11 @@ def build_auth_router(
         # Cookie mode: the body carries no token because the browser was never allowed to see
         # one. The cookie IS the session; rotation re-sets it below.
         cookie_mode = bool(payload.get("cookie")) or (not token and COOKIE_NAME in request.cookies)
+        if cookie_mode:
+            origin = str(request.headers.get("origin") or "").rstrip("/")
+            allowed = {value.strip().rstrip("/") for value in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",")}
+            if "*" not in allowed and origin not in allowed:
+                raise HTTPException(status_code=403, detail="cookie refresh origin denied")
         if not token:
             token = str(request.cookies.get(COOKIE_NAME) or "")
         try:
@@ -259,6 +265,11 @@ def build_auth_router(
     @router.post("/logout")
     def logout(request: Request, response: Response, payload: dict = Body(default={})) -> dict:
         _guard_unmetered(request)  # revokes what it presents; nothing to brute-force
+        if not (payload or {}).get("refresh_token") and COOKIE_NAME in request.cookies:
+            origin = str(request.headers.get("origin") or "").rstrip("/")
+            allowed = {value.strip().rstrip("/") for value in os.environ.get("ACCOUNTS_CORS_ORIGINS", "*").split(",")}
+            if "*" not in allowed and origin not in allowed:
+                raise HTTPException(status_code=403, detail="cookie logout origin denied")
         token = str((payload or {}).get("refresh_token") or "") or str(
             request.cookies.get(COOKIE_NAME) or ""
         )

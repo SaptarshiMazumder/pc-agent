@@ -34,6 +34,7 @@ from identity.infrastructure.jwks_verifier import looks_like_jwt
 log = logging.getLogger("agentd.accounts")
 
 _enabled = False
+_hosted = False
 _api_base = ""
 _client: httpx.AsyncClient | None = None
 #: Local JWT verifier, built at boot from the deployment's discovery document. None => this
@@ -168,7 +169,8 @@ def configure(config) -> None:
 
     ADVERTISED AND ENFORCED ARE DIFFERENT THINGS — see `available()` vs `enabled()` below.
     """
-    global _enabled, _api_base, _client
+    global _enabled, _api_base, _client, _hosted
+    _hosted = bool(getattr(config, "hosted", False))
     acc = getattr(config, "accounts", None) or {}
     _api_base = accounts_api_base(config)
     _enabled = bool(_api_base) and (
@@ -249,9 +251,12 @@ def memory_partition(agent_id: str) -> str:
     The memory bank isolates by an ``agent_id`` string column, so folding the account into that key
     (`<account>::<agent>`) partitions memory per-account with NO schema change. Bare ``agent_id``
     when there's no account (desktop/local) — unchanged."""
-    acct = account_id()
-    base = agent_id or "main"
-    return f"{acct}::{base}" if acct else base
+    from agent_runtime.infrastructure import tenancy
+
+    return tenancy.partition(agent_id or "main")
+
+
+current_namespace: contextvars.ContextVar = contextvars.ContextVar("agentd_namespace", default="")
 
 
 def set_account(account: dict | None):
@@ -308,7 +313,7 @@ async def resolve(token: str) -> dict | None:
     if hit and hit[1] > now:
         return hit[0]
 
-    if _verifier is not None and looks_like_jwt(token):
+    if not _hosted and _verifier is not None and looks_like_jwt(token):
         try:
             claims = await _verifier.averify(token)
         except TokenExpired:
@@ -358,7 +363,7 @@ async def resolve(token: str) -> dict | None:
     # retain the raw token: it is the account's own credential for authenticated reads
     # (e.g. GET /budget) — never persisted, lives only in this process's cache/contextvar.
     acc.setdefault("session_token", token)
-    _resolve_cache[token] = (acc, now + _RESOLVE_TTL)
+    _resolve_cache[token] = (acc, min(now + (5 if _hosted else _RESOLVE_TTL), float(acc.get("expires_at") or now + _RESOLVE_TTL)))
     return acc
 
 
@@ -530,3 +535,14 @@ def is_admin(account: dict | None = None) -> bool:
     email = str(acc.get("email") or "").strip().lower()
     account_id = str(acc.get("account_id") or "").strip().lower()
     return bool((email and email in known) or (account_id and account_id in known))
+
+
+async def background_account(account_id: str) -> dict | None:
+    key = os.environ.get("AGENTD_ACCOUNTS_INTERNAL_KEY", "")
+    if not _client or not key or not account_id:
+        return None
+    try:
+        response = await _client.get("/internal/runtime-principal", params={"account_id": account_id}, headers={"X-Internal-Key": key})
+        return response.json() if response.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return None

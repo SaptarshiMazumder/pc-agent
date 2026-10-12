@@ -47,6 +47,8 @@ RUN ln -s /opt/skeleton/node_modules /opt/skeleton/ref/node_modules \
  && test -s /opt/skeleton/ui/index.html
 
 COPY services/builder/handler.py /var/task/handler.py
+COPY services/executor/fargate_dispatch.py services/executor/fargate_runner.py /var/task/
+COPY services/executor/runtime_leases.py /var/task/
 WORKDIR /var/task
 RUN python3 -c "import handler; print('handler imports OK')"
 

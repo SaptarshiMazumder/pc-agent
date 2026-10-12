@@ -1,3 +1,4 @@
+import { APP_NAME } from '../lib/brand'
 import { FormEvent, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type ClipboardEvent as ReactClipboardEvent } from 'react'
 import { Plus, ArrowUp, Square, Terminal, Check, MessageSquare, Paperclip, Users, X, Upload } from 'lucide-react'
 
@@ -335,7 +336,7 @@ export default function ChatView() {
         )}
       </div>
       <div className="composer-hint">
-        <span className="hint-model">{model || 'agentd'}</span>
+        <span className="hint-model">{model || APP_NAME}</span>
         {usageStr && <><span className="hint-sep"> · </span><span className="hint-toks">{usageStr}</span></>}
         {credits !== null && (
           <>

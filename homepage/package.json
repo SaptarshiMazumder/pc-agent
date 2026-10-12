@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Marketing homepage for agentd — static site, built with Vite.",
+  "description": "Marketing homepage for AgentBear — static site, built with Vite.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

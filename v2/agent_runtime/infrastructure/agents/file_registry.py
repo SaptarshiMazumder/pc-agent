@@ -20,7 +20,6 @@ import tomllib
 from pathlib import Path
 
 from agent_runtime.application.descriptions import first_meaningful_line
-from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     USER_DATA_DIRS,
@@ -30,6 +29,7 @@ from agent_runtime.domain.agent import (
     invalid_new_agent_id,
 )
 from agent_runtime.domain.agent_availability import withheld_reason
+from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.infrastructure.agents import ownership_store
 from agent_runtime.infrastructure.agents.bootstrap import load_bootstrap, load_heartbeat
 from agent_runtime.infrastructure.agents.presentation import MAIN_COLOR, read_sidecar
@@ -379,7 +379,8 @@ class FileAgentRegistry:
         record = ownership_store.read(d)
         return dataclasses.replace(
             spec,
-            owner=record.owner if record else default_owner,
+            owner=(default_owner if self._hosted() and default_owner.startswith(("acct_", "org_"))
+                   else record.owner if record else default_owner),
             origin=record.origin if record else ownership.AUTHORED,
             author=record.author if record else "",
         )
@@ -392,7 +393,7 @@ class FileAgentRegistry:
             return specs
         default_owner = default_owner or self._shared_owner_default()
         for d in sorted(directory.iterdir()):
-            if not d.is_dir():
+            if not d.is_dir() or (self._hosted() and d.is_symlink()):
                 continue
             agent_id = d.name.strip().lower()
             if not _valid_id(agent_id):
@@ -535,7 +536,11 @@ class FileAgentRegistry:
         layer with one clear. A non-member's list is (), so for them this dict does not
         merely hide org agents: it never contains them."""
         merged: dict[str, AgentSpec] = {}
+        from agent_runtime.infrastructure import accounts
+        selected = accounts.current_namespace.get() if self._hosted() else ""
         for org_id, _role, path in sorted(self._org_layer_list(), key=lambda t: str(t[0])):
+            if selected in ("personal", "platform") or (selected.startswith("org_") and org_id != selected):
+                continue
             key = str(path)
             cached = self._overlays.get(key)
             if cached is None:
@@ -558,7 +563,9 @@ class FileAgentRegistry:
         ORDERED LAYERS (tenancy E3): curated < org < personal — an id collision resolves to
         the personal copy, so installing your own build of the company agent gets you yours
         without touching anybody else's."""
-        overlay = self._overlay()
+        from agent_runtime.infrastructure import accounts
+        selected = accounts.current_namespace.get() if self._hosted() else ""
+        overlay = {} if selected == "platform" or selected.startswith("org_") else self._overlay()
         org = self._org_specs()
         specs = {**self._specs, **org, **overlay} if (overlay or org) else self._specs
         if not self._hosted():
@@ -581,10 +588,29 @@ class FileAgentRegistry:
 
     def _write_target(self) -> tuple[dict[str, AgentSpec], Path]:
         """Where a NEW agent goes: the caller's overlay when they have one, else shared."""
+        from agent_runtime.infrastructure import accounts
+
+        selected = accounts.current_namespace.get() if self._hosted() else ""
+        if selected.startswith("org_"):
+            for org_id, role, root in self._org_layer_list():
+                if str(org_id) == selected and str(role) in ("admin", "owner"):
+                    self._org_specs()
+                    return self._overlays[str(root)], Path(root)
+            raise PermissionError("organization administrator required")
+        if selected == "platform" and self._hosted() and not self._platform_author():
+            raise PermissionError("platform definitions are read-only")
         path = self._overlay_path()
         if path is None:
             return self._specs, self._agents_dir
         return self._overlay(), path
+
+    def _platform_author(self) -> bool:
+        from agent_runtime.application.run_context import current_run_context
+        from agent_runtime.infrastructure.tools.sandbox.classify import _verified_platform_definition
+
+        ctx = current_run_context()
+        return bool(ctx and ctx.agent_id in ("agent-builder", "cloud-agent-builder") and
+                    _verified_platform_definition(self._config, ctx.agent_id, ctx.agent_dir))
 
     def _main_display_name(self) -> str:
         # main's USER-FACING name — the internal id "main" must never surface in a client.
@@ -683,7 +709,8 @@ class FileAgentRegistry:
         # HERE, because this is the one place that knows both the agent's directory and what it
         # declared — and it runs again on every reload, so a value saved from the settings page is
         # in force for the next message rather than the next restart.
-        _export_agent_settings(d, agent_id, settings)
+        if not self._hosted():
+            _export_agent_settings(d, agent_id, settings)
         # [[mcp]] — MCP servers this agent brings with it, so they survive publish + install.
         mcp = _mcp_servers(data.get("mcp"), agent_id=agent_id)
         # [[oauth]] — sign-ins this agent needs. The declaration ships; the tokens never do.
@@ -853,6 +880,8 @@ class FileAgentRegistry:
         overlay = self._overlay_path()
         if overlay is not None and overlay != self._agents_dir:
             roots.append(overlay)
+        if self._hosted():
+            roots.extend(Path(root) for _org, role, root in self._org_layer_list() if role in ("owner", "admin"))
         return tuple(roots)
 
     def find_in_account_layers(self, agent_id: str, account_id: str | None = None):
@@ -900,7 +929,10 @@ class FileAgentRegistry:
         """Where this agent's DEFINITION actually lives, or None — read from the same union
         (and with the same overlay-wins precedence) every other read uses, so "the sidebar
         shows it" and "tools can find it" are one answer, not two."""
-        spec = self._current().get((agent_id or "").strip().lower())
+        try:
+            spec = self.get((agent_id or "").strip().lower())
+        except KeyError:
+            spec = None
         d = getattr(spec, "dir", None) if spec is not None else None
         return Path(d) if d else None
 
@@ -911,7 +943,10 @@ class FileAgentRegistry:
         the dir has one, else the layer's presumed owner), so hot paths never touch disk. See
         planning/platform/identity-ownership-statelessness.md, Step 2."""
         aid = (agent_id or "").strip().lower()
-        spec = self._overlay().get(aid) or self._org_specs().get(aid) or self._specs.get(aid)
+        try:
+            spec = self.get(aid)
+        except KeyError:
+            spec = None
         if spec is None:
             return None
         owner = getattr(spec, "owner", "") or self._shared_owner_default()
@@ -962,9 +997,10 @@ class FileAgentRegistry:
         can: an account's own agents live in its overlay, and that is the list a "My agents"
         section means. Resolved per call, like everything overlay-shaped, because the answer
         depends on whose socket is asking."""
-        if agent_id in self._overlay():
+        spec = self._current().get(agent_id)
+        if spec and self._overlay().get(agent_id) is spec:
             return "account"
-        if agent_id in self._org_specs():
+        if spec and self._org_specs().get(agent_id) is spec:
             return "org"
         return "shared"
 
@@ -988,6 +1024,21 @@ class FileAgentRegistry:
         if not _valid_id(agent_id):
             raise ValueError(f"invalid agent id: {agent_id!r}")
         overlay_path = self._overlay_path()
+        from agent_runtime.infrastructure import accounts
+
+        selected = accounts.current_namespace.get() if self._hosted() else ""
+        if selected and not (selected == "platform" and self._platform_author()):
+            if selected == "platform":
+                specs, root, owner = self._specs, self._agents_dir, self._shared_owner_default()
+            else:
+                specs, root = self._write_target()
+                owner = selected if selected.startswith("org_") else accounts.account_id()
+            d = root / agent_id
+            if not is_definition_dir(d):
+                raise FileNotFoundError(str(d))
+            spec = self._with_ownership(self._load_dir(agent_id, d), d, owner)
+            specs[agent_id] = spec
+            return spec
         acct = self._account_id() if callable(self._account_id) else None
         layers = [
             layer
@@ -1068,11 +1119,15 @@ class FileAgentRegistry:
         ignore_file = d / IGNORE_FILENAME
         if not ignore_file.exists():
             ignore_file.write_text(BASELINE_IGNORE, encoding="utf-8")
-        ownership_store.stamp_create(
-            d,
-            self._account_id() if callable(self._account_id) else None,
-            self._hosted(),
-        )
+        from agent_runtime.infrastructure import accounts
+
+        selected = accounts.current_namespace.get() if self._hosted() else ""
+        if selected.startswith("org_"):
+            ownership_store.write(d, ownership.OwnershipRecord(owner=selected, origin=ownership.AUTHORED))
+        else:
+            ownership_store.stamp_create(
+                d, self._account_id() if callable(self._account_id) else None, self._hosted(),
+            )
         # The stamp is LOAD-BEARING, so its write is not best-effort here: ownership decides
         # who may edit, publish and (hosted) even see this agent, and an agent born without a
         # record silently falls back to layer-guessing. The store logs-and-continues for the
@@ -1161,7 +1216,19 @@ class FileAgentRegistry:
         return specs.get(agent_id_from_session_key(session_key)) or specs["main"]
 
     def get(self, agent_id: str) -> AgentSpec:
-        return self._current()[agent_id]
+        specs = self._current()
+        if agent_id in specs:
+            return specs[agent_id]
+        # Only the immutable platform authoring tools may resolve their caller's
+        # children while executing from the builder's platform namespace.
+        from agent_runtime.infrastructure import accounts
+        if self._hosted() and accounts.current_namespace.get() == "platform" and self._platform_author():
+            marker = accounts.current_namespace.set("")
+            try:
+                return self._current()[agent_id]
+            finally:
+                accounts.current_namespace.reset(marker)
+        raise KeyError(agent_id)
 
     def list_ids(self) -> list[str]:
         return sorted(self._current())
@@ -1179,7 +1246,17 @@ class FileAgentRegistry:
             raise ValueError("cannot delete the default agent 'main'")
 
         overlay_path = self._overlay_path()
-        if overlay_path is not None:
+        from agent_runtime.infrastructure import accounts
+
+        selected = accounts.current_namespace.get() if self._hosted() else ""
+        if self._hosted() and accounts.account_id() and not self.owns(agent_id):
+            raise PermissionError("agent owner or organization administrator required")
+        if selected.startswith("org_"):
+            specs, root = self._write_target()
+            if agent_id not in specs:
+                raise KeyError(agent_id)
+            from_overlay = True
+        elif overlay_path is not None:
             # THE ISOLATION RULE. An account may delete only what it installed. Without this an
             # ordinary uninstall of a CURATED agent would rmtree the shared catalogue — one user
             # removing an agent from every other user's account, permanently, with the UI
@@ -1222,7 +1299,7 @@ class FileAgentRegistry:
                 shutil.rmtree(def_dir, ignore_errors=True)
                 removed["definition"] = not def_dir.exists()
         state_dir = Path(self._state_dir_for(agent_id))  # <state_dir>/agents/<id>/ (sessions)
-        if state_dir.is_dir() and state_dir.resolve() != def_dir.resolve():
+        if not self._hosted() and state_dir.is_dir() and state_dir.resolve() != def_dir.resolve():
             shutil.rmtree(state_dir, ignore_errors=True)
             removed["sessions"] = not state_dir.exists()
         # NOTE (accounts): an account's transcripts live INSIDE its agent dir and are preserved

@@ -43,7 +43,10 @@ locals {
       # It is deliberately the break-glass list and NOT the promotable roster in the accounts
       # database: that roster governs accounts, credits and creators, while this governs the
       # machine those accounts run on.
-      AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
+      AGENTD_PUBLIC_HTTP_PROXY        = "http://sandbox-egress.${var.project}.local:8080"
+      AGENTD_STATE_KEK                = random_password.state_kek.result
+      AGENTD_REQUIRE_STATE_ENCRYPTION = "1"
+      AGENTD_ADMIN_IDENTITIES         = join(",", var.publish_admin_identities)
       # What to tell a BROWSER when it asks where to sign in. AGENTD_ACCOUNTS_URL (above) is
       # internal service DNS — correct for this container's own calls, unresolvable from a
       # visitor's machine, and advertising it gives an agent app a login form that can never
@@ -123,6 +126,7 @@ locals {
     # EMPTY WHILE HIBERNATING (no public host) is a supported state, not a broken one: the service
     # then serves the legacy `sess_` path and reports /auth/* as not-configured.
     accounts = {
+      ACCOUNTS_CORS_ORIGINS = var.root_domain != "" ? "https://${var.root_domain}" : ""
       # POSTGRES IS MANDATORY IN THIS ENVIRONMENT — or the service must refuse to start.
       #
       # `_db()` picks its backend per request from whether DATABASE_URL is set, and both answers
@@ -213,7 +217,9 @@ locals {
       # services, no way for them to disagree about who is an admin. This is the break-glass tier
       # — permanent while deployed and not demotable from the dashboard — and the editable roster
       # lives in the accounts database beside it.
-      AGENTD_ADMIN_IDENTITIES = join(",", var.publish_admin_identities)
+      AGENTD_STATE_KEK                = random_password.state_kek.result
+      AGENTD_REQUIRE_STATE_ENCRYPTION = "1"
+      AGENTD_ADMIN_IDENTITIES         = join(",", var.publish_admin_identities)
       # ── the payment rail (v2/payments/) ──
       # The provider NAME and return-origin allowlist are config and live here; the rail's KEYS
       # are secrets and arrive via secret_keys (variables.tf → the app secret). The factory
@@ -284,7 +290,7 @@ resource "aws_ecs_task_definition" "svc" {
 
   container_definitions = jsonencode([{
     name      = each.key
-    image     = "${aws_ecr_repository.this[each.key].repository_url}:${var.image_tag}"
+    image     = "${aws_ecr_repository.this[each.key].repository_url}:${lookup(var.service_image_tags, each.key, var.image_tag)}"
     essential = true
     # hostPort IS DECLARED, and it exists to stop perpetual drift rather than to change anything.
     # Under host networking AWS fills the field in for you (it must equal containerPort), so a

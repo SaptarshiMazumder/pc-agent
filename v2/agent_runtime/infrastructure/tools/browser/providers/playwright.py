@@ -111,13 +111,18 @@ def stealth_chromium_kwargs(config, *, headless: bool, persistent: bool) -> dict
     # which injects --no-sandbox and triggers Chrome's "unsupported command-line
     # flag / stability and security will suffer" warning bar. On = no banner + safer.
     kw: dict = {"headless": headless, "chromium_sandbox": True}
+    if os.environ.get("AGENTD_ISOLATED_TASK") == "1":
+        # The task is the VM isolation boundary; public-only egress is enforced by its SG.
+        kw["chromium_sandbox"] = False
+        kw["proxy"] = {"server": os.environ["HTTP_PROXY"]}
+        kw["args"] = ["--disable-quic", "--proxy-bypass-list=<-loopback>"]
     if persistent:
         kw["accept_downloads"] = True
     channel = (browser_knob(config, "channel", "chrome") or "").strip()
     if channel:
         kw["channel"] = channel
     if browser_knob(config, "stealth", True):
-        kw["args"] = ["--disable-blink-features=AutomationControlled"]
+        kw["args"] = [*kw.get("args", []), "--disable-blink-features=AutomationControlled"]
         kw["ignore_default_args"] = ["--enable-automation"]
     return kw
 

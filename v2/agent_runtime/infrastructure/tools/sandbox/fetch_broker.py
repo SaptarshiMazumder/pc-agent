@@ -248,7 +248,7 @@ class SandboxFetchBroker:
 
         if not is_hosted(self._config):
             return False
-        return not raw_url.strip().startswith("${AGENTD_ACCOUNTS_URL}")
+        return True
 
     def _readable(self, path: str):
         """The resolved path IF this run may read it; raises _Refused otherwise.
@@ -331,7 +331,19 @@ class SandboxFetchBroker:
         a value stored per account was invisible to a sandboxed plugin while working perfectly
         in-process — the exact "works for you, 401s for them" split the two paths must not have.
         """
-        from agent_runtime.application.run_context import current_setting_value
+        from agent_runtime.application.run_context import current_run_context, current_setting_value
+
+        ctx = current_run_context()
+        if ctx is None:
+            from agent_runtime.domain.agent_availability import is_hosted
+            if is_hosted(self._config):
+                return ""
+        if ctx is not None and ctx.hosted:
+            if name.startswith(("AGENTD_", "BUILDER_", "EXECUTOR_")):
+                return ""
+            if name not in (ctx.settings or ()):
+                return ""
+            return current_setting_value(name)
 
         value = current_setting_value(name) or self._from_config(name) or ""
         if value:

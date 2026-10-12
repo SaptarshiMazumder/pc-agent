@@ -78,9 +78,9 @@ export function Launchpad({
       <div className="lp-topbar">
         {/* The same two facts as the sidebar's chip, restated where the design puts them — the
             sidebar may be collapsed to icons, and this page is where you land after a restart. */}
-        <span className="lp-live" title={`${status}${daemonVersion ? ` · agentd ${daemonVersion}` : ''}`}>
+        <span className="lp-live" title={`${status}${daemonVersion ? ` · AgentBear ${daemonVersion}` : ''}`}>
           <span className="live-dot" style={{ opacity: status === 'open' ? 1 : 0.3 }} />
-          {status === 'open' ? `agentd ${daemonVersion}`.trim() : status === 'closed' ? 'down' : '…'}
+          {status === 'open' ? `AgentBear ${daemonVersion}`.trim() : status === 'closed' ? 'down' : '…'}
         </span>
         <SearchBox
           className="lp-search"

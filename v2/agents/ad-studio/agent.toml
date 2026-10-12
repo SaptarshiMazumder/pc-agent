@@ -10,7 +10,7 @@
 # plugins/ad-generation/model_specs/. Swapping Seedance for Kling is an edit here, not code.
 
 name = "Ad Studio"
-version = "0.2.0"
+version = "0.2.1"
 # No project manager: the steps are fixed by the recipe in code (campaign_run), so there is no
 # plan for a manager to review — only a pipeline it could second-guess.
 managed = false

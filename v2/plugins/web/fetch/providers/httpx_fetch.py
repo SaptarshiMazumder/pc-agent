@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 
 import httpx
+import os
 
 from agent_runtime.application.interfaces.fetch import FetchResult
 from fetch.extract import (
@@ -27,6 +28,7 @@ class HttpxFetchProvider:
 
     async def fetch(self, url: str, max_chars: int) -> FetchResult:
         async with httpx.AsyncClient(
+            proxy=os.environ.get("AGENTD_PUBLIC_HTTP_PROXY"),
             follow_redirects=True,
             max_redirects=MAX_REDIRECTS,
             timeout=TIMEOUT_SEC,

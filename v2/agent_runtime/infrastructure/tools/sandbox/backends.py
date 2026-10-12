@@ -61,6 +61,8 @@ def resolve_backend_name(config) -> str:
     to the in-process passthrough ONLY where a real child process cannot be launched — with a
     warning, because that means downloaded code runs with this daemon's own access.
     """
+    if getattr(config, "hosted", False):
+        return MICROVM
     raw = str(getattr(config, "sandbox_plugin_backend", "") or "").strip().lower()
     if raw:
         if raw in BACKENDS:

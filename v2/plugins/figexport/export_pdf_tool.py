@@ -69,9 +69,11 @@ class ExportPdfTool(Tool):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             try:
-                br = pw.chromium.launch()
+                from agent_runtime.infrastructure.tools.browser.isolated_launch import options
+
+                br = pw.chromium.launch(**options())
             except Exception:
-                br = pw.chromium.launch(channel="msedge")
+                br = pw.chromium.launch(channel="msedge", **options())
             try:
                 page = br.new_page()
                 page.set_content(html, wait_until="networkidle")

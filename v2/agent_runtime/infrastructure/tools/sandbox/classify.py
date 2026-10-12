@@ -69,7 +69,8 @@ def _forced_untrusted(config, agent_id: str) -> bool:
 
 
 def plugin_presumed_untrusted(
-    config, agent_id: str, plugin_id: str, installed_agent_ids: frozenset[str] | None
+    config, agent_id: str, plugin_id: str, installed_agent_ids: frozenset[str] | None,
+    agent_dir: str = "",
 ) -> bool:
     """The SAME trust decision as ``classify_origin``, answerable BEFORE any tool object exists —
     from the manifest's id and the agent's, which is all a pre-load caller has.
@@ -86,6 +87,10 @@ def plugin_presumed_untrusted(
     if config is not None and _forced_untrusted(config, agent_id):
         # FORCED, ahead of every exemption. Tightening only, so there is nothing to weigh.
         return True
+    if config is not None and getattr(config, "hosted", False):
+        # A name chosen by a customer can never inherit a platform exemption.
+        if not _verified_platform_definition(config, agent_id, agent_dir):
+            return True
     if config is not None and plugin_id and plugin_id in _config_ids(config, "sandbox_trusted_plugins"):
         return False
     if config is not None and agent_id in _config_ids(config, "sandbox_trusted_agents"):
@@ -107,9 +112,47 @@ def classify_origin(
     ``.agentpkg``. ``None`` means "unknown", and every agent-private tool is then untrusted.
     """
     plugin_id = getattr(tool, "_plugin_id", "") or ""
+    if getattr(config, "hosted", False) and plugin_id in {
+        "html", "figures", "figexport", "diagrams", "tts", "video", "vectorize", "vision",
+    }:
+        # Native parsers, renderers and subprocesses handle customer-controlled content.
+        # Their operating-system access belongs in the same disposable VM as user code.
+        return PluginOrigin.THIRD_PARTY_BUNDLE
     agent_id = getattr(tool, "_agent_id", "") or ""
-    untrusted = plugin_presumed_untrusted(config, agent_id, plugin_id, installed_agent_ids)
+    untrusted = plugin_presumed_untrusted(config, agent_id, plugin_id, installed_agent_ids,
+                                         str(getattr(tool, "_plugin_agent_dir", "") or ""))
     return PluginOrigin.THIRD_PARTY_BUNDLE if untrusted else PluginOrigin.FIRST_PARTY
+
+
+def _verified_platform_definition(config, agent_id: str, agent_dir: str) -> bool:
+    from pathlib import Path
+
+    from agent_runtime import runtime_paths
+
+    if not agent_dir:
+        return False
+    actual = Path(agent_dir).resolve()
+    shared = Path(config.agents_dir).resolve() / agent_id
+    reference = runtime_paths.packaged_starter_agents_dir() / agent_id
+    if actual != shared or not reference.is_dir():
+        return False
+    # The reference is baked into the image, outside the writable EFS mount.
+    for relative in (Path("agent.toml"), Path("plugins")):
+        source = reference / relative
+        files = list(source.rglob("*")) if source.is_dir() else [source]
+        expected = {p.relative_to(reference) for p in files if p.is_file() and "__pycache__" not in p.parts}
+        target = actual / relative
+        targets = list(target.rglob("*")) if target.is_dir() else [target]
+        found = {p.relative_to(actual) for p in targets if p.is_file() and "__pycache__" not in p.parts}
+        if found != expected:
+            return False
+        try:
+            if any((actual / rel).is_symlink() or (actual / rel).read_bytes() != (reference / rel).read_bytes()
+                   for rel in expected):
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def wrap_untrusted(
@@ -128,10 +171,13 @@ def wrap_untrusted(
     ``installed_agent_ids`` is resolved by the composition root (it owns the marketplace store)
     and passed straight through to ``classify_origin``; ``None`` fails closed.
     """
-    if not getattr(config, "sandbox_untrusted_plugins", False):
+    if not getattr(config, "hosted", False) and not getattr(config, "sandbox_untrusted_plugins", False):
         return tools
     out: list[Tool] = []
     for t in tools:
+        if isinstance(t, SandboxedTool):
+            out.append(t)
+            continue
         origin = classify_origin(t, config, installed_agent_ids)
         if origin.is_untrusted:
             plugin_id = getattr(t, "_plugin_id", "") or "unknown"

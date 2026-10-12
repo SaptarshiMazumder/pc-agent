@@ -19,7 +19,7 @@ export function HeroSection() {
             Give an AI your <em>actual</em> computer.
           </h1>
           <p className="hero__lede">
-            agentd runs the loop locally: the model asks for a tool, the tool really runs, the result
+            AgentBear runs the loop locally: the model asks for a tool, the tool really runs, the result
             comes straight back. Real files, a real shell, a real browser — on the machine your work
             is already on.
           </p>

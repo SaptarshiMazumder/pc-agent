@@ -14,8 +14,8 @@ import signal
 import sys
 import tempfile
 import uuid
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 from agent_runtime.application.run_context import (
@@ -28,16 +28,16 @@ from agent_runtime.domain.agentd_ignore import FILENAME as IGNORE_FILENAME
 from agent_runtime.domain.agentd_ignore import AgentdIgnore
 from agent_runtime.infrastructure import accounts, user_state
 from agent_runtime.infrastructure.tools.sandbox.confined_command import ConfinedCommand
+from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
+    LandlockConfinement,
+    LandlockUnavailable,
+)
 from agent_runtime.infrastructure.tools.sandbox.microvm_backend import (
     AUTHORING_SKIP_DIRS,
     WORKSPACE_SKIP_DIRS,
     ExecutorError,
     OversizeError,
     run_shell,
-)
-from agent_runtime.infrastructure.tools.sandbox.landlock_confinement import (
-    LandlockConfinement,
-    LandlockUnavailable,
 )
 
 OUTPUT_CAP = 50_000
@@ -97,16 +97,15 @@ def shell_route(config, what: str, background: bool = False) -> tuple[str, ToolR
     safe to put it."""
 
     ctx = current_run_context()
+    if ctx is None and getattr(config, "hosted", False):
+        return "", ToolResult.text("authenticated chat context required", is_error=True)
     if ctx is None or not getattr(ctx, "read_roots", ()):
         return "local", None
-    if background:
-        return "confined", None
     if str(getattr(config, "executor_url", "") or "").strip():
         return "microvm", None
     return "", ToolResult.text(
         f"{what} cannot run here: this server has no executor service configured "
-        "(AGENTD_EXECUTOR_URL), and a foreground command never runs on the daemon's own box. "
-        "Run it with background=true to use the confined shell instead.",
+        "(AGENTD_EXECUTOR_URL); hosted execution is not available without isolation.",
         is_error=True,
     )
 
@@ -120,6 +119,11 @@ def middle_truncate(text: str, cap: int = OUTPUT_CAP) -> str:
 
 
 async def _kill_process(proc: asyncio.subprocess.Process) -> None:
+    if isinstance(proc, RemoteProcess):
+        proc.task.cancel()
+        await asyncio.gather(proc.task, return_exceptions=True)
+        proc.returncode = -1
+        return
     if proc.returncode is not None:
         return
     try:
@@ -185,6 +189,20 @@ class BackgroundProcess:
         self.read_cursor = self.total
         text = new.decode("utf-8", errors="replace")
         return f"[... {missed} bytes of older output dropped ...]\n{text}" if missed else text
+
+
+class RemoteProcess:
+    def __init__(self):
+        self.returncode = None
+        self.task = None
+
+
+def _process_owner():
+    ctx = current_run_context()
+    if ctx is not None and getattr(ctx, "hosted", False):
+        from agent_runtime.infrastructure.tools.sandbox.isolated_session import session_owner
+        return session_owner()
+    return str(getattr(ctx, "account_id", "") or "") if ctx else ""
 
 
 class ProcessRegistry:
@@ -291,6 +309,13 @@ class ExecTool(Tool):
             return refusal
         command = params["command"]
         cwd = params.get("cwd") or current_workspace(str(self.config.workspace))
+        if route == "microvm":
+            from agent_runtime.application.write_scope import check_read, check_write
+            try:
+                check_read(cwd)
+                check_write(cwd)
+            except PermissionError as exc:
+                return ToolResult.text(str(exc), is_error=True)
         # The machine's environment, minus the names this agent declared: an unset setting
         # must stay unset, never quietly pick up whatever the machine exports under that name.
         declared = set(getattr(current_run_context(), "settings", ()) or ())
@@ -300,6 +325,23 @@ class ExecTool(Tool):
         )
 
         if route == "microvm":
+            if params.get("background"):
+                session_id = uuid.uuid4().hex
+                process = RemoteProcess()
+                entry = BackgroundProcess(session_id, command, process, owner=_process_owner())
+                _REGISTRY.sessions[session_id] = entry
+
+                async def run():
+                    try:
+                        result = await self._execute_microvm(command, cwd, params, min(float(timeout), 780))
+                        entry.append_output("\n".join(getattr(block, "text", "") for block in result.content).encode())
+                        process.returncode = 1 if result.is_error else 0
+                    finally:
+                        if process.returncode is None:
+                            process.returncode = -1
+
+                process.task = asyncio.create_task(run())
+                return ToolResult.text(f"Started isolated background session {session_id}. Use process to poll or kill it.")
             return await self._execute_microvm(command, cwd, params, float(timeout))
         if route == "confined":
             return await self._start_confined(command, cwd, params)
@@ -434,7 +476,10 @@ class ExecTool(Tool):
         on this run resolves against - never a wider root."""
         ctx = current_run_context()
         acct = accounts.account_id()
-        if ctx is not None and getattr(ctx, "write_roots", ()) and acct:
+        from agent_runtime.infrastructure.tools.sandbox.classify import (
+            _verified_platform_definition,
+        )
+        if ctx is not None and getattr(ctx, "write_roots", ()) and acct and _verified_platform_definition(self.config, ctx.agent_id, ctx.agent_dir):
             root = Path(user_state.account_agents_dir(self.config.state_dir, acct))
             if root.is_dir():
                 files = [
@@ -480,8 +525,7 @@ class ProcessTool(Tool):
         # sessions: on a hosted daemon, list/poll/kill must never reach another account's
         # command, output or process. Desktop sessions are all owned by "" — one person.
 
-        ctx = current_run_context()
-        owner = str(getattr(ctx, "account_id", "") or "") if ctx is not None else ""
+        owner = _process_owner()
         action = params["action"]
         if action == "list":
             mine = _REGISTRY.owned_by(owner)

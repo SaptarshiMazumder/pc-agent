@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 import { useState, type ReactNode } from 'react'
 import { Blocks, Building2, ChevronDown, ChevronRight, Folder, History, LayoutGrid, Moon, PanelLeft, Plus, Search, ShieldCheck, SquarePen, Sun, UserPlus, Users } from 'lucide-react'
 
@@ -174,7 +175,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <div className="brand">
         <img className="brand-logo" src={logo} alt="" />
-        <span className="brand-name">{flavor?.productName || 'agentd'}</span>
+        <span className="brand-name">{productDisplayName(flavor?.productName)}</span>
         <span className="live"><span className="live-dot" style={{ opacity: connection === 'open' ? 1 : 0.3 }} />live</span>
         <button className="icon-btn icon-btn--sm" title="collapse sidebar" onClick={toggleSidebar}><PanelLeft size={17} /></button>
       </div>

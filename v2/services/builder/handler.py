@@ -170,7 +170,9 @@ def presign_sources(params: dict) -> dict:
     if not SCRATCH_BUCKET:
         raise BuildRefused("BUILDER_SCRATCH_BUCKET is not configured")
     agent_id = str(params.get("agent_id") or "agent").strip() or "agent"
-    key = f"builder/sources/{agent_id}-{int(time.time() * 1000)}.zip"
+    import uuid
+
+    key = f"builder/sources/{uuid.uuid4().hex}.zip"
     url = _s3().generate_presigned_url(
         "put_object", Params={"Bucket": SCRATCH_BUCKET, "Key": key}, ExpiresIn=600
     )
@@ -187,7 +189,7 @@ def run_job(params: dict) -> dict:
         raise BuildRefused("BUILDER_SCRATCH_BUCKET is not configured")
     agent_id = str(params.get("agent_id") or "agent").strip() or "agent"
     prefix = str(params.get("result_prefix") or "builder/results/")
-    stamp = f"{agent_id}-{int(time.time() * 1000)}"
+    stamp = str(params.get("result_stamp") or f"{agent_id}-{int(time.time() * 1000)}")
 
     s3 = _s3()
     with tempfile.TemporaryDirectory(dir="/tmp", prefix="build-") as td:
@@ -249,9 +251,15 @@ def _guarded_job(params: dict, headers: dict) -> dict:
     try:
         if params.get("op") == "presign":
             return presign_sources(params)
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            from fargate_dispatch import dispatch
+
+            return dispatch(params, _s3(), SCRATCH_BUCKET, kind="builder")
         return run_job(params)
     except BuildRefused as e:
         return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
 def _http(code: int, payload: dict) -> dict:

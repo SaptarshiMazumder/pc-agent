@@ -31,7 +31,6 @@ and, here, one that could not be told apart from "use the author's default".
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -67,7 +66,7 @@ class AccountSettingsStore:
         from agent_runtime.infrastructure import user_state
 
         return (
-            user_state.account_agent_dir(self._state_dir, account_id, agent_id)
+            user_state.account_state_dir(self._state_dir, account_id, agent_id)
             / ACCOUNT_SETTINGS_FILE
         )
 
@@ -79,7 +78,8 @@ class AccountSettingsStore:
         if path is None or not path.is_file():
             return {}
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            from agent_runtime.infrastructure import secret_storage
+            raw = secret_storage.read(path)
         except (OSError, ValueError) as e:
             log.warning(
                 "account '%s' has an unreadable %s for agent '%s' (%s: %s) — its stored "
@@ -123,5 +123,6 @@ class AccountSettingsStore:
                 table.pop(key, None)
             touched.append(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(table, indent=2) + "\n", encoding="utf-8")
+        from agent_runtime.infrastructure import secret_storage
+        secret_storage.write(path, table)
         return sorted(touched)

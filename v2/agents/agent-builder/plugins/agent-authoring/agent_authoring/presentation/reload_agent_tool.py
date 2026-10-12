@@ -6,6 +6,8 @@ registry and the tool catalog), so an automatic retry on a slow call could re-re
 
 from __future__ import annotations
 
+import asyncio
+
 from agent_runtime.application.interfaces.tool import Tool, ToolResult
 
 
@@ -32,5 +34,5 @@ class ReloadAgentTool(Tool):
         self._service = service
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
-        message, is_error = self._service.reload(params.get("agent_id", ""))
+        message, is_error = await asyncio.to_thread(self._service.reload, params.get("agent_id", ""))
         return ToolResult.text(message, is_error=is_error)

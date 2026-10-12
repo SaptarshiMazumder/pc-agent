@@ -129,7 +129,7 @@ export function Topbar({
           className="ghost-btn"
           onClick={onRestart}
           disabled={restarting}
-          title="Restart agentd — needed after editing a plugin's Python, which is already imported"
+          title="Restart AgentBear — needed after editing a plugin's Python, which is already imported"
         >
           {restarting ? 'Restarting…' : 'Restart'}
         </button>

@@ -17,7 +17,6 @@ someone can check rather than an assurance they cannot.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import stat
@@ -35,14 +34,23 @@ class FileTokenStore:
         self._root = Path(root)
 
     def _path(self, agent_id: str, name: str) -> Path:
-        return self._root / agent_id / f"{name}.json"
+        import hashlib
+
+        # JSON scope keys include all ownership dimensions; no caller-controlled path parts.
+        import re
+
+        folder = agent_id if re.fullmatch(r"[A-Za-z0-9_-]+", agent_id) else hashlib.sha256(agent_id.encode()).hexdigest()
+        filename = name if re.fullmatch(r"[A-Za-z0-9_-]+", name) else hashlib.sha256(name.encode()).hexdigest()
+        return self._root / folder / f"{filename}.json"
 
     def load(self, agent_id: str, name: str) -> OAuthTokens | None:
         path = self._path(agent_id, name)
         if not path.is_file():
             return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            from agent_runtime.infrastructure import secret_storage
+
+            data = secret_storage.read(path)
         except (OSError, ValueError):
             # A corrupt record is NOT silently treated as "not connected": that would send the
             # user round the sign-in loop with no idea why it never sticks.
@@ -60,20 +68,14 @@ class FileTokenStore:
         path = self._path(agent_id, name)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(
-                    {
-                        "access_token": tokens.access_token,
-                        "refresh_token": tokens.refresh_token,
-                        "expires_at": tokens.expires_at,
-                        "scopes": list(tokens.scopes),
-                        "account": tokens.account,
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            from agent_runtime.infrastructure import secret_storage
+            secret_storage.write(path, {
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+                "expires_at": tokens.expires_at,
+                "scopes": list(tokens.scopes),
+                "account": tokens.account,
+            })
             # Owner-only. A no-op on Windows, where the state dir is already per-user — done
             # anyway because the same daemon runs on machines where it is not.
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
@@ -92,7 +94,7 @@ class FileTokenStore:
 
     def connected(self, agent_id: str) -> list[str]:
         """Which connections this agent has tokens for."""
-        folder = self._root / agent_id
+        folder = self._path(agent_id, "_").parent
         if not folder.is_dir():
             return []
         return sorted(p.stem for p in folder.glob("*.json"))

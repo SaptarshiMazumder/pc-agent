@@ -1,11 +1,8 @@
 # Cloud Agent Builder ("cabbie") — Agent Builder's sister for the web.
 #
-# Same job as agent-builder — turn a description into a real agent on disk — but built to run on a
-# HOSTED, multi-tenant daemon reached through a browser, where agent-builder itself is refused
-# (its create_tool writes and hot-loads Python, its exec runs a shell; on a shared container that
-# is any signed-in visitor acting on everyone else's process). Cabbie is the fenced answer: it
-# authors CLOUD agents only, using the tools that are safe when the boundary is a tenant rather
-# than a machine.
+# The web authoring surface shares Agent Builder's tool implementation. User code
+# is compiled, imported and executed in disposable tasks; definition changes on
+# the controller remain subject to the caller's account/org authorization.
 #
 # NO `requires_local`. This agent is FOR the hosted daemon, so it is offered there. On a desktop
 # daemon it also appears, a fenced builder beside the full one — harmless, and useful for testing
@@ -16,7 +13,7 @@
 # two agents is this file: which of those tools each one is allowed to call.
 
 name = "Cloud Agent Builder"
-version = "1.2.0"
+version = "1.2.3"
 description = "Builds cloud agents from chat: their agent.toml, identity, skills, and app UI — web-deliverable by construction. The fenced, hosted sister of Agent Builder."
 tagline = "build · validate · ship — on the web"
 color = "#0EA5A0"
@@ -60,35 +57,14 @@ deny        = ["<agent_dir>"]
 [capabilities]
 mcp_workshop = false
 
-# THE TOOLS CABBIE MAY CALL.
-#
-# The shared authoring plugin registers agent-builder's FULL toolset (one source, imported). The
-# fence is here, in two halves:
-#
-#   allow  — the shared tools cabbie gets. Note what is ABSENT: `exec` and `process`. A shell
-#            cannot be confined to one tenant's files on a shared daemon (exec refuses itself
-#            there anyway), so cabbie never asks for it, and an agent it builds is checked to not
-#            need it either.
-#   deny   — the private authoring tools cabbie must NOT have. These are implicitly allowed for
-#            their owning agent, so removing them takes an explicit deny:
-#              create_tool     writes + hot-loads Python into the running process — RCE, the exact
-#                              thing that makes agent-builder local-only. Never on the web.
-#              package_agent   builds a Windows .exe installer; a cloud daemon has no NSIS and no
-#                              business making desktop binaries.
-#              publish_agent   pushing to the public registry — deferred; a later phase decides
-#                              whether cabbie publishes or that stays a desktop step.
-#
-# run_agent moved OUT of the deny list: it used to dial an internal socket whose ?act_as= a
-# hosted daemon refuses, so it was withheld rather than offered broken. It now runs through the
-# in-process gateway client (the caller's own account carried from the run context — the same
-# transport e2e_run uses), which works identically on desktop and hosted.
-#
-# What cabbie KEEPS from the authoring set: create_agent, scaffold_react_app, build_app,
-# verify_app, validate_agent, reload_agent, run_agent — create, give a window, build it, check
-# it, activate it, run it. Every one is fence-compatible.
+# Authoring uses the same tenant fences as every other hosted agent. Private
+# Python, shell commands, browser sessions and MCP run in disposable tasks;
+# compile/import never executes user code inside the shared daemon.
+# Desktop packaging and public publishing remain separate product workflows.
 [tools]
 allow = [
   "read", "write", "edit", "ls", "find", "grep",
+  "exec", "process",
   "skill_workshop", "update_plan", "verify_answer", "show_files",
   "web_search", "web_fetch",
   "spawn_subagent",
@@ -98,7 +74,6 @@ allow = [
   "e2e_run", "e2e_replay", "e2e_checks",
 ]
 deny = [
-  "create_tool",
   "package_agent",
   "publish_agent",
 ]

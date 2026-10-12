@@ -33,9 +33,9 @@ export function SiteFooter() {
     <footer className="footer">
       <div className="shell footer__inner">
         <div className="footer__brand">
-          <a href="#top" className="footer__mark" aria-label="agentd — home">
+          <a href="#top" className="footer__mark" aria-label="AgentBear — home">
             <NakamaMark size={30} />
-            <span className="nav__wordmark">agentd</span>
+            <span className="nav__wordmark">AgentBear</span>
           </a>
           <p className="footer__blurb">
             A personal AI agent that acts on your own machine. Any model, real tools, and the files
@@ -58,7 +58,7 @@ export function SiteFooter() {
       </div>
 
       <div className="shell footer__base">
-        <span>© {new Date().getFullYear()} agentd</span>
+        <span>© {new Date().getFullYear()} AgentBear</span>
         <span className="footer__note">Runs on your machine. Your keys, your files.</span>
       </div>
     </footer>

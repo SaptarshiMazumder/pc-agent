@@ -11,6 +11,8 @@ between a user fixing their client id and a user pressing Connect forever.
 
 from __future__ import annotations
 
+import os
+
 import logging
 
 log = logging.getLogger("agentd")
@@ -22,7 +24,7 @@ class HttpxOAuthHttp:
     async def get_json(self, url: str) -> dict:
         import httpx
 
-        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=False, proxy=os.environ.get("AGENTD_PUBLIC_HTTP_PROXY")) as client:
             res = await client.get(url, headers={"Accept": "application/json"})
         if res.status_code >= 400:
             raise RuntimeError(f"GET {url} -> {res.status_code}")
@@ -38,7 +40,7 @@ class HttpxOAuthHttp:
         import httpx
 
         auth = (data.get("client_id", ""), client_secret) if client_secret else None
-        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=False, proxy=os.environ.get("AGENTD_PUBLIC_HTTP_PROXY")) as client:
             res = await client.post(
                 url,
                 data={k: v for k, v in data.items() if v},

@@ -87,6 +87,11 @@ class RemoteBuilderBuildBackend:
     # ------------------------------------------------------------------ plumbing
 
     def _ask(self, payload: dict) -> dict:
+        import hashlib
+
+        from agent_runtime.infrastructure import accounts
+
+        payload = {**payload, "tenant_owner": hashlib.sha256((accounts.account_id() or "operator").encode()).hexdigest()}
         headers = {"X-Internal-Key": self._key} if self._key else {}
         try:
             r = httpx.post(

@@ -97,7 +97,7 @@ def _org_agent(tmp_path, org_id=ORG, agent_id="kajima-helper") -> Path:
 def test_members_read_their_orgs_definitions_and_only_definitions(tmp_path):
     cfg = _hosted_config(tmp_path)
     org_agent = _org_agent(tmp_path)
-    reads, clamp = user_state.tenant_scope(cfg, "acct_a", None, "", org_ids=(ORG,))
+    reads, clamp = user_state.tenant_scope(cfg, "acct_a", org_agent, "", org_ids=(ORG,))
     assert str(org_agent / "agent.toml") in reads
     assert str(org_agent / "skills") in reads
     # the definition VIEW, not the folder: user-data subtrees are not granted even if present

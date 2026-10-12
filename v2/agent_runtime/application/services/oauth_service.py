@@ -54,6 +54,9 @@ class _Pending:
     decl: OAuthDecl
     started_at: float
     endpoints: dict = field(default_factory=dict)
+    store_key: str = ""
+    client_id: str = ""
+    client_auth: object = None
 
 
 class OAuthService:
@@ -65,12 +68,14 @@ class OAuthService:
     :param now: injected clock, so expiry is testable without sleeping.
     """
 
-    def __init__(self, http, store, resolve_setting, now=time.time):
+    def __init__(self, http, store, resolve_setting, now=time.time, scope_key=None):
         self._http = http
         self._store = store
         self._resolve = resolve_setting
         self._now = now
         self._pending: dict[str, _Pending] = {}
+        self._key = scope_key or (lambda agent_id: agent_id)
+        self._refresh_locks = {}
 
     # ---- starting ----------------------------------------------------------
 
@@ -94,6 +99,9 @@ class OAuthService:
             decl=decl,
             started_at=self._now(),
             endpoints=endpoints,
+            store_key=self._key(agent_id),
+            client_id=client_id,
+            client_auth=self._client_secret(agent_id, decl),
         )
         params = {
             "response_type": "code",
@@ -131,21 +139,30 @@ class OAuthService:
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": pending.redirect_uri,
-                "client_id": self._resolve(agent_id, decl.client_id),
+                "client_id": pending.client_id,
                 "code_verifier": pending.verifier,
             },
-            self._client_secret(agent_id, decl),
+            pending.client_auth,
         )
         tokens = self._tokens_from(payload)
         if not tokens.usable:
             raise RuntimeError(f"'{decl.name}' returned no access token: {payload}")
-        self._store.save(agent_id, decl.name, tokens)
+        if not self._store.save(pending.store_key, decl.name, tokens):
+            raise RuntimeError("could not persist OAuth connection")
         log.info("oauth: '%s' connected for agent %s", decl.name, agent_id)
         return {"connected": True, "agentId": agent_id, "name": decl.name, "account": tokens.account}
 
     # ---- using -------------------------------------------------------------
 
     async def token(self, agent_id: str, decl: OAuthDecl) -> str:
+        import asyncio
+
+        key = (self._key(agent_id), decl.name)
+        lock = self._refresh_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            return await self._token_owned(agent_id, decl)
+
+    async def _token_owned(self, agent_id: str, decl: OAuthDecl) -> str:
         """A LIVE access token, refreshed if it is about to expire. Empty string if not connected.
 
         Empty rather than an exception because "not connected yet" is the normal state of a fresh
@@ -154,7 +171,7 @@ class OAuthService:
         one, and silently behaving like the second would send the user to reconnect something that
         is already connected.
         """
-        tokens = self._store.load(agent_id, decl.name)
+        tokens = self._store.load(self._key(agent_id), decl.name)
         if tokens is None or not tokens.usable:
             return ""
         if not tokens.stale(self._now()):
@@ -162,7 +179,7 @@ class OAuthService:
         if not tokens.refresh_token:
             # Expired with no way to renew: the honest state is disconnected, so say so once and
             # clear it rather than handing out a token that will 401.
-            self._store.delete(agent_id, decl.name)
+            self._store.delete(self._key(agent_id), decl.name)
             log.info("oauth: '%s' expired for agent %s and cannot refresh", decl.name, agent_id)
             return ""
         endpoints = await self._endpoints(agent_id, decl)
@@ -186,14 +203,14 @@ class OAuthService:
             scopes=refreshed.scopes or tokens.scopes,
             account=refreshed.account or tokens.account,
         )
-        self._store.save(agent_id, decl.name, merged)
+        self._store.save(self._key(agent_id), decl.name, merged)
         return merged.access_token
 
     def status(self, agent_id: str, decls) -> list[dict]:
         """What this agent declared and whether each one is signed in."""
         out = []
         for decl in decls:
-            tokens = self._store.load(agent_id, decl.name)
+            tokens = self._store.load(self._key(agent_id), decl.name)
             out.append(
                 {
                     "name": decl.name,
@@ -205,7 +222,7 @@ class OAuthService:
         return out
 
     def disconnect(self, agent_id: str, name: str) -> bool:
-        return bool(self._store.delete(agent_id, name))
+        return bool(self._store.delete(self._key(agent_id), name))
 
     def stored_token(self, agent_id: str, name: str) -> str:
         """A token WITHOUT refreshing — for callers that cannot await.
@@ -215,7 +232,7 @@ class OAuthService:
         401, which is a fixable message; the refresh then happens on the next path that can await
         one. Better than blocking a plugin call on a token endpoint.
         """
-        tokens = self._store.load(agent_id, name)
+        tokens = self._store.load(self._key(agent_id), name)
         return tokens.access_token if (tokens and tokens.usable and not tokens.stale(self._now())) else ""
 
     # ---- internals ---------------------------------------------------------

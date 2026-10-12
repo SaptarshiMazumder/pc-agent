@@ -2,7 +2,7 @@
   "name": "agentd-web",
   "private": true,
   "version": "0.1.6",
-  "description": "agentd hosted web client — the SAME renderer the desktop shell runs, served as a static site by nginx.",
+  "description": "AgentBear hosted web client — the SAME renderer the desktop shell runs, served as a static site by nginx.",
   "type": "module",
   "scripts": {
     "dev": "vite",

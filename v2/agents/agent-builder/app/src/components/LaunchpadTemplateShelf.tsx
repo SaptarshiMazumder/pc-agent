@@ -113,7 +113,7 @@ export function LaunchpadTemplateShelf({
             <Clock size={15} />
             Headless
           </span>
-          <span className="lp-tpl-blurb">A scheduled job or a voice in agentd.</span>
+          <span className="lp-tpl-blurb">A scheduled job or a voice in AgentBear.</span>
         </div>
       </div>
 

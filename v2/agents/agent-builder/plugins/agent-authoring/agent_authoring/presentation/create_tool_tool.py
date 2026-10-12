@@ -37,6 +37,7 @@ the whole machine and belongs to the operator, by hand."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 import textwrap
 from pathlib import Path
@@ -164,6 +165,21 @@ class CreateToolTool(Tool):
             )
         if self._registry is None:
             return None, "agent-scoped tools need the agent registry, which is not available here"
+        # Resolve the existing definition rather than rebuilding its path from
+        # the new-agent write target. A hosted builder can author personal and
+        # organization children while its own runtime stays in platform scope.
+        resolve = getattr(self._registry, "resolve_dir", None)
+        if callable(resolve):
+            try:
+                directory = resolve(agent_id)
+                if directory is None:
+                    return None, f"unknown agent '{agent_id}'"
+                owns = getattr(self._registry, "owns", None)
+                if callable(owns) and not owns(agent_id):
+                    return None, "agent owner or organization administrator required"
+                return Path(directory) / "plugins", None
+            except Exception as e:
+                return None, f"could not resolve the agent ({type(e).__name__}: {e})"
         try:
             known = self._registry.list_ids()
         except Exception as e:  # noqa: BLE001 — a registry failure must not crash the turn
@@ -275,7 +291,7 @@ class CreateToolTool(Tool):
                 f"wrote tool '{tool_name}' at {d}, but live reload is unavailable — restart to load it",
                 is_error=True,
             )
-        result = self._reload()
+        result = await asyncio.to_thread(self._reload)
         if not result.get("ok"):
             return ToolResult.text(
                 f"wrote tool '{tool_name}' at {d}, but reload failed: {result.get('error')}",

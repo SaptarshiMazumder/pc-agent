@@ -1,3 +1,4 @@
+import { APP_NAME } from './brand'
 /**
  * Platform adapter — the ONE place the renderer touches host capabilities.
  *
@@ -192,7 +193,7 @@ const webPlatform: AgentdPlatform = {
     // accountsUrl stays '' — it is the pre-discovery fallback, and the web build has none.
     return {
       productId: 'agentd-web',
-      productName: 'agentd',
+      productName: APP_NAME,
       defaultAgent: '',
       storeEnabled: true,
       preinstalledBundles: [],

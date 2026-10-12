@@ -15,6 +15,7 @@ Extend ALLOWED deliberately, one field at a time, with a reason.
 from __future__ import annotations
 
 import os
+import re
 
 #: Fields permitted on a telemetry record. Identifiers and bounded facts only.
 ALLOWED: set[str] = {
@@ -63,3 +64,11 @@ def scrub(fields: dict) -> dict:
             value = value[:MAX_VALUE_CHARS] + "…"
         out[key] = value
     return out
+
+
+def sanitize_message(value: str) -> str:
+    """URLs are capabilities; third-party HTTP clients log their complete query strings."""
+    value = re.sub(r"(https?://[^\s?\"'<>]+)\?[^\s\"'<>]+", r"\1?<redacted>", value)
+    value = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "<redacted>", value)
+    value = re.sub(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/-]+", r"\1<redacted>", value)
+    return value

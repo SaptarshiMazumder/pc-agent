@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 import { useState } from 'react'
 
 import { gateway } from '../gateway/client'
@@ -47,7 +48,7 @@ export default function Launcher(): JSX.Element {
   const [urlDraft, setUrlDraft] = useState(proxyUrl)
   const [savingUrl, setSavingUrl] = useState(false)
 
-  const product = flavor?.productName || 'agentd'
+  const product = productDisplayName(flavor?.productName)
 
   async function chooseLocal(): Promise<void> {
     setMode('local')

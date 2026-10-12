@@ -1,3 +1,4 @@
+import { APP_NAME } from '../lib/brand'
 import { FormEvent, useEffect, useState } from 'react'
 
 import {
@@ -117,7 +118,7 @@ export default function SignIn(): JSX.Element {
   return (
     <div className="signin-wrap">
       <form className="signin-card" onSubmit={onSubmit} noValidate>
-        <div className="signin-brand">agentd</div>
+        <div className="signin-brand">{APP_NAME}</div>
 
         <div className="signin-kind" role="tablist" aria-label="Account kind">
           <button

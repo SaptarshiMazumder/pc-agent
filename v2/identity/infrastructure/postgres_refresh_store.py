@@ -143,6 +143,15 @@ class PostgresRefreshStore:
         )
         return int(cur.rowcount or 0)
 
+    def session_active(self, account_id: str, family_id: str) -> bool:
+        now = float(self._clock())
+        return self._conn.execute(
+            "SELECT 1 FROM refresh_tokens WHERE account_id=%s AND family_id=%s AND revoked_at=0 "
+            "AND used_at=0 AND (expires_at=0 OR expires_at>%s) "
+            "AND (family_expires_at=0 OR family_expires_at>%s) LIMIT 1",
+            (account_id, family_id, now, now),
+        ).fetchone() is not None
+
     def revoke_account(self, account_id: str) -> int:
         now = float(self._clock())
         cur = self._conn.execute(

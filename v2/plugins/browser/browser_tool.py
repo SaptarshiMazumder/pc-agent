@@ -265,6 +265,8 @@ class BrowserTool(Tool):
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         try:
+            if hasattr(self.manager, "remote_tool"):
+                return await self.manager.remote_tool(params)
             return await self._execute(params)
         except Exception as e:  # noqa: BLE001
             return ToolResult.text(f"browser error: {type(e).__name__}: {e}", is_error=True)
@@ -549,6 +551,10 @@ class BrowserTool(Tool):
         paths = params.get("paths") or []
         if not paths:
             return ToolResult.text("upload requires paths", is_error=True)
+        from agent_runtime.application.write_scope import check_read
+
+        for path in paths:
+            check_read(path)
         ref = params.get("input_ref") or params.get("ref")
         sel = params.get("selector") or params.get("element")
         if ref:

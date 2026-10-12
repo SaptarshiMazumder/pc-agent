@@ -15,7 +15,7 @@
 
 [product]
 id = "agentd-hosted-dev"
-name = "agentd (hosted dev)"
+name = "AgentBear (hosted dev)"
 
 [store]
 enabled = true

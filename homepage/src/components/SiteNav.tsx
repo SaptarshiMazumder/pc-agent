@@ -40,9 +40,9 @@ export function SiteNav() {
   return (
     <header className={`nav ${scrolled ? 'nav--scrolled' : ''}`}>
       <div className="shell nav__inner">
-        <a href="#top" className="nav__brand" aria-label="agentd — home">
+        <a href="#top" className="nav__brand" aria-label="AgentBear — home">
           <NakamaMark size={30} />
-          <span className="nav__wordmark">agentd</span>
+          <span className="nav__wordmark">AgentBear</span>
         </a>
 
         <nav className="nav__links" aria-label="Sections">

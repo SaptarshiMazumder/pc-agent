@@ -70,7 +70,7 @@ except ImportError:  # pragma: no cover
 
 setup_logging("ingest")
 
-app = FastAPI(title="agentd ingest", version="1")
+app = FastAPI(title="AgentBear Ingest", version="1")
 
 # The browser client posts here cross-origin, so CORS is load-bearing rather than incidental.
 app.add_middleware(

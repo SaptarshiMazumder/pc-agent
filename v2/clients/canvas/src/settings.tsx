@@ -335,7 +335,7 @@ function ModelsTab({
         ) : (
           <>
             Read-only here. This install keeps ONE configuration for the machine, so changing it
-            would change it for everyone who uses this daemon — edit it in the agentd settings
+            would change it for everyone who uses this daemon — edit it in the AgentBear settings
             instead.
           </>
         )}

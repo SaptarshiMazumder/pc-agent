@@ -7,6 +7,11 @@
       "source": "plugin:authoring"
     },
     {
+      "name": "ask_user",
+      "summary": "Stop and ask the user before building: the paid services the design uses with their exact prices, the brief-check questions with the default you would pick for each, and the workflows you will emit\u2026",
+      "source": "plugin:ask"
+    },
+    {
       "name": "browser",
       "summary": "Control a web browser using YOUR signed-in session. Use this whenever a task needs a logged-in account, interaction (clicking/typing/forms), or content the public web_search/web_fetch tools can't r\u2026",
       "source": "plugin:browser"
@@ -30,6 +35,21 @@
       "name": "cron",
       "summary": "Schedule your own work to run later \u2014 durable, survives gateway restarts. You run INSIDE a persistent gateway with a built-in scheduler, so use THIS for anything time-based (reminders, check-back-l\u2026",
       "source": "plugin:autonomy"
+    },
+    {
+      "name": "e2e_checks",
+      "summary": "LIST THE E2E CHECK VOCABULARY \u2014 every check name a scenario may use, its args, and what it asserts. Call this BEFORE authoring a scenario's `checks`; never invent a check name. Derive checks from w\u2026",
+      "source": "plugin:e2e"
+    },
+    {
+      "name": "e2e_replay",
+      "summary": "RE-DIAGNOSE A SAVED E2E TRACE (the `.trace.jsonl` e2e_run writes beside the scenario) without re-running anything \u2014 no model spend, no backend. Same report as e2e_run: transcript, findings with age\u2026",
+      "source": "plugin:e2e"
+    },
+    {
+      "name": "e2e_run",
+      "summary": "RUN AN E2E SCENARIO against an agent on this daemon and get the full diagnosis: transcript, findings (thrash/stall/holes/errors, each tagged agent vs environment), TRIAGE, and the scenario's checks\u2026",
+      "source": "plugin:e2e"
     },
     {
       "name": "edit",
@@ -87,194 +107,9 @@
       "source": "plugin:autonomy"
     },
     {
-      "name": "google__batch_modify_gmail_message_labels",
-      "summary": "Adds or removes labels from multiple Gmail messages in a single batch request.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__check_drive_file_public_access",
-      "summary": "Searches for a file by name and checks if it has public link sharing enabled.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__copy_drive_file",
-      "summary": "Creates a copy of an existing Google Drive file.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__create_calendar",
-      "summary": "Creates a new secondary Google Calendar.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__create_drive_file",
-      "summary": "Creates a new file in Google Drive, supporting creation within shared drives.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__create_drive_folder",
-      "summary": "Creates a new folder in Google Drive, supporting creation within shared drives.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__draft_gmail_message",
-      "summary": "Creates a draft email in the user's Gmail account. Supports both new drafts and reply drafts with optional attachments.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_drive_file_content",
-      "summary": "Retrieves the content of a specific Google Drive file by ID, supporting files in shared drives.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_drive_file_download_url",
-      "summary": "Downloads a Google Drive file and saves it to local disk.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_drive_file_permissions",
-      "summary": "Gets detailed metadata about a Google Drive file including sharing permissions,",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_drive_shareable_link",
-      "summary": "Gets the shareable link for a Google Drive file or folder.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_events",
-      "summary": "Retrieves events from a specified Google Calendar. Can retrieve a single event by ID or multiple events within a time range.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_gmail_attachment_content",
-      "summary": "Downloads an email attachment and saves it to local disk.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_gmail_message_content",
-      "summary": "Retrieves the full content (subject, sender, recipients, body) of a specific Gmail message.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_gmail_messages_content_batch",
-      "summary": "Retrieves the content of multiple Gmail messages in a single batch request.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_gmail_thread_content",
-      "summary": "Retrieves the complete content of a Gmail conversation thread, including all messages.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__get_gmail_threads_content_batch",
-      "summary": "Retrieves the content of multiple Gmail threads in a single batch request.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__import_to_google_doc",
-      "summary": "Imports a file (Markdown, DOCX, TXT, HTML, RTF, ODT) into Google Docs format with automatic conversion.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__import_to_google_sheets",
-      "summary": "Imports a spreadsheet (XLSX, XLS, ODS, CSV, TSV) into Google Sheets format with automatic conversion.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__import_to_google_slides",
-      "summary": "Imports a presentation (PPTX, PPT, ODP) into Google Slides format with automatic conversion.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__list_calendars",
-      "summary": "Retrieves a list of calendars accessible to the authenticated user.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__list_drive_items",
-      "summary": "Lists files/folders or shared drive containers, supporting shared drives.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__list_gmail_filters",
-      "summary": "Lists all Gmail filters configured in the user's mailbox.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__list_gmail_labels",
-      "summary": "Lists all labels in the user's Gmail account.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_drive_access",
-      "summary": "Consolidated tool for managing Google Drive file and folder access permissions.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_event",
-      "summary": "Manages calendar events. Supports creating, updating, deleting, and RSVP.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_focus_time",
-      "summary": "Manages Focus Time events on Google Calendar. These special events auto-decline",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_gmail_filter",
-      "summary": "Manages Gmail filters. Supports creating and deleting filters.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_gmail_label",
-      "summary": "Manages Gmail labels: create, update, or delete labels.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__manage_out_of_office",
-      "summary": "Manages Out of Office events on Google Calendar. These special events auto-decline",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__modify_gmail_message_labels",
-      "summary": "Adds or removes labels from a Gmail message.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__query_freebusy",
-      "summary": "Returns free/busy information for a set of calendars.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__search_drive_files",
-      "summary": "Searches for files and folders within a user's Google Drive, including shared drives.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__search_gmail_messages",
-      "summary": "Searches messages in a user's Gmail account based on a query.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__send_gmail_message",
-      "summary": "Sends an email using the user's Gmail account. Supports new emails, replies, and",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__set_drive_file_permissions",
-      "summary": "Sets file-level sharing settings and controls link sharing for a Google Drive file or folder.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__start_google_auth",
-      "summary": "Manually initiate Google OAuth authentication flow.",
-      "source": "mcp:google"
-    },
-    {
-      "name": "google__update_drive_file",
-      "summary": "Updates metadata, properties, and/or content of a Google Drive file.",
-      "source": "mcp:google"
+      "name": "grep",
+      "summary": "Search file CONTENTS by regular expression and get back matching lines with their file and line number. This is how you find where something is DEFINED or USED \u2014 `find` only matches file NAMES. Use\u2026",
+      "source": "plugin:core_fs"
     },
     {
       "name": "heartbeat_respond",
@@ -315,11 +150,6 @@
       "name": "memory_search",
       "summary": "Search your long-term memory for facts you saved earlier (across past sessions). Check here before asking the user something you might already know.",
       "source": "plugin:memory"
-    },
-    {
-      "name": "message_agent",
-      "summary": "Send a message or task to ANOTHER persistent agent and get its reply back. Unlike spawn_subagent (a throwaway helper with no memory), this reaches the agent's OWN ongoing session, so it remembers y\u2026",
-      "source": "internal"
     },
     {
       "name": "plantuml",
@@ -385,11 +215,6 @@
       "name": "skill_workshop",
       "summary": "Capture a reusable procedure as a SKILL.md so you (and future sessions) can apply it later. action='create'/'update' writes the skill (give name + a one-line description of WHEN to use it + a step-\u2026",
       "source": "plugin:skills"
-    },
-    {
-      "name": "spawn_subagent",
-      "summary": "Delegate a self-contained subtask to a fresh sub-agent and get its result back. Use it to parallelize or offload heavy work (research, a long read, a separate analysis) rather than doing everything\u2026",
-      "source": "internal"
     },
     {
       "name": "stitch_video",

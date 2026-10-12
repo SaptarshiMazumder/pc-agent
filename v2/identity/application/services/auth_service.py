@@ -230,7 +230,11 @@ class AuthService:
     def verify_access(self, token: str) -> AccessClaims:
         """Local signature check. No database, no network — this is the method that keeps the
         accounts service off the hot path once the daemon and proxy adopt it."""
-        return self._issuer.verify(token)
+        claims = self._issuer.verify(token)
+        check = getattr(self._refresh, "session_active", None)
+        if claims.session_id and callable(check) and not check(claims.account_id, claims.session_id):
+            raise TokenInvalid("this session was signed out")
+        return claims
 
     def jwks(self) -> dict:
         return self._issuer.public_jwks()

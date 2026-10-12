@@ -24,13 +24,13 @@ export function RestartSection({
     <section className="set-group">
       <h2>Daemon</h2>
       <p className="ghelp">
-        Restart agentd. Needed after editing a plugin&apos;s Python or any file read at startup —
+        Restart AgentBear. Needed after editing a plugin&apos;s Python or any file read at startup —
         those are loaded once, so a change on disk is ignored until it restarts. Conversations
         survive; a run in progress does not.
       </p>
       <div className="field">
         <div>
-          <label>Restart agentd</label>
+          <label>Restart AgentBear</label>
           <span className="fhelp">
             {note || 'This window loses its connection for a moment and reconnects itself.'}
           </span>

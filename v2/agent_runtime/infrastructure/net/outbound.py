@@ -197,7 +197,12 @@ def fetch(
     platform's own.
     """
     import httpx
+    import os
+    from agent_runtime.application.run_context import current_run_context
 
+    ctx = current_run_context()
+    public_only = public_only or bool(ctx and ctx.hosted)
+    proxy = os.environ.get("AGENTD_PUBLIC_HTTP_PROXY") if public_only else None
     try:
         # MERGE params into any query already on the URL — httpx REPLACES the query when
         # `params` is given, which silently strips credentials the broker folded in from a
@@ -213,7 +218,7 @@ def fetch(
         req_headers = {k: _resolved(str(v)) for k, v in (headers or {}).items()}
         deadline = time.monotonic() + timeout_s
         hooks = {"request": [_public_only_hook()]} if public_only else {}
-        with httpx.Client(timeout=timeout_s, follow_redirects=True, event_hooks=hooks) as client:
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, event_hooks=hooks, proxy=proxy) as client:
             if save_path:
                 return _download(client, method, _resolved(url), req_headers, save_path, max_bytes)
             # AN UPLOAD STREAMS FROM DISK: httpx reads a file object in chunks for multipart,

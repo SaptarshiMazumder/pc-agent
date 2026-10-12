@@ -106,7 +106,8 @@ provider "aws" {
 }
 
 module "stack" {
-  source = "../../modules"
+  source             = "../../modules"
+  service_image_tags = var.service_image_tags
 
   providers = {
     aws           = aws
@@ -432,7 +433,13 @@ variable "require_executor" {
     this environment serves anybody.
   EOT
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "service_image_tags" {
+  description = "Immutable image tags for the production services being released."
+  type        = map(string)
+  default     = {}
 }
 
 variable "executor_image_tag" {

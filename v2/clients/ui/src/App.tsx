@@ -1,3 +1,4 @@
+import { APP_NAME, productDisplayName } from './lib/brand'
 import { useEffect } from 'react'
 
 import AccountView from './components/AccountView'
@@ -34,6 +35,11 @@ export default function App() {
   const view = useApp((state) => state.view)
   const connection = useApp((state) => state.connection)
   const supervisor = useApp((state) => state.supervisor)
+  const productName = useApp((state) => state.flavor?.productName)
+
+  useEffect(() => {
+    document.title = productDisplayName(productName)
+  }, [productName])
 
   const session = useAuthSession()
   const mode = useMode()
@@ -89,7 +95,7 @@ export default function App() {
               : connection === 'closed'
                 ? 'connection lost — reconnecting…'
                 : supervisor.phase === 'running'
-                  ? 'connecting to agentd…'
+                  ? `connecting to ${APP_NAME}…`
                   : supervisor.message}
           </div>
         )}

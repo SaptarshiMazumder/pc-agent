@@ -100,11 +100,21 @@ class ResourceManager:
 
     # ---- describe one file (sync, cached) -----------------------------------
 
+    @staticmethod
+    def _resource_key(agent_id: str, workspace) -> str:
+        import hashlib
+
+        from agent_runtime.infrastructure import accounts, tenancy
+        if not accounts.account_id():
+            return agent_id
+        digest = hashlib.sha256(str(Path(workspace).resolve()).encode()).hexdigest()
+        return tenancy.partition(agent_id) + ":" + digest
+
     def _index_one(self, agent_id: str, root: Path, p: Path) -> Resource:
         rel = os.path.relpath(str(p), str(root)).replace("\\", "/")
         st = p.stat()
         sig = _sig(st.st_size, st.st_mtime)
-        cached = self._store.get(agent_id, rel)
+        cached = self._store.get(self._resource_key(agent_id, root), rel)
         if cached and cached.sig == sig:
             return cached
         kind = kind_for_path(p)
@@ -119,7 +129,7 @@ class ResourceManager:
         except Exception:  # noqa: BLE001 — a bad describe never breaks the manifest
             desc = ""
         res = Resource(rel, kind, st.st_size, sig, desc, time.time())
-        self._store.put(agent_id, res)
+        self._store.put(self._resource_key(agent_id, root), res)
         return res
 
     # ---- reconcile disk <-> index -------------------------------------------
@@ -150,9 +160,9 @@ class ResourceManager:
             if capped:
                 break
         if not capped:  # drop index rows whose file is gone
-            for r in self._store.list(agent_id):
+            for r in self._store.list(self._resource_key(agent_id, root)):
                 if not (root / r.rel_path).exists():
-                    self._store.delete(agent_id, r.rel_path)
+                    self._store.delete(self._resource_key(agent_id, root), r.rel_path)
         for r in out:  # expensive (vision/LLM) describe -> background, independent
             self.enqueue_enrich(workspace, agent_id, r)
         return out, capped
@@ -215,7 +225,7 @@ class ResourceManager:
         existed = p.is_file()
         if existed:
             p.unlink()
-        self._store.delete(agent_id, rel_path)
+        self._store.delete(self._resource_key(agent_id, workspace), rel_path)
         return existed
 
     def list_resources(self, workspace, agent_id: str) -> list[Resource]:
@@ -232,7 +242,7 @@ class ResourceManager:
         if not dry_run:
             ws_cleanup.cleanup(workspace, patterns=tuple(patterns))
             for rel in targets:
-                self._store.delete(agent_id, rel)
+                self._store.delete(self._resource_key(agent_id, workspace), rel)
         return targets
 
     # ---- background enrichment (expensive describe, OFF the agent's path) ----
@@ -257,7 +267,7 @@ class ResourceManager:
             asyncio.get_running_loop()
         except RuntimeError:
             return
-        key = (agent_id, res.rel_path, res.sig)
+        key = (self._resource_key(agent_id, workspace), res.rel_path, res.sig)
         if key in self._enriched:  # in-flight this session
             return
         self._enriched.add(key)
@@ -292,7 +302,7 @@ class ResourceManager:
         # enriched=True only on a real rich result -> persisted, never re-run on restart;
         # a transient failure (rich="") stays False so it can retry later.
         self._store.put(
-            agent_id,
+            self._resource_key(agent_id, workspace),
             Resource(
                 os.path.relpath(str(p), str(Path(workspace).resolve())).replace("\\", "/"),
                 kind,

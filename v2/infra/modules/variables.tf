@@ -26,6 +26,12 @@ variable "image_tag" {
   default     = "latest"
 }
 
+variable "service_image_tags" {
+  description = "Immutable release tags for selected services; other services keep image_tag."
+  type        = map(string)
+  default     = {}
+}
+
 variable "image_tag_mutability" {
   description = "MUTABLE (dev: overwrite tags) or IMMUTABLE (prod: tags are permanent)."
   type        = string
@@ -1033,7 +1039,8 @@ variable "services" {
       # (a 30s cut-off would drop live conversations mid-turn), and a longer boot grace
       # because it loads the whole agent runtime before /healthz answers.
       deregistration_delay = 120
-      health_check_grace   = 120
+      # Remote discovery includes a cold disposable task before the listener opens.
+      health_check_grace   = 300
       # LONGER THAN THE DRAIN ABOVE. The target group holds a live conversation open for 120s
       # after the task is deregistered; a 30s stop timeout would SIGKILL the daemon a quarter of
       # the way into that window, ending the very turns the drain exists to protect.

@@ -196,6 +196,24 @@ resource "aws_lb_listener_rule" "admin_host" {
   tags = local.common_tags
 }
 
+# Only trusted renewal documents are served on the platform's root origin.
+resource "aws_lb_listener_rule" "app_auth_bridge" {
+  count        = local.alb_count == 1 && local.dns_managed ? 1 : 0
+  listener_arn = aws_lb_listener.svc["web"].arn
+  priority     = 45
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.svc["daemon"].arn
+  }
+  condition {
+    host_header { values = [var.root_domain] }
+  }
+  condition {
+    path_pattern { values = ["/app-session", "/app-token"] }
+  }
+  tags = local.common_tags
+}
+
 resource "aws_lb_listener_rule" "wildcard_agent_host" {
   count = local.alb_count == 1 && local.dns_managed ? 1 : 0
 

@@ -50,6 +50,9 @@ export function useClient(): { client: AgentdClient; status: Status } {
       // job). `cloud` keeps runs on the platform's model keys.
       mode: 'cloud' as const,
     }))
+    window.addEventListener('agentd:app-token', () => {
+      void sessionToken().then((token) => c.request('auth.update', {accessToken: token})).catch(() => {})
+    })
     return c
   }, [])
   const [status, setStatus] = useState<Status>('connecting')

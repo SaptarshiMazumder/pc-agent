@@ -5,11 +5,11 @@
 
 [product]
 id = "agentd"
-name = "agentd"
+name = "AgentBear"
 
 [store]
 enabled = true
-# The public marketplace (S3 registry from terraform: agentd-dev-registry-910828b2).
+# The public marketplace (S3 registry from terraform: agentd-staging-registry-274ab2e9).
 # publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
 registry_url = "https://agentd-staging-registry-274ab2e9.s3.ap-northeast-1.amazonaws.com/index.json"
 publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="

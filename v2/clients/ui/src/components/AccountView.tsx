@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 import { useEffect, useState } from 'react'
 import { User, LogIn, RefreshCw, CreditCard } from 'lucide-react'
 
@@ -44,7 +45,7 @@ export default function AccountView() {
     : 'Your own keys (set in Settings)'
 
   const rows: [string, string][] = [
-    ['Product', flavor?.productName || 'agentd'],
+    ['Product', productDisplayName(flavor?.productName)],
     ['Assistant', hello?.agentName || '—'],
     ['Workspace', hello?.workspace || '—'],
     ['Signed in as', session ? session.email : 'Local — no account'],
@@ -60,7 +61,7 @@ export default function AccountView() {
           <div className="account-avatar"><User size={30} /></div>
           <div>
             <div className="account-name">{session ? session.email : 'Local user'}</div>
-            <div className="account-role">Running {flavor?.productName || 'agentd'} on this machine</div>
+            <div className="account-role">Running {productDisplayName(flavor?.productName)} on this machine</div>
           </div>
         </div>
 

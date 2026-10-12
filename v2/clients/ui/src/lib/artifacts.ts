@@ -83,6 +83,7 @@ export function installerUrl(path: string): string {
  *  falling to whatever dead BYOK keys the machine had. The SDK reads them off the page url
  *  (its own stored session, from signing in inside the app, still wins). */
 export function appLaunchUrl(app: { url: string }, agentId: string): string {
+  if (/^https?:\/\//.test(app.url)) return app.url
   const q = new URLSearchParams({ scope: `agent:${agentId}` })
   if (authToken) q.set('token', authToken)
   // NOT ON DESKTOP. There the daemon holds the machine's session and renews it; a copy pinned

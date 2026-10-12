@@ -117,6 +117,9 @@ async function fetchCookieToken(opts: DaemonOptions): Promise<TokenAnswer> {
  *  On a hosted daemon the runtime answers 404 — no machine session exists there — and the ask
  *  falls through to the accounts cookie (see fetchCookieToken). */
 export async function fetchToken(opts: DaemonOptions = {}): Promise<TokenAnswer> {
+  const appToken = typeof window !== 'undefined' ? (window as unknown as { __agentdAppToken?: TokenAnswer }).__agentdAppToken : undefined
+  if (appToken) return { ...appToken, via: 'cookie' }
+
   try {
     const r = await fetch(authUrl('/auth/token', opts), {
       cache: 'no-store',
@@ -155,7 +158,12 @@ class TokenFetcher {
   /** The one renewal armed for the token in hand — see `armRenewal`. */
   private renewal: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly opts: DaemonOptions) {}
+  constructor(private readonly opts: DaemonOptions) {
+    if (typeof window !== 'undefined') window.addEventListener('agentd:app-token', () => {
+      this.forget()
+      void this.state()
+    })
+  }
 
   /** Register a client to receive `auth.update` pushes. Idempotent. */
   bind(client: AgentdClient): void {

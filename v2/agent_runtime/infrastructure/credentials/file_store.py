@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
+from functools import wraps
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -17,11 +20,32 @@ from cryptography.fernet import Fernet
 from agent_runtime.domain.credential import CREDENTIAL_FIELDS, Credential
 
 
+def _locked(method):
+    @wraps(method)
+    def invoke(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return invoke
+
+
 class EncryptedFileCredentialStore:
-    def __init__(self, path, key: bytes):
+    def __init__(self, path, key: bytes, *, hosted: bool = False):
+        self._lock = threading.RLock()
         self._path = Path(path)
+        self._hosted = hosted
         self._fernet = Fernet(key)  # raises on a malformed key (caught by the builder)
         self._data: dict = self._load()
+
+    def _key(self, agent_id: str) -> str:
+        if not self._hosted:
+            return agent_id
+        from agent_runtime.infrastructure import accounts, tenancy
+        if agent_id.startswith("["):
+            owner, _namespace, _aid = json.loads(agent_id)
+            if accounts.account_id() and accounts.account_id() != owner:
+                raise PermissionError("credential owner mismatch")
+            return agent_id  # one-time /connect capability already bound by ConnectTokenStore
+        return tenancy.partition(agent_id)
 
     def _load(self) -> dict:
         if not self._path.is_file():
@@ -34,34 +58,54 @@ class EncryptedFileCredentialStore:
     def _save(self) -> None:
         blob = self._fernet.encrypt(json.dumps(self._data).encode("utf-8"))
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_bytes(blob)
+        fd, name = tempfile.mkstemp(prefix=".vault-", dir=self._path.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(blob)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(name, 0o600)
+            os.replace(name, self._path)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
         try:
             os.chmod(self._path, 0o600)  # owner-only (best-effort; no-op on some FS)
         except OSError:
             pass
 
+    @_locked
     def get(self, agent_id: str, site: str) -> Credential | None:
+        agent_id = self._key(agent_id)
         rec = (self._data.get(agent_id) or {}).get(site)
         if not rec:
             return None
         return Credential(site=site, **{f: rec.get(f, "") for f in CREDENTIAL_FIELDS})
 
+    @_locked
     def put(self, agent_id: str, cred: Credential) -> None:
+        agent_id = self._key(agent_id)
         self._data.setdefault(agent_id, {})[cred.site] = {
             f: getattr(cred, f) for f in CREDENTIAL_FIELDS
         }
         self._save()
 
+    @_locked
     def delete(self, agent_id: str, site: str) -> bool:
+        agent_id = self._key(agent_id)
         ok = (self._data.get(agent_id) or {}).pop(site, None) is not None
         if ok:
             self._save()
         return ok
 
+    @_locked
     def list(self, agent_id: str) -> list[str]:
+        agent_id = self._key(agent_id)
         return sorted((self._data.get(agent_id) or {}).keys())
 
+    @_locked
     def purge_agent(self, agent_id: str) -> int:
+        agent_id = self._key(agent_id)
         n = len(self._data.pop(agent_id, {}))
         if n:
             self._save()
@@ -77,6 +121,6 @@ def build_credential_store(config):
         return None
     try:
         path = Path(getattr(config, "state_dir", ".")) / "credentials.vault"
-        return EncryptedFileCredentialStore(path, key.encode("utf-8"))
+        return EncryptedFileCredentialStore(path, key.encode("utf-8"), hosted=getattr(config, "hosted", False))
     except Exception:  # noqa: BLE001 — a malformed key disables the vault rather than crashing boot
         return None

@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from agent_runtime.domain.autonomy import Goal, RunRecord, ScheduledTask
@@ -143,11 +144,31 @@ def _row_to_goal(row) -> Goal:
 
 
 class SqliteTaskStore:
-    def __init__(self, path):
+    def __init__(self, path, *, hosted=False):
+        self._hosted = hosted
+        self._connections = {}
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(self._path))
-        self._db.executescript(_SCHEMA)
+        self._connections[""] = sqlite3.connect(str(self._path))
+        self._initialise(self._connections[""])
+
+    @property
+    def _db(self):
+        if not self._hosted or not accounts.account_id():
+            return self._connections[""]
+        from agent_runtime.infrastructure import tenancy
+        root = tenancy.namespace_root(self._path.parent, accounts.account_id())
+        path = root / self._path.name
+        key = str(path)
+        if key not in self._connections:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(path))
+            self._initialise(conn)
+            self._connections[key] = conn
+        return self._connections[key]
+
+    def _initialise(self, conn):
+        conn.executescript(_SCHEMA)
         # migrate older DBs that predate newer columns (each ALTER is a no-op if present)
         for table, col, ddl in (
             ("tasks", "delivery", "TEXT NOT NULL DEFAULT 'run'"),
@@ -159,10 +180,10 @@ class SqliteTaskStore:
             ("runs", "detail", "TEXT NOT NULL DEFAULT ''"),  # one-line reason
         ):
             try:
-                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
             except sqlite3.OperationalError:
                 pass
-        self._db.commit()
+        conn.commit()
 
     def add(self, task: ScheduledTask) -> str:
         task_id = task.id or uuid.uuid4().hex[:12]
@@ -172,7 +193,9 @@ class SqliteTaskStore:
         # shared state, forever. add() always runs in the creating connection's context, so the
         # contextvar is the right answer and there is exactly one place to get it wrong.
         # An explicit account on the task wins (restore/import paths).
-        account_id = task.account_id or (accounts.account_id() or "")
+        account_id = (accounts.account_id() or "") if self._hosted else task.account_id or accounts.account_id() or ""
+        if self._hosted and not accounts.account_id():
+            raise PermissionError("authenticated task owner required")
         self._db.execute(
             "INSERT OR REPLACE INTO tasks "
             "(id, agent_id, session_key, kind, payload, next_due, every_seconds, "
@@ -202,7 +225,7 @@ class SqliteTaskStore:
         row = self._db.execute(
             f"SELECT {','.join(_COLS)} FROM tasks WHERE id=?", (task_id,)
         ).fetchone()
-        return _row_to_task(row) if row else None
+        return replace(_row_to_task(row), namespace=accounts.current_namespace.get() or "personal") if row else None
 
     def update(self, task_id: str, **fields) -> bool:
         allowed = (
@@ -257,12 +280,23 @@ class SqliteTaskStore:
         return counts
 
     def due(self, now: float) -> list[ScheduledTask]:
-        rows = self._db.execute(
-            f"SELECT {','.join(_COLS)} FROM tasks WHERE enabled=1 AND next_due<=? "
-            "ORDER BY next_due ASC",
-            (now,),
-        ).fetchall()
-        return [_row_to_task(r) for r in rows]
+        if self._hosted:
+            if accounts.account_id():
+                databases = [(self._db, accounts.current_namespace.get())]
+            else:
+                databases = []
+                for path in self._path.parent.glob("accounts/*/runtime/*/" + self._path.name):
+                    key = str(path)
+                    if key not in self._connections:
+                        self._connections[key] = sqlite3.connect(str(path))
+                    databases.append((self._connections[key], path.parent.name))
+        else:
+            databases = [(self._db, "personal")]
+        tasks = []
+        for db, namespace in databases:
+            rows = db.execute(f"SELECT {','.join(_COLS)} FROM tasks WHERE enabled=1 AND next_due<=? ORDER BY next_due ASC", (now,)).fetchall()
+            tasks.extend(replace(_row_to_task(r), namespace=namespace) for r in rows)
+        return sorted(tasks, key=lambda task: task.next_due)
 
     def advance(self, task_id: str, now: float) -> None:
         task = self.get(task_id)
@@ -458,6 +492,7 @@ class SqliteTaskStore:
 
     def close(self) -> None:
         try:
-            self._db.close()
+            for conn in self._connections.values():
+                conn.close()
         except Exception:  # noqa: BLE001
             pass

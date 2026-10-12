@@ -1,10 +1,10 @@
 {
   "name": "agentd-desktop",
-  "productName": "agentd",
+  "productName": "AgentBear",
   "version": "0.1.15",
-  "description": "agentd desktop shell — the Electron host for the shared @agentd/ui renderer: supervisor, native file access, installers",
+  "description": "AgentBear desktop shell — the Electron host for the shared @agentd/ui renderer: supervisor, native file access, installers",
   "main": "./out/main/index.js",
-  "author": "agentd",
+  "author": "AgentBear",
   "license": "UNLICENSED",
   "scripts": {
     "predev": "node scripts/kill-daemon.mjs && node scripts/sync-platform-urls.mjs",

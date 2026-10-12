@@ -1,3 +1,4 @@
+import { productDisplayName } from '../lib/brand'
 import { useEffect, useState } from 'react'
 import { Check, CreditCard, RefreshCw, Sparkles, Zap } from 'lucide-react'
 
@@ -116,7 +117,7 @@ export default function SubscriptionView() {
       sub={
         billing
           ? 'Credits pay for model calls on your account. Buy more at any time.'
-          : `You’re running ${flavor?.productName || 'agentd'} with your own keys — nothing to bill.`
+          : `You’re running ${productDisplayName(flavor?.productName)} with your own keys — nothing to bill.`
       }
     >
       {billing && (

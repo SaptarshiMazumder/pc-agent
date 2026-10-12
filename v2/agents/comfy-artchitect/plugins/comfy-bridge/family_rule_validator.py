@@ -174,8 +174,9 @@ class FamilyRuleValidator:
         if any(ok is None for ok in verdicts.values()):
             report.not_judged.append(f"{fam.id}/{rid}")
             return
+        shown = ", ".join(f"{n}={_show(g, n, require.get('input', ''))}" for n in candidates[:3])
         where = (f"node {triggers[0]} {g.class_of(triggers[0])}" +
-                 (f"; found {', '.join(f'{n}={_show(g, n, require.get('input', ''))}' for n in candidates[:3])}"
+                 (f"; found {shown}"
                   if candidates else f"; no {require.get('node')} in the graph"))
         report.findings.append(RuleFinding(severity, fam.id, rid, message, where))
 

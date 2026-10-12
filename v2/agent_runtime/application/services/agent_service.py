@@ -14,15 +14,17 @@ instrument itself (the engine streams the LLM, the session store hits the disk).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from agent_runtime.application.interfaces.agent_engine import AgentEngine
 from agent_runtime.application.interfaces.agents import AgentRegistry
 from agent_runtime.application.interfaces.events import EventSink
-from agent_runtime.application.interfaces.manager_checkpoints import ManagerCheckpoints, ManagerRunScope
+from agent_runtime.application.interfaces.manager_checkpoints import (
+    ManagerCheckpoints,
+    ManagerRunScope,
+)
 from agent_runtime.application.interfaces.memory import SessionStore
-from agent_runtime.infrastructure import accounts
 from agent_runtime.application.run_context import (
     RunContext,
     current_run_outcome,
@@ -41,6 +43,7 @@ from agent_runtime.domain.agent import (
 )
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import RUNTIME, Artifact, UserMessage
+from agent_runtime.infrastructure import accounts
 
 log = logging.getLogger("agentd")
 
@@ -612,8 +615,6 @@ class AgentService:
         # because its credentials are filled in after it is installed, and an agent nobody opens
         # should not be launching subprocesses. Never raises — a server that is down becomes a
         # line in the prompt (see _mcp_problems), not a turn that fails to start.
-        if self._mcp is not None:
-            await self._mcp.ensure(agent)
         _run_id, _turn_id = current_trace_ids()
         # The TENANT scope for this run — what it may see, and the outer write boundary. The
         # SERVING agent's, because its skills/templates are what this turn's tools will read;
@@ -651,6 +652,7 @@ class AgentService:
                 # The caller, so a SANDBOXED plugin can act on their behalf without a
                 # contextvar it cannot see. See RunContext.account_id.
                 account_id=accounts.account_id() or "",
+                hosted=bool(read_roots),
                 agent_dir=str(getattr(agent, "dir", "") or ""),
                 brain_model=run_model or "",
                 write_roots=_write_roots,
@@ -672,6 +674,8 @@ class AgentService:
                 },
             )
         )
+        if self._mcp is not None:
+            await self._mcp.ensure(agent)
         tools = apply_mode(self._tools_for(agent), mode)  # serving-agent scope + private + run mode
         session = self._make_session(session_id, owner)  # history stays in the OWNER's partition
         messages = session.load()  # prior history (read)

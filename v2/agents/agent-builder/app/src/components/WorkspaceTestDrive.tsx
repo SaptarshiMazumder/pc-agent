@@ -52,7 +52,7 @@ export function WorkspaceTestDrive({ agent }: { agent: AgentRow }) {
             </>
           ) : (
             <p className="wst-copy">
-              This agent has no window — try it by talking to it from the main agentd chat.
+              This agent has no window — try it by talking to it from the main AgentBear chat.
             </p>
           )}
           {error && <div className="page-error">{error}</div>}

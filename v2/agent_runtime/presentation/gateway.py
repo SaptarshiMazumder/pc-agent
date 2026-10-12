@@ -45,8 +45,6 @@ from agent_runtime.application.services.image_thumbnail_service import (
     ImageThumbnailService,
 )
 from agent_runtime.config import Config, client_accounts_url
-from agent_runtime.infrastructure import checkpoint_marker
-from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
 from agent_runtime.domain import ownership
 from agent_runtime.domain.agent import (
     RunMode,
@@ -55,11 +53,17 @@ from agent_runtime.domain.agent import (
     setting_env_name,
 )
 from agent_runtime.domain.autonomy import ScheduledTask, resolve_run_outcome
-from agent_runtime.domain.reserved_hosts import is_reserved_host_label
 from agent_runtime.domain.events import AgentEvent
 from agent_runtime.domain.messages import RUNTIME, Artifact, UserMessage, artifact_to_dict
 from agent_runtime.domain.notify import Notification
-from agent_runtime.infrastructure import account_config, accounts, telemetry, user_state
+from agent_runtime.domain.reserved_hosts import is_reserved_host_label
+from agent_runtime.infrastructure import (
+    account_config,
+    accounts,
+    checkpoint_marker,
+    telemetry,
+    user_state,
+)
 from agent_runtime.infrastructure.env_file import EnvFile
 from agent_runtime.infrastructure.files import (
     guess_mime,
@@ -75,6 +79,10 @@ from agent_runtime.infrastructure.memory.local_store import (
     read_session_meta,
     write_session_meta,
 )
+from agent_runtime.infrastructure.plugins.catalog import _unwrap_tool
+from agent_runtime.presentation.app_asset_response_builder import (
+    AppAssetResponseBuilder,
+)
 from agent_runtime.presentation.protocol import (
     Event,
     ProtocolError,
@@ -84,9 +92,6 @@ from agent_runtime.presentation.protocol import (
     parse_frame,
 )
 from agent_runtime.runtime_paths import sdk_client_asset
-from agent_runtime.presentation.app_asset_response_builder import (
-    AppAssetResponseBuilder,
-)
 
 log = logging.getLogger("agentd")
 
@@ -572,7 +577,7 @@ def _oauth_page(message: str) -> HttpResponse:
     """The one page a user sees at the end of a sign-in. Deliberately plain: it exists to say
     which of the two things happened and that they may close the tab."""
     body = (
-        "<!doctype html><meta charset=utf-8><title>agentd</title>"
+        "<!doctype html><meta charset=utf-8><title>AgentBear</title>"
         "<body style=\"font-family:system-ui,sans-serif;display:grid;place-items:center;"
         "min-height:100vh;margin:0;background:#fafaf7;color:#1a1a1a\">"
         f"<main style=\"max-width:32rem;padding:2rem;line-height:1.5\"><p>{message}</p></main>"
@@ -1240,6 +1245,7 @@ class Gateway:
     # agent id -> {"task", "error", "at"} for visitor-triggered web-app installs/updates
     # (hosted only; see _serve_app / _web_app_bootstrap). Installs land in the SHARED catalogue:
     # /apps static serving is unauthenticated, so one copy serves every visitor.
+    _app_caps: object | None = None
     web_app_syncs: dict = field(default_factory=dict)
     clients: set[ServerConnection] = field(default_factory=set)
     # agent-scoped app connections: ws -> the ONE agent id the connection is limited to
@@ -1277,6 +1283,19 @@ class Gateway:
     # ------------------------------------------------------------------ serve
 
     async def serve(self) -> None:
+        self._event_loop = asyncio.get_running_loop()
+        if self._hosted():
+            required = {
+                "accounts": accounts.api_base(),
+                "isolated executor": getattr(self.config, "executor_url", ""),
+                "executor authentication": getattr(self.config, "executor_internal_key", ""),
+                "app origins": getattr(self.config, "app_host_suffix", ""),
+                "public egress proxy": os.environ.get("AGENTD_PUBLIC_HTTP_PROXY", ""),
+                "encrypted state": os.environ.get("AGENTD_STATE_KEK", ""),
+            }
+            missing = [name for name, value in required.items() if not value]
+            if missing:
+                raise RuntimeError("hosted isolation is incomplete: " + ", ".join(missing))
         # M2: ONE daemon per user — a live rendezvous file means another gateway owns
         # this machine's agentd; refuse loudly instead of fighting over ports/state.
         existing = lifecycle.find_running()
@@ -1307,6 +1326,9 @@ class Gateway:
         # workspace + sessions together). Idempotent and silent once done; done here because a
         # daemon start is the only moment no connection is mid-read.
         user_state.migrate_legacy_account_layout(self.config.state_dir)
+        if self._hosted():
+            from agent_runtime.infrastructure.runtime_migration import migrate
+            migrate(self.config)
         # Fast, in-process registrations happen BEFORE bind (cheap, chat depends on them)…
         self._build_subagents()  # the spawn_subagent tool (S8), if enabled
         self._build_agent_messaging()  # message_agent: talk to OTHER persistent agents (A5)
@@ -1702,6 +1724,14 @@ class Gateway:
     async def _invoke_tool(self, name: str, params: dict) -> str:
         """Invoke a registered (namespaced MCP) tool by name OUTSIDE the agent loop —
         lets a channel send/poll via an MCP (e.g. Gmail). Returns the tool's text."""
+        if self._hosted():
+            from agent_runtime.application.run_context import current_run_context
+            ctx = current_run_context()
+            if not accounts.account_id() or ctx is None or ctx.account_id != accounts.account_id() or not ctx.session_key:
+                raise PermissionError("authenticated agent chat context required")
+            answer = await self._tools_invoke({"name": name, "params": params,
+                                               "sessionKey": ctx.session_key}, ctx.agent_id)
+            return answer["text"]
         tool = self.service.find_tool(name)
         if tool is None:
             raise RuntimeError(f"tool not available: {name}")
@@ -1762,10 +1792,15 @@ class Gateway:
             # empty ( = unrestricted) and the workspace is the agent's own — unchanged.
             acct = accounts.account_id() or ""
             workspace = (
-                str(user_state.account_workspace(self.config.state_dir, acct, scope))
+                self._resolve_workspace(scope, str(params.get("sessionKey") or f"agent:{scope}:app"))
                 if acct
                 else str(getattr(spec, "workspace", "") or "")
             )
+            if acct:
+                # Direct app calls can be the first operation in a new chat.
+                # Materialize its canonical private directory before sandbox
+                # synchronization, so the worker receives a local workspace.
+                Path(workspace).mkdir(parents=True, exist_ok=True)
             read_roots, write_clamp = user_state.tenant_scope(
                 self.config, acct, getattr(spec, "dir", None), workspace,
                 org_ids=accounts.org_ids(),
@@ -1779,7 +1814,9 @@ class Gateway:
             run_ctx = RunContext(
                 agent_id=scope,
                 agent_dir=str(getattr(spec, "dir", "") or ""),
-                session_key=f"agent:{scope}:app",
+                session_key=str(params.get("sessionKey") or f"agent:{scope}:app"),
+                hosted=self._hosted(),
+                account_id=acct,
                 mode=RunMode.INTERACTIVE,
                 # A WINDOW ASKED FOR THIS, not a model. Exempts it from the loop guard, which
                 # measures a model spinning and cannot tell a 5-second poll from a runaway.
@@ -1851,7 +1888,7 @@ class Gateway:
         session and reply on the SAME channel. Busy-guarded per peer."""
         agent_id = getattr(channel, "agent_id", "main")
         session_key = f"agent:{agent_id}:{channel.name}:{msg.peer}"
-        existing = self.runs.get(session_key)
+        existing = self.runs.get(self._runtime_key(session_key))
         if existing is not None and existing.task is not None and not existing.task.done():
             return  # a run for this peer is already in flight; next poll picks it up
         handle = RunHandle(
@@ -1861,7 +1898,7 @@ class Gateway:
             client_id=None,
         )
         handle.task = asyncio.create_task(self._run_channel(handle, channel, msg, agent_id))
-        self.runs[session_key] = handle
+        self.runs[self._runtime_key(session_key)] = handle
         log.info("channel %s: message from %s -> run %s", channel.name, msg.peer, handle.run_id)
 
     async def _run_channel(self, handle: RunHandle, channel, msg, agent_id: str) -> None:
@@ -1988,11 +2025,31 @@ class Gateway:
         return ""
 
     async def _post_cron(self, task) -> bool:
+        if not self._hosted():
+            return await self._post_cron_owned(task)
+        account = await accounts.background_account(task.account_id)
+        if not account:
+            return False
+        if task.namespace.startswith("org_") and task.namespace not in accounts.org_ids_from(account):
+            self.task_store.update(task.id, enabled=False)
+            return True
+        token = accounts.set_account(account)
+        from agent_runtime.application.run_context import current_run_context, set_run_context
+
+        previous_context = current_run_context()
+        set_run_context(None)
+        try:
+            return await self._post_cron_owned(task)
+        finally:
+            accounts.reset_account(token)
+            set_run_context(previous_context)
+
+    async def _post_cron_owned(self, task) -> bool:
         """Fire a due scheduled task as a cron-mode run (the agent executes its
         payload). Returns False if the agent's cron lane is busy, so the scheduler
         leaves the task due and retries next poll (never drops a one-shot)."""
         session_key = task.session_key
-        existing = self.runs.get(session_key)
+        existing = self.runs.get(self._runtime_key(session_key))
         if existing is not None and existing.task is not None and not existing.task.done():
             return False
         # deliver=message -> emit the stored text verbatim; deliver=run -> execute it
@@ -2026,13 +2083,13 @@ class Gateway:
         # the ledger still records the spend; re-resolve here when hosted autonomy is offered.
         acct_token = None
         if getattr(task, "account_id", ""):
-            acct_token = accounts.set_account({"account_id": task.account_id})
+            acct_token = accounts.set_account(accounts.current_account.get() if self._hosted() else {"account_id": task.account_id})
         try:
-            handle.task = asyncio.create_task(self._run(handle, message, mode=RunMode.CRON))
+            handle.task = asyncio.create_task(self._run(handle, message, mode=RunMode.CRON, agent_id=task.agent_id, account=accounts.current_account.get()))
         finally:
             if acct_token is not None:
                 accounts.reset_account(acct_token)
-        self.runs[session_key] = handle
+        self.runs[self._runtime_key(session_key)] = handle
         log.info(
             "cron fire: task %s -> run %s (%s)%s",
             task.id,
@@ -2043,11 +2100,13 @@ class Gateway:
         return True
 
     async def _post_heartbeat(self, agent_id: str) -> None:
+        if self._hosted() and not accounts.account_id():
+            return
         """Turn a scheduler tick into a heartbeat run — an internal 'client' posting a
         turn for `agent:<id>:heartbeat`. Flood-guarded: skip if the previous tick for
         this agent is still running."""
         session_key = f"agent:{agent_id}:heartbeat"
-        existing = self.runs.get(session_key)
+        existing = self.runs.get(self._runtime_key(session_key))
         if existing is not None and existing.task is not None and not existing.task.done():
             return  # previous tick still running
         run_id = uuid.uuid4().hex[:12]
@@ -2057,7 +2116,7 @@ class Gateway:
         handle.task = asyncio.create_task(
             self._run(handle, HEARTBEAT_PROMPT, mode=RunMode.HEARTBEAT)
         )
-        self.runs[session_key] = handle
+        self.runs[self._runtime_key(session_key)] = handle
         log.info("heartbeat tick: agent %s (run %s)", agent_id, run_id)
 
     async def _discover_mcp_tools(self) -> None:
@@ -2120,7 +2179,7 @@ class Gateway:
         seen: set[str] = set()
         for r in roots:
             try:
-                rr = r.resolve()
+                rr = Path(r).resolve()
             except (OSError, ValueError):
                 continue
             k = str(rr).lower()
@@ -2156,6 +2215,8 @@ class Gateway:
                 "/auth/adopt",
             ):
                 return await self._serve_auth(split, getattr(request, "headers", {}))
+            if split.path in ("/app-session", "/app-token", "/app-cookie"):
+                return await self._serve_app_auth(split, getattr(request, "headers", {}))
             if split.path == "/file":
                 return await self._serve_file(split, getattr(request, "headers", {}))
             if split.path == "/thumbnail":
@@ -2246,6 +2307,67 @@ class Gateway:
         hdrs["Cache-Control"] = "no-store"
         return HttpResponse(200, "OK", hdrs, body)
 
+    async def _serve_app_auth(self, split, headers) -> HttpResponse:
+        from agent_runtime.infrastructure.app_auth_bridge import renewal_page
+        from agent_runtime.infrastructure.app_credentials import AppCredentials, is_app_token
+        suffix = str(getattr(self.config, "app_host_suffix", "") or "")
+        host = (urlsplit("//" + (headers.get("Host") or "")).hostname or "").lower()
+        def answer(code, body=b"", content_type="application/json"):
+            return HttpResponse(code, "OK" if code == 200 else "Forbidden", Headers({
+                "Content-Type": content_type, "Content-Length": str(len(body)),
+                "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+            }), body)
+        query = parse_qs(split.query)
+        if split.path == "/app-cookie" and self._hosted():
+            presented = str((query.get("session") or [""])[0])
+            scoped = await self._resolve_ui_session(presented)
+            if not scoped or not scoped.get("app_scope"):
+                return answer(403)
+            expected = AppCredentials.host(scoped["account_id"], scoped["app_namespace"], scoped["app_scope"], suffix)
+            if host != expected:
+                return answer(403)
+            response = answer(200, b"{}")
+            response.headers["Set-Cookie"] = f"{APP_SESSION_COOKIE}={presented}; Path=/apps/{scoped['app_scope']}/; HttpOnly; Secure; SameSite=Lax; Max-Age=900"
+            return response
+        if not self._hosted() or not suffix or host != suffix:
+            return answer(403)
+        aid = str((query.get("agentId") or [""])[0])
+        namespace = str((query.get("namespace") or [""])[0])
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", aid):
+            return answer(403)
+        if split.path == "/app-session":
+            parent = str(headers.get("Referer") or "")
+            parent_host = urlsplit(parent).hostname or ""
+            # A root bridge is useful only inside a tenant-specific app origin.
+            if not parent_host.endswith("." + suffix) or not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", parent_host[:-(len(suffix)+1)]):
+                return answer(403)
+            origin = "https://" + parent_host
+            return answer(200, renewal_page(accounts_url=client_accounts_url(self.config),
+                agent_id=aid, namespace=namespace, parent_origin=origin), "text/html; charset=utf-8")
+        session = str((query.get("session") or [""])[0])
+        if is_app_token(session):
+            return answer(403)
+        account = await accounts.resolve(session)
+        if not account or (namespace not in ("personal", "platform") and namespace not in accounts.org_ids_from(account)):
+            return answer(403)
+        expected = "https://" + AppCredentials.host(account["account_id"], namespace, aid, suffix)
+        if str((query.get("returnOrigin") or [""])[0]) != expected:
+            return answer(403)
+        token = accounts.set_account(account)
+        ns_token = accounts.current_namespace.set(namespace)
+        try:
+            from agent_runtime.infrastructure import tenancy
+            if tenancy.namespace(aid) != namespace:
+                return answer(403)
+            cap = self._app_credentials().mint(account, namespace, aid)
+            return answer(200, json.dumps({"token": cap}).encode())
+        except (KeyError, PermissionError):
+            return answer(403)
+        finally:
+            accounts.current_namespace.reset(ns_token)
+            accounts.reset_account(token)
+
     async def _serve_app(self, split, headers=None) -> HttpResponse:
         """Serve one file of an app agent's UI: `/apps/<agentId>/<path>` maps to the agent's
         own `<dir>/ui/` (entry from its `[app]` declaration; docs/PROTOCOL.md §9).
@@ -2267,15 +2389,41 @@ class Gateway:
         if len(parts) < 2 or self.registry is None:
             return deny(404, "Not Found")
         agent_id = unquote(parts[1])
+        if self._hosted():
+            alias = self._host_alias(headers or {})
+            raw_host = (headers or {}).get("Host") or ""
+            hashed_host = bool(re.search(r"--[a-f0-9]{16}\.", raw_host))
+            if alias != agent_id and not (hashed_host and alias == agent_id[:40]):
+                return deny(403, "App origin mismatch")
+            host = (urlsplit("//" + ((headers or {}).get("Host") or "")).hostname or "")
+            if re.search(r"--[a-f0-9]{16}\.", host):
+                presented = (parse_qs(split.query).get("session") or [""])[0] or _cookie_value(headers or {}, APP_SESSION_COOKIE)
+                scoped = await self._resolve_ui_session(presented)
+                if not scoped or scoped.get("app_scope") != agent_id:
+                    return deny(401, "App credential required")
         try:
-            spec = self.registry.get(agent_id)
-        except KeyError:
             spec = await self._app_spec_for_caller(agent_id, split, headers)
+            if spec is None:
+                spec = self.registry.get(agent_id)
+        except KeyError:
+            spec = None
         if spec is None:
             # Hosted: an unknown id may be a marketplace URL doing its job — a web-delivered
             # bundle whose first visitor just arrived. None => not this daemon's business.
             bootstrap = self._web_app_bootstrap(agent_id)
             return bootstrap if bootstrap is not None else deny(404, "Not Found")
+        query = parse_qs(split.query)
+        presented = (query.get("session") or [""])[0] or _cookie_value(headers or {}, APP_SESSION_COOKIE)
+        ui_account = await self._resolve_ui_session(presented) if self._hosted() else None
+        if self._hosted() and ui_account:
+            if not ui_account.get("app_scope") or ui_account["app_scope"] != agent_id:
+                return deny(403, "Scoped app credential required")
+            from agent_runtime.infrastructure.app_credentials import AppCredentials
+            suffix = str(getattr(self.config, "app_host_suffix", "") or "")
+            expected_host = AppCredentials.host(ui_account["account_id"], ui_account["app_namespace"], agent_id, suffix)
+            host = (urlsplit("//" + ((headers or {}).get("Host") or "")).hostname or "").lower()
+            if host != expected_host:
+                return HttpResponse(307, "Temporary Redirect", Headers({"Location": f"https://{expected_host}{split.path}?{split.query}", "Referrer-Policy": "no-referrer", "Content-Length": "0"}), b"")
         app = getattr(spec, "app", None)
         base = getattr(spec, "dir", None)
         if not app or base is None:
@@ -2317,6 +2465,18 @@ class Gateway:
             except Exception:  # noqa: BLE001 — a header mapping that will not answer is not fatal
                 accept_encoding = ""
         body, content_headers = _app_assets.build(target, ui_root, accept_encoding)
+        if target == entry and ui_account:
+            import gzip
+
+            from agent_runtime.infrastructure.app_auth_bridge import entry_script
+            if content_headers.get("Content-Encoding") == "gzip":
+                body = gzip.decompress(body)
+                content_headers.pop("Content-Encoding", None)
+            script = entry_script(root_origin="https://" + str(self.config.app_host_suffix),
+                agent_id=agent_id, namespace=ui_account["app_namespace"], token=presented).encode()
+            body = body.replace(b"<head>", b"<head>" + script, 1) if b"<head>" in body else script + body
+            content_headers["Content-Length"] = str(len(body))
+            content_headers["Referrer-Policy"] = "strict-origin"
         hdrs = Headers()
         for key, value in content_headers.items():
             hdrs[key] = value
@@ -2331,7 +2491,7 @@ class Gateway:
             if sess:
                 hdrs["Set-Cookie"] = (
                     f"{APP_SESSION_COOKIE}={sess}; Path=/apps/{parts[1]}/; "
-                    "HttpOnly; SameSite=Lax; Max-Age=900"
+                    "HttpOnly; Secure; SameSite=Lax; Max-Age=900"
                 )
         return HttpResponse(200, "OK", hdrs, body)
 
@@ -2355,14 +2515,24 @@ class Gateway:
         finder = getattr(self.registry, "find_in_account_layers", None)
         if not callable(finder):
             return None  # stand-in registry (tests) — shared view was the whole world
-        if not accounts.enabled():
+        if not accounts.enabled() and not self._hosted():
             return finder(agent_id)
-        identities = await self._http_identities(parse_qs(split.query or ""), headers or {})
-        identities = identities or frozenset()
-        if identities & ownership.DEPLOYMENT_OWNERS:
-            return finder(agent_id)
-        acct = next(iter(identities - ownership.DEPLOYMENT_OWNERS), None)
-        return finder(agent_id, acct) if acct else None
+        query = parse_qs(split.query or "")
+        session = (query.get("session") or [""])[0] or _cookie_value(headers or {}, APP_SESSION_COOKIE)
+        account = await self._resolve_ui_session(session)
+        if not account:
+            return None
+        if account.get("app_scope") and account["app_scope"] != agent_id:
+            return None
+        token = accounts.set_account(account)
+        namespace_token = accounts.current_namespace.set(account.get("app_namespace") or "personal")
+        try:
+            return self.registry.get(agent_id)
+        except KeyError:
+            return None
+        finally:
+            accounts.current_namespace.reset(namespace_token)
+            accounts.reset_account(token)
 
     # ---------------------------------------------------------------- web delivery (hosted)
 
@@ -2494,11 +2664,13 @@ class Gateway:
             # the same session (see _serve_app + APP_SESSION_COOKIE); read it so assets identify the
             # same account. Harmless on /file (the cookie is scoped to /apps/<id>/, never sent there).
             session = _cookie_value(headers, APP_SESSION_COOKIE)
-        account = await accounts.resolve(session or token)
+        account = await self._resolve_ui_session(session or token)
         if account is not None:
-            return ownership.callers(
-                account.get("account_id"), self._hosted(), accounts.org_ids_from(account)
-            )
+            identities = ownership.callers(account.get("account_id"), self._hosted(), accounts.org_ids_from(account))
+            if account.get("app_scope"):
+                marker = "app:" + json.dumps([account["account_id"], account["app_namespace"], account["app_scope"]], separators=(",", ":"))
+                return identities | {marker}
+            return identities
         if accounts.enabled():
             return None  # sign-in required — the machine token must not bypass it (WS rule)
         if self.auth_token and not hmac.compare_digest(token, self.auth_token):
@@ -2514,6 +2686,21 @@ class Gateway:
         DEFINITION dirs — shipped code and assets, the same files /apps serves openly. A
         cross-tenant path is then simply OUTSIDE the caller's roots: unreachable by
         construction, not refused by a check somebody must remember to extend."""
+        marker = next((identity[4:] for identity in identities if identity.startswith("app:")), None)
+        if marker:
+            acct, namespace, aid = json.loads(marker)
+            root = user_state.account_root(self.config.state_dir, acct) / "runtime" / user_state._safe(namespace) / "agents" / user_state._safe(aid)
+            roots = [root / "workspaces", root / "workspace"]
+            token = accounts.set_account({"account_id": acct, "orgs": [{"id": ident} for ident in identities if ident.startswith("org_")]})
+            ns_token = accounts.current_namespace.set(namespace)
+            try:
+                from agent_runtime.domain.agent import definition_entries
+                spec = self.registry.get(aid)
+                roots.extend(definition_entries(spec.dir))
+            finally:
+                accounts.current_namespace.reset(ns_token)
+                accounts.reset_account(token)
+            return self._dedupe_resolved(roots)
         if identities & ownership.DEPLOYMENT_OWNERS:
             return self._allowed_file_roots()
         roots: list[Path] = []
@@ -2844,7 +3031,7 @@ class Gateway:
         details = (event.payload or {}).get("details")
         try:
             checkpoint_marker.present(
-                self._resolve_workspace(agent_id), handle.session_key, handle.run_id,
+                self._resolve_workspace(agent_id, handle.session_key), handle.session_key, handle.run_id,
                 presented=details if isinstance(details, dict) else None,
             )
         except Exception:  # noqa: BLE001
@@ -2980,7 +3167,7 @@ class Gateway:
                 re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", label)
                 and not is_reserved_host_label(label)
             ):
-                return label
+                return re.sub(r"--[a-f0-9]{16}$", "", label)
         return None
 
     def _connection_scope(self, ws: ServerConnection) -> str | None:
@@ -2994,6 +3181,9 @@ class Gateway:
             return None
         query = parse_qs(urlsplit(getattr(request, "path", "") or "").query)
         raw = (query.get("scope") or [""])[0]
+        alias = self._host_alias(getattr(request, "headers", None))
+        if alias:
+            return alias
         if raw.startswith("agent:"):
             return raw[len("agent:") :].strip() or None
         return self._host_alias(getattr(request, "headers", None))
@@ -3033,7 +3223,15 @@ class Gateway:
         #
         # The machine token must NOT authorise where sign-in is required, or it would be a bypass
         # on a hosted deployment. That is the one thing `enabled` still gates.
-        account: dict | None = await accounts.resolve(self._presented_session(ws))
+        account: dict | None = await self._resolve_ui_session(self._presented_session(ws))
+        if account and account.get("app_scope"):
+            if scope and scope != account["app_scope"] and scope != account["app_scope"][:40]:
+                await ws.close(code=4403, reason="app scope mismatch")
+                return
+            scope = account["app_scope"]
+        elif self._hosted() and scope and account:
+            await ws.close(code=4403, reason="scoped app credential required")
+            return
         # THE MACHINE'S OWN ACCOUNT, when a desktop window presented nothing. Windows no longer
         # hold or pass tokens (see platform_session.py) — the runtime IS the session holder, so
         # a local connection inherits the machine's sign-in the way any desktop app's windows
@@ -3072,7 +3270,7 @@ class Gateway:
                 account = {"account_id": act_as}
         authed = account is not None or (not accounts.enabled() and self._authorized(ws))
         if not authed:
-            if self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
+            if not self._hosted() and self._public_scope_ok(scope) and len(self.client_public) < MAX_PUBLIC_CONNECTIONS:
                 public = True
             else:
                 await ws.close(code=4401, reason="unauthorized")
@@ -3207,7 +3405,9 @@ class Gateway:
             return current, Response(
                 id=req.id, ok=False, payload={"error": "accessToken is required"}
             )
-        account = await accounts.resolve(token)
+        account = await self._resolve_ui_session(token)
+        if current and current.get("app_scope") and (not account or account.get("app_scope") != current.get("app_scope") or account.get("app_namespace") != current.get("app_namespace")):
+            return current, Response(id=req.id, ok=False, payload={"error": "app scope cannot change"})
         if account is None:
             # The client's refresh produced something we will not take. Reported with a typed
             # code so the client signs out rather than retrying a token that cannot work.
@@ -3246,6 +3446,60 @@ class Gateway:
     # --------------------------------------------------------------- dispatch
 
     async def _dispatch(
+        self, req: Request, client_id: str | None = None, scope: str | None = None,
+        public: bool = False, account: dict | None = None,
+    ) -> Response:
+        """Every transport installs its verified principal; expiry applies to every RPC."""
+        if self._hosted() and not public:
+            if account and accounts.api_base() and account.get("session_token"):
+                fresh = await accounts.resolve(account["session_token"])
+                if not fresh:
+                    return Response(id=req.id, ok=False, payload={"error": "session unavailable", "code": "auth_invalid"})
+                namespace = account.get("app_namespace") or ""
+                if namespace.startswith("org_") and namespace not in accounts.org_ids_from(fresh):
+                    return Response(id=req.id, ok=False, payload={"error": "organization membership required"})
+                account.update({key: value for key, value in fresh.items() if key not in ("app_scope", "app_namespace")})
+                if account.get("app_expires_at"):
+                    account["expires_at"] = min(float(account.get("expires_at") or account["app_expires_at"]), float(account["app_expires_at"]))
+            if not account or not account.get("account_id"):
+                return Response(id=req.id, ok=False, payload={"error": "authentication required", "code": "auth_invalid"})
+            expiry = float(account.get("expires_at") or 0)
+            if expiry and time.time() >= expiry:
+                return Response(id=req.id, ok=False, payload={"error": "session expired", "code": "auth_expired"})
+            bound_scope = account.get("app_scope")
+            if bound_scope:
+                if scope and scope != bound_scope:
+                    return Response(id=req.id, ok=False, payload={"error": "app scope mismatch"})
+                scope = bound_scope
+        token = accounts.set_account(account)
+        from agent_runtime.application.run_context import current_run_context, set_run_context
+
+        previous_context = current_run_context()
+        set_run_context(None)
+        namespace_token = None
+        try:
+            if self._hosted() and account:
+                from agent_runtime.infrastructure import tenancy
+
+                selected = str(account.get("app_namespace") or req.params.get("namespace") or "")
+                if selected and selected not in ("personal", "platform") and selected not in accounts.org_ids():
+                    raise PermissionError("namespace membership required")
+                namespace_token = accounts.current_namespace.set(selected)
+                aid = scope or str(req.params.get("agentId") or getattr(self.config, "agent_id", "main"))
+                if not selected and req.method == "agents.create" and not scope:
+                    accounts.current_namespace.set("personal")
+                elif not selected and (scope or req.params.get("agentId")):
+                    accounts.current_namespace.set(tenancy.namespace(aid))
+            return await self._dispatch_owned(req, client_id, scope, public, account)
+        except (ValueError, KeyError, PermissionError) as exc:
+            return Response(id=req.id, ok=False, payload={"error": str(exc)})
+        finally:
+            if namespace_token is not None:
+                accounts.current_namespace.reset(namespace_token)
+            accounts.reset_account(token)
+            set_run_context(previous_context)
+
+    async def _dispatch_owned(
         self,
         req: Request,
         client_id: str | None = None,
@@ -3276,7 +3530,14 @@ class Gateway:
             # …unless this (agent, method) pair is an explicit CROSS_AGENT_READ, in which case
             # the caller's own agentId stands. Everything else — and every write, for everyone —
             # is forced back to self.
-            if req.method not in CROSS_AGENT_READS.get(scope, ()):
+            cross_read = req.method in CROSS_AGENT_READS.get(scope, ())
+            if cross_read and self._hosted():
+                cross_read = self._trusted_author_app(account or {})
+                if cross_read and req.params.get("agentId") and req.params["agentId"] != scope:
+                    from agent_runtime.infrastructure import tenancy
+                    accounts.current_namespace.set("")
+                    accounts.current_namespace.set(tenancy.namespace(str(req.params["agentId"])))
+            if not cross_read:
                 req.params["agentId"] = scope
                 # The CROSS-AGENT list modes (`all` = Recents, `projectId` = project view)
                 # would sidestep that forced agentId: sessions.list honors them FIRST, so a
@@ -3498,14 +3759,14 @@ class Gateway:
                         continue  # internal (sub-agent/cron/agent-msg): hide
                     if project_id and (s.get("projectId") or "") != project_id:
                         continue
-                    rows.append({**s, "agentId": aid, "running": self._session_running(s), "jobs": self._session_jobs(s)})
+                    rows.append({**s, "agentId": aid, "running": self._session_running({**s, "agentId": aid}), "jobs": self._session_jobs({**s, "agentId": aid})})
             rows.sort(key=lambda r: r.get("modified") or 0, reverse=True)
             return {"sessions": rows, "agentId": "", "all": want_all, "projectId": project_id}
         agent_id, state_dir = self._resolve_state_dir(params.get("agentId"))
         # Internal agent-to-agent / cron threads (on-disk `agent_…` stems) are never human
         # chats — hide them here too, so a per-agent session picker matches the cross-agent lists.
         rows = [
-            {**s, "agentId": agent_id, "running": self._session_running(s), "jobs": self._session_jobs(s)}
+            {**s, "agentId": agent_id, "running": self._session_running({**s, "agentId": agent_id}), "jobs": self._session_jobs({**s, "agentId": agent_id})}
             for s in list_sessions(state_dir)
             if not str(s.get("sessionId", "")).startswith("agent_")
         ]
@@ -3556,15 +3817,15 @@ class Gateway:
         session_key = (params.get("sessionKey") or params.get("sessionId") or "").strip()
         if not session_key:
             return {"ok": False, "error": "sessionKey required"}
-        handle = self.runs.get(session_key)
+        handle = self.runs.get(self._runtime_key(session_key, params.get("agentId")))
         if handle is not None and handle.task is not None and not handle.task.done():
             return {"ok": False, "error": "session has an active run — /abort it first"}
         from agent_runtime.infrastructure.memory.local_store import delete_session
 
-        self._cancel_jobs(session_key)  # a deleted chat has nothing to deliver a result into
-        self.jobs.pop(session_key, None)
+        self._cancel_jobs(session_key, params.get("agentId"))  # a deleted chat has nothing to deliver a result into
+        self.jobs.pop(self._runtime_key(session_key, params.get("agentId")), None)
         deleted = delete_session(state_dir, session_key)
-        self.runs.pop(session_key, None)  # forget any finished handle
+        self.runs.pop(self._runtime_key(session_key, params.get("agentId")), None)  # forget any finished handle
         await self._send_all(
             dump_frame(
                 Event(
@@ -3684,7 +3945,8 @@ class Gateway:
         routing (M2) so one user's projects never appear for another."""
         acct = accounts.account_id()
         if acct:
-            return user_state.account_root(self.config.state_dir, acct)
+            from agent_runtime.infrastructure import tenancy
+            return tenancy.namespace_root(self.config.state_dir, acct) if self._hosted() else user_state.account_root(self.config.state_dir, acct)
         return self.config.state_dir
 
     def _projects_list(self) -> dict:
@@ -3860,6 +4122,8 @@ class Gateway:
         """Hot-add an MCP server: build the config, connect it LIVE, merge its tools into the
         catalog (no restart), and PERSIST to config.mcp_servers (writes agentd.config.json). The
         central registry for bare connections — `claude mcp add` / `openclaw mcp add` equivalent."""
+        if self._hosted():
+            raise PermissionError("shared MCP configuration is operator-managed; declare a connection on your agent")
         from agent_runtime.config import McpServerConfig
         from agent_runtime.domain.agent import apply_enablement
 
@@ -3971,12 +4235,7 @@ class Gateway:
 
     def _marketplace_progress(self, payload: dict) -> None:
         """Sync -> async bridge for install progress (the service is transport-blind)."""
-        try:
-            asyncio.get_running_loop().create_task(
-                self._send_all(dump_frame(Event(event="marketplace.progress", payload=payload)))
-            )
-        except RuntimeError:  # no loop (CLI offline path) — progress goes nowhere, fine
-            pass
+        self._schedule_notification(lambda: self._send_all(dump_frame(Event(event="marketplace.progress", payload=payload))))
 
     def _marketplace_after_change(self, changed: dict | None = None) -> dict:
         """Post-install/uninstall: re-scan agents, hot-load any NEW plugins' tools, and
@@ -4032,6 +4291,8 @@ class Gateway:
         return {"servers": servers, "count": len(servers)}
 
     def _mcp_remove(self, params: dict) -> dict:
+        if self._hosted():
+            raise PermissionError("shared MCP configuration is operator-managed")
         """Remove an MCP server: drop it from config (persisted) + drop its live tools."""
         name = (params.get("name") or "").strip()
         if not name:
@@ -4358,7 +4619,82 @@ class Gateway:
             "requiresLocal": bool(getattr(spec, "requires_local", False)),
         }
 
+    def _app_credentials(self):
+        from agent_runtime.infrastructure.app_credentials import AppCredentials
+        if self._app_caps is None:
+            self._app_caps = AppCredentials()
+        return self._app_caps
+
+    async def _resolve_ui_session(self, token: str) -> dict | None:
+        from agent_runtime.infrastructure.app_credentials import is_app_token
+        if is_app_token(token):
+            scoped = self._app_credentials().resolve(token)
+            if not scoped:
+                return None
+            if accounts.api_base():
+                parent = await accounts.resolve(str(scoped.get("session_token") or ""))
+                if not parent:
+                    return None
+                namespace = scoped["app_namespace"]
+                if namespace.startswith("org_") and namespace not in accounts.org_ids_from(parent):
+                    return None
+                return {**parent, "app_scope": scoped["app_scope"], "app_namespace": namespace, "app_expires_at": scoped["app_expires_at"], "expires_at": scoped["expires_at"]}
+            return scoped
+        return await accounts.resolve(token)
+
+    def _app_for_caller(self, aid: str, spec) -> dict | None:
+        app = self._agent_app(aid, spec)
+        if app:
+            app["url"] = self._app_launch_url(aid)
+        return app
+
+    def _app_launch_url(self, aid: str) -> str:
+        if not self._hosted() or not accounts.account_id():
+            return f"/apps/{aid}/"
+        from urllib.parse import urlencode
+
+        from agent_runtime.infrastructure import tenancy
+        suffix = str(getattr(self.config, "app_host_suffix", "") or "")
+        if not suffix:
+            raise PermissionError("hosted apps require separate origins")
+        account = accounts.current_account.get()
+        if account.get("app_scope") and account["app_scope"] != aid:
+            if not self._trusted_author_app(account):
+                return f"/apps/{aid}/"
+        namespace = tenancy.namespace(aid)
+        caps = self._app_credentials()
+        token = caps.mint(accounts.current_account.get(), namespace, aid)
+        host = caps.host(accounts.account_id(), namespace, aid, suffix)
+        return f"https://{host}/apps/{aid}/?" + urlencode({"session": token, "scope": f"agent:{aid}"})
+
+    def _trusted_author_app(self, account: dict) -> bool:
+        scope = account.get("app_scope")
+        if scope not in ("agent-builder", "cloud-agent-builder") or self.registry is None:
+            return False
+        from agent_runtime.infrastructure.tools.sandbox.classify import _verified_platform_definition
+
+        if account.get("app_namespace") not in (None, "platform"):
+            return False
+        marker = accounts.current_namespace.set("platform")
+        try:
+            spec = self.registry.get(scope)
+            return _verified_platform_definition(self.config, scope, str(spec.dir))
+        except (KeyError, PermissionError):
+            return False
+        finally:
+            accounts.current_namespace.reset(marker)
+
     def _agents_list(self, host: bool = False) -> dict:
+        token = None
+        if self._hosted() and self._trusted_author_app(accounts.current_account.get() or {}):
+            token = accounts.current_namespace.set("")
+        try:
+            return self._agents_list_owned(host)
+        finally:
+            if token is not None:
+                accounts.current_namespace.reset(token)
+
+    def _agents_list_owned(self, host: bool = False) -> dict:
         """The available agents — the uniform discovery surface any client uses. The
         registry is the single source of truth; the session-key format stays internal.
         Includes each agent's display presentation (tagline + starter suggestions) so
@@ -4395,7 +4731,7 @@ class Gateway:
                     "tagline": getattr(spec, "tagline", ""),
                     "suggestions": list(getattr(spec, "suggestions", ()) or ()),
                     "color": getattr(spec, "color", ""),
-                    "app": self._agent_app(aid, spec),
+                    "app": self._app_for_caller(aid, spec),
                     "mine": bool(owns(aid)) if callable(owns) else True,
                     "layer": str(layer_of(aid)) if callable(layer_of) else "shared",
                     "origin": str(origin_of(aid)) if callable(origin_of) else "authored",
@@ -4513,7 +4849,7 @@ class Gateway:
             "workspace": str(ws),
             "workspaceFiles": files,
             "skills": list(skills_by_name.values()),
-            "app": self._agent_app(agent_id, spec),
+            "app": self._app_for_caller(agent_id, spec),
         }
 
     # ------------------------------------------------------------- workspace browsing
@@ -4553,7 +4889,7 @@ class Gateway:
             return Path(agent_dir), ""
         acct = accounts.account_id()
         if acct:  # HOSTED: browse THIS account's own per-agent workspace
-            return user_state.account_workspace(self.config.state_dir, acct, agent_id), ""
+            return Path(self._resolve_workspace(agent_id, str(params.get("sessionKey") or f"agent:{agent_id}:app"))), ""
         if self.registry is not None:
             try:
                 return Path(self.registry.get(agent_id).workspace), ""
@@ -4914,8 +5250,11 @@ class Gateway:
         if agent_id not in self.registry.list_ids():
             return {"removed": False, "error": f"unknown agent: {agent_id}"}
 
+        if self._hosted() and not self.registry.owns(agent_id):
+            raise PermissionError("agent ownership required")
+
         cron = self.task_store.purge_agent(agent_id) if self.task_store is not None else {}
-        memory = self.memory_bank.purge_agent(agent_id) if self.memory_bank is not None else 0
+        memory = self.memory_bank.purge_agent(accounts.memory_partition(agent_id)) if self.memory_bank is not None else 0
         removed = self.registry.remove(
             agent_id
         )  # definition + workspace + sessions, drop from cache
@@ -5383,11 +5722,7 @@ class Gateway:
         outside a running loop (unit tests) a no-op."""
         if not agent_id:
             return
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        asyncio.create_task(self._broadcast_app_rebuilt(agent_id))
+        self._schedule_notification(lambda: self._broadcast_app_rebuilt(agent_id))
 
     def broadcast_agents_changed(self) -> None:
         """SYNC, fire-and-forget wrapper handed to PLUGINS via PluginContext.
@@ -5396,11 +5731,20 @@ class Gateway:
         synchronous tool code, so it cannot await. The send is scheduled on the running loop
         instead — a notification nobody waits on. Outside a loop (unit tests) it is a no-op,
         which is why the plugin treats the handle as best-effort."""
+        self._schedule_notification(self._broadcast_agents_changed)
+
+    def _schedule_notification(self, factory) -> None:
         try:
-            asyncio.get_running_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
+            loop = getattr(self, "_event_loop", None)
+        else:
+            loop.create_task(factory())
             return
-        asyncio.create_task(self._broadcast_agents_changed())
+        if loop is not None and loop.is_running():
+            # call_soon_threadsafe preserves the caller's contextvars, including
+            # the account and namespace used to filter this notification.
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(factory()))
 
     def _workspace_cleanup(self, params: dict) -> dict:
         """Tidy an agent's workspace: delete scratch (all of <workspace>/tmp/) + any file
@@ -6119,6 +6463,13 @@ class Gateway:
             # a client the document invites it to draw an editor whose Save can only fail.
             payload.pop("raw", None)
             payload.pop("envPath", None)
+        if self._hosted():
+            payload["envValues"] = {}
+            payload["values"]["mcp_servers"] = []
+            payload["values"] = self._redact_nested_credentials(payload["values"])
+            payload.pop("envPath", None)
+            if scope:
+                payload = self._redact_secret_fields(payload)
         return self._redact_for_installed_agent(payload, scope)
 
     @staticmethod
@@ -6136,6 +6487,18 @@ class Gateway:
             return json.dumps(json.loads(text), indent=2) + "\n"
         except ValueError:
             return text
+
+    @staticmethod
+    def _redact_nested_credentials(value):
+        import re
+        if isinstance(value, dict):
+            return {key: ("" if isinstance(item, str) and
+                          re.search(r"(?:^|_)(?:api_?key|password|secret|token|authorization|cookie|credential)(?:$|_)", str(key), re.I)
+                          else Gateway._redact_nested_credentials(item))
+                    for key, item in value.items()}
+        if isinstance(value, list):
+            return [Gateway._redact_nested_credentials(item) for item in value]
+        return value
 
     @staticmethod
     def _redact_secret_fields(payload: dict) -> dict:
@@ -6897,7 +7260,7 @@ class Gateway:
         # target agent's workspace/uploads and carry them BY REFERENCE (Artifact). A message
         # may be attachments-only (no text), so the empty-check comes AFTER resolving them.
         attachments = self._save_uploads(
-            agent_id, params.get("attachments") or [], (params.get("projectId") or "").strip()
+            agent_id, params.get("attachments") or [], (params.get("projectId") or "").strip(), session_key
         )
         if not message.strip() and not attachments:
             raise ValueError("message must not be empty")
@@ -7002,7 +7365,8 @@ class Gateway:
             if read_session_meta(state_dir, session_key).get("projectId") != project_id:
                 write_session_meta(state_dir, session_key, projectId=project_id)
 
-        idem = params.get("idempotencyKey")
+        runtime_key = self._runtime_key(session_key, agent_id)
+        idem = (runtime_key, str(params["idempotencyKey"])) if params.get("idempotencyKey") else None
         if idem and idem in self.idempotency:
             return {"runId": self.idempotency[idem], "deduplicated": True}
 
@@ -7012,13 +7376,13 @@ class Gateway:
         if str(params.get("origin") or "") != "reference":
             try:
                 checkpoint_marker.answer(
-                    self._resolve_workspace(agent_id or self._agent_for_key(session_key)),
+                    self._resolve_workspace(agent_id or self._agent_for_key(session_key), session_key),
                     session_key,
                 )
             except Exception:  # noqa: BLE001
                 log.exception("checkpoint answer stamp failed for %s", session_key)
 
-        existing = self.runs.get(session_key)
+        existing = self.runs.get(runtime_key)
         if existing is not None and existing.task is not None and not existing.task.done():
             if not existing.ended:
                 # THE RUN IS LIVE: THE MESSAGE JOINS IT (see RunHandle.interjections). The
@@ -7047,7 +7411,7 @@ class Gateway:
                 # surfaces as the refusal below instead of a request that never returns.
                 try:
                     await asyncio.wait_for(asyncio.shield(existing.task), RUN_TEARDOWN_GRACE_S)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                except (TimeoutError, asyncio.CancelledError):
                     pass
                 except Exception:  # noqa: BLE001 — the run's own failure already went out as agent_end
                     pass
@@ -7085,7 +7449,7 @@ class Gateway:
         return {"runId": run_id, "attachments": [artifact_to_dict(a) for a in attachments]}
 
     def _save_uploads(
-        self, agent_id: str | None, raw: list, project_id: str = ""
+        self, agent_id: str | None, raw: list, project_id: str = "", session_key: str = ""
     ) -> list[Artifact]:
         """Persist client-supplied attachments into ``<workspace>/uploads`` and return them as
         domain Artifacts (by reference). A chat inside a PROJECT saves into the project's SHARED
@@ -7095,7 +7459,7 @@ class Gateway:
         items are skipped rather than failing the whole send. IO lives HERE (presentation)."""
         if not raw:
             return []
-        workspace = self._upload_workspace(agent_id, project_id)
+        workspace = self._upload_workspace(agent_id, project_id, session_key)
         dest = Path(workspace) / "uploads"
         out: list[Artifact] = []
         for item in raw:
@@ -7115,11 +7479,14 @@ class Gateway:
             out.append(Artifact(**info))
         return out
 
-    def _resolve_workspace(self, agent_id: str | None) -> str:
+    def _resolve_workspace(self, agent_id: str | None, session_key: str = "") -> str:
         """The workspace dir uploads land in — the named agent's own, else the default.
         Mirrors _resolve_state_dir's resolution so files sit where that agent's tools look."""
         aid = (agent_id or "").strip()
         acct = accounts.account_id()
+        if acct and self._hosted() and session_key:
+            from agent_runtime.infrastructure import tenancy
+            return str(tenancy.session_workspace(self.config.state_dir, acct, aid or self._agent_for_key(session_key), session_key))
         if acct:  # HOSTED: uploads land in this account's own per-agent workspace
             return str(user_state.account_workspace(self.config.state_dir, acct, aid or "main"))
         if aid and self.registry is not None:
@@ -7129,7 +7496,7 @@ class Gateway:
                 pass
         return str(self.config.workspace)
 
-    def _upload_workspace(self, agent_id: str | None, project_id: str = "") -> str:
+    def _upload_workspace(self, agent_id: str | None, project_id: str = "", session_key: str = "") -> str:
         """Where an upload lands: a PROJECT chat -> the project's SHARED workspace (§11 — the same
         folder the run's tools use), else the target agent's own workspace. Mirrors the run's
         _effective_workspace so uploads and tool outputs never diverge. A stale/unknown project
@@ -7143,7 +7510,7 @@ class Gateway:
                     return str(projects_store.project_workspace_dir(self._projects_root(), pid))
             except Exception:  # noqa: BLE001 — resolution is an enhancement, never blocks a send
                 pass
-        return self._resolve_workspace(agent_id)
+        return self._resolve_workspace(agent_id, session_key)
 
     # ------------------------------------------------------------ background jobs
     #
@@ -7158,7 +7525,7 @@ class Gateway:
     ) -> SessionJobs:
         """The session's registry, created on first use. Every send refreshes who it acts for,
         so a result that lands an hour later is delivered as the person who last spoke."""
-        ctx = self.jobs.get(session_key)
+        ctx = self.jobs.get(self._runtime_key(session_key, agent_id))
         if ctx is None:
             _, state_dir = self._resolve_state_dir(
                 (agent_id or "").strip() or self._agent_for_key(session_key, None)
@@ -7172,31 +7539,31 @@ class Gateway:
                 client_id=client_id,
                 state_dir=Path(state_dir),
             )
-            self.jobs[session_key] = ctx
+            self.jobs[self._runtime_key(session_key, agent_id)] = ctx
         else:
             ctx.agent_id = agent_id or ctx.agent_id
             ctx.account = account or ctx.account
             ctx.client_id = client_id or ctx.client_id
         return ctx
 
-    def _cancel_jobs(self, session_key: str) -> int:
-        ctx = self.jobs.get(session_key)
+    def _cancel_jobs(self, session_key: str, agent_id: str | None = None) -> int:
+        ctx = self.jobs.get(self._runtime_key(session_key, agent_id))
         return ctx.registry.cancel_all() if ctx is not None else 0
 
-    def _job_snapshot(self, session_key: str) -> list[dict]:
-        ctx = self.jobs.get(session_key)
+    def _job_snapshot(self, session_key: str, agent_id: str | None = None) -> list[dict]:
+        ctx = self.jobs.get(self._runtime_key(session_key, agent_id))
         return ctx.registry.snapshot() if ctx is not None else []
 
     def _session_jobs(self, row: dict) -> int:
         """How many jobs are waiting on this session — the rail's counterpart of `running`."""
-        ctx = self.jobs.get(str(row.get("sessionId") or ""))
+        ctx = self.jobs.get(self._runtime_key(str(row.get("sessionId") or ""), row.get("agentId")))
         return len(ctx.registry.jobs()) if ctx is not None else 0
 
     def _jobs_cancel(self, params: dict) -> dict:
         """Stop ONE background job (the strip's Cancel). The turn, if any, is untouched."""
         session_key = str(params.get("sessionKey") or "default")
         job_id = str(params.get("jobId") or "")
-        ctx = self.jobs.get(session_key)
+        ctx = self.jobs.get(self._runtime_key(session_key, params.get("agentId")))
         cancelled = ctx is not None and bool(job_id) and ctx.registry.cancel(job_id)
         return {"cancelled": cancelled, "jobId": job_id}
 
@@ -7227,7 +7594,7 @@ class Gateway:
         handle.task = asyncio.create_task(
             self._run(handle, message, agent_id=agent_id, attachments=attachments, account=account)
         )
-        self.runs[session_key] = handle
+        self.runs[self._runtime_key(session_key, agent_id)] = handle
         return handle
 
     async def _on_job_change(self, session_key: str, job, kind: str) -> None:
@@ -7237,7 +7604,7 @@ class Gateway:
         account and the workspace are that run's. Every change reaches the session's windows
         as a chat.event (`job_start`, `job_progress`, `job_end`); `done` is also delivered into
         the conversation (see _deliver_job_result)."""
-        ctx = self.jobs.get(session_key)
+        ctx = self.jobs.get(self._runtime_key(session_key))
         agent_id = ctx.agent_id if ctx is not None else None
         run_id = str(telemetry.get().get("run_id") or "")
         base = {"jobId": job.id, "toolName": job.tool, "toolCallId": job.tool_call_id}
@@ -7306,7 +7673,7 @@ class Gateway:
                 getattr(job.result, "artifacts", None), base=current_workspace() or None
             )
         ]
-        existing = self.runs.get(session_key)
+        existing = self.runs.get(self._runtime_key(session_key))
         live = (
             existing is not None
             and existing.task is not None
@@ -7495,14 +7862,14 @@ class Gateway:
     def _session_running(self, row: dict) -> bool:
         """Is there a live run on this session right now? For the rail: a reloaded window has
         no memory of what was running, and this is how it finds out without asking N times."""
-        handle = self.runs.get(str(row.get("sessionId") or ""))
+        handle = self.runs.get(self._runtime_key(str(row.get("sessionId") or ""), row.get("agentId")))
         return handle is not None and handle.task is not None and not handle.task.done()
 
-    def _reattach(self, session_key: str, client_id: str | None = None) -> None:
+    def _reattach(self, session_key: str, client_id: str | None = None, agent_id: str | None = None) -> None:
         """A window is watching this session again: clear detachment, cancel the reaper — and
         the run is now THAT window's, so closing it stops the run (a reloaded page is a new
         connection; left on the old id, closing the reloaded tab would leave the run orphaned)."""
-        handle = self.runs.get(session_key)
+        handle = self.runs.get(self._runtime_key(session_key, agent_id))
         if handle is None:
             return
         if client_id and handle.task is not None and not handle.task.done():
@@ -7520,15 +7887,15 @@ class Gateway:
         window on reconnect — the answer decides between "keep streaming" and "load what
         finished while I was away"."""
         session_key = str(params.get("sessionKey") or "default")
-        self._reattach(session_key, client_id)
-        handle = self.runs.get(session_key)
+        self._reattach(session_key, client_id, params.get("agentId"))
+        handle = self.runs.get(self._runtime_key(session_key, params.get("agentId")))
         running = handle is not None and handle.task is not None and not handle.task.done()
         return {
             "running": running,
             "runId": handle.run_id if handle is not None and running else "",
             # THE JOBS STILL WAITING, for a window that just (re)connected and has no memory of
             # them — the same reason `running` is here.
-            "jobs": self._job_snapshot(session_key),
+            "jobs": self._job_snapshot(session_key, params.get("agentId")),
         }
 
     async def _run_watched(self, handle: RunHandle, coro) -> None:
@@ -7591,13 +7958,13 @@ class Gateway:
         works and a window somebody has to reload.
         """
         session_key = params.get("sessionKey") or "default"
-        handle = self.runs.get(session_key)
+        handle = self.runs.get(self._runtime_key(session_key, params.get("agentId")))
         # STOP KILLS EVERYTHING IN THIS CHAT: the turn, and every background job waiting on its
         # behalf. The person's decision, taken deliberately — with jobs there is no longer any
         # reason to press Stop just to be heard, so Stop is the one control that means "stop".
         # (The detach reaper and the silence watchdog cancel the TURN only; a job keeps waiting
         # for a window to come back to.)
-        stopped_jobs = self._cancel_jobs(session_key)
+        stopped_jobs = self._cancel_jobs(session_key, params.get("agentId"))
         if handle is not None and self._abort_handle(handle):
             return {"aborted": True, "runId": handle.run_id, "jobs": stopped_jobs}
         if stopped_jobs:
@@ -7607,8 +7974,8 @@ class Gateway:
         # window still showing "running" stops.
         released = AgentEvent("agent_end", {"stopReason": "aborted"})
         run_id = handle.run_id if handle is not None else ""
-        await self._broadcast(session_key, run_id, released)
-        self.runs.pop(session_key, None)
+        await self._broadcast(session_key, run_id, released, params.get("agentId"))
+        self.runs.pop(self._runtime_key(session_key, params.get("agentId")), None)
         log.info(
             "chat.abort on %s with no live run — broadcast agent_end so the window releases",
             session_key,
@@ -7838,6 +8205,18 @@ class Gateway:
             accounts.reset_usage(_usage_token)
             accounts.reset_account(_acct_token)
 
+    def _runtime_key(self, session_key: str, agent_id: str | None = None):
+        """Never share a live handle across account, definition namespace, or agent."""
+        acct = accounts.account_id()
+        if not acct:
+            return session_key  # local daemon / deliberately restricted public tier
+        ctx = current_run_context()
+        if not agent_id and ctx is not None and ctx.session_key == session_key:
+            agent_id = ctx.agent_id
+        aid = self._agent_for_key(session_key, agent_id)
+        from agent_runtime.infrastructure import tenancy
+        return (acct, tenancy.namespace(aid), aid, str(session_key))
+
     def _agent_for_key(self, session_key: str, agent_id: str | None = None) -> str:
         """The agent a session belongs to: an explicit id wins; else the internal
         `agent:<id>:...` key prefix; else the default agent. Lets every broadcast carry
@@ -7869,7 +8248,7 @@ class Gateway:
         # In-process taps get the SAME payload a socket client would see (post-enrichment, since
         # _run enriches before broadcasting) — a tapped trace and a ws-captured trace are
         # byte-equivalent by construction.
-        for q in self._session_taps.get(session_key, ()):
+        for q in self._session_taps.get(self._runtime_key(session_key, agent_id), ()):
             q.put_nowait(payload)
 
     # ---------------------------------------------------------------- in-process access
@@ -7885,17 +8264,17 @@ class Gateway:
         """Subscribe to one session's chat.events, in-process. Returns an unbounded
         asyncio.Queue of chat.event payload dicts; pair with remove_session_tap."""
         q: asyncio.Queue = asyncio.Queue()
-        self._session_taps.setdefault(session_key, []).append(q)
+        self._session_taps.setdefault(self._runtime_key(session_key), []).append(q)
         return q
 
     def remove_session_tap(self, session_key: str, q) -> None:
-        taps = self._session_taps.get(session_key)
+        taps = self._session_taps.get(self._runtime_key(session_key))
         if not taps:
             return
         if q in taps:
             taps.remove(q)
         if not taps:
-            self._session_taps.pop(session_key, None)
+            self._session_taps.pop(self._runtime_key(session_key), None)
 
     async def dispatch_as(self, method: str, params: dict, account: dict | None) -> dict:
         """Dispatch ONE request exactly as an authenticated host connection would — same

@@ -26,6 +26,8 @@ class BrowserRenderProvider:
 
     async def fetch(self, url: str, max_chars: int) -> FetchResult:
         mgr = self._manager
+        if hasattr(mgr, "remote_fetch"):
+            return FetchResult(**await mgr.remote_fetch(url, max_chars))
         await mgr.ensure()
         page = await mgr.context.new_page()  # isolated; never touches active_page
         try:

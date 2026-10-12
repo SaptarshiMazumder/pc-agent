@@ -29,8 +29,12 @@ var agentd = (() => {
     accessTokenAccount: () => accessTokenAccount,
     accessTokenExpiry: () => accessTokenExpiry,
     accountsUrl: () => accountsUrl,
+    authAuthorize: () => authAuthorize,
+    authCallback: () => authCallback,
     authLogin: () => authLogin,
     authLogout: () => authLogout,
+    authProviders: () => authProviders,
+    authSignupOpen: () => authSignupOpen,
     authStatus: () => authStatus,
     authUrl: () => authUrl,
     billing: () => billing,
@@ -51,6 +55,7 @@ var agentd = (() => {
     loadSession: () => loadSession,
     mintInvite: () => mintInvite,
     notifyCreditsChanged: () => notifyCreditsChanged,
+    oauthCallbackParams: () => oauthCallbackParams,
     onCreditsChanged: () => onCreditsChanged,
     onIdentityChanged: () => onIdentityChanged,
     platformStatus: () => platformStatus,
@@ -185,6 +190,8 @@ var agentd = (() => {
     };
   }
   async function fetchToken(opts = {}) {
+    const appToken = typeof window !== "undefined" ? window.__agentdAppToken : void 0;
+    if (appToken) return { ...appToken, via: "cookie" };
     try {
       const r = await fetch(authUrl("/auth/token", opts), {
         cache: "no-store"
@@ -207,6 +214,12 @@ var agentd = (() => {
        *  so a genuine account change fires the identity-change listeners exactly once and a mere
        *  token refresh for the SAME account fires nothing. */
       this.sig = "";
+      /** The one renewal armed for the token in hand — see `armRenewal`. */
+      this.renewal = null;
+      if (typeof window !== "undefined") window.addEventListener("agentd:app-token", () => {
+        this.forget();
+        void this.state();
+      });
     }
     /** Register a client to receive `auth.update` pushes. Idempotent. */
     bind(client) {
@@ -220,6 +233,8 @@ var agentd = (() => {
     forget() {
       this.answer = null;
       this.inflight = null;
+      this.disarmRenewal();
+      if (typeof window !== "undefined") void this.state();
     }
     /** A current access token, or '' when the machine is signed out / unreachable. Callers that
      *  need to know WHY ask `state()`. */
@@ -239,14 +254,51 @@ var agentd = (() => {
           const prev = this.answer;
           this.answer = a;
           this.push(a, prev);
+          this.armRenewal(a);
           const sig = a.state === "ok" ? `ok:${a.accountId || ""}` : a.state;
           if (sig !== this.sig) {
+            const prevSig = this.sig;
+            const transient = (x) => x === "accounts_unreachable";
+            const afterBoot = prevSig !== "";
             this.sig = sig;
+            if (afterBoot && !transient(prevSig) && !transient(sig) && reloadWindow()) return;
             notifyIdentityChanged();
           }
         });
       }
       return this.inflight;
+    }
+    /** RENEW BEFORE IT DIES, on a clock, not on luck.
+     *
+     *  A hosted socket's model calls pay with the access token it was handed, and that token lives
+     *  an hour. `push` hands a fresh one down the moment `state()` resolves one — but `state()`
+     *  only runs when something on the page ASKS. Nothing had to: a window opened, left alone for
+     *  an hour and then used sent its first message with a dead token, and the model proxy refused
+     *  it ("access token expired") — once, because the failure forced a reconnect that presented a
+     *  fresh one. Whether a window hit this depended on which unrelated hook happened to poll
+     *  identity: a comfy window that had drawn a file link polled every four minutes and never
+     *  saw it; the same window with an empty workspace always did.
+     *
+     *  So the fetcher keeps its own appointment: two minutes before the cookie token expires it
+     *  re-resolves, which is within the cache margin, so the same path that always renewed on a
+     *  lucky poll runs on purpose and pushes to every bound socket. Only for COOKIE tokens with a
+     *  socket to push to — a desktop runtime renews its own connections, and a script with no
+     *  client has nowhere to push. One refresh an hour per window. `unref` so a Node process that
+     *  embeds this SDK is never kept alive by it. */
+    armRenewal(a) {
+      this.disarmRenewal();
+      if (a.state !== "ok" || a.via !== "cookie" || !a.expiresAt || this.clients.size === 0) return;
+      const inMs = Math.max(5e3, a.expiresAt * 1e3 - Date.now() - 12e4);
+      const t = setTimeout(() => {
+        this.renewal = null;
+        void this.state();
+      }, inMs);
+      t.unref?.();
+      this.renewal = t;
+    }
+    disarmRenewal() {
+      if (this.renewal !== null) clearTimeout(this.renewal);
+      this.renewal = null;
     }
     /** THE HANDOFF. A hosted connection's identity is the token it presented — a snapshot the
      *  daemon cannot renew (it holds no refresh token for this user; the browser's cookie does).
@@ -280,6 +332,12 @@ var agentd = (() => {
       } catch {
       }
     }
+  }
+  function reloadWindow() {
+    const w = typeof window !== "undefined" ? window : void 0;
+    if (!(w && w.location && typeof w.location.reload === "function")) return false;
+    w.location.reload();
+    return true;
   }
   function onIdentityChanged(cb) {
     identityListeners.add(cb);
@@ -657,10 +715,116 @@ var agentd = (() => {
   }
 
   // src/auth.ts
+  var FLOW_KEY = "agentd.oauth.flow";
+  function stashFlow(flow) {
+    try {
+      sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+    } catch {
+    }
+  }
+  function takeFlow() {
+    try {
+      const raw = sessionStorage.getItem(FLOW_KEY);
+      sessionStorage.removeItem(FLOW_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+  async function accountsBase(opts) {
+    const base = String((await platformStatus(opts)).accountsUrl || "").replace(/\/$/, "");
+    if (!base) throw new Error("this deployment has no accounts service to sign in to");
+    return base;
+  }
+  async function authSignupOpen(opts = {}) {
+    let base;
+    try {
+      base = await accountsBase(opts);
+    } catch {
+      return true;
+    }
+    try {
+      const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: "no-store" });
+      if (!r.ok) return true;
+      const d = await r.json();
+      return d.password_signup !== false;
+    } catch {
+      return true;
+    }
+  }
+  async function authProviders(opts = {}) {
+    let base;
+    try {
+      base = await accountsBase(opts);
+    } catch {
+      return [];
+    }
+    try {
+      const r = await fetch(`${base}/.well-known/agentd-platform`, { cache: "no-store" });
+      if (!r.ok) return [];
+      const d = await r.json();
+      return Array.isArray(d.providers) ? d.providers : [];
+    } catch {
+      return [];
+    }
+  }
+  async function authAuthorize(args, opts = {}) {
+    const base = await accountsBase(opts);
+    const r = await fetch(`${base}/auth/authorize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: args.provider, redirect_uri: args.redirectUri })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.authorization_url || !d.state) {
+      throw new Error(String(d.detail || `could not start sign-in (HTTP ${r.status})`));
+    }
+    stashFlow({
+      provider: args.provider,
+      state: d.state,
+      verifier: String(d.code_verifier || ""),
+      redirectUri: args.redirectUri
+    });
+    return d.authorization_url;
+  }
+  function oauthCallbackParams(href) {
+    try {
+      const u = new URL(href || location.href);
+      const code = u.searchParams.get("code") || "";
+      const state = u.searchParams.get("state") || "";
+      return code && state ? { code, state } : null;
+    } catch {
+      return null;
+    }
+  }
+  async function authCallback(args, opts = {}) {
+    const flow = takeFlow();
+    if (!flow || flow.state !== args.state) {
+      throw new Error("this sign-in did not start in this tab \u2014 press the button again");
+    }
+    const base = await accountsBase(opts);
+    const r = await fetch(`${base}/auth/callback`, {
+      method: "POST",
+      credentials: "include",
+      // the Set-Cookie is the session
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: args.code,
+        state: args.state,
+        code_verifier: flow.verifier || void 0,
+        cookie: true,
+        client_id: "agentd-web"
+      })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(String(d.detail || d.error || `sign-in failed (HTTP ${r.status})`));
+    forgetIdentityCache();
+    return authStatus(opts);
+  }
   async function authStatus(opts = {}) {
     const status = await platformStatus(opts);
     const canUseCloud = !!status.canUseCloud;
-    const tok = await fetchToken(opts);
+    const tok = await identity(opts).state();
     const signedIn = tok.state === "ok";
     return {
       available: !!String(status.accountsUrl || ""),
@@ -778,7 +942,12 @@ var agentd = (() => {
       credits: Number(d.credits || 0),
       seats: Number(d.seats || 0),
       modelTierMax: String(d.model_tier_max || ""),
-      periodDays: Number(d.period_days || 0)
+      periodDays: Number(d.period_days || 0),
+      // Absent on every rail that charges in the price's own currency, and on Razorpay until a
+      // rate is configured — so 0/'' means "just show the dollars", the behaviour that predates
+      // this field.
+      chargePrice: Number(d.charge_price || 0),
+      chargeCurrency: String(d.charge_currency || "")
     };
   }
   var BillingClient = class {

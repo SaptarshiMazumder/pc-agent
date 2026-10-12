@@ -210,10 +210,26 @@ export class TokenManager {
     // While cooling we answer null WITHOUT touching the network, exactly like the offline path:
     // the credential is kept, and the attempt after `retryAt` proceeds normally.
     if (Date.now() < this.retryAt) return Promise.resolve(null)
-    this.inflight = this.exchange().finally(() => {
+    this.inflight = this.coordinatedExchange().finally(() => {
       this.inflight = null
     })
     return this.inflight
+  }
+
+  private async coordinatedExchange(): Promise<TokenPair | null> {
+    if (!this.config.cookies || typeof navigator === 'undefined' || !navigator.locks) return this.exchange()
+    return navigator.locks.request('agentd.cookie-renew', async () => {
+      try {
+        const cached = JSON.parse(localStorage.getItem('agentd.app-parent') || 'null')
+        if (cached?.token && cached.expiresAt > Date.now() / 1000 + 120) {
+          const next = this.toPair({access_token: cached.token, expires_in: cached.expiresAt - Date.now() / 1000,
+                                   account_id: cached.accountId, email: cached.email}, '')
+          await this.set(next)
+          return next
+        }
+      } catch { /* storage unavailable: the HttpOnly cookie remains authoritative */ }
+      return this.exchange()
+    })
   }
 
   private async exchange(): Promise<TokenPair | null> {
@@ -402,6 +418,13 @@ export class TokenManager {
 
   private async set(next: TokenPair | null): Promise<void> {
     this.pair = next
+    if (this.config.cookies && typeof localStorage !== 'undefined') {
+      try {
+        if (next) localStorage.setItem('agentd.app-parent', JSON.stringify({token: next.accessToken,
+          expiresAt: next.expiresAt / 1000, accountId: next.accountId, email: next.email}))
+        else localStorage.removeItem('agentd.app-parent')
+      } catch { /* cookie operation does not depend on local storage */ }
+    }
     // PERSISTENCE MUST NEVER BLOCK SIGN-IN. The desktop writes through IPC to the OS keychain, and
     // any failure there — bridge missing, keychain unavailable, handler rejected — used to
     // propagate out of login() and land in the form as a failed login, AFTER the server had issued

@@ -84,13 +84,13 @@ def test_a_signed_in_caller_sees_own_subtree_definition_and_shared(tmp_path):
     reads, clamp = user_state.tenant_scope(cfg, "acct_y", agent, ws)
 
     own = str(user_state.account_root(cfg.state_dir, "acct_y"))
-    assert own in reads and str(ws) in reads
+    assert own not in reads and str(ws) in reads
     assert str(agent / "skills") in reads  # the definition view, in place
-    assert str(tmp_path / "agents") in reads  # the shared catalogue
+    assert str(tmp_path / "agents") not in reads
     # the leak: the agent folder's OWN user data is not granted (only the caller's subtree is)
     assert str(agent / "workspace") not in reads
     assert str(agent) not in reads  # the folder itself would include workspace/ + sessions/
-    assert clamp == (own, str(ws))
+    assert clamp == (str(ws),)
 
 
 def test_another_tenants_subtree_is_never_in_the_answer(tmp_path):

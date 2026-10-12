@@ -27,6 +27,7 @@ export const hasWindow = (agent: AgentRow | null): boolean => !!agent?.app?.url
 export async function appLaunchUrl(agent: AgentRow): Promise<string> {
   const app = agent.app
   if (!app?.url) throw new Error(`${agent.id} has no app window`)
+  if (/^https?:\/\//.test(app.url)) return app.url
   const q = new URLSearchParams({ scope: `agent:${agent.id}` })
   const token = daemonToken({})
   if (token) q.set('token', token)

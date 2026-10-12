@@ -95,12 +95,16 @@ def account_agent_dir(state_dir, account_id: str, agent_id: str | None) -> Path:
 
 def account_state_dir(state_dir, account_id: str, agent_id: str | None) -> Path:
     """Where this account's transcripts for ``agent_id`` live (SessionStore appends ``/sessions``)."""
+    from agent_runtime.infrastructure import tenancy
+
+    if tenancy._hosted:
+        return tenancy.runtime_root(state_dir, account_id, agent_id or "main")
     return account_agent_dir(state_dir, account_id, agent_id)
 
 
 def account_workspace(state_dir, account_id: str, agent_id: str | None) -> Path:
     """Where this account's file/exec/shell tools for ``agent_id`` bind."""
-    return account_agent_dir(state_dir, account_id, agent_id) / "workspace"
+    return account_state_dir(state_dir, account_id, agent_id) / "workspace"
 
 
 def account_agents_dir(state_dir, account_id: str) -> Path:
@@ -258,7 +262,6 @@ def tenant_scope(
     shared = [
         str(p)
         for p in (
-            getattr(config, "agents_dir", "") or "",
             getattr(config, "plugins_dir", "") or "",
             getattr(config, "builtin_plugins_dir", "") or "",
             *(getattr(config, "hosted_read_roots", None) or ()),
@@ -268,13 +271,33 @@ def tenant_scope(
     ws = [str(workspace)] if str(workspace or "").strip() else []
     definition = list(definition_entries(agent_dir)) if agent_dir else []
     if account_id:
-        own = str(account_root(config.state_dir, account_id))
         # THE ORG LAYER (tenancy E3): members may READ their orgs' shared agent definitions —
         # and only read. The write clamp below never widens: org agents are installed by the
         # share RPC, not edited in place by members' runs.
-        org_defs = _org_definition_grants(config.state_dir, org_ids)
-        reads = (own, *ws, *definition, *org_defs, *shared)
-        clamp = (own, *ws)
+        org_defs = []
+        # An account is an ownership boundary, not an automatic grant to every agent.
+        # Authoring gets definition-only grants; secrets and runtime data live elsewhere.
+        from agent_runtime.infrastructure.tools.sandbox.classify import (
+            _verified_platform_definition,
+        )
+
+        builder = _verified_platform_definition(config, Path(str(agent_dir or "")).name, str(agent_dir or "")) and Path(str(agent_dir or "")).name in ("agent-builder", "cloud-agent-builder")
+        org_writes = []
+        if builder:
+            from agent_runtime.infrastructure import accounts
+
+            org_defs = _org_definition_grants(config.state_dir, org_ids)
+            org_writes = [str(org_agents_dir(config.state_dir, str(o["id"])))
+                          for o in (accounts.current_account.get() or {}).get("orgs", [])
+                          if o.get("role") in ("admin", "owner") and o.get("id") in org_ids]
+            catalogue = Path(str(getattr(config, "agents_dir", "") or ""))
+            if getattr(config, "agents_dir", "") and catalogue.is_dir():
+                for directory in catalogue.iterdir():
+                    if directory.is_dir() and not directory.is_symlink():
+                        shared.extend(definition_entries(directory))
+        author_root = str(account_agents_dir(config.state_dir, account_id))
+        reads = (*ws, *definition, *org_defs, *shared, *((author_root,) if builder else ()))
+        clamp = (*ws, *org_writes, *((author_root,) if builder else ())) or (NOTHING,)
     else:
         # An EMPTY read set means UNRESTRICTED to check_read, exactly as an empty clamp does — so
         # mirror the clamp's fail-closed here too: a misconfigured hosted daemon that assembled no

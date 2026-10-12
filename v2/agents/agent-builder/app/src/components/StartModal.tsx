@@ -243,7 +243,7 @@ export function StartModal({
               <button className="choice" disabled={!named} onClick={() => onCreate(named, false, 'chat', seed)}>
                 <span className="choice-title">No window</span>
                 <span className="choice-body">
-                  Used from the agentd window like any other agent. Right for anything whose
+                  Used from the AgentBear window like any other agent. Right for anything whose
                   answer is a conversation, a file, or a scheduled job.
                 </span>
               </button>

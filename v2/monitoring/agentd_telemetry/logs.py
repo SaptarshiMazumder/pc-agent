@@ -31,7 +31,7 @@ class JsonFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "service": emf.service(),
-            "message": record.getMessage(),
+            "message": redact.sanitize_message(record.getMessage()),
         }
         payload.update(redact.scrub(context.get()))
         # extras passed as logging's `extra={...}` — allowlisted like everything else
