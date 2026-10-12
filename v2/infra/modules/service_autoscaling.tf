@@ -38,7 +38,9 @@ locals {
       # immediately scale the service back up.
       # var.running_services narrows the same collapse to the services it leaves out
       # (local.service_running is false for every service while paused).
-      min = !local.service_running[name] ? 0 : (cfg.autoscale != null ? cfg.autoscale.min : cfg.desired_count)
+      # NO FLOOR ABOVE ZERO: min is 0 for every service; desired_count (the creation count) and max
+      # are what keep a service running.
+      min = !local.service_running[name] ? 0 : (cfg.autoscale != null ? cfg.autoscale.min : 0)
       max = !local.service_running[name] ? 0 : (cfg.autoscale != null ? cfg.autoscale.max : cfg.desired_count)
     }
   }

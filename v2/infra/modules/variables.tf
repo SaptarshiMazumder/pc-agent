@@ -234,7 +234,7 @@ variable "ec2_capacity_pools" {
     # OS and the agent have taken their share. It is the FLOOR for the daemon pool — the task
     # asks for 2048 MiB and a t3.small registers only ~1900, so the task would never place at
     # all and the symptom is PROVISIONING forever while the ASG scales and still fails.
-    daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
+    daemon = { instance_type = "t3.medium", min_size = 0, max_size = 1 }
 
     # The four stateless services reserve 1280 CPU / 2560 MiB between them at one task each,
     # which is 62% / 66% of one medium — so ONE box holds the whole set with ~1340 MiB spare,
@@ -243,7 +243,7 @@ variable "ec2_capacity_pools" {
     # PRIMARY, so it inherits the names the single pre-pool pool used. That is what lets an
     # already-running environment adopt this split without replacing the four services that are
     # not actually moving anywhere.
-    shared = { instance_type = "t3.medium", min_size = 1, max_size = 2, primary = true }
+    shared = { instance_type = "t3.medium", min_size = 0, max_size = 2, primary = true }
   }
 
   validation {
@@ -271,7 +271,7 @@ variable "ec2_target_capacity" {
     cheaper mistake.
   EOT
   type        = number
-  default     = 80
+  default     = 100 # no spare machine: a new task may wait for one to boot
 
   validation {
     condition     = var.ec2_target_capacity > 0 && var.ec2_target_capacity <= 100
@@ -825,7 +825,7 @@ variable "services" {
       health_path = "/"
       # Static files out of nginx: cheap per request, so the ceiling is high and the trigger is
       # traffic rather than CPU, which would still read as idle while the box saturates.
-      autoscale = { min = 1, max = 4, metric = "alb_requests", target = 1000 }
+      autoscale = { min = 0, max = 4, metric = "alb_requests", target = 1000 }
     }
 
     # model-proxy — LiteLLM proxy. PUBLIC (platform-keys mode): signed-in desktop
@@ -850,7 +850,7 @@ variable "services" {
       # REQUESTS, NEVER CPU, and this is the service that makes the rule obvious: a proxy spends
       # its life blocked on someone else's API, so it can hold every upstream connection it has
       # while reporting single-digit CPU. A CPU policy would sit still through a queue.
-      autoscale = { min = 1, max = 4, metric = "alb_requests", target = 200 }
+      autoscale = { min = 1, max = 4, metric = "alb_requests", target = 200 } # 1, not 0: request-count scaling cannot come back from 0 tasks
       # 1 GB, NOT THE 512 DEFAULT. LiteLLM idles at ~340 MB, and a request carrying chat images
       # (base64, copied several times while it is parsed and logged) spiked it past 512 and got
       # it OOM-killed mid-turn on production — every chat on the box saw a 502, then a 503.
@@ -952,7 +952,7 @@ variable "services" {
       }
       # Small batched writes arriving on a timer. Traffic is the only meaningful signal, and the
       # ceiling is lower than web's because losing a telemetry batch is not losing a user.
-      autoscale = { min = 1, max = 3, metric = "alb_requests", target = 600 }
+      autoscale = { min = 0, max = 3, metric = "alb_requests", target = 600 }
     }
 
     # daemon — the agent engine + WebSocket. Mounts EFS for per-user state; reaches
@@ -1170,7 +1170,7 @@ locals {
       efs           = var.accounts_external_database ? false : var.services["accounts"].efs
       desired_count = var.accounts_external_database ? var.accounts_desired_count : var.services["accounts"].desired_count
       autoscale = var.accounts_external_database ? {
-        min = var.accounts_desired_count, max = 4, metric = "cpu", target = 60
+        min = 0, max = 4, metric = "cpu", target = 60
       } : null
     }
   )
