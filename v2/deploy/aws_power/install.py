@@ -20,11 +20,13 @@ def statement(actions, resources, **extra):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--region", default="ap-northeast-1")
-    parser.add_argument("--stack", default="agentd-staging", help="Existing sole environment; legacy AWS name")
+    parser.add_argument("--region", default="ap-south-1")
+    parser.add_argument("--stack", default="agentd-production", help="The sole production environment")
     parser.add_argument("--account", default="891612568944")
     parser.add_argument("--timezone", default="Asia/Tokyo")
     args = parser.parse_args()
+    if args.stack.endswith("-staging"):
+        parser.error("Staging is retired; install power controls for production only.")
     session = boto3.Session(region_name=args.region)
     client = session.client
     identity = client("sts").get_caller_identity()

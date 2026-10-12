@@ -259,3 +259,33 @@ def test_manual_start_after_2am_invalidates_old_queued_shutdown():
     event = {"action": "scheduled-off", "scheduled_at": "2026-10-12T17:00:00Z"}
     now = dt.datetime(2026, 10, 12, 17, 10, tzinfo=dt.UTC)
     assert scheduled_action(event, "automatic", now, "2026-10-12T17:01:00Z") == "skip-new-manual-session"
+
+
+def test_retired_staging_cannot_be_started(control):
+    control.prefix = "agentd-staging"
+    control.read = lambda *args: pytest.fail("Do not restore retired staging")
+    with pytest.raises(RuntimeError, match="Staging is retired"):
+        control.on()
+
+
+def test_capacity_provider_updates_wait_for_each_other(control, manifest):
+    calls = []
+    active = []
+    config = {"managedScaling": {"status": "ENABLED"}, "managedTerminationProtection": "ENABLED"}
+    manifest["providers"] = [{"name": "first", "config": config}, {"name": "second", "config": config}]
+    def update(**kwargs):
+        assert not active, "ECS cluster cannot update two provider attachments concurrently"
+        active.append(kwargs["name"])
+        calls.append(("update", kwargs["name"]))
+    def describe(**kwargs):
+        name = kwargs["capacityProviders"][0]
+        assert active == [name]
+        active.clear()
+        calls.append(("completed", name))
+        return {"capacityProviders": [{"name": name, "updateStatus": "UPDATE_COMPLETE"}]}
+    control.request = lambda service, operation, value: value
+    control.clients["ecs"] = SimpleNamespace(
+        describe_clusters=lambda **kwargs: {"clusters": [{"attachmentsStatus": "UPDATE_COMPLETE"}]},
+        update_capacity_provider=update, describe_capacity_providers=describe)
+    control.set_providers(manifest, False)
+    assert calls == [("update", "first"), ("completed", "first"), ("update", "second"), ("completed", "second")]

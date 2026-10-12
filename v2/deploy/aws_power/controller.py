@@ -270,26 +270,35 @@ class Controller:
             getattr(self.client("events"), method)(Name=rule["Name"], EventBusName=rule.get("EventBusName", "default"))
 
     def set_providers(self, manifest, enabled):
+        ecs = self.client("ecs")
+        def wait_for_update(name=None):
+            deadline = time.monotonic() + 180
+            while True:
+                cluster = ecs.describe_clusters(clusters=[self.cluster], include=["ATTACHMENTS"])["clusters"][0]
+                updating = cluster.get("attachmentsStatus", "").endswith("IN_PROGRESS")
+                if name:
+                    provider = ecs.describe_capacity_providers(capacityProviders=[name])["capacityProviders"][0]
+                    if provider.get("updateStatus") == "UPDATE_FAILED":
+                        raise RuntimeError("ECS capacity provider update failed: " + provider.get("updateStatusReason", name))
+                    updating = updating or provider.get("updateStatus") == "UPDATE_IN_PROGRESS"
+                if not updating:
+                    return
+                if time.monotonic() > deadline:
+                    raise RuntimeError("ECS capacity provider update did not complete")
+                self.sleep(5)
+
+        # ECS serializes capacity-provider attachment updates at the cluster level.
+        # Updating both providers without waiting makes the second update fail.
         for provider in manifest["providers"]:
+            wait_for_update()
             config = copy.deepcopy(provider["config"])
             if not enabled:
                 config["managedScaling"]["status"] = "DISABLED"
                 config["managedTerminationProtection"] = "DISABLED"
-            self.client("ecs").update_capacity_provider(**self.request("ecs", "UpdateCapacityProvider", {
+            ecs.update_capacity_provider(**self.request("ecs", "UpdateCapacityProvider", {
                 "name": provider["name"], "autoScalingGroupProvider": config,
             }))
-        deadline = time.monotonic() + 180
-        while manifest["providers"]:
-            providers = self.client("ecs").describe_capacity_providers(
-                capacityProviders=[p["name"] for p in manifest["providers"]]
-            )["capacityProviders"]
-            if any(p.get("updateStatus") == "UPDATE_FAILED" for p in providers):
-                raise RuntimeError("ECS capacity provider update failed")
-            if all(p.get("updateStatus") != "UPDATE_IN_PROGRESS" for p in providers):
-                return
-            if time.monotonic() > deadline:
-                raise RuntimeError("ECS capacity provider update did not complete")
-            self.sleep(5)
+            wait_for_update(provider["name"])
 
     def set_service_scaling(self, manifest, enabled):
         for target in manifest.get("service_scaling", []):
@@ -388,6 +397,8 @@ class Controller:
         return lb
 
     def on(self):
+        if self.prefix.endswith("-staging"):
+            raise RuntimeError("Staging is retired. Only production may be started.")
         manifest = self.validate(self.read("restore.json"))
         # Keep this independent of lifecycle state updates, so a queued nightly
         # OFF cannot interrupt an explicit manual start made after its scheduled time.

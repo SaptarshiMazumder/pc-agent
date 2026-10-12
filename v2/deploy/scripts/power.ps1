@@ -2,8 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('on', 'off', 'status', 'keep-on', 'automatic', 'capture', 'validate')]
     [string]$Action,
-    [string]$Region = 'ap-northeast-1',
-    [string]$Stack = 'agentd-staging'
+    [string]$Region = 'ap-south-1',
+    [string]$Stack = 'agentd-production'
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/../../..").Path

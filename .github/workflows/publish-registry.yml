@@ -48,8 +48,8 @@ on:
       environment:
         description: "Which environment's registry to publish to"
         type: choice
-        options: [dev, staging, production]
-        default: dev
+        options: [production]
+        default: production
       agents:
         description: "Space/comma separated agent ids under v2/agents (blank = every agent with a bundle.toml)"
         type: string
@@ -82,7 +82,7 @@ permissions:
 
 jobs:
   publish:
-    if: vars.AGENTD_HOSTING != 'ovh'
+    if: vars.AGENTD_HOSTING != 'ovh' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     # Same gate as Deploy: publishing to production's registry goes through whatever reviewers
     # that GitHub Environment requires. `inputs.*` is readable here (unlike a computed step

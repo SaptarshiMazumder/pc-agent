@@ -28,8 +28,8 @@ on:
       environment:
         description: "Which environment to redeploy"
         type: choice
-        options: [dev, staging, production]
-        default: staging
+        options: [production]
+        default: production
       service:
         description: "Everything, or one service"
         type: choice
@@ -55,7 +55,7 @@ jobs:
   # step computed. Passing the input through a job OUTPUT is what makes the reviewer rules on
   # staging/production actually fire. Same two-job shape as deploy.yml, same reason.
   resolve:
-    if: vars.AGENTD_HOSTING != 'ovh'
+    if: vars.AGENTD_HOSTING != 'ovh' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}

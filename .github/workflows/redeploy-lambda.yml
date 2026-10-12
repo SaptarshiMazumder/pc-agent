@@ -25,8 +25,8 @@ on:
       environment:
         description: "Which environment's registry to push to"
         type: choice
-        options: [dev, staging, production]
-        default: staging
+        options: [production]
+        default: production
       lambda:
         description: "Every Lambda, or one"
         type: choice
@@ -46,7 +46,7 @@ jobs:
   # Same two-job shape as redeploy.yml: the job's `environment:` gate is evaluated before
   # steps run, so the input travels through a job output for the reviewer rules to fire.
   resolve:
-    if: vars.AGENTD_HOSTING != 'ovh'
+    if: vars.AGENTD_HOSTING != 'ovh' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}

@@ -1,11 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Deploy (ECS Fargate) — build/push all four images or one independent service, then roll it.
 #
-# ONE workflow, ALL environments. Environment is a PARAMETER, never a separate file:
-#   • Manual:  pick `dev` / `staging` / `production`, then all services or one service.
-#   • Auto:    push to `develop`     → deploys dev
-#              push to `staging`     → deploys staging
-#              push to `release/**`  → deploys production
+# Production only: manual deployments or pushes to `release/**`.
+# Development runs locally; staging is retired to avoid a second hosting bill.
 #
 # GATES (enforced by GitHub Environments, configured in repo Settings ▸ Environments):
 #   • dev         — no reviewers, deploys immediately.
@@ -36,8 +33,8 @@ on:
       environment:
         description: "Which environment to deploy"
         type: choice
-        options: [dev, staging, production]
-        default: dev
+        options: [production]
+        default: production
       service:
         description: "Deploy all services or one independently"
         type: choice
@@ -46,7 +43,7 @@ on:
         options: [all, model-proxy, accounts, daemon, web, ingest, marketplace]
         default: all
   push:
-    branches: [develop, staging, "release/**"] # develop→dev, staging→staging, release/**→production
+    branches: ["release/**"] # Only production is hosted; dev runs locally.
     paths: # only rebuild when something that ships actually changed
       - "v2/agent_runtime/**"
       - "v2/model_proxy/**"
@@ -78,7 +75,7 @@ jobs:
   # ── Job 1: decide which environment. No AWS, no gate — its ONLY purpose is to produce
   # the env name in the `needs.*` context so Job 2's `environment:` key can read it.
   resolve:
-    if: vars.AGENTD_HOSTING != 'ovh'
+    if: vars.AGENTD_HOSTING != 'ovh' && (github.event_name != 'workflow_dispatch' || inputs.environment == 'production')
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}
@@ -93,8 +90,6 @@ jobs:
             SERVICE="${{ inputs.service }}"
           else
             case "${{ github.ref_name }}" in
-              develop)    ENV=dev ;;
-              staging)    ENV=staging ;;
               release/*)  ENV=production ;;
               *) echo "::error::no environment mapping for branch ${{ github.ref_name }}"; exit 1 ;;
             esac
