@@ -17,6 +17,10 @@ import {
   id = "agentd-production-ecs-instance"
 }
 import {
+  to = module.stack.aws_iam_instance_profile.ecs_instance[0]
+  id = "agentd-production-ecs-instance"
+}
+import {
   to = module.stack.aws_iam_role.task
   id = "agentd-production-ecs-task"
 }
