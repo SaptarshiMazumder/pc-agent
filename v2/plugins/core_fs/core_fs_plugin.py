@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from fs_tools import EditTool, FindTool, LsTool, ReadTool, WriteTool
 from grep_tool import GrepTool
+from model_image_shrinker import ModelImageShrinker
 
 
 def register(api, ctx):
     cfg = ctx.config
-    for tool_cls in (ReadTool, WriteTool, EditTool, LsTool, FindTool, GrepTool):
+    # `read` makes images the size a model sees before they enter the conversation.
+    api.register_tool(ReadTool(cfg, ModelImageShrinker()))
+    for tool_cls in (WriteTool, EditTool, LsTool, FindTool, GrepTool):
         api.register_tool(tool_cls(cfg))

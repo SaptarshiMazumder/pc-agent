@@ -25,6 +25,7 @@ from agent_runtime.domain.messages import ImageContent, TextContent
 # document text extraction (docx/pdf/xlsx/pptx) — one source of truth, shared with the
 # Resource Manager describer so both read & describe documents the same way.
 from agent_runtime.infrastructure.documents import EXTRACTORS as _EXTRACTORS
+from model_image_shrinker import ModelImageShrinker
 
 log = logging.getLogger("agentd")
 
@@ -33,9 +34,10 @@ MAX_LINE_CHARS = 2_000
 # image files are returned as the PICTURE itself (so a vision-capable model SEES it), not text
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
-#: The largest image `read` puts into the conversation. Model providers reject much past this
-#: anyway; the cap keeps the daemon from holding a huge file for nothing.
-_IMAGE_READ_MAX_BYTES = 10 * 1024 * 1024
+#: The largest image file `read` will open. What reaches the conversation is far smaller — every
+#: image is first made the size a model sees (ModelImageShrinker); the cap only keeps the daemon
+#: from decoding a gigantic file for nothing.
+_IMAGE_READ_MAX_BYTES = 50 * 1024 * 1024
 # Recursive search skips these noise/heavy/system dirs for speed (does NOT
 # restrict access — any absolute path is still readable, and you can search any
 # root). These are generic folder NAMES, identical on every machine.
@@ -152,8 +154,9 @@ class ReadTool(Tool):
         },
     }
 
-    def __init__(self, config):
+    def __init__(self, config, shrinker: ModelImageShrinker):
         self.config = config
+        self._shrinker = shrinker
 
     async def execute(self, tool_call_id, params, abort, on_update=None):
         # READS ARE NEVER SCOPED — see _resolve_write. An agent must be able to read its own
@@ -206,11 +209,17 @@ class ReadTool(Tool):
                     is_error=True,
                 )
             data = await asyncio.to_thread(path.read_bytes)
-            mime = mimetypes.guess_type(str(path))[0] or "image/png"
+            # The size a model sees: it stays in the history and rides along on every later turn.
+            shown = await asyncio.to_thread(self._shrinker.shrink, data)
+            mime = shown.mime or mimetypes.guess_type(str(path))[0] or "image/png"
+            w, h = shown.size
+            note = f"[image {path.name}, {w}x{h}" + (
+                f" — resized from {shown.original[0]}x{shown.original[1]}]" if shown.resized else "]"
+            )
             return ToolResult(
                 content=[
-                    TextContent(text=f"[image {path.name}]"),
-                    ImageContent(data=base64.b64encode(data).decode(), mime_type=mime),
+                    TextContent(text=note),
+                    ImageContent(data=base64.b64encode(shown.data).decode(), mime_type=mime),
                 ]
             )
 

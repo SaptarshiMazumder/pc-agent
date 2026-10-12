@@ -11,10 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "core_fs"))
 from fs_tools import ReadTool  # built-in 'core_fs' bundle
+from model_image_shrinker import ModelImageShrinker
 
 
 def _read(path, on_update=None, **cfg):
-    tool = ReadTool(SimpleNamespace(workspace=Path(path).parent, **cfg))
+    tool = ReadTool(SimpleNamespace(workspace=Path(path).parent, **cfg), ModelImageShrinker())
     return asyncio.run(tool.execute("c", {"path": str(path)}, asyncio.Event(), on_update=on_update))
 
 
