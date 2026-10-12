@@ -1,0 +1,74 @@
+{
+  "name": "If you're the bride's sister…",
+  "summary": "Calls out the buyer's role — bridesmaid or sister — with a squad look in several colours.",
+  "kinds": [
+    "wear"
+  ],
+  "occasions": [
+    "wedding-season-winter",
+    "summer-weddings"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "If you are a bridesmaid or sister of the bride, this one is for you",
+    "Bride ki behen ho? Outshine (politely) in this."
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The model in the hero outfit with the call-out text",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "Bride's sister?",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The hero outfit full length",
+      "purpose": "the look",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Close-up of the zari, buti or embroidery",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The squad: the same piece in three colours on three women",
+      "purpose": "squad look",
+      "kind": "image",
+      "product": "hero",
+      "text": "Squad goals",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Ready-to-ship card with the price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Ready to ship",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Colour-coordinated squad looks — ready to ship",
+  "cta": "Shop before it sells out",
+  "asks": [
+    "offer",
+    "audience"
+  ],
+  "why": "Naming the buyer's role makes it 'for me' and invites group orders.",
+  "sources": [
+    "https://www.particl.com/roots-handloom/bridesmaids-favorite-saree-promotion-2450793-35574c56"
+  ]
+}

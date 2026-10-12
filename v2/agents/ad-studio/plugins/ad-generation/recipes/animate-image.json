@@ -1,0 +1,52 @@
+{
+  "name": "Animate my image",
+  "title": "Animate my image — a clip from a still you already have",
+  "summary": "Your own image brought to life as a short clip: nothing new is generated before it.",
+  "auto_pick": false,
+  "auto": false,
+  "covers": "a still the user already has (a photo, a shoot image, a generated still) turned into a short clip; the image itself is the first frame",
+  "formats": [
+    "lookbook-turn"
+  ],
+  "aspect_ratio": "9:16",
+  "shots": [
+    {
+      "id": "s1",
+      "purpose": "scene",
+      "direction": "The user's own image brought to life, as it is: the same person, outfit, place, light and framing. Only small, natural motion — the fabric or hair moving in a breeze, a breath, a slow turn of the head, a gentle camera push-in. Nothing added, removed or redrawn; the product's pattern and colours stay exact through the whole clip.",
+      "cast": false,
+      "shows_product": true,
+      "duration_s": 5
+    }
+  ],
+  "variants": 1,
+  "resolution": "720p",
+  "budget_usd": 5,
+  "steps": [
+    {
+      "id": "brief",
+      "title": "Brief",
+      "action": "brief",
+      "settings": [
+        "mood"
+      ]
+    },
+    {
+      "id": "stills",
+      "title": "Your image",
+      "action": "images",
+      "scene": "s1",
+      "cast": false,
+      "shows_product": true
+    },
+    {
+      "id": "clip",
+      "title": "Clip",
+      "action": "video",
+      "scene": "s1",
+      "source": "stills",
+      "cast": false,
+      "shows_product": true
+    }
+  ]
+}

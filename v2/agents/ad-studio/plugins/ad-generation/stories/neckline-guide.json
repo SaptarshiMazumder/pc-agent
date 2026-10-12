@@ -1,0 +1,82 @@
+{
+  "name": "Necklace by neckline",
+  "summary": "Which necklace length goes with which blouse neckline.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "wedding-season-winter"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Wrong necklace length = ruined blouse",
+    "Boat neck? Deep V? Here's your necklace"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "Title card",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Necklace × neckline",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Boat or round neck with a choker, worn",
+      "purpose": "boat neck",
+      "kind": "image",
+      "product": "each",
+      "text": "Boat neck",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Deep V with a long necklace, worn",
+      "purpose": "deep V",
+      "kind": "image",
+      "product": "each",
+      "text": "Deep V",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Off-shoulder with a choker, worn",
+      "purpose": "off-shoulder",
+      "kind": "image",
+      "product": "each",
+      "text": "Off-shoulder",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "High neck: statement earrings instead, worn",
+      "purpose": "high neck",
+      "kind": "image",
+      "product": "each",
+      "text": "High neck",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Call-to-action card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "DM your blouse photo",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Send your blouse, we'll suggest a set",
+  "cta": "DM your blouse photo",
+  "asks": [
+    "tone"
+  ],
+  "why": "Solves a question shoppers already have; opens a chat.",
+  "sources": [
+    "https://www.libas.in/blogs/libas-purple-edit/necklace-styling-for-different-necklines"
+  ]
+}

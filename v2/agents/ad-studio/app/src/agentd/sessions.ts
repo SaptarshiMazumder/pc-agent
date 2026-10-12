@@ -77,6 +77,14 @@ export async function renameSession(
   }
 }
 
+/** Delete a conversation for good (its transcript and its meta). Reported, never swallowed. */
+export async function deleteSession(client: AgentdClient, sessionKey: string): Promise<void> {
+  const res: any = await client.request('sessions.delete', { agentId: AGENT_ID, sessionKey })
+  if (!res?.ok) {
+    throw new Error(String(res?.error || 'the daemon would not delete this conversation'))
+  }
+}
+
 /**
  * Fork a conversation: a full copy — transcript, title, project — under a new key.
  *

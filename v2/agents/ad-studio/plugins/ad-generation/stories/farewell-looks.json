@@ -1,0 +1,73 @@
+{
+  "name": "Farewell looks under ₹2000",
+  "summary": "College farewell: five easy, budget pieces.",
+  "kinds": [
+    "wear"
+  ],
+  "occasions": [
+    "college-farewells"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Farewell outfit = saree, obviously. 5 under ₹2000",
+    "Miss Farewell loading…"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Hook frame with the title",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "each",
+      "text": "Farewell looks",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Look 1",
+      "purpose": "look 1",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Look 2",
+      "purpose": "look 2",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Friends' group shot",
+      "purpose": "the squad",
+      "kind": "video",
+      "product": "all",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Budget price card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "Under ₹2000 · COD",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "First-timer tip: georgette is easiest",
+  "cta": "DM to order — COD",
+  "asks": [
+    "offer"
+  ],
+  "why": "A dated youth occasion, price-sensitive.",
+  "sources": [
+    "https://www.libas.in/blogs/libas-purple-edit/farewell-saree-ideas"
+  ]
+}

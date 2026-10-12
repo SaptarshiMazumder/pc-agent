@@ -1,0 +1,73 @@
+{
+  "name": "Why your jhumkas turned black",
+  "summary": "Care and anti-tarnish tips — the mistake, the cause, the fix, your promise.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "monsoon"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "The care mistake most people make",
+    "Sweat is worse than water"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "A tarnished piece",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Why it turned black",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The cause: perfume, sweat, open storage",
+      "purpose": "the cause",
+      "kind": "image",
+      "product": "",
+      "text": "Perfume + sweat",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The fix: a zip pouch, wipe after wear",
+      "purpose": "the fix",
+      "kind": "image",
+      "product": "",
+      "text": "Store it right",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The shiny piece",
+      "purpose": "the result",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Your promise card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Free care pouch",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Save this",
+  "cta": "Free care pouch with every order",
+  "asks": [
+    "offer"
+  ],
+  "why": "Answers the main worry about imitation jewellery.",
+  "sources": [
+    "https://www.giva.co/blogs/spotlight-on-silver/waterproof-jewellery-what-it-actually-means-and-which-pieces-you-can-wear-every-day"
+  ]
+}

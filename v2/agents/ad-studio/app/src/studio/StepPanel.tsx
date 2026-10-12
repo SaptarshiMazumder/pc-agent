@@ -28,6 +28,7 @@ export function StepPanel({
   cast,
   busy,
   onSend,
+  onShowStage,
 }: {
   client: AgentdClient | null
   campaign: CampaignDetail
@@ -38,8 +39,15 @@ export function StepPanel({
   /** The agent is mid-turn: a message now would land in the middle of it. */
   busy: boolean
   onSend: (text: string) => void
+  /** Open another stage (a clip's first frame). */
+  onShowStage: (step: string) => void
 }) {
   const bump = useApp((s) => s.bumpStudio)
+  // A run of THIS stage still going in the background (its progress lines start with the stage's
+  // title): shown where its results go, and its Generate waits — no second paid run by accident.
+  const making = useApp((s) =>
+    Object.values(s.sessions[s.currentSessionKey]?.jobs || {}).find((j) => j.text.startsWith(step.title) || j.text.includes(`${step.title}:`)),
+  )
   const [picking, setPicking] = useState('')
   const [error, setError] = useState('')
   // An agent's proposal to fix or edit one result opens its box, pre-filled.
@@ -133,6 +141,7 @@ export function StepPanel({
           poster={poster}
           copy={copy}
           picking={picking}
+          making={making?.text || ''}
           box={box}
           proposedBox={proposedBox}
           onPick={pick}
@@ -146,11 +155,12 @@ export function StepPanel({
           campaign={id}
           detail={campaign}
           cast={cast}
+          onShowStage={onShowStage}
           step={step}
           source={source}
           media={media}
           lists={lists}
-          busy={busy}
+          busy={busy || !!making}
           like={like}
           onClearLike={() => setLike('')}
           onSend={onSend}

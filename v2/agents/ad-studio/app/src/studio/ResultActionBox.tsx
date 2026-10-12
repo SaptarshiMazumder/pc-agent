@@ -10,6 +10,7 @@ import { useState } from 'react'
 import { approveRun, command, dismissProposal, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { ModelSelect } from './ModelSelect'
+import { ExpandMedia } from './ExpandMedia'
 
 export type ChangeAction = 'fix' | 'edit' | 'extend'
 
@@ -104,7 +105,10 @@ export function ResultActionBox({
         </button>
       </div>
       <div className="act-row">
-        {action === 'fix' ? <img className="act-thumb" src={media(path)} alt="" /> : <video className="act-thumb" src={media(path)} muted playsInline preload="metadata" />}
+        <span className="has-expand act-thumb-wrap">
+          {action === 'fix' ? <img className="act-thumb" src={media(path)} alt="" /> : <video className="act-thumb" src={media(path)} muted playsInline preload="metadata" />}
+          <ExpandMedia src={media(path)} path={path} />
+        </span>
         <input className="decision-input" autoFocus value={change} disabled={busy} placeholder={COPY[action].placeholder} onChange={(e) => setChange(e.target.value)} />
       </div>
       <div className="model-pick">

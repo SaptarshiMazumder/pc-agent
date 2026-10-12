@@ -5,12 +5,12 @@
  * screen. Free and instant. */
 
 import type { AgentdClient } from '@agentd/client'
-import { Check, Expand, FolderPlus, Loader2, Megaphone, Trash2, Upload, X } from 'lucide-react'
+import { Check, Expand, FolderPlus, Loader2, Megaphone, Pencil, Trash2, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Media } from '../agentd/campaigns'
 import { libraryToCollection, listLibrary, removeFromLibrary, uploadToLibrary, type LibraryCampaign, type LibraryItem } from '../agentd/library'
-import { listCollections, type Collection } from '../agentd/posts'
+import { listCollections, updateCollection, type Collection } from '../agentd/posts'
 import { useApp } from '../state/store'
 import { viewerItem } from '../studio/ViewableMedia'
 
@@ -45,6 +45,11 @@ export function LibraryPage({ client, onMakePost }: { client: AgentdClient | nul
   const [dragging, setDragging] = useState(false)
   const [added, setAdded] = useState<Collection | null>(null)
   const [error, setError] = useState('')
+  // Renaming the collection picked in the bar: its new name while being edited ('' = not renaming).
+  const [renaming, setRenaming] = useState('')
+  // The bar's target defaults to the first collection ONCE — never again on a refresh, or a
+  // "new collection" being named would snap back under the user's typing.
+  const defaulted = useRef(false)
 
   useEffect(() => {
     if (!client) return
@@ -52,7 +57,10 @@ export function LibraryPage({ client, onMakePost }: { client: AgentdClient | nul
       .then(([l, c]) => {
         setData(l)
         setCollections(c.collections)
-        setTarget((t) => (t === NEW && c.collections.length && !name ? c.collections[0].slug : t))
+        if (!defaulted.current && c.collections.length) {
+          defaulted.current = true
+          setTarget((t) => (t === NEW ? c.collections[0].slug : t))
+        }
         setError('')
       })
       .catch((e) => setError(String(e?.message || e)))
@@ -203,15 +211,46 @@ export function LibraryPage({ client, onMakePost }: { client: AgentdClient | nul
             <>
               <FolderPlus size={14} />
               <span>{chosen.length} selected → add to</span>
-              <select value={target} onChange={(e) => setTarget(e.target.value)}>
-                {collections.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.name}
-                  </option>
-                ))}
-                <option value={NEW}>A new collection…</option>
-              </select>
-              {target === NEW && <input className="decision-input" value={name} placeholder="Its name" onChange={(e) => setName(e.target.value)} />}
+              {renaming ? (
+                <>
+                  <input className="decision-input" autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)} placeholder="The collection's name" />
+                  <button
+                    className="ref-add"
+                    disabled={!renaming.trim() || !!busy}
+                    onClick={() =>
+                      client &&
+                      void updateCollection(client, target, 'rename', { name: renaming.trim() })
+                        .then(() => {
+                          setRenaming('')
+                          bump()
+                        })
+                        .catch((e) => setError(String((e as Error)?.message || e)))
+                    }
+                  >
+                    <Check size={11} /> Save name
+                  </button>
+                  <button className="ref-x" title="Keep the name" onClick={() => setRenaming('')}>
+                    <X size={11} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                    {collections.map((c) => (
+                      <option key={c.slug} value={c.slug}>
+                        {c.name}
+                      </option>
+                    ))}
+                    <option value={NEW}>A new collection…</option>
+                  </select>
+                  {target !== NEW && (
+                    <button className="ref-x" title="Rename this collection" onClick={() => setRenaming(collections.find((c) => c.slug === target)?.name || '')}>
+                      <Pencil size={11} />
+                    </button>
+                  )}
+                </>
+              )}
+              {target === NEW && <input className="decision-input" autoFocus value={name} placeholder="Name the new collection" onChange={(e) => setName(e.target.value)} />}
               <button className="prime-btn" disabled={!!busy || (target === NEW && !name.trim())} onClick={() => void toCollection()}>
                 {busy === 'Adding…' ? <Loader2 size={14} className="spin" /> : <FolderPlus size={14} />} Add
               </button>

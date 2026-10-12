@@ -11,7 +11,7 @@
  */
 
 import { useEffect } from 'react'
-import { Images, LayoutTemplate, Library, Megaphone, Palette, Users } from 'lucide-react'
+import { BookOpen, Images, Library, Megaphone, Package, Palette, Users } from 'lucide-react'
 
 import { campaignStatus, selectionBlock, START } from './agentd/campaigns'
 import { AGENT_ID, useClient } from './agentd/client'
@@ -19,7 +19,7 @@ import { useCredits } from './agentd/credits'
 import { handleRunEvent } from './agentd/run-events'
 import { MAX_FILES } from './agentd/chat'
 import { useRun } from './agentd/run'
-import { listSessions, loadHistory } from './agentd/sessions'
+import { deleteSession, listSessions, loadHistory, renameSession } from './agentd/sessions'
 import { useApp, useSession } from './state/store'
 
 import { ChatPanel } from './components/ChatPanel'
@@ -30,6 +30,8 @@ import { BrandKitPage } from './pages/BrandKitPage'
 import { CampaignsPage } from './pages/CampaignsPage'
 import { CastPage } from './pages/CastPage'
 import { TemplatesPage } from './pages/TemplatesPage'
+import { StoriesPage } from './pages/StoriesPage'
+import { ProductsPage } from './pages/ProductsPage'
 import { ChatResizer } from './studio/ChatResizer'
 import { MediaViewer } from './studio/MediaViewer'
 import { StartSummary } from './studio/StartSummary'
@@ -127,7 +129,7 @@ export default function App() {
 
   /** A new ad started from the Cast page: a new chat with that choice made; the studio offers the
    *  other one. */
-  const newAdWith = (choice: { recipe?: string; cast?: string }, text: string) => {
+  const newAdWith = (choice: { recipe?: string; cast?: string; theme?: string }, text: string) => {
     const key = newSession()
     setStart(key, choice)
     seedComposer(text + ' ')
@@ -151,6 +153,15 @@ export default function App() {
       st.pin(st.currentSessionKey, id)
       st.setView('chat')
     }
+  }
+
+  /** Open a story: in the chat that made it. */
+  const openStory = async (session: string) => {
+    if (!client || !session) return
+    const st = useApp.getState()
+    st.openSession(session)
+    const items = await loadHistory(client, session)
+    if (items.length) useApp.getState().openSession(session, items)
   }
 
   /** Open a post: in the chat that made it, or pinned into this one. */
@@ -181,16 +192,31 @@ export default function App() {
         onView={setView}
         onNewChat={() => newSession()}
         onRefreshChats={refreshChats}
+        onRenameChat={async (key, title) => {
+          if (!client) return
+          await renameSession(client, key, title)
+          await refreshChats()
+        }}
+        onDeleteChat={async (key) => {
+          if (!client) return
+          await deleteSession(client, key)
+          // The open chat deleted: start a fresh one rather than show a conversation that is gone.
+          if (key === currentKey) newSession()
+          await refreshChats()
+        }}
         account={account}
         client={client ?? undefined}
         status={status}
         name={AGENT_NAME}
         counts={{ credits: credits === null ? undefined : credits.toLocaleString() }}
+        // New ad IS the studio: a second "Studio" entry only duplicated it.
+        showConversation={false}
         groupLabel="Studio"
         sharedGroupLabel="Account"
         extraDestinations={[
           { id: 'campaigns', label: 'Ads', icon: <Images size={15} /> },
-          { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={15} /> },
+          { id: 'stories', label: 'Stories', icon: <BookOpen size={15} /> },
+          { id: 'products', label: 'Products', icon: <Package size={15} /> },
           { id: 'library', label: 'Library', icon: <Library size={15} /> },
           { id: 'posts', label: 'Posts', icon: <Megaphone size={15} /> },
           { id: 'cast', label: 'Cast', icon: <Users size={15} /> },
@@ -207,6 +233,16 @@ export default function App() {
           client && <Settings client={client} agentId={AGENT_ID} />
         ) : view === 'campaigns' ? (
           <CampaignsPage client={client} onOpen={(id) => void openCampaign(id)} />
+        ) : view === 'stories' ? (
+          <StoriesPage
+            client={client}
+            onUse={(t) => newAdWith({ theme: t.key }, START.story(t.key))}
+            onOwn={() => newAdWith({ theme: 'own' }, START.ownStory)}
+            onOpen={(s) => void openStory(s.session)}
+            onTemplates={() => setView('templates')}
+          />
+        ) : view === 'products' ? (
+          <ProductsPage client={client} />
         ) : view === 'templates' ? (
           <TemplatesPage client={client} onUse={(r) => newAdWith({ recipe: r.key }, START.recipe(r.key, r.start_text))} />
         ) : view === 'brand-kit' ? (
@@ -251,7 +287,6 @@ export default function App() {
               session={currentKey}
               running={session.running}
               onAnswer={sendAnswer}
-              onFiles={(files) => void addFiles(files)}
             />
 
             {!chatCollapsed && <ChatResizer />}

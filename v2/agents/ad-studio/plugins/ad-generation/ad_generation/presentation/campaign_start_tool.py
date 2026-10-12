@@ -35,6 +35,8 @@ class CampaignStartTool(Tool):
         "properties": {
             "name": {"type": "string", "description": "The product's name."},
             "photos": {"type": "array", "items": {"type": "string"}, "description": "Workspace paths of the product photos (1-4)."},
+            "stills": {"type": "array", "items": {"type": "string"}, "description": "Workspace paths of the user's OWN stills, used as they are in the images stage (nothing generated there; the clip starts from them). Only files the user said are stills to use."},
+            "references": {"type": "array", "items": {"type": "string"}, "description": "Workspace paths of images the user wants followed (a look, pose, background) — added to the stills' references."},
             "cast": {"type": "string", "description": "The cast member to use; empty lets the brief pick from the cast."},
             "recipe": {"type": "string", "description": "The template (recipe) to use; empty uses the one the product matches."},
             "settings": {"type": "object", "description": "The user's choices for the brief's settings, by key (aspect_ratio, location, time_of_day, mood…) — only what the user chose."},
@@ -77,6 +79,8 @@ class CampaignStartTool(Tool):
                 str(plugin_setting(self.config, "generation_approval", "ask")),
                 bool(params["auto"]) if "auto" in params else None,
                 dict(params.get("settings") or {}),
+                [str(p) for p in params.get("stills") or []],
+                [str(p) for p in params.get("references") or []],
             )
             detail = self._views.detail(campaign_id)
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason

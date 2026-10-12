@@ -130,6 +130,7 @@ function SettingField({
     control = (
       <select value={s.value || ''} disabled={disabled} onChange={(e) => onSave(e.target.value)}>
         <option value="">{empty}</option>
+        <option value="none">No one</option>
         {cast.map((c) => (
           <option key={c.name} value={c.name}>
             {c.name}

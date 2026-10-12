@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from ad_generation.application.animation_service import AnimationService
 from ad_generation.application.brief_service import BriefService
+from ad_generation.application.campaign_checklist_editor import CampaignChecklistEditor
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.interfaces.category_library import CategoryLibrary
 from ad_generation.application.interfaces.campaign_store import CampaignStore
@@ -30,6 +31,7 @@ from ad_generation.application.product_analysis_service import ProductAnalysisSe
 from ad_generation.application.quality_check_service import QualityCheckService
 from ad_generation.application.shoot_sheet_service import ShootSheetService
 from ad_generation.application.step_defaults import StepDefaults
+from ad_generation.application.story_collector import StoryCollector
 from ad_generation.application.still_fix_service import StillFixService
 from ad_generation.application.template_autofill import TemplateAutofill
 from ad_generation.application.template_setting_sources import TemplateSettingSources
@@ -39,6 +41,8 @@ from ad_generation.domain.generated_media import GeneratedMedia
 from ad_generation.domain.generation_backends import GenerationBackends
 from ad_generation.domain.media_verdict import MediaVerdict
 from ad_generation.domain.category_profile import CategoryProfile
+from ad_generation.domain.story import Story
+from ad_generation.domain.story_recipe import StoryRecipe
 from ad_generation.domain.step_choices import StepChoices
 from ad_generation.domain.step_run import StepRun
 
@@ -65,7 +69,11 @@ class CampaignStepService:
         sources: TemplateSettingSources,
         autofill: TemplateAutofill,
         fixer: StillFixService,
+        editor: CampaignChecklistEditor,
+        collector: StoryCollector,
     ) -> None:
+        self._editor = editor
+        self._collector = collector
         self._categories = categories
         self._sources = sources
         self._autofill = autofill
@@ -99,14 +107,37 @@ class CampaignStepService:
         approval: str = "ask",
         auto_pick: bool | None = None,
         settings: dict | None = None,
+        stills: list[str] | None = None,
+        references: list[str] | None = None,
+        story_plan: dict | None = None,
     ) -> tuple[str, CampaignChecklist]:
         """Read the product, copy its template's steps with the user's choices, and write the brief —
         once every choice the brief needs is made. With Auto off and a required choice (who, where,
-        the shape) unmade, the campaign waits at the brief for the user to choose."""
+        the shape) unmade, the campaign waits at the brief for the user to choose.
+
+        `stills`: the user's own images, put into the first images stage as they are (nothing is
+        generated there; the clip starts from them). `references`: the user's images that stage
+        follows, on top of its defaults. `story_plan` (StoryCampaigns): the campaign makes those
+        shots of a story — one stage per shot, its recipe built from the story (StoryRecipe)."""
         self._progress.say(f"reading {name}")
         campaign_id, profile = self._analysis.analyze(name, photos, direction.notes)
-        recipe = self._recipes.get(recipe_key or profile.recipe)
+        if story_plan:
+            self._store.save_story_plan(campaign_id, story_plan)
+            recipe = self._recipes.get(StoryRecipe.key(campaign_id))
+            # A template with no one in it has no cast to choose: "none" asks for nothing.
+            if settings and not recipe.needs_cast():
+                settings = {k: v for k, v in settings.items() if k != "cast"}
+        else:
+            recipe = self._recipes.get(recipe_key or profile.recipe)
         checklist = recipe.new_checklist(cast_name, direction.given(), session, approval, auto_pick)
+        if story_plan:
+            checklist.story = str(story_plan["story"]["id"])
+            checklist.story_version = int(story_plan["story"]["version"])
+        images = checklist.first("images")
+        if (stills or references) and images is None:
+            raise ValueError(f"the {recipe.key} template has no images stage to take the user's stills or references")
+        if references:
+            checklist.put(images.with_(extra_references=tuple(references)))
         first = checklist.first("brief")
         if first is not None:
             StepChoices.seed(recipe, checklist, direction.given())
@@ -118,14 +149,41 @@ class CampaignStepService:
             if unmade and not checklist.auto_for(first):
                 self._progress.say(f"{campaign_id}: {recipe.key}; waiting for: " + ", ".join(s.label for s in unmade))
                 self._store.save_checklist(campaign_id, checklist)
-                return campaign_id, checklist
+                checklist = self._bring_stills(campaign_id, images, stills or [], checklist)
+                return campaign_id, self._bring_story_images(campaign_id, story_plan, checklist)
         self._progress.say(f"{campaign_id}: {profile.category} -> recipe {recipe.key}; writing the brief")
         brief = self._writer(recipe).write_for_recipe(campaign_id, recipe, checklist.cast_name, CreativeDirection(**checklist.direction))
         checklist.cast_name = next((s.cast[0] for s in brief.shots if s.cast), "") or checklist.cast_name
         if first is not None:
             checklist.put(checklist.step(first.id).with_(status="done"))
         self._store.save_checklist(campaign_id, checklist)
-        return campaign_id, checklist
+        checklist = self._bring_stills(campaign_id, images, stills or [], checklist)
+        return campaign_id, self._bring_story_images(campaign_id, story_plan, checklist)
+
+    def _bring_story_images(self, campaign_id: str, story_plan: dict | None, checklist: CampaignChecklist) -> CampaignChecklist:
+        """A story shot that starts from the user's own image: the image goes into its stage (a
+        video's first frame, or the image itself) as theirs — nothing is generated in its place."""
+        if not story_plan:
+            return checklist
+        story = Story.from_dict(story_plan["story"])
+        brought = False
+        for shot_id in story_plan["shots"]:
+            shot = story.shot(str(shot_id))
+            if shot.start_from:
+                stage = f"{shot.id}-frame" if shot.kind == "video" else shot.id
+                self._progress.say(f"{campaign_id}: {shot.purpose} starts from your image")
+                self._editor.import_image(campaign_id, stage, shot.start_from)
+                brought = True
+        return self._loader.load(campaign_id) if brought else checklist
+
+    def _bring_stills(self, campaign_id: str, images, stills: list[str], checklist: CampaignChecklist) -> CampaignChecklist:
+        """The user's own stills into the images stage, as uploads are (it is then done, picked)."""
+        if not stills:
+            return checklist
+        self._progress.say(f"{campaign_id}: putting your {len(stills)} still(s) into {images.title}")
+        for path in stills:
+            self._editor.import_image(campaign_id, images.id, path)
+        return self._loader.load(campaign_id)
 
     # ---- any step, any time ------------------------------------------------------------------
 
@@ -152,10 +210,14 @@ class CampaignStepService:
         else:
             made, verdicts = self._video(campaign_id, checklist, step, run, backends)
         step = checklist.step(step_id)
-        if not step.pick and made:
+        first_pick = not step.pick and bool(made)
+        if first_pick:
             step = step.with_(pick=self._best(made, verdicts))
         checklist.put(step.with_(status="done"))
         self._store.save_checklist(campaign_id, checklist)
+        if first_pick and checklist.story:
+            # The run's own pick counts like the user's: it goes into the story's collection.
+            self._collector.picked(checklist.story, campaign_id, step.id, step.pick)
         return made, verdicts
 
     # ---- the actions -------------------------------------------------------------------------

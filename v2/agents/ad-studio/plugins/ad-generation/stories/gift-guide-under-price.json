@@ -1,0 +1,91 @@
+{
+  "name": "Not sure what to gift? Picks under ₹X",
+  "summary": "A gift guide for one relationship (sister, wife, mother) with 3–5 picks under a price cap.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "raksha-bandhan",
+    "bhai-dooj",
+    "diwali",
+    "karva-chauth",
+    "mothers-day",
+    "valentines",
+    "dhanteras"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Rakhi gift for didi? 5 picks under ₹999",
+    "Not sure what to gift her? Sorted.",
+    "Diwali gifting without the stress"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "The problem: an empty gift box and the question",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Not sure what to gift?",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Pick 1 as a flat lay with its price card",
+      "purpose": "pick 1",
+      "kind": "image",
+      "product": "each",
+      "text": "₹—",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Pick 2 as a flat lay with its price card",
+      "purpose": "pick 2",
+      "kind": "image",
+      "product": "each",
+      "text": "₹—",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Pick 3 worn, to show its size",
+      "purpose": "pick 3",
+      "kind": "image",
+      "product": "each",
+      "text": "₹—",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "A gift box packed with a handwritten note",
+      "purpose": "gift-ready",
+      "kind": "image",
+      "product": "all",
+      "text": "Free gift wrap",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Recap of the picks with the last order date",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM 'GIFT' + budget",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Gifts for your <relation> under ₹<price> — save this",
+  "cta": "DM 'GIFT' with your budget",
+  "asks": [
+    "occasion",
+    "offer",
+    "audience"
+  ],
+  "why": "Starts from the buyer's problem; the price cap filters for people ready to buy.",
+  "sources": [
+    "https://branvas.com/blogs/news/instagram-reels-ideas-jewelry-brand"
+  ]
+}

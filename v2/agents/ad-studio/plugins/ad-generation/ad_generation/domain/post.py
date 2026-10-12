@@ -150,6 +150,9 @@ class Post:
     # agent filled in the browser and downloaded); with Canva, the design's link to open it there.
     design: str = "renderer"
     canva_url: str = ""
+    # The story it tells (its id) and that story's version when it was planned; "" = none.
+    story: str = ""
+    story_version: int = 0
 
     def check(self) -> None:
         if self.format not in FORMATS:
@@ -173,6 +176,8 @@ class Post:
             caption=str(data.get("caption") or ""),
             hashtags=[str(h).lstrip("#") for h in data.get("hashtags") or []],
             session=str(data.get("session") or ""),
+            story=str(data.get("story") or ""),
+            story_version=int(data.get("story_version") or 0),
             rendered=[str(r) for r in data.get("rendered") or []],
             rendered_at=float(data.get("rendered_at") or 0.0),
             design=str(data.get("design") or "renderer"),
@@ -185,4 +190,5 @@ class Post:
             "slides": [s.to_dict() for s in self.slides], "caption": self.caption, "hashtags": list(self.hashtags),
             "session": self.session, "rendered": list(self.rendered), "rendered_at": self.rendered_at,
             "design": self.design, "canva_url": self.canva_url,
+            "story": self.story, "story_version": self.story_version,
         }

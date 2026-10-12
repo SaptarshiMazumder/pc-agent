@@ -8,6 +8,7 @@ from __future__ import annotations
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.recipe_library import RecipeLibrary
+from ad_generation.application.story_collector import StoryCollector
 from ad_generation.application.template_setting_sources import TemplateSettingSources
 from ad_generation.application.step_media import StepMedia
 from ad_generation.domain.campaign_step import CampaignStep
@@ -24,8 +25,10 @@ class CampaignChecklistEditor:
     def __init__(
         self, store: CampaignStore, recipes: RecipeLibrary, loader: CampaignChecklistLoader, media: StepMedia,
         sources: TemplateSettingSources,
+        collector: StoryCollector,
     ) -> None:
         self._sources = sources
+        self._collector = collector
         self._store = store
         self._recipes = recipes
         self._loader = loader
@@ -41,6 +44,8 @@ class CampaignChecklistEditor:
         step = step.with_(pick=path, status="done")
         checklist.put(step)
         self._store.save_checklist(campaign_id, checklist)
+        if checklist.story:
+            self._collector.picked(checklist.story, campaign_id, step_id, path)
         return step
 
     def import_image(self, campaign_id: str, step_id: str, path: str) -> GeneratedMedia:

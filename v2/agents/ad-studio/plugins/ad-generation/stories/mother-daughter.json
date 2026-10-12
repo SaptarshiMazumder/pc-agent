@@ -1,0 +1,77 @@
+{
+  "name": "Maa–beti twinning",
+  "summary": "Mother and daughter in matching pieces — or a daughter getting her mother ready.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "mothers-day",
+    "diwali",
+    "eid-ul-fitr",
+    "karva-chauth"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Maa-beti twinning for Diwali",
+    "Getting Maa ready — her reaction"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Mother and daughter side by side, matching",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "all",
+      "text": "Maa-beti twinning",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The mother's look",
+      "purpose": "her look",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The daughter's look",
+      "purpose": "her look",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "A candid laughing moment between them",
+      "purpose": "the moment",
+      "kind": "video",
+      "product": "all",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Combo price card",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "Tag your mom",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "A set for two — tag your mom",
+  "cta": "Tag your mom + DM for the combo",
+  "asks": [
+    "offer"
+  ],
+  "why": "Tagging brings free reach; two pieces per order.",
+  "sources": [
+    "https://www.exchange4media.com/marketing-news/kalyan-jewellers-celebrates-mothers-day-with-herheartofgold-campaign-96726.html"
+  ]
+}

@@ -31,6 +31,14 @@ class CampaignStore(Protocol):
 
     def save_checklist(self, campaign_id: str, checklist: CampaignChecklist) -> None: ...
 
+    def save_story_plan(self, campaign_id: str, plan: dict) -> None:
+        """The story it makes, as it was then: {template, story, shots, others} (StoryRecipe)."""
+        ...
+
+    def story_plan(self, campaign_id: str) -> dict:
+        """Raises KeyError for a campaign that makes no story."""
+        ...
+
     def checklist(self, campaign_id: str) -> CampaignChecklist | None:
         """The campaign's checklist; None for a campaign from before checklists (see
         legacy_progress)."""

@@ -58,3 +58,13 @@ caption's credits come from `sources` (the store; the price when one is given, a
 link in the "link in bio" line only if the user wants links in the caption — Instagram does not
 make caption links clickable). Where a product's source is unknown, the caption leaves that
 credit out and `questions` asks for it.
+
+WHEN FACTS.story IS PRESENT, THE POST TELLS THAT STORY — it overrides the playbook's defaults where
+they differ:
+- Slides follow FACTS.story.shots in order. Each shot's slide shows one of the collection items made
+  for it (`items`, by number); a shot with no items is left out and named in `questions`.
+- The hook slide carries FACTS.story.hook; each later slide carries its shot's `text` (as written —
+  short) as its words. A video shot's slide runs about its `seconds`.
+- The caption follows FACTS.story.caption_angle in its tone and language, states the offer only as
+  FACTS.story.offer gives it, and ends with FACTS.story.cta.
+- Never add a slide, a claim or a product the story does not have.

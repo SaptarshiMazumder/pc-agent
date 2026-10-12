@@ -1,0 +1,73 @@
+{
+  "name": "Sold out → it's back",
+  "summary": "A restock with real proof of demand.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "You asked, it's BACK",
+    "Restocked — grab it before it's gone again"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A 'sold out' stamp over the piece",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "It's back",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Real customer DMs asking for it (names blurred) — only if the user has them",
+      "purpose": "proof",
+      "kind": "image",
+      "product": "",
+      "text": "You asked",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece worn, full length",
+      "purpose": "reveal",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The colours available as a flat lay",
+      "purpose": "options",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Limited-quantity card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Limited stock",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Scarcity — it went fast last time",
+  "cta": "DM to book",
+  "asks": [
+    "offer"
+  ],
+  "why": "Social proof plus fear of missing out.",
+  "sources": [
+    "https://www.socialsamosa.com/2021/08/the-indian-ethnic-co-reels-strategy-lekhinee-desai-interview"
+  ]
+}

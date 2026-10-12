@@ -1,0 +1,84 @@
+{
+  "name": "Which one first? (poll)",
+  "summary": "Four numbered looks; viewers vote in the comments.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "wedding-season-winter",
+    "summer-weddings",
+    "evergreen"
+  ],
+  "goal": "engagement",
+  "hooks": [
+    "Which one are you choosing first?",
+    "1, 2, 3 or 4? Choose your look"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "All four looks in a grid with numbers",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "all",
+      "text": "1, 2, 3 or 4?",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Look 1 full length",
+      "purpose": "look 1",
+      "kind": "image",
+      "product": "each",
+      "text": "1",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Look 2 full length",
+      "purpose": "look 2",
+      "kind": "image",
+      "product": "each",
+      "text": "2",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Look 3 full length",
+      "purpose": "look 3",
+      "kind": "image",
+      "product": "each",
+      "text": "3",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Look 4 full length",
+      "purpose": "look 4",
+      "kind": "image",
+      "product": "each",
+      "text": "4",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Vote card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Vote in comments",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Poll — DM the number to order",
+  "cta": "DM the number",
+  "asks": [
+    "offer"
+  ],
+  "why": "A low-effort reply opens DMs.",
+  "sources": [
+    "https://www.particl.com/lashkaraa/our-lineup-of-the-wedding-season-outfit-rotation.-which-one-are-you-choosing-first-1071883-16965c02"
+  ]
+}

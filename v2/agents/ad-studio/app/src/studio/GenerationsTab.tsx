@@ -120,13 +120,7 @@ export function GenerationsTab({ client, campaign }: { client: AgentdClient | nu
                 <span>{r.credits ? `${r.credits} cr · ` : ''}{money(r.cost_usd)}</span>
                 <span>{when(r.made_at)}</span>
               </div>
-              {r.problems.length > 0 && (
-                <ul className="gen-problems">
-                  {r.problems.map((p, i) => (
-                    <li key={i}>{p}</li>
-                  ))}
-                </ul>
-              )}
+              {r.problems.length > 0 && <CheckerNotes notes={r.problems} />}
             </figcaption>
           </figure>
           )
@@ -134,5 +128,24 @@ export function GenerationsTab({ client, campaign }: { client: AgentdClient | nu
         {data && rows.length === 0 && <div className="gens-empty">Nothing here yet.</div>}
       </div>
     </div>
+  )
+}
+
+/** The checker's notes on one result: the first, then the rest on "more". */
+function CheckerNotes({ notes }: { notes: string[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <ul className="gen-problems">
+      {(open ? notes : notes.slice(0, 1)).map((p, i) => (
+        <li key={i}>{p}</li>
+      ))}
+      {notes.length > 1 && (
+        <li className="gen-problems-more">
+          <button className="link-red" onClick={() => setOpen(!open)}>
+            {open ? 'less' : `${notes.length - 1} more`}
+          </button>
+        </li>
+      )}
+    </ul>
   )
 }

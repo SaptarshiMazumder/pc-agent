@@ -23,6 +23,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+from ad_generation.application.interfaces.story_store import StoryStore
 from ad_generation.application.interfaces.brand_store import BrandStore
 from ad_generation.application.interfaces.collection_store import CollectionStore
 from ad_generation.application.design_reference_picker import DesignReferencePicker
@@ -68,7 +69,9 @@ class DesignService:
         critique: str,
         progress: ProgressReporter,
         clock: Callable[[], float],
+        stories: StoryStore | None = None,
     ) -> None:
+        self._stories = stories
         self._reasoner = reasoner
         self._posts = posts
         self._collections = collections
@@ -182,6 +185,7 @@ class DesignService:
             "words": words, "media": media, "main_item": slide.item, "brand": {k: brand[k] for k in _BRAND_LOOK},
             "brief": notes or None, "design_notes": brand["design_notes"] or None, "template": template_html or None,
             "reference": {"name": reference.name, "spec": reference.spec} if reference else None,
+            "story": self._story_look(post),
         }
         looks = [m["path"] if m["kind"] == "image" else self._frames.still_of(m["path"], f"{self._posts.scratch('design')}/{post.slug}-{n}-{i}.jpg")
                  for i, m in enumerate(media)]
@@ -193,6 +197,7 @@ class DesignService:
             "words": words, "format": post.format, "purpose": slide.note, "brief": notes or None,
             "design_notes": brand["design_notes"] or None,
             "reference": {"name": reference.name, "spec": reference.spec} if reference else None,
+            "story": self._story_look(post),
         }
         previous, problems, html_path, preview = "", [], "", ""
         for round_ in range(1, _ROUNDS + 1):
@@ -227,6 +232,13 @@ class DesignService:
         return Slide.from_dict({**slide.to_dict(), "design": html_path, "preview": preview, "reference": reference.slug if reference else ""}), {
             "slide": n, "design": html_path, "preview": preview, "reference": reference.slug if reference else "", "still_to_fix": problems,
         }
+
+    def _story_look(self, post: Post) -> dict | None:
+        """The story the post tells — every slide's design serves its tone, occasion and call to action."""
+        if not post.story or self._stories is None:
+            return None
+        story = self._stories.get(post.story)
+        return {"title": story.title, "tone": story.tone, "occasion": story.occasion, "audience": story.audience, "cta": story.cta}
 
     def _media(self, post: Post, slide: Slide) -> list[dict]:
         items = self._collections.get(post.collection).items

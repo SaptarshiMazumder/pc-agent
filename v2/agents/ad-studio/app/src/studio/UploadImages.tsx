@@ -1,13 +1,15 @@
-/* Bring your own images into an image step — a button, or drop files anywhere on its results.
+/* Bring your own images into an image step — a button, drop files anywhere on its results, or pick
+ * them from the library.
  * Each lands among the step's results, marked "yours", and is picked, fixed, referenced or
  * animated like a generated one. Free and instant (importImage: upload, then step_import). */
 
 import type { AgentdClient } from '@agentd/client'
-import { Loader2, Upload } from 'lucide-react'
+import { Library, Loader2, Upload } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 
-import { importImage } from '../agentd/campaigns'
+import { importFromWorkspace, importImage } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { LibraryPicker } from './LibraryPicker'
 
 export function UploadImages({
   client,
@@ -34,6 +36,7 @@ export function UploadImages({
   const [busy, setBusy] = useState(false)
   const [over, setOver] = useState(false)
   const [error, setError] = useState('')
+  const [picking, setPicking] = useState(false)
 
   const take = async (files: FileList | File[]) => {
     if (!client) return
@@ -44,6 +47,25 @@ export function UploadImages({
     const done: string[] = []
     try {
       for (const f of multiple ? list : list.slice(0, 1)) done.push(await importImage(client, campaign, step, f))
+    } catch (e) {
+      setError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+      if (done.length) {
+        bump()
+        onDone?.(done)
+      }
+    }
+  }
+
+  const fromLibrary = async (paths: string[]) => {
+    if (!client) return
+    setPicking(false)
+    setBusy(true)
+    setError('')
+    const done: string[] = []
+    try {
+      for (const p of multiple ? paths : paths.slice(0, 1)) done.push(await importFromWorkspace(client, campaign, step, p))
     } catch (e) {
       setError(String((e as Error)?.message || e))
     } finally {
@@ -77,6 +99,10 @@ export function UploadImages({
       <button className="ref-add" disabled={!client || busy} onClick={() => pick.current?.click()} title="Your own images, as results of this step">
         {busy ? <Loader2 size={12} className="spin" /> : <Upload size={12} />} {busy ? 'Adding…' : label}
       </button>
+      <button className="ref-add" disabled={!client || busy} onClick={() => setPicking(true)} title="Images from your library, as results of this step">
+        <Library size={12} /> From library
+      </button>
+      {picking && <LibraryPicker client={client} kind="image" multiple={multiple} onPick={(paths) => void fromLibrary(paths)} onClose={() => setPicking(false)} />}
       {children}
       {over && <div className="upload-over">Drop to add to this step</div>}
       {error && <div className="studio-error">{error}</div>}

@@ -1,0 +1,84 @@
+{
+  "name": "Not sure what to wear? 3 looks",
+  "summary": "A stylist answers the outfit question for an occasion with three looks, one per moment of the day.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "diwali",
+    "navratri",
+    "durga-puja",
+    "eid-ul-fitr",
+    "onam",
+    "wedding-season-winter",
+    "karva-chauth"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Pooja, family lunch or the party — confused what to wear?",
+    "Festive season aa gaya, outfit decide nahi hua? Let me help."
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A woman beside a pile of outfits, unsure, looking at the camera",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "Not sure what to wear?",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Look 1 worn full length, for the first moment of the occasion",
+      "purpose": "look 1",
+      "kind": "image",
+      "product": "each",
+      "text": "Look 1",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Look 2 worn full length with a jewellery close-up",
+      "purpose": "look 2",
+      "kind": "image",
+      "product": "each",
+      "text": "Look 2",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Look 3 worn full length, a twirl or a turn",
+      "purpose": "look 3",
+      "kind": "video",
+      "product": "each",
+      "text": "Look 3",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "All three looks side by side as a flat lay with prices",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM the look number",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Save this for your festive calendar — which look is yours?",
+  "cta": "DM the look number",
+  "asks": [
+    "occasion",
+    "offer",
+    "audience",
+    "tone"
+  ],
+  "why": "Solves the shopper's decision before pitching.",
+  "sources": [
+    "https://www.medianews4u.com/ananya-panday-becomes-aurelias-chief-stylist-for-the-festive-season/"
+  ]
+}

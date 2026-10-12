@@ -17,16 +17,17 @@ class PostStartTool(PostModelTool):
     label = "Plan a post"
     plugin = PLUGIN
     description = (
-        "Plan an Instagram post from a collection: the slides in order, the words on each and when "
+        "Plan an Instagram post from a collection — or from a `story` (its collection of picks, its order, "
+        "words, caption and call to action): the slides in order, the words on each and when "
         "they fade, how each clip is cut, the caption and hashtags — following the post playbook. "
         "Show the plan, ask the questions it returns, then post_replan / post_update with the answers."
     )
     parameters = {
         "type": "object",
-        "required": ["collection"],
         "properties": {
-            "collection": {"type": "string", "description": "The collection's name or slug."},
-            "format": {"type": "string", "enum": ["carousel", "reel"], "description": "Default carousel."},
+            "collection": {"type": "string", "description": "The collection's name or slug — empty with a `story` uses the story's collection."},
+            "story": {"type": "string", "description": "The story the post tells: its picks, order, words, caption and call to action."},
+            "format": {"type": "string", "enum": ["carousel", "reel"], "description": "Default: the story's format, else carousel."},
             "notes": {"type": "string", "description": "What the user said about the post, in their words: order, hook, what to leave out, sources."},
         },
     }
@@ -37,9 +38,10 @@ class PostStartTool(PostModelTool):
             post, questions = await asyncio.to_thread(
                 service.start,
                 str(params.get("collection") or ""),
-                str(params.get("format") or "carousel"),
+                str(params.get("format") or ""),
                 str(params.get("notes") or ""),
                 str(getattr(current_run_context(), "session_key", "") or ""),
+                str(params.get("story") or ""),
             )
         except Exception as e:  # noqa: BLE001 — every failure is reported, with its reason
             return ToolResult.text(f"post_start: {type(e).__name__}: {e}", is_error=True)

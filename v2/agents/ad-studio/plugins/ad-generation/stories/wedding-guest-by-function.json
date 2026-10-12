@@ -1,0 +1,86 @@
+{
+  "name": "What to wear to every function",
+  "summary": "A wedding-guest guide: haldi, mehendi, sangeet, wedding, reception — one look each.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "wedding-season-winter",
+    "summer-weddings"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Shaadi mein jaana hai? Here's what to wear to EVERY function.",
+    "Haldi ≠ Sangeet. Stop repeating outfits."
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "Title card: the wedding functions",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Your shaadi outfit guide",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Haldi look: yellow, light fabric, outdoors",
+      "purpose": "haldi",
+      "kind": "image",
+      "product": "each",
+      "text": "Haldi",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Mehendi look: green or floral, seated, hands showing",
+      "purpose": "mehendi",
+      "kind": "image",
+      "product": "each",
+      "text": "Mehendi",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Sangeet look: sparkle, mid-twirl",
+      "purpose": "sangeet",
+      "kind": "image",
+      "product": "each",
+      "text": "Sangeet",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Wedding look: silk saree or lehenga with jewellery",
+      "purpose": "wedding",
+      "kind": "image",
+      "product": "each",
+      "text": "Wedding",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "All the looks with a combo price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM for the combo",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Your function-by-function guide — save it for the family group",
+  "cta": "DM for combos",
+  "asks": [
+    "occasion",
+    "offer",
+    "audience",
+    "tone"
+  ],
+  "why": "A guide people save and share in the family WhatsApp group.",
+  "sources": [
+    "https://www.azafashions.com/blog/what-to-wear-to-haldi-mehendi-sangeet-2026/"
+  ]
+}

@@ -174,7 +174,7 @@ export function Sidebar({
       {/* THE ONE CONSEQUENTIAL ACTION, filled and unmissable. Everything else in this rail is a
           place to go; this is the thing you came to do. */}
       {showPrimary && (
-        <button className="nav-item" onClick={onNewChat}>
+        <button className={`nav-item${!showConversation && view === 'chat' ? ' on' : ''}`} onClick={onNewChat}>
           <span className="nav-ico">
             <SquarePen size={15} strokeWidth={1.7} />
           </span>

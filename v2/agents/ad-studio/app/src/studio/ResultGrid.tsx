@@ -1,7 +1,8 @@
 /* A step's results, newest first: every image or clip it made, with the checker's score as ADVICE
  * (a failed one is marked, never hidden or locked).
  *
- * Click a result to PICK it — instant, no agent turn: it is what the step carries forward (a video
+ * Click a result to PICK it — instant, no agent turn (clicking the picked one again re-saves it,
+ * which also puts it in its story's collection if it is not there yet): it is what the step carries forward (a video
  * step starts from its source step's pick). It is also selected, so a typed message is about it.
  * Hovering shows what else it can do: images — Fix, More like this, and Redo with fixes when the
  * accuracy check found the product wrong; clips — Edit, Extend; both — Compare with the product.
@@ -75,7 +76,7 @@ export function ResultGrid({
             title={`${r.path.split('/').pop()} · ${r.provider}/${r.model}${r.problems.length ? '\nchecker: ' + r.problems.join('; ') : ''}\nClick to pick it`}
             onClick={() => {
               selectOnly(item)
-              if (!picked) onPick(r.path)
+              onPick(r.path)
             }}
           >
             {video ? (

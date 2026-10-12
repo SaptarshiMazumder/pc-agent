@@ -1,0 +1,78 @@
+{
+  "name": "Guess the price",
+  "summary": "A luxe look, then the surprisingly low price — or the MRP struck through.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "black-friday",
+    "year-end-sale",
+    "summer-sale",
+    "diwali",
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Guess the price?",
+    "Looks like ₹5,000. Costs ₹899."
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The piece looking luxe, the question on screen",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "Guess the price?",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Details close-up",
+      "purpose": "the look",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Worn, full or close",
+      "purpose": "on her",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The price lands: MRP struck through, the sale price",
+      "purpose": "the reveal",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Deadline card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Till Sunday",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "The price, and until when",
+  "cta": "DM / Shop now — COD",
+  "asks": [
+    "offer"
+  ],
+  "why": "Price-anchoring is the most common angle in public jewellery ads.",
+  "sources": [
+    "https://hawky.ai/ad-gallery/rubans"
+  ]
+}

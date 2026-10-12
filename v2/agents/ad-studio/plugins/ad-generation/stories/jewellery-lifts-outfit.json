@@ -1,0 +1,75 @@
+{
+  "name": "Plain outfit + one piece = festive",
+  "summary": "Before/after: a plain saree or kurti, then one hero jewellery piece.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "diwali",
+    "durga-puja"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Plain saree + ₹799 = festive look",
+    "Same kurti, just add this"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The plain outfit, no jewellery, same framing as the after",
+      "purpose": "before",
+      "kind": "image",
+      "product": "",
+      "text": "Before",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Adding the hero piece",
+      "purpose": "the change",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The after look, mirror shot",
+      "purpose": "after",
+      "kind": "image",
+      "product": "hero",
+      "text": "After",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece close-up",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The look's total price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "DM to order",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "One hero piece changes everything",
+  "cta": "DM to order — COD",
+  "asks": [
+    "offer"
+  ],
+  "why": "A clear transformation; fits the 'one hero piece' rule.",
+  "sources": [
+    "https://www.tanishq.ae/blog/jewellery-for-festive-saree-looks-ultimate-styling-guide-for-every-occasion.html"
+  ]
+}

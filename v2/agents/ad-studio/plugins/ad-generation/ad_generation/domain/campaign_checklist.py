@@ -34,6 +34,9 @@ class CampaignChecklist:
     auto_pick: bool = False
     # The user's choices for settings that fill the creative direction, one by one (StepChoices).
     choices: dict = field(default_factory=dict)
+    # The story it makes (its id) and the story's version when it was made; "" = no story.
+    story: str = ""
+    story_version: int = 0
 
     def step(self, step_id: str) -> CampaignStep:
         for s in self.steps:
@@ -88,6 +91,8 @@ class CampaignChecklist:
             "approvals": list(self.approvals),
             "auto_pick": self.auto_pick,
             "choices": dict(self.choices),
+            "story": self.story,
+            "story_version": self.story_version,
         }
 
     @classmethod
@@ -104,4 +109,6 @@ class CampaignChecklist:
             # Campaigns made before the switch existed were made the automatic way.
             auto_pick=bool(data.get("auto_pick", True)),
             choices={str(k): str(v) for k, v in (data.get("choices") or {}).items()},
+            story=str(data.get("story") or ""),
+            story_version=int(data.get("story_version") or 0),
         )

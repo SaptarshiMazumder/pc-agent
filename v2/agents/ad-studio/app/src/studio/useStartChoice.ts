@@ -3,9 +3,9 @@
  * so whatever the user typed stays. The studio reads the choices to offer the other one next. */
 
 import { START } from '../agentd/campaigns'
-import { useApp } from '../state/store'
+import { useApp, type StartChoice } from '../state/store'
 
-const NONE: { recipe?: string; cast?: string; scene?: string } = {}
+const NONE: StartChoice = {}
 
 export function useStartChoice(session: string) {
   const start = useApp((s) => s.starts[session]) ?? NONE
@@ -26,6 +26,14 @@ export function useStartChoice(session: string) {
     pickScene: (scene: string) => {
       append(START.scene(scene))
       setStart(session, { scene })
+    },
+    pickTheme: (key: string) => {
+      append(key === 'own' ? START.ownStory : START.story(key))
+      setStart(session, { theme: key })
+    },
+    pickProducts: (products: { key: string; title: string }[]) => {
+      append(START.storyProducts(products))
+      setStart(session, { products: products.map((p) => p.key) })
     },
     newCast: () => {
       // On its own it makes a cast member; after a recipe, one for this ad.

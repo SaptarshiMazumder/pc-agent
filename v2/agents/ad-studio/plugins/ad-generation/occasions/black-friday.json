@@ -1,0 +1,18 @@
+{
+  "name": "Black Friday / post-Diwali clearance",
+  "dates": [
+    "2026-11-27",
+    "2027-11-26"
+  ],
+  "lead_days": 10,
+  "regions": [],
+  "wear": "clearance festive stock",
+  "jewellery": "clearance festive stock",
+  "themes": [
+    "price-reveal",
+    "bundle-combo",
+    "festive-sale"
+  ],
+  "offers": "flat discount, buy 2 get 1",
+  "notes": ""
+}

@@ -7,6 +7,7 @@ from __future__ import annotations
 from ad_generation.application.campaign_checklist_loader import CampaignChecklistLoader
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.category_library import CategoryLibrary
+from ad_generation.application.interfaces.story_store import StoryStore
 from ad_generation.application.interfaces.cast_library import CastLibrary
 from ad_generation.application.interfaces.poster_text_store import PosterTextStore
 from ad_generation.application.interfaces.recipe_library import RecipeLibrary
@@ -34,7 +35,9 @@ class CampaignViewService:
         texts: PosterTextStore,
         categories: CategoryLibrary,
         sources: TemplateSettingSources,
+        stories: StoryStore,
     ) -> None:
+        self._stories = stories
         self._texts = texts
         self._categories = categories
         self._sources = sources
@@ -63,6 +66,7 @@ class CampaignViewService:
         return {
             "campaign_id": campaign_id,
             "auto_pick": checklist.auto_pick,
+            "story": self._story(checklist),
             "recipe_key": checklist.recipe_key,
             "recipe_title": recipe.title,
             "recipe_name": recipe.name,
@@ -77,7 +81,8 @@ class CampaignViewService:
             "current": current.id if current else "",
             "approval": checklist.approval,
             "steps": [
-                self._step_view(campaign_id, checklist, s, by_step.get(s.id, []), verdicts, recipe, category) for s in checklist.steps
+                self._step_view(campaign_id, checklist, s, by_step.get(s.id, []), verdicts, recipe, category, brief is not None)
+                for s in checklist.steps
             ],
         }
 
@@ -124,6 +129,16 @@ class CampaignViewService:
     def cast(self) -> list[dict]:
         return [m.to_dict() for m in self._cast.all()]
 
+    def _story(self, checklist: CampaignChecklist) -> dict | None:
+        """The story it makes: made for which version, and whether the story has moved on since."""
+        if not checklist.story:
+            return None
+        story = self._stories.get(checklist.story)
+        return {
+            "id": story.id, "title": story.title, "hook": story.hook, "made_for": checklist.story_version,
+            "version": story.version, "stale": story.version > checklist.story_version, "collection": story.collection,
+        }
+
     def recipes(self) -> list[dict]:
         """Every recipe (template), for the window to start an ad from: what it is for, its steps in
         order with the choices each asks for, and whether it casts a model."""
@@ -165,15 +180,19 @@ class CampaignViewService:
         verdicts: dict[str, MediaVerdict],
         recipe: Recipe,
         category: CategoryProfile | None,
+        briefed: bool,
     ) -> dict:
         rows = [self._result(m, verdicts.get(m.path)) for m in results]
         rows.sort(key=lambda r: r["made_at"], reverse=True)
         defaults = {"prompt": "", "references": [], "seconds": 0}
         if step.action in ("images", "video"):
+            # A campaign still waiting for its choices has no brief yet: the brief's scene prompt and
+            # length are not known, so they show empty (running the step refuses, saying why).
+            from_brief = briefed or bool(step.prompt) or not step.scene
             defaults = {
-                "prompt": self._defaults.prompt(campaign_id, step),
+                "prompt": self._defaults.prompt(campaign_id, step) if from_brief else "",
                 "references": list(self._defaults.references(campaign_id, checklist, step)),
-                "seconds": self._defaults.seconds(campaign_id, step) if step.action == "video" else 0,
+                "seconds": (self._defaults.seconds(campaign_id, step) if from_brief or step.seconds else 0) if step.action == "video" else 0,
             }
         if step.action == "product_sheet":
             defaults = {**defaults, "panels": self._defaults.panels(checklist) if step.pick else []}

@@ -22,6 +22,14 @@ class QualityCheckService:
         self._cast = cast
         self._instructions = instructions
 
+    def _story_shot(self, campaign_id: str, purpose: str) -> dict | None:
+        """For a story's campaign: the story and what this result is for in it."""
+        try:
+            story = self._store.story_plan(campaign_id)["story"]
+        except KeyError:
+            return None
+        return {"story": story.get("title", ""), "tone": story.get("tone", ""), "this_shot": purpose}
+
     def check_identity(self, campaign_id: str, media: str, cast_name: str) -> MediaVerdict:
         """A sheet judged for ONE thing: is this the cast member. No product, no scene."""
         sheet = self._cast.get(cast_name).sheet
@@ -72,6 +80,7 @@ class QualityCheckService:
                 "label_text": profile.label_text,
             },
             "copy": list(copy),
+            "story_shot": self._story_shot(campaign_id, purpose),
             "image_order": (
                 ["image 1: the one being judged"]
                 + [f"image {i}: product photo" for i in range(2, 2 + len(profile.photos))]

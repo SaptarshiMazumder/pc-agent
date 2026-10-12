@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 
+from ad_generation.application.interfaces.story_store import StoryStore
 from ad_generation.application.interfaces.brand_store import BrandStore
 from ad_generation.application.interfaces.campaign_store import CampaignStore
 from ad_generation.application.interfaces.collection_store import CollectionStore
@@ -23,6 +24,7 @@ from ad_generation.application.interfaces.progress_reporter import ProgressRepor
 from ad_generation.application.interfaces.slide_renderer import SlideRenderer
 from ad_generation.application.post_page_check import PostPageCheck
 from ad_generation.application.post_planner import PostPlanner
+from ad_generation.domain.story import Story
 from ad_generation.domain.collection import Collection
 from ad_generation.domain.instagram_format import FORMATS
 from ad_generation.domain.design_progress import DesignProgress
@@ -44,7 +46,9 @@ class PostService:
         planner: PostPlanner | None,
         progress: ProgressReporter,
         pages: PostPageCheck | None = None,
+        stories: StoryStore | None = None,
     ) -> None:
+        self._stories = stories
         self._posts = posts
         self._collections = collections
         self._brands = brands
@@ -72,22 +76,32 @@ class PostService:
 
     # ---- planning ------------------------------------------------------------------------------
 
-    def start(self, collection: str, fmt: str, notes: str, session: str) -> tuple[Post, list[str]]:
+    def start(self, collection: str, fmt: str, notes: str, session: str, story: str = "") -> tuple[Post, list[str]]:
+        """A post planned from a collection — or from a story: its collection (unless another is
+        named), its format (unless the user said one), and its shots' order, words and timing."""
+        told = self._story(story) if story else None
+        if told is not None:
+            collection = collection or told.collection
+            if not collection:
+                raise ValueError(f"story {told.id} has no picks yet — the user picks results in its campaigns first")
+            fmt = fmt or told.format
         found = self._collections.find(collection)
         if found is None:
             raise KeyError(f"no collection '{collection}' (collections: {', '.join(c.name for c in self._collections.all()) or 'none yet'})")
         if not found.items:
             raise ValueError(f"collection '{found.name}' is empty — add images and clips to it from a campaign's Generations")
+        fmt = fmt or "carousel"
         if fmt not in FORMATS:
             raise ValueError(f"a post is a {' or a '.join(FORMATS)}, not '{fmt}'")
-        self._progress.say(f"planning a {fmt} from {len(found.items)} items of '{found.name}'")
+        self._progress.say(f"planning a {fmt} from {len(found.items)} items of '{found.name}'" + (f" — the story '{told.title}'" if told else ""))
         answer, slides = self._planner_or_fail().plan(
-            self._facts(found, fmt, notes, None), found, self._looks(found), self._brands.get().tagline
+            self._facts(found, fmt, notes, None, told), found, self._looks(found), self._brands.get().tagline
         )
-        name = str(answer.get("name") or found.name).strip()
+        name = str(answer.get("name") or (told.title if told else found.name)).strip()
         post = Post(
             slug=self._posts.new_slug(name), name=name, collection=found.slug, format=fmt, slides=slides,
             caption=str(answer.get("caption") or "").strip(), hashtags=self._tags(answer), session=session,
+            story=told.id if told else "", story_version=told.version if told else 0,
         )
         post.check()
         self._posts.save(post)
@@ -97,9 +111,12 @@ class PostService:
         post = self._posts.get(slug)
         found = self._collections.get(post.collection)
         self._progress.say(f"re-planning {post.name}")
+        told = self._story(post.story) if post.story else None
         answer, slides = self._planner_or_fail().plan(
-            self._facts(found, post.format, notes, post), found, self._looks(found), self._brands.get().tagline
+            self._facts(found, post.format, notes, post, told), found, self._looks(found), self._brands.get().tagline
         )
+        if told is not None:
+            post.story_version = told.version  # re-planned for the story as it is now
         # A slide the new plan keeps as it was (its picture, its words) keeps its design; the rest
         # need designing again.
         before = list(post.slides)
@@ -235,7 +252,39 @@ class PostService:
             out.append(i.path if i.kind == "image" else self._renderer.still_of(i.path, f"{self._posts.scratch(collection.slug)}/look-{n:02d}.jpg"))
         return out
 
-    def _facts(self, collection: Collection, fmt: str, notes: str, current: Post | None) -> dict:
+    def _story(self, story_id: str) -> Story:
+        if self._stories is None:
+            raise ValueError("this post service has no stories")
+        return self._stories.get(story_id)
+
+    def _story_facts(self, story: Story, collection: Collection) -> dict:
+        """The story as the planner follows it: the direction, and the shot list in order — each
+        shot with the collection items made for it (its picks)."""
+        made_for: dict[str, list[int]] = {}
+        for n, item in enumerate(collection.items, 1):
+            shot = self._shot_of(item)
+            if shot:
+                made_for.setdefault(shot, []).append(n)
+        return {
+            "title": story.title, "occasion": story.occasion, "audience": story.audience, "offer": story.offer,
+            "tone": story.tone, "language": story.language, "hook": story.hook, "caption_angle": story.caption_angle,
+            "cta": story.cta,
+            "shots": [
+                {"id": s.id, "purpose": s.purpose, "shows": s.shows, "kind": s.kind, "text": s.text,
+                 "seconds": s.seconds, "items": made_for.get(s.id, [])}
+                for s in story.shots
+            ],
+        }
+
+    def _shot_of(self, item) -> str:
+        """The story shot a collection item was made for: its campaign stage's id (a video's first
+        frame stage is "<shot>-frame")."""
+        if not item.campaign:
+            return ""
+        step = next((m.step for m in self._campaigns.ledger(item.campaign) if m.path == item.path), "")
+        return step.removesuffix("-frame")
+
+    def _facts(self, collection: Collection, fmt: str, notes: str, current: Post | None, story: Story | None = None) -> dict:
         products = {}
         for c in {i.campaign for i in collection.items if i.campaign}:
             profile, brief = self._campaigns.profile(c), self._campaigns.brief(c)
@@ -259,6 +308,7 @@ class PostService:
             ],
             "notes": notes,
             "current_plan": current.to_dict() if current else None,
+            "story": self._story_facts(story, collection) if story else None,
         }
 
     @staticmethod

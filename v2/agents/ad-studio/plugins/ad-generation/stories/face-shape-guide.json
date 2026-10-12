@@ -1,0 +1,81 @@
+{
+  "name": "Jhumka for every face shape",
+  "summary": "Personal advice: the earring for each face shape.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Round face? Stop wearing round jhumkas",
+    "Your face shape → your perfect earring"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "Title card with face-shape outlines",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Which one is you?",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Round face: a long or angular earring, worn",
+      "purpose": "round",
+      "kind": "image",
+      "product": "each",
+      "text": "Round",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Square face: a rounded drop, worn",
+      "purpose": "square",
+      "kind": "image",
+      "product": "each",
+      "text": "Square",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Heart face: a teardrop, worn",
+      "purpose": "heart",
+      "kind": "image",
+      "product": "each",
+      "text": "Heart",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Long face: a wide dome, worn",
+      "purpose": "long",
+      "kind": "image",
+      "product": "each",
+      "text": "Long",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Call-to-action card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Tell us your face shape",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Tell us your face shape and we'll pick",
+  "cta": "Comment your face shape",
+  "asks": [
+    "tone"
+  ],
+  "why": "Advice people save and send.",
+  "sources": [
+    "https://tyaani.com/blogs/the-tyaani-take/jhumkas-for-every-face-shape-the-ultimate-guide-to-flattering-earrings"
+  ]
+}

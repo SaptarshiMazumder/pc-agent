@@ -11,7 +11,7 @@ import type { AgentdClient } from '@agentd/client'
 import { Film, Loader2, RotateCcw, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, dismissProposal, isVideo, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, chooseSettings, command, dismissProposal, isVideo, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { MediaTileActions } from './MediaTileActions'
 import { ModelSelect } from './ModelSelect'
@@ -27,6 +27,7 @@ export function VideoGeneratePanel({
   lists,
   busy,
   onSend,
+  onShowStage,
 }: {
   client: AgentdClient | null
   campaign: string
@@ -37,6 +38,8 @@ export function VideoGeneratePanel({
   lists: ModelLists | null
   busy: boolean
   onSend: (text: string) => void
+  /** Open another stage — the first frame's, to make a new one. */
+  onShowStage?: (step: string) => void
 }) {
   const selection = useApp((s) => s.selection)
   const bump = useApp((s) => s.bumpStudio)
@@ -51,6 +54,9 @@ export function VideoGeneratePanel({
   const [res, setRes] = useState<string>(proposed?.resolution || startValue(step, 'resolution'))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  // What is picked here is the STAGE's choice, saved at once — so the agent's runs use it too.
+  const choose = (values: Record<string, string>) =>
+    client && void chooseSettings(client, campaign, step.id, values).then(bump).catch((e) => setError(String((e as Error)?.message || e)))
 
   const chosen = model || (step.auto_on ? lists?.video.default || '' : '')
   const spec = lists?.video.models.find((m) => m.id === chosen)
@@ -133,7 +139,14 @@ export function VideoGeneratePanel({
         )}
       </div>
       <div className="another">
-        <span className="strip-label">First frame{source ? ` — from ${source.title}, anything you selected, or your own` : ''}</span>
+        <span className="strip-label">
+          First frame{source ? ` — from ${source.title}, anything you selected, or your own` : ''}
+          {source && onShowStage && (
+            <button className="link-red frame-open" onClick={() => onShowStage(source.id)}>
+              Make a new first frame
+            </button>
+          )}
+        </span>
         {frames.length ? (
           <div className="another-row">
             {frames.map((p) => (
@@ -166,7 +179,7 @@ export function VideoGeneratePanel({
           <textarea rows={2} value={change} disabled={busy} placeholder="What to change — empty for none" onChange={(e) => setChange(e.target.value)} />
         </label>
       )}
-      <ReferenceTray value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
+      <ReferenceTray client={client} value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
       <div className="model-pick">
         {lists && (
           <ModelSelect
@@ -178,12 +191,16 @@ export function VideoGeneratePanel({
             onChange={(m) => {
               setModel(m)
               setRes('')
+              choose({ video_model: m })
             }}
           />
         )}
         <label className="model-field">
           <span className="strip-label">Resolution</span>
-          <select value={resolution} disabled={busy || resolutions.length < 2} onChange={(e) => setRes(e.target.value)}>
+          <select value={resolution} disabled={busy || resolutions.length < 2} onChange={(e) => {
+              setRes(e.target.value)
+              choose({ resolution: e.target.value })
+            }}>
             {!resolution && (
               <option value="" disabled>
                 Choose…
@@ -199,7 +216,7 @@ export function VideoGeneratePanel({
         </label>
         <label className="model-field">
           <span className="strip-label">Length (s)</span>
-          <input type="number" min={range?.min} max={range?.max} value={seconds || ''} placeholder="Choose" disabled={busy} onChange={(e) => setSeconds(Number(e.target.value) || 0)} />
+          <input type="number" min={range?.min} max={range?.max} value={seconds || ''} placeholder="Choose" disabled={busy} onChange={(e) => setSeconds(Number(e.target.value) || 0)} onBlur={() => seconds && choose({ seconds: String(seconds) })} />
           {!lengthOk && range && seconds > 0 && <span className="field-err">{range.min}–{range.max} s on this model</span>}
         </label>
         <button

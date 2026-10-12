@@ -10,10 +10,11 @@ import type { AgentdClient } from '@agentd/client'
 import { ImagePlus, Loader2, RotateCcw, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, dismissProposal, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, chooseSettings, command, dismissProposal, startValue, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { useApp } from '../state/store'
 import { ModelSelect } from './ModelSelect'
 import { ReferenceTray } from './ReferenceTray'
+import { ExpandMedia } from './ExpandMedia'
 
 export function ImageGeneratePanel({
   client,
@@ -47,6 +48,9 @@ export function ImageGeneratePanel({
   const [model, setModel] = useState<string>(proposed?.model || startValue(step, 'model', lists?.image.default || ''))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  // What is picked here is the STAGE's choice, saved at once — so the agent's runs use it too.
+  const choose = (values: Record<string, string>) =>
+    client && void chooseSettings(client, campaign, step.id, values).then(bump).catch((e) => setError(String((e as Error)?.message || e)))
   // An image step needs the person AND the product: models that take one reference are left out.
   const models = (lists?.image.models || []).filter((m) => m.max_references === null || m.max_references >= 2)
   const chosen = model || (step.auto_on ? lists?.image.default || '' : '')
@@ -117,17 +121,21 @@ export function ImageGeneratePanel({
           <textarea rows={2} value={change} disabled={busy} placeholder="What to change — empty for none" onChange={(e) => setChange(e.target.value)} />
         </label>
       )}
-      <ReferenceTray value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
+      <ReferenceTray client={client} value={refs} defaults={step.defaults.references} media={media} onChange={setRefs} />
       {likeIt && (
         <div className="like-chip">
-          <img src={media(likeIt)} alt="" /> More like this one
+          <span className="has-expand like-chip-media">
+            <img src={media(likeIt)} alt="" />
+            <ExpandMedia src={media(likeIt)} path={likeIt} />
+          </span>{' '}
+          More like this one
           <button className="ref-x" onClick={onClearLike} title="Not like this one">
             <X size={10} />
           </button>
         </div>
       )}
       <div className="model-pick">
-        {lists && <ModelSelect label="Model" value={chosen} models={models} placeholder={step.auto_on ? undefined : 'Choose a model…'} disabled={busy} onChange={setModel} />}
+        {lists && <ModelSelect label="Model" value={chosen} models={models} placeholder={step.auto_on ? undefined : 'Choose a model…'} disabled={busy} onChange={(m) => { setModel(m); choose({ image_model: m }) }} />}
         <label className="model-field">
           <span className="strip-label">Images</span>
           <input
@@ -138,6 +146,7 @@ export function ImageGeneratePanel({
             placeholder="How many?"
             disabled={busy}
             onChange={(e) => setCount(e.target.value === '' ? 0 : Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+            onBlur={() => count && choose({ count: String(count) })}
           />
         </label>
         <button

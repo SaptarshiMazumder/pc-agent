@@ -1,0 +1,77 @@
+{
+  "name": "Pack an order with me",
+  "summary": "Trust content: real orders being folded, wrapped, noted and shipped.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "diwali"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Packing 50 Diwali orders",
+    "Your order, packed with love"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Folding the piece",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "hero",
+      "text": "Packing your order",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Tissue and tag",
+      "purpose": "packing",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "A handwritten thank-you note",
+      "purpose": "the care",
+      "kind": "image",
+      "product": "",
+      "text": "Thank you",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The box sealed with a courier label (address blurred)",
+      "purpose": "shipped",
+      "kind": "video",
+      "product": "",
+      "text": "",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "End card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Yours next?",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Ships in 24h, COD available",
+  "cta": "DM to order",
+  "asks": [
+    "offer"
+  ],
+  "why": "Proves real orders go out — matters for unknown sellers.",
+  "sources": [
+    "https://www.markaz.app/blog-post/how-to-make-instagram-reels-that-sell-products"
+  ]
+}

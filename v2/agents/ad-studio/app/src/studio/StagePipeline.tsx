@@ -5,9 +5,10 @@
  * everything it can do. The current stage (the first one not done) is marked; "All generations"
  * shows everything the campaign made, across stages. */
 
-import { Check, Clapperboard, FileText, Grid3x3, Image as ImageIcon, Images, Minus } from 'lucide-react'
+import { Check, Clapperboard, FileText, FolderHeart, Grid3x3, Image as ImageIcon, Images, Minus } from 'lucide-react'
 
 import { isVideo, type CampaignStep, type Media } from '../agentd/campaigns'
+import { ExpandMedia } from './ExpandMedia'
 
 const ICON: Record<CampaignStep['action'], JSX.Element> = {
   brief: <FileText size={16} />,
@@ -32,6 +33,8 @@ export function StagePipeline({
   media,
   onShow,
   onAll,
+  collection,
+  onCollection,
 }: {
   steps: CampaignStep[]
   current: string
@@ -42,23 +45,30 @@ export function StagePipeline({
   media: Media
   onShow: (step: string) => void
   onAll: () => void
+  /** The story's collection: how many it holds and whether it is on screen; null = no story. */
+  collection: { count: number; on: boolean } | null
+  onCollection: () => void
 }) {
+  // A video shot's first frame is part of its clip: it is opened from the clip's stage.
+  const frames = new Set(steps.filter((s) => s.action === 'video' && s.source.endsWith('-frame')).map((s) => s.source))
+  const shownHere = (s: CampaignStep) => !all && !collection?.on && (s.id === shown || (s.source === shown && frames.has(shown)))
   return (
     <nav className="pipeline" aria-label="Stages">
       <ol className="pipeline-stages">
-        {steps.map((s, i) => (
+        {steps.filter((s) => !frames.has(s.id)).map((s, i) => (
           <li
             key={s.id}
-            className={`stage-card${s.status === 'done' ? ' past' : ''}${s.id === current ? ' now' : ''}${!all && s.id === shown ? ' shown' : ''}${s.status === 'skipped' ? ' skipped' : ''}`}
+            className={`stage-card${s.status === 'done' ? ' past' : ''}${s.id === current || s.source === current ? ' now' : ''}${shownHere(s) ? ' shown' : ''}${s.status === 'skipped' ? ' skipped' : ''}`}
           >
             {i > 0 && (
               <span className="stage-arrow" aria-hidden="true">
                 →
               </span>
             )}
-            <button className="stage-btn" onClick={() => onShow(s.id)} aria-current={!all && s.id === shown ? 'step' : undefined}>
-              <span className="stage-thumb">
+            <button className="stage-btn" onClick={() => onShow(s.id)} aria-current={shownHere(s) ? 'step' : undefined}>
+              <span className="stage-thumb has-expand">
                 {s.pick ? isVideo(s.pick) ? <video src={media(s.pick)} muted playsInline preload="metadata" /> : <img src={media(s.pick)} alt="" /> : ICON[s.action]}
+                {s.pick && <ExpandMedia src={media(s.pick)} path={s.pick} title={s.title} />}
               </span>
               <span className="stage-text">
                 <span className="stage-name">
@@ -71,10 +81,18 @@ export function StagePipeline({
           </li>
         ))}
       </ol>
-      <button className={`stage-all${all ? ' on' : ''}`} onClick={onAll} aria-pressed={all}>
-        <Images size={15} />
-        <span>All generations</span>
-      </button>
+      <div className="stage-ends">
+        {collection && (
+          <button className={`stage-all${collection.on ? ' on' : ''}`} onClick={onCollection} aria-pressed={collection.on}>
+            <FolderHeart size={15} />
+            <span>Collection · {collection.count}</span>
+          </button>
+        )}
+        <button className={`stage-all${all ? ' on' : ''}`} onClick={onAll} aria-pressed={all}>
+          <Images size={15} />
+          <span>All generations</span>
+        </button>
+      </div>
     </nav>
   )
 }

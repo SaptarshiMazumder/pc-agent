@@ -68,6 +68,12 @@ class CampaignFileStore:
     def profile(self, campaign_id: str) -> ProductProfile:
         return ProductProfile.load(self._read(campaign_id, "profile.json", "a product profile"))
 
+    def save_story_plan(self, campaign_id: str, plan: dict) -> None:
+        self._write(campaign_id, "story.json", plan)
+
+    def story_plan(self, campaign_id: str) -> dict:
+        return self._read(campaign_id, "story.json", "story")
+
     def save_brief(self, campaign_id: str, brief: CreativeBrief) -> None:
         self._write(campaign_id, "brief.json", brief.to_dict())
 

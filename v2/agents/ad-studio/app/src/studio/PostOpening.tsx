@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { listCollections, POST_START, type Collection } from '../agentd/posts'
 import type { Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { ExpandMedia } from './ExpandMedia'
 
 export function PostOpening({ client, session }: { client: AgentdClient | null; session: string }) {
   const tick = useApp((s) => s.studioTick)
@@ -48,8 +49,12 @@ export function PostOpening({ client, session }: { client: AgentdClient | null; 
             }}
           >
             <span className="collection-thumbs">
-              {c.items.slice(0, 4).map((i) =>
-                i.kind === 'video' ? <video key={i.path} src={data!.media(i.path)} muted preload="metadata" /> : <img key={i.path} src={data!.media(i.path)} alt="" />,
+              {c.items.slice(0, 4).map((i) => (
+                <span key={i.path} className="has-expand collection-thumb">
+                  {i.kind === 'video' ? <video src={data!.media(i.path)} muted preload="metadata" /> : <img src={data!.media(i.path)} alt="" />}
+                  <ExpandMedia src={data!.media(i.path)} path={i.path} />
+                </span>
+              ),
               )}
             </span>
             <span className="collection-name">

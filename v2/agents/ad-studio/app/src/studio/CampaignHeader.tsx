@@ -38,6 +38,12 @@ export function CampaignHeader({ client, campaign, media }: { client: AgentdClie
               {campaign.product.photos.length} product photo{campaign.product.photos.length === 1 ? '' : 's'}
             </button>
             <span className="camp-id">{campaign.campaign_id}</span>
+            {campaign.story && (
+              <span className={`camp-chip story-chip${campaign.story.stale ? ' stale' : ''}`} title={campaign.story.hook}>
+                Story: {campaign.story.title}
+                {campaign.story.stale && ` — made for v${campaign.story.made_for}, the story is now v${campaign.story.version}`}
+              </span>
+            )}
           </div>
         </div>
 

@@ -1,0 +1,77 @@
+{
+  "name": "A letter to my sibling (get ready with me)",
+  "summary": "Getting ready for Rakhi or Bhai Dooj while a voiceover reads a funny letter to a sibling; a comment giveaway.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "raksha-bandhan",
+    "bhai-dooj"
+  ],
+  "goal": "engagement",
+  "hooks": [
+    "Dear bhai, this Rakhi you're paying for my outfit",
+    "Get ready with me + a letter to my annoying brother"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Opening: a hand writing a letter, the title on screen",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "A letter to my bro",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Getting ready: pleating or putting on the outfit",
+      "purpose": "getting ready",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Jewellery and finishing-touch close-up",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The final look full length",
+      "purpose": "the look",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Giveaway card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Comment your sibling story",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Sibling banter — best story in the comments wins",
+  "cta": "Comment your sibling story",
+  "asks": [
+    "offer",
+    "tone"
+  ],
+  "why": "Teejh: 600k+ views, 1k shares, 3k new followers in a week.",
+  "sources": [
+    "https://www.socialsamosa.com/indian-social-media-case-studies/case-study-teejh-celebrated-raksha-bandhan-with-ugc-and-influencer-marketing-campaign-1383183"
+  ]
+}

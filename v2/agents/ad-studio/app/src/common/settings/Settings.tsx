@@ -188,8 +188,9 @@ export function Settings({
               {!group.declared &&
                 !group.secrets &&
                 (group.fields || []).map((f) => {
-                  // The daemon does not expose it -> do not invent a control for it.
-                  if (!(f.key in values)) return null
+                  // The daemon does not expose it -> do not invent a control for it. A dotted key
+                  // (model_defaults.vision) lives under its top-level one.
+                  if (!(f.key.split('.')[0] in values)) return null
                   // With cost efficiency ON, `model` is NOT what runs — the router picks per turn.
                   // Leaving the dropdown on screen would show a value with no effect, which is the
                   // exact confusion this page exists to end.

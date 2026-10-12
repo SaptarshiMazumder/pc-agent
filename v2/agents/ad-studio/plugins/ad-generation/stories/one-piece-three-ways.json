@@ -1,0 +1,75 @@
+{
+  "name": "One piece, three ways",
+  "summary": "One saree, kurta, dupatta or jewellery piece styled three ways for three occasions — cost per wear.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "One saree. Endless possibilities. Would you wear it this way?",
+    "1 piece, 3 vibes — which one is you?"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The piece alone, unfolded or laid flat",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "1 piece, 3 looks",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Way 1 worn full length — office or everyday",
+      "purpose": "way 1",
+      "kind": "image",
+      "product": "hero",
+      "text": "Office",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Way 2 worn full length — pooja or family",
+      "purpose": "way 2",
+      "kind": "image",
+      "product": "hero",
+      "text": "Pooja",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Way 3 worn — party, with a twirl",
+      "purpose": "way 3",
+      "kind": "video",
+      "product": "hero",
+      "text": "Party",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece close-up with its price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Comment 1, 2 or 3",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "1 piece, 3 vibes. Which one are you?",
+  "cta": "Comment 1, 2 or 3",
+  "asks": [
+    "offer",
+    "tone"
+  ],
+  "why": "Turns one product into three outfits — answers 'will I wear it enough?'",
+  "sources": [
+    "https://www.particl.com/tiabhuva/one-saree-1136541-e966e4e2"
+  ]
+}

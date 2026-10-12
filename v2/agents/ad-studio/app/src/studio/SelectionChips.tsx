@@ -5,6 +5,7 @@
 import { Film, X } from 'lucide-react'
 
 import { useApp } from '../state/store'
+import { ExpandMedia } from './ExpandMedia'
 
 export function SelectionChips() {
   const selection = useApp((s) => s.selection)
@@ -15,7 +16,8 @@ export function SelectionChips() {
     <div className="sel-strip">
       <span className="sel-label">Selected</span>
       {selection.map((s) => (
-        <span key={s.path} className="sel-chip" title={s.path}>
+        <span key={s.path} className="sel-chip has-expand" title={s.path}>
+          <ExpandMedia src={s.src} path={s.path} kind={s.kind === 'video' ? 'video' : 'image'} />
           {s.kind === 'video' ? (
             <span className="sel-thumb video">
               <Film size={13} />

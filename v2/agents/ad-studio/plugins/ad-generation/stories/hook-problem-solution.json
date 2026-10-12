@@ -1,0 +1,66 @@
+{
+  "name": "Problem → solution",
+  "summary": "The classic: a real problem, the product solving it, the offer.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Nothing to wear to the sangeet?",
+    "Tired of heavy jhumkas that hurt by 10 PM?"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The problem, shown",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "—?",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The product worn, solving it",
+      "purpose": "the solution",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Detail that proves it",
+      "purpose": "proof",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Offer and call to action",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "DM to order",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Tired of ___? Meet ___",
+  "cta": "DM / link in bio",
+  "asks": [
+    "offer",
+    "audience"
+  ],
+  "why": "The most reused short-ad structure.",
+  "sources": [
+    "https://www.hooked.so/blog/advertising-script-example"
+  ]
+}

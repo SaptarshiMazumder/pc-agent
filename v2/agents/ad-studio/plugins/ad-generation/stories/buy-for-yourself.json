@@ -1,0 +1,66 @@
+{
+  "name": "No occasion needed",
+  "summary": "Self-purchase: first salary, a milestone, self-love.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "womens-day",
+    "valentines",
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "First salary? Start here",
+    "No occasion needed"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A milestone moment (salary credited, a promotion)",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "You earned it",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Treating herself",
+      "purpose": "the treat",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece on the model",
+      "purpose": "the piece",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Price card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "DM to order",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "You earned it",
+  "cta": "DM to order — COD",
+  "asks": [
+    "offer"
+  ],
+  "why": "A buying reason beyond gifting.",
+  "sources": [
+    "https://www.impactonnet.com/more-from-impact/anushka-sharma-fronts-heer-by-givas-new-campaign-centred-on-self-love-and-modern-luxury-14476.html"
+  ]
+}

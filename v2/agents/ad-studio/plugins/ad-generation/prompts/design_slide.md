@@ -57,3 +57,7 @@ Answer with ONE JSON object and nothing else:
   "html": "<!doctype html><html>…</html>",
   "notes": "one line on the design choice"
 }
+
+When FACTS.story is present, the post tells that story: the design serves its tone and occasion (a
+festive Diwali story looks warm and festive; a luxe heritage story looks restrained), and the slide
+that carries the call to action makes FACTS.story.cta the clearest thing on it. Never invent words.

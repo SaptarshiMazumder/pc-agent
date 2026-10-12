@@ -1,0 +1,89 @@
+{
+  "name": "The colour edit",
+  "summary": "The occasion's signature colour (Karva Chauth red, Teej green, Chhath and Saraswati yellow, Onam kasavu) — five pieces that aren't boring.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "karva-chauth",
+    "hariyali-teej",
+    "chhath",
+    "vasant-panchami",
+    "onam",
+    "holi"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Red for Karva Chauth? 5 that aren't boring",
+    "Chaand se pehle, yeh look final karo"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The occasion's prop (moon and sieve, kite, diya) in the colour",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "The red edit",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Piece 1 worn, full length",
+      "purpose": "piece 1",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Piece 2 worn, full length",
+      "purpose": "piece 2",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Piece 3 worn, a turn",
+      "purpose": "piece 3",
+      "kind": "video",
+      "product": "each",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The ritual styling close-up (bangles, sindoor, jasmine)",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Price list card with the order-by date",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "Order by the date",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "One colour, five ways — order before the day",
+  "cta": "DM to order — COD",
+  "asks": [
+    "occasion",
+    "offer"
+  ],
+  "why": "A single-colour need with a hard date creates urgency.",
+  "sources": [
+    "https://itokri.com/blogs/craft-masala-by-itokri/red-sarees-for-karwa-chauth"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "name": "9 days, 9 colours",
+  "summary": "Navratri's colour of each day, one look per day — a daily series and a master list.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "navratri"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Day 1: Yellow — your Navratri look is sorted",
+    "9 din, 9 rang, 9 looks. Save the list."
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "Title card: the nine colours",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "9 days, 9 colours",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Day 1 colour look, full length",
+      "purpose": "day 1",
+      "kind": "image",
+      "product": "each",
+      "text": "Day 1",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Day 2 colour look, full length",
+      "purpose": "day 2",
+      "kind": "image",
+      "product": "each",
+      "text": "Day 2",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Day 3 colour look, full length",
+      "purpose": "day 3",
+      "kind": "image",
+      "product": "each",
+      "text": "Day 3",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Fabric or jewellery detail of a day's look",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The full list with a combo price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM 'Day 5' to book",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "The colour of each day and its meaning",
+  "cta": "DM the day to book",
+  "asks": [
+    "offer"
+  ],
+  "why": "A built-in daily return visit.",
+  "sources": [
+    "https://www.socialsamosa.com/2020/12/case-study-suta-navratri-campaign"
+  ]
+}

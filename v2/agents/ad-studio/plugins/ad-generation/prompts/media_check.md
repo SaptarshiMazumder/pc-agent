@@ -47,3 +47,8 @@ Answer with ONE JSON object and nothing else:
 - problems: what is wrong, specifically ("the bag's gold clasp is silver", "left hand has six
   fingers", "the logo text is garbled", "her hair is blonde, the sheet is auburn"). Empty only
   when there is nothing to fix.
+
+When FACTS.story_shot is present, this result is one shot of a story: also answer
+"fits_story": true when it shows what FACTS.story_shot.this_shot is for in that story (the right
+moment, look, mood), false when it does not — and say what is off in `problems`. This is advice,
+like the score.

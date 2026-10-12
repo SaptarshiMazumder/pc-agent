@@ -1,0 +1,77 @@
+{
+  "name": "Any 3 for ₹999",
+  "summary": "A bundle offer: pieces dropping in, the total crossed out, the bundle price.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "black-friday",
+    "year-end-sale",
+    "summer-sale",
+    "diwali"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Any 3 for ₹999",
+    "Buy 2 get 1 free"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Three pieces dropping onto the frame one by one",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "all",
+      "text": "Any 3 for ₹999",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The running total crossed out",
+      "purpose": "the deal",
+      "kind": "image",
+      "product": "all",
+      "text": "",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Mix-and-match look 1",
+      "purpose": "look 1",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Mix-and-match look 2",
+      "purpose": "look 2",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Deadline card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM your 3 picks",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Mix any 3",
+  "cta": "DM your 3 picks",
+  "asks": [
+    "offer"
+  ],
+  "why": "The most-run offer in public jewellery ads (Palmonas BUY 3 AT 2999 in 270 ads).",
+  "sources": [
+    "https://hawky.ai/ad-gallery/palmonas"
+  ]
+}

@@ -15,6 +15,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { listModels, type ModelLists } from '../agentd/campaigns'
+import { listCollections } from '../agentd/posts'
 import { useApp } from '../state/store'
 import { AddProductStill } from './AddProductStill'
 import { CampaignHeader } from './CampaignHeader'
@@ -27,6 +28,9 @@ import { PostOpening } from './PostOpening'
 import { PostPanel } from './PostPanel'
 import { StagePipeline } from './StagePipeline'
 import { StepPanel } from './StepPanel'
+import { StoryCollectionTray } from './StoryCollectionTray'
+import { StoryPanel } from './StoryPanel'
+import { useSessionStory } from './useSessionStory'
 import { useStartData } from './useStartData'
 import { useCampaign } from './useCampaign'
 import { usePost } from './usePost'
@@ -39,7 +43,6 @@ export function Studio({
   session,
   running,
   onAnswer,
-  onFiles,
 }: {
   client: AgentdClient | null
   /** The socket is open — the model lists are (re)loaded when it is. */
@@ -47,8 +50,6 @@ export function Studio({
   session: string
   running: boolean
   onAnswer: (text: string) => void
-  /** Attach files to the chat's next message (a new ad's product photos). */
-  onFiles: (files: FileList | File[]) => void
 }) {
   const tick = useApp((s) => s.studioTick)
   const pinned = useApp((s) => s.pinned[session] || '')
@@ -62,6 +63,9 @@ export function Studio({
   const { post, media: postMedia, progress: postProgress, error: postError } = usePost(client, session, pinnedPost)
   const working = Object.values(jobs)
   const [all, setAll] = useState(false)
+  const [tray, setTray] = useState(false)
+  const [trayCount, setTrayCount] = useState(0)
+  const [trayError, setTrayError] = useState('')
   const [shown, setShown] = useState('')
 
   /* THE MODELS, loaded once: the agent's specs. Said, not swallowed, when they cannot be read —
@@ -70,6 +74,7 @@ export function Studio({
   const [listsError, setListsError] = useState('')
   // The cast, for a stage that asks who is in it.
   const { cast } = useStartData(client)
+  const { story, error: storyError } = useSessionStory(client, session)
   // Loaded when the connection opens — and tried again on every studio refresh until it works: a
   // window that opened before the socket did used to stay without dropdowns for good.
   useEffect(() => {
@@ -96,10 +101,25 @@ export function Studio({
   const show = (id: string) => {
     setShown(id)
     setAll(false)
+    setTray(false)
   }
+  const defaultStage = campaign
+    ? campaign.steps.find((s) => s.action === 'video' && s.source === campaign.current && campaign.current.endsWith('-frame'))?.id || campaign.current
+    : ''
   const step = campaign
-    ? campaign.steps.find((s) => s.id === (shown || campaign.current)) || campaign.steps[campaign.steps.length - 1]
+    ? campaign.steps.find((s) => s.id === (shown || defaultStage)) || campaign.steps[campaign.steps.length - 1]
     : undefined
+  // How many the story's collection holds — for its card in the stage strip.
+  useEffect(() => {
+    const slug = campaign?.story?.collection
+    if (!client || !slug) return setTrayCount(0)
+    listCollections(client)
+      .then((d) => {
+        setTrayCount(d.collections.find((c) => c.slug === slug)?.items.length || 0)
+        setTrayError('')
+      })
+      .catch((e) => setTrayError(String((e as Error)?.message || e)))
+  }, [client, campaign?.story?.collection, tick])
 
   return (
     <section className="studio">
@@ -118,12 +138,26 @@ export function Studio({
       <CastProposals client={client} connected={connected} lists={lists} running={running} onSend={onAnswer} />
 
       {postError && <div className="studio-error">Could not read the post: {postError}</div>}
+      {storyError && <div className="studio-error">Could not read the story: {storyError}</div>}
+      {trayError && <div className="studio-error">Could not read the story's collection: {trayError}</div>}
+      {/* The chat's story: full while it is being written, folded once its campaigns or post exist. */}
+      {story && (
+        <StoryPanel
+          key={story.id}
+          client={client}
+          story={story}
+          busy={running}
+          made={!!campaign || !!post}
+          onSend={onAnswer}
+          startCollapsed={!!campaign || !!post}
+        />
+      )}
       {post ? (
         <PostPanel key={post.slug} client={client} post={post} media={postMedia} progress={postProgress} running={running} onSend={onAnswer} />
       ) : postChat && !campaign ? (
         <PostOpening client={client} session={session} />
       ) : !campaign ? (
-        !loading && <NewAdSetup client={client} session={session} onFiles={onFiles} />
+        !loading && !story && <NewAdSetup client={client} session={session} />
       ) : (
         <>
           <CampaignHeader client={client} campaign={campaign} media={media} />
@@ -134,7 +168,15 @@ export function Studio({
             all={all}
             media={media}
             onShow={show}
-            onAll={() => setAll(true)}
+            onAll={() => {
+              setAll(true)
+              setTray(false)
+            }}
+            collection={campaign.story ? { count: trayCount, on: tray } : null}
+            onCollection={() => {
+              setTray(true)
+              setAll(false)
+            }}
           />
           <AddProductStill client={client} campaign={campaign.campaign_id} onAdded={show} />
 
@@ -145,7 +187,9 @@ export function Studio({
             </div>
           )}
 
-          {all ? (
+          {tray && campaign.story ? (
+            <StoryCollectionTray client={client} story={campaign.story} busy={running} onSend={onAnswer} />
+          ) : all ? (
             <GenerationsTab client={client} campaign={campaign.campaign_id} />
           ) : (
             <>
@@ -160,6 +204,7 @@ export function Studio({
                   cast={cast}
                   busy={running}
                   onSend={onAnswer}
+                  onShowStage={show}
                 />
               )}
               {!campaign.current && <DoneView campaign={campaign} media={media} />}

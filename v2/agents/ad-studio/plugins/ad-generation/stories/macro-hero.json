@@ -1,0 +1,65 @@
+{
+  "name": "Look a little closer",
+  "summary": "Product hero: a macro shimmer, a turn, then on-model scale.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Look a little closer.",
+    "Wait for the sparkle"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Dark background, slow macro orbit of the stones",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "hero",
+      "text": "Look closer",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece turning, 360°",
+      "purpose": "the piece",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "On the model, close, to show its real size",
+      "purpose": "scale",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Price card",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Only a few made",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Name, price, how many",
+  "cta": "DM to order",
+  "asks": [
+    "offer"
+  ],
+  "why": "A macro stops the scroll; the on-model shot answers 'how big?'",
+  "sources": [
+    "https://insights.vaizle.com/jewellery-instagram-content-strategy/"
+  ]
+}

@@ -5,6 +5,7 @@ import { Film } from 'lucide-react'
 
 import type { Slide, SlideDesignState } from '../agentd/posts'
 import type { ViewerItem } from '../state/store'
+import { ExpandMedia } from './ExpandMedia'
 
 export function SlideFilmstrip({
   slides,
@@ -28,6 +29,7 @@ export function SlideFilmstrip({
           <li key={`${s.item}:${i}`}>
             <button className={`film-slide${i === selected ? ' on' : ''}`} onClick={() => onSelect(i)} aria-current={i === selected} title={v.title}>
               {v.kind === 'video' ? <video src={v.src} muted playsInline preload="metadata" /> : <img src={v.src} alt="" loading="lazy" />}
+              <ExpandMedia src={v.src} path={v.src} kind={v.kind} title={v.title} />
               <span className="film-n">{i + 1}</span>
               {s.kind === 'video' && (
                 <span className="film-kind">

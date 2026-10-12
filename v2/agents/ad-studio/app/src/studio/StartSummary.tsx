@@ -71,7 +71,7 @@ export function StartSummary({ client, session }: { client: AgentdClient | null;
 
       {ready && (
         <p className="start-ready-note">
-          <Paperclip size={13} /> Attach the product photos, add anything about the look, and send.
+          <Paperclip size={13} /> Add the product to the workspace (or attach photos here), say anything about the look, and send.
         </p>
       )}
 

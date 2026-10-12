@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { pickResult, posterText, type Media, type TextLayer } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { ExpandMedia } from './ExpandMedia'
 
 const FONTS: Record<string, string> = {
   'bold-sans': 'Bold sans',
@@ -129,6 +130,7 @@ export function PosterTextEditor({
       <div className="te-body">
         <div className="te-canvas" ref={canvas}>
           <img src={`${media(shown.path)}&v=${shown.v}`} alt="" />
+          <ExpandMedia src={`${media(shown.path)}&v=${shown.v}`} path={shown.path} />
           {(layers || []).map((l, i) => (
             <div
               key={l.role}

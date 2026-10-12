@@ -1,0 +1,65 @@
+{
+  "name": "Send your budget, we'll send designs",
+  "summary": "WhatsApp shopping help: a mock chat, three options, a pick.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "akshaya-tritiya",
+    "dhanteras",
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Send your budget. We'll send 10 designs.",
+    "Send your outfit pic, we'll match the jewellery"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A chat screen: a budget and an outfit photo",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Send your budget",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The seller's three options",
+      "purpose": "the options",
+      "kind": "image",
+      "product": "all",
+      "text": "",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The chosen piece on the model",
+      "purpose": "the pick",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Message-us card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Reply with your budget",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Reply with your budget",
+  "cta": "Message us on WhatsApp",
+  "asks": [
+    "offer"
+  ],
+  "why": "Makes the next step a WhatsApp chat.",
+  "sources": [
+    "https://adspyder.io/blog/akshaya-tritiya-jewellery-ads/"
+  ]
+}

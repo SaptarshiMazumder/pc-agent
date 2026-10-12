@@ -1,0 +1,79 @@
+{
+  "name": "Festive sale",
+  "summary": "The offer in big type, the hero products with old and new prices, urgency.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "diwali",
+    "black-friday",
+    "year-end-sale",
+    "summer-sale",
+    "eid-ul-fitr"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "FLAT 30% — Diwali sale",
+    "Last 3 days"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The offer in big type over a festive frame",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Flat —% off",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Hero product 1 worn, old → new price",
+      "purpose": "hero 1",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Hero product 2 worn, old → new price",
+      "purpose": "hero 2",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Hero product 3 in motion",
+      "purpose": "hero 3",
+      "kind": "video",
+      "product": "each",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Urgency: end date or stock",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "Ends —",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "The discount, the code, the end date",
+  "cta": "Shop / DM before <date>",
+  "asks": [
+    "offer",
+    "occasion"
+  ],
+  "why": "Clear offer, clear deadline.",
+  "sources": [
+    "https://www.hooked.so/blog/advertising-script-example"
+  ]
+}

@@ -7,6 +7,7 @@ import { ArrowRight, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { isVideo, type CampaignDetail, type CampaignStep, type Media } from '../agentd/campaigns'
+import { ExpandMedia } from './ExpandMedia'
 
 export function CarryForwardBar({
   campaign,
@@ -28,7 +29,10 @@ export function CarryForwardBar({
   return (
     <div className="carry-bar">
       {step.pick && (
-        <span className="carry-thumb">{isVideo(step.pick) ? <video src={media(step.pick)} muted playsInline preload="metadata" /> : <img src={media(step.pick)} alt="" />}</span>
+        <span className="carry-thumb has-expand">
+          {isVideo(step.pick) ? <video src={media(step.pick)} muted playsInline preload="metadata" /> : <img src={media(step.pick)} alt="" />}
+          <ExpandMedia src={media(step.pick)} path={step.pick} title={step.title} />
+        </span>
       )}
       <div className="carry-text">
         <span className="carry-main">

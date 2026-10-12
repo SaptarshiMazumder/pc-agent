@@ -66,6 +66,7 @@ class BriefService:
             ],
             "shots": [t.to_dict() for t in recipe.shots],
             "direction": direction.given(),
+            "story": self._story(campaign_id),
         }
         answer, look = self._ask(
             self._recipe_instructions, facts, direction, recipe.needs_cast(), [t.id for t in recipe.shots]
@@ -82,6 +83,15 @@ class BriefService:
         brief = recipe.build_brief(answer, look, composed, cast_member, aspect_ratio=direction.aspect_ratio)
         self._store.save_brief(campaign_id, brief)
         return brief
+
+    def _story(self, campaign_id: str) -> dict | None:
+        """The story this campaign makes, as it was when made — what every scene serves."""
+        try:
+            story = self._store.story_plan(campaign_id)["story"]
+        except KeyError:
+            return None
+        keep = ("title", "occasion", "audience", "goal", "offer", "tone", "language", "hook", "caption_angle", "cta")
+        return {k: story.get(k, "") for k in keep}
 
     # ---- the checklist -----------------------------------------------------------------------
 

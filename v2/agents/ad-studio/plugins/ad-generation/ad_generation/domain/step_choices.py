@@ -31,7 +31,8 @@ class StepChoices:
     @staticmethod
     def value(checklist: CampaignChecklist, step: CampaignStep, setting: TemplateSetting) -> str:
         if setting.home == "cast":
-            return checklist.cast_name
+            # "none": the user said no one is cast — a choice made, not one missing.
+            return "none" if checklist.choices.get("cast") == "none" else checklist.cast_name
         if setting.home == "direction":
             return str(checklist.choices.get(setting.key) or "")
         if setting.home == "count":
@@ -78,7 +79,12 @@ class StepChoices:
             s = declared[key]
             value = s.check(raw)
             if s.home == "cast":
-                checklist.cast_name = value
+                if value.lower() == "none":
+                    checklist.choices["cast"] = "none"
+                    checklist.cast_name = ""
+                else:
+                    checklist.choices.pop("cast", None)
+                    checklist.cast_name = value
             elif s.home == "direction":
                 if value:
                     checklist.choices[key] = value

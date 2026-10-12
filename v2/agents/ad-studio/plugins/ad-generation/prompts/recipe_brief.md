@@ -8,6 +8,10 @@ FACTS holds the product (with its must_keep details), the cast you may choose fr
 (playbooks) this recipe allows, the fixed shots (each with its `direction`), and the user's
 `direction`.
 
+When FACTS.story is present, this ad tells that story: each shot's `direction` already says what
+it shows and what it is in the story — write every scene to serve exactly that, in the story's tone
+and for its audience and occasion. The look follows the story; never drift to a generic scene.
+
 When the product has a `shot_guidance` (its category's framing — how a saree, a necklace, a
 pair of earrings is shot so it reads), every shot follows it.
 

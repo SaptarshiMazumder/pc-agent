@@ -9,7 +9,7 @@
  * forms that make MORE are the stage's other half (StageInspector). */
 
 import type { AgentdClient } from '@agentd/client'
-import { AlertTriangle, Type } from 'lucide-react'
+import { AlertTriangle, Loader2, Type } from 'lucide-react'
 
 import { isVideo, posterText, updateStep, type CampaignDetail, type CampaignStep, type Media, type ModelLists } from '../agentd/campaigns'
 import { BriefView } from './BriefView'
@@ -37,6 +37,7 @@ export function StageResults({
   box,
   proposedBox,
   onPick,
+  making,
   onAction,
   onCloseBox,
   onSend,
@@ -59,6 +60,8 @@ export function StageResults({
   /** The box the agent proposed (a fix or a clip edit), pre-filled. */
   proposedBox: ActionBox
   onPick: (path: string) => void
+  /** A run of this stage in progress (its latest progress line); "" when none. */
+  making: string
   onAction: (action: TileAction, path: string) => void
   onCloseBox: () => void
   onSend: (text: string) => void
@@ -69,7 +72,16 @@ export function StageResults({
   const proposal = step.proposal?.tool ? step.proposal : null
   const boxResult = box ? step.results.find((r) => r.path === box.path) : undefined
   const isSheet = step.action === 'sheet' || step.action === 'product_sheet'
-  const empty = !step.results.length && <div className="stage-empty">Nothing made yet — generate on the right, or ask in the chat.</div>
+  const empty = making ? (
+    <div className="stage-making">
+      <Loader2 size={15} className="spin" />
+      <span>
+        <b>Generating…</b> {making}
+      </span>
+    </div>
+  ) : (
+    !step.results.length && <div className="stage-empty">Nothing made yet — generate on the right, or ask in the chat.</div>
+  )
 
   if (step.action === 'brief')
     return (

@@ -1,0 +1,82 @@
+{
+  "name": "Why not a saree — Monday to Friday",
+  "summary": "Everyday and office wear: one easy piece per weekday.",
+  "kinds": [
+    "wear"
+  ],
+  "occasions": [
+    "evergreen",
+    "womens-day"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Why not a saree?",
+    "5 days, 5 office sarees under ₹1500"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "Commute or office shot with the question",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "each",
+      "text": "Why not a saree?",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Monday look",
+      "purpose": "monday",
+      "kind": "image",
+      "product": "each",
+      "text": "Mon",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Wednesday look",
+      "purpose": "wednesday",
+      "kind": "image",
+      "product": "each",
+      "text": "Wed",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Friday look",
+      "purpose": "friday",
+      "kind": "image",
+      "product": "each",
+      "text": "Fri",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Breathable fabric close-up",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The bundle with its price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "DM for the bundle",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Easy drapes for every weekday",
+  "cta": "DM for the bundle",
+  "asks": [
+    "offer"
+  ],
+  "why": "Widens wear from occasions to every day.",
+  "sources": [
+    "https://particl.com/utkalamrita/why-not-a-saree-1086742-2e52d678"
+  ]
+}

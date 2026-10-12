@@ -1,0 +1,79 @@
+{
+  "name": "Unbox with me",
+  "summary": "The gifting experience: box, ribbon, tissue, the piece catching light.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "raksha-bandhan",
+    "diwali",
+    "valentines",
+    "karva-chauth",
+    "evergreen"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "She opened it like this…",
+    "Sound on"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A sealed box from above",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "Sound on",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Ribbon pulled, tissue opened",
+      "purpose": "the unboxing",
+      "kind": "video",
+      "product": "",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece catching the light in the box",
+      "purpose": "the reveal",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece worn",
+      "purpose": "on her",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Name and price",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Gift-ready",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Gift-ready packaging included",
+  "cta": "DM 'GIFT'",
+  "asks": [
+    "offer"
+  ],
+  "why": "Sells the gifting experience.",
+  "sources": [
+    "https://branvas.com/blogs/news/instagram-reels-ideas-jewelry-brand"
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "name": "Festival, day by day",
+  "summary": "One look for each day or ritual of a multi-day festival (Pujo Shashthi→Dashami, Diwali's five days, Ganesh's ten).",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "durga-puja",
+    "diwali",
+    "ganesh-chaturthi"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "5 days, 5 looks — sorted",
+    "Pujo outfit plan kora hoye geche?"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Title card with the days",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "5 days, 5 looks",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Day 1 look for its ritual",
+      "purpose": "day 1",
+      "kind": "image",
+      "product": "each",
+      "text": "Day 1",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Day 2 look for its ritual",
+      "purpose": "day 2",
+      "kind": "image",
+      "product": "each",
+      "text": "Day 2",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The main day's look, full length, in motion",
+      "purpose": "main day",
+      "kind": "video",
+      "product": "each",
+      "text": "The big day",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The last day's look with its ritual detail",
+      "purpose": "last day",
+      "kind": "image",
+      "product": "each",
+      "text": "Last day",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Order-by date card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "all",
+      "text": "Order by the date",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "One ritual per day — order before the first day",
+  "cta": "Order by <date>",
+  "asks": [
+    "occasion",
+    "offer",
+    "audience",
+    "tone"
+  ],
+  "why": "Maps products onto rituals the buyer already plans.",
+  "sources": [
+    "https://www.mediainfoline.com/advertising/tata-cliq-fashions-social-media-campaign-amar-pujo-amar-cliq-invites-consumers-to-discover-festive-style-this-durga-puja"
+  ]
+}

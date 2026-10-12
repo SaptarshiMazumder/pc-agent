@@ -9,6 +9,7 @@ import { useState } from 'react'
 
 import { approveRun, command, type Media, type ModelLists } from '../agentd/campaigns'
 import { ModelSelect } from './ModelSelect'
+import { ExpandMedia } from './ExpandMedia'
 
 const ORDER = ['headline', 'subline', 'offer', 'cta', 'fine_print']
 const ROLE: Record<string, string> = { headline: 'headline', subline: 'subline', offer: 'offer', cta: 'button', fine_print: 'fine print' }
@@ -88,7 +89,10 @@ export function ModelTextEdit({
         </button>
       </div>
       <div className="act-row">
-        <img className="act-thumb" src={media(path)} alt="" />
+        <span className="has-expand act-thumb-wrap">
+          <img className="act-thumb" src={media(path)} alt="" />
+          <ExpandMedia src={media(path)} path={path} />
+        </span>
         <div className="te-fields grow">
           {roles.map((r) => (
             <label key={r} className="te-layer">

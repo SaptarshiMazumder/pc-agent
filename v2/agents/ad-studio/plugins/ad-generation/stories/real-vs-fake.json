@@ -1,0 +1,74 @@
+{
+  "name": "Real vs fake",
+  "summary": "Buyer education: how to tell real Banarasi, silk, zari or plating from a copy — and that yours passes.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "wedding-season-winter"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Is your Banarasi real? 3 tests in 30 seconds",
+    "₹800 'Banarasi' vs the real one — see the difference"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Two pieces side by side with the question",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "Real or fake?",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Test 1: the reverse side of the weave",
+      "purpose": "test 1",
+      "kind": "image",
+      "product": "hero",
+      "text": "Check the back",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Test 2: zari or plating close-up",
+      "purpose": "test 2",
+      "kind": "image",
+      "product": "hero",
+      "text": "Check the zari",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The certificate or tag (Silk Mark, hallmark) — only if the product has one",
+      "purpose": "proof",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Yours worn, with its price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Ours passes",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "A checklist buyers save",
+  "cta": "Ask us for the proof — DM",
+  "asks": [
+    "offer"
+  ],
+  "why": "Builds trust and justifies the price.",
+  "sources": [
+    "https://hmrhandlooms.com/blogs/hmr-blogs/how-to-identify-original-banarasi-saree"
+  ]
+}

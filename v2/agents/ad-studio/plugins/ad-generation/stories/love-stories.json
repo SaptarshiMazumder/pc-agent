@@ -1,0 +1,63 @@
+{
+  "name": "Real love stories",
+  "summary": "Customers' couple stories, a daily series, a giveaway.",
+  "kinds": [
+    "jewellery"
+  ],
+  "occasions": [
+    "valentines"
+  ],
+  "goal": "engagement",
+  "hooks": [
+    "Tell us your love story, win this ring",
+    "He gifted this on our first date"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "A customer couple's photo — only real ones the user has",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Their story",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Their story as on-screen text",
+      "purpose": "the story",
+      "kind": "image",
+      "product": "",
+      "text": "—",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The piece they wear",
+      "purpose": "the piece",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Contest card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "",
+      "text": "Tell us yours",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "Tag us with your story",
+  "cta": "Comment your story — win it",
+  "asks": [
+    "offer"
+  ],
+  "why": "Giva drew 200+ couples posting and tagging.",
+  "sources": [
+    "https://www.theweek.in/wire-updates/business/2025/02/14/dcm11-giva.html"
+  ]
+}

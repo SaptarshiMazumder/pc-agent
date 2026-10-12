@@ -1,0 +1,81 @@
+{
+  "name": "Get ready with me",
+  "summary": "Getting ready for the occasion step by step, each item tagged, a mirror reveal.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "karva-chauth",
+    "diwali",
+    "wedding-season-winter",
+    "eid-ul-fitr",
+    "durga-puja"
+  ],
+  "goal": "sell",
+  "hooks": [
+    "Get ready with me for my first Karva Chauth",
+    "GRWM for Diwali puja"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The occasion title over a mirror",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "GRWM",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Putting on the outfit / draping",
+      "purpose": "dress",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Adding the jewellery",
+      "purpose": "jewellery",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The finishing touch (bindi, flowers, bangles)",
+      "purpose": "finish",
+      "kind": "image",
+      "product": "each",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The final mirror reveal",
+      "purpose": "the look",
+      "kind": "video",
+      "product": "all",
+      "text": "Wearing:",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Wearing: each item with its price",
+  "cta": "DM to order",
+  "asks": [
+    "occasion",
+    "offer"
+  ],
+  "why": "Products shown in use, in order.",
+  "sources": [
+    "https://www.hooked.so/blog/advertising-script-example"
+  ]
+}

@@ -35,6 +35,9 @@ class CampaignStep:
     # product references). Set by the user or the agent for a step of their own.
     prompt: str = ""
     references: tuple[str, ...] = ()
+    # The user's own references (a look, a pose, a background to follow) sent AFTER the defaults —
+    # unlike `references`, which replaces them.
+    extra_references: tuple[str, ...] = ()
     cast: bool = True  # a person appears: the cast member's sheet rides along and is checked
     shows_product: bool = True  # the product appears: its photos ride along and are checked
     count: int = 0  # images per run; 0 = the recipe's
@@ -42,6 +45,7 @@ class CampaignStep:
     # What it was last run with, so the next run starts from the same settings.
     model: str = ""  # "provider/model"
     seconds: int = 0
+    aspect: str = ""  # its own shape ("" = the brief's) — a story's shot sets it
     resolution: str = ""
     # A run the agent proposed and the user has not approved yet: {"tool": ..., "args": {...}}.
     # Shown pre-filled in the studio; the user picks the model and generates, or dismisses it.
@@ -75,6 +79,7 @@ class CampaignStep:
             "source": self.source,
             "prompt": self.prompt,
             "references": list(self.references),
+            "extra_references": list(self.extra_references),
             "cast": self.cast,
             "shows_product": self.shows_product,
             "count": self.count,
@@ -85,6 +90,7 @@ class CampaignStep:
             "proposal": dict(self.proposal),
             "text": self.text,
             "auto": self.auto,
+            "aspect": self.aspect,
         }
 
     @classmethod
@@ -98,6 +104,7 @@ class CampaignStep:
             source=str(data.get("source") or ""),
             prompt=str(data.get("prompt") or ""),
             references=tuple(str(r) for r in data.get("references") or ()),
+            extra_references=tuple(str(r) for r in data.get("extra_references") or ()),
             cast=bool(data.get("cast", True)),
             shows_product=bool(data.get("shows_product", True)),
             count=int(data.get("count") or 0),
@@ -108,4 +115,5 @@ class CampaignStep:
             proposal=dict(data.get("proposal") or {}),
             text=str(data.get("text") or ""),
             auto=None if data.get("auto") is None else bool(data.get("auto")),
+            aspect=str(data.get("aspect") or ""),
         )

@@ -13,7 +13,7 @@ import type { AgentdClient } from '@agentd/client'
 import { RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 
-import { approveRun, command, startValue, type CampaignDetail, type CampaignStep, type CastMember, type Media, type ModelLists } from '../agentd/campaigns'
+import { approveRun, chooseSettings, command, startValue, type CampaignDetail, type CampaignStep, type CastMember, type Media, type ModelLists } from '../agentd/campaigns'
 import { ImageGeneratePanel } from './ImageGeneratePanel'
 import { ModelSelect } from './ModelSelect'
 import { StepSettingsForm } from './StepSettingsForm'
@@ -24,6 +24,7 @@ export function StageInspector({
   campaign,
   detail,
   cast,
+  onShowStage,
   step,
   source,
   media,
@@ -38,6 +39,7 @@ export function StageInspector({
   campaign: string
   detail: CampaignDetail
   cast: CastMember[]
+  onShowStage: (step: string) => void
   step: CampaignStep
   source: CampaignStep | undefined
   media: Media
@@ -144,7 +146,10 @@ export function StageInspector({
                   step.action === 'product_sheet' ? lists.image.models.filter((m) => m.max_references === null || m.max_references >= 2) : lists.image.models
                 }
                 disabled={busy}
-                onChange={setSheetModel}
+                onChange={(m) => {
+                  setSheetModel(m)
+                  direct(() => chooseSettings(client!, campaign, step.id, { image_model: m }))
+                }}
               />
             )}
             <button
@@ -204,6 +209,7 @@ export function StageInspector({
           lists={lists}
           busy={busy}
           onSend={onSend}
+          onShowStage={onShowStage}
         />
       )}
     </aside>

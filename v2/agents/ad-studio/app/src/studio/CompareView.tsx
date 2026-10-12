@@ -6,6 +6,7 @@ import { Wand2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { isVideo, type Media, type StepResult } from '../agentd/campaigns'
+import { ExpandMedia } from './ExpandMedia'
 
 export function CompareView({
   result,
@@ -43,7 +44,12 @@ export function CompareView({
         <div className="compare-panes">
           <figure className="compare-pane">
             <figcaption>The product — photo {at + 1} of {photos.length}</figcaption>
-            {photo && <img src={media(photo)} alt="product photo" />}
+            {photo && (
+              <span className="compare-media has-expand">
+                <img src={media(photo)} alt="product photo" />
+                <ExpandMedia src={media(photo)} path={photo} title={`Product photo ${at + 1}`} />
+              </span>
+            )}
             {photos.length > 1 && (
               <div className="compare-thumbs">
                 {photos.map((p, i) => (
@@ -59,7 +65,10 @@ export function CompareView({
               The result{result.score !== null ? ` — ${result.score}/10` : ''}
               {failed ? ' · missed the product' : result.passed ? ' · product exact' : ''}
             </figcaption>
-            {isVideo(result.path) ? <video src={media(result.path)} controls autoPlay muted loop playsInline /> : <img src={media(result.path)} alt="result" />}
+            <span className="compare-media has-expand">
+              {isVideo(result.path) ? <video src={media(result.path)} controls autoPlay muted loop playsInline /> : <img src={media(result.path)} alt="result" />}
+              <ExpandMedia src={media(result.path)} path={result.path} title="The result" />
+            </span>
           </figure>
         </div>
         {result.problems.length > 0 && (

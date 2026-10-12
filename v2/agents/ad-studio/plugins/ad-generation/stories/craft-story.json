@@ -1,0 +1,77 @@
+{
+  "name": "From the loom (or bench) to you",
+  "summary": "How it is made: hands, tools, the motif, then the finished piece worn.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen",
+    "handloom-day"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "This saree took 12 days to weave. Watch.",
+    "Most people don't realize how many hours this takes…"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "The loom or the jeweller's bench in motion",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "",
+      "text": "12 days for one piece",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The artisan's hands at work",
+      "purpose": "the craft",
+      "kind": "video",
+      "product": "",
+      "text": "",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Macro of the motif or the stone setting",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The finished piece worn, full length",
+      "purpose": "the result",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Name of the weave/craft, the place and the price",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Handmade in —",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "The weave, the village, the days it took",
+  "cta": "DM to order",
+  "asks": [
+    "offer",
+    "tone"
+  ],
+  "why": "Craft content beat brands' usual posts by ~22%; origin stories perform best.",
+  "sources": [
+    "https://insights.vaizle.com/jewellery-instagram-content-strategy/"
+  ]
+}

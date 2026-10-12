@@ -72,7 +72,7 @@ class StepDefaults:
                 photos = self._store.profile(campaign_id).photos
                 refs += list(photos[: 2 if panels else self._max_product_photos])
             refs += panels  # a clip gets the views too: they hold the product as it turns
-        return tuple(refs)
+        return tuple(refs) + step.extra_references
 
     def panels(self, checklist: CampaignChecklist) -> list[str]:
         """The picked product sheet's panels, one view each — none without a picked sheet."""

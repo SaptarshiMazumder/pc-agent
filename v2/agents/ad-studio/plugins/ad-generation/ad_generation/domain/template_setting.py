@@ -111,7 +111,8 @@ STANDARD: dict[str, TemplateSetting] = {
         TemplateSetting("image_model", "Model", "model", "model", required=True, help="Which image model makes them."),
         TemplateSetting("video_model", "Model", "model", "model", required=True, help="Which video model makes it."),
         TemplateSetting("seconds", "Length (s)", "number", "seconds", required=True, suggested="5", minimum=3, maximum=15),
-        TemplateSetting("resolution", "Resolution", "resolution", "resolution", RESOLUTIONS, required=True, suggested="720p"),
+        # No fixed options: each clip model lists its own (480p…4K); the Generate panel offers those.
+        TemplateSetting("resolution", "Resolution", "resolution", "resolution", (), required=True, suggested="720p"),
     )
 }
 

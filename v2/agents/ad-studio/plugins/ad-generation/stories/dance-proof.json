@@ -1,0 +1,77 @@
+{
+  "name": "Can you dance in it?",
+  "summary": "Proof of comfort: real women dancing in it, the fabric flowing.",
+  "kinds": [
+    "wear"
+  ],
+  "occasions": [
+    "navratri",
+    "wedding-season-winter",
+    "evergreen"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Saree mein dance? Watch.",
+    "If you can dance in it, you can do anything in it."
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "A woman starts dancing in the outfit",
+      "purpose": "hook",
+      "kind": "video",
+      "product": "hero",
+      "text": "Can you dance in it?",
+      "count": 1,
+      "seconds": 3,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Wide shot: a group dancing",
+      "purpose": "proof",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 5,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Slow motion of the pallu or skirt flowing",
+      "purpose": "the flow",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Close-up of the soft fabric",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Fabric name and price card",
+      "purpose": "price + call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "DM to order",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Light, no draping stress",
+  "cta": "DM to order",
+  "asks": [
+    "offer"
+  ],
+  "why": "The Indian Ethnic Co.'s first such reel crossed 1M views and sold out overnight.",
+  "sources": [
+    "https://www.socialsamosa.com/2021/08/the-indian-ethnic-co-reels-strategy-lekhinee-desai-interview"
+  ]
+}

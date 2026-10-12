@@ -1,0 +1,74 @@
+{
+  "name": "Just dropped — comment PRICE",
+  "summary": "A new piece revealed fast; every comment is a lead.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "launch",
+  "hooks": [
+    "Just dropped — comment 'price'",
+    "New in: only 12 pieces"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "Teaser macro of the fabric or stones",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "hero",
+      "text": "Just dropped",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The model reveal, full length",
+      "purpose": "reveal",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "A twirl or the pallu flowing",
+      "purpose": "in motion",
+      "kind": "video",
+      "product": "hero",
+      "text": "",
+      "count": 1,
+      "seconds": 4,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Blouse or clasp detail",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "End card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Comment PRICE",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "The piece's code, how many there are",
+  "cta": "Comment 'PRICE' — we'll DM the link",
+  "asks": [
+    "offer"
+  ],
+  "why": "Each comment is a lead and an algorithm signal.",
+  "sources": [
+    "https://www.particl.com/sudathi-fashion/grace-meets-grandeur-3221567-d46c8852"
+  ]
+}

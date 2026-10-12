@@ -1,0 +1,64 @@
+{
+  "name": "Real customers, real words",
+  "summary": "Social proof: a customer wearing it, their review, the product.",
+  "kinds": [
+    "wear",
+    "jewellery"
+  ],
+  "occasions": [
+    "evergreen"
+  ],
+  "goal": "trust",
+  "hooks": [
+    "Her words, not ours",
+    "She wore our set to her sister's wedding"
+  ],
+  "format": "carousel",
+  "shots": [
+    {
+      "shows": "A customer's photo wearing it — only real ones the user has, with permission",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Real customer",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Their WhatsApp review (name blurred)",
+      "purpose": "the review",
+      "kind": "image",
+      "product": "",
+      "text": "",
+      "count": 1,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "The product close-up",
+      "purpose": "the piece",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "4:5"
+    },
+    {
+      "shows": "Call-to-action card",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Order on WhatsApp",
+      "count": 1,
+      "aspect": "4:5"
+    }
+  ],
+  "caption": "500+ happy customers (only the user's real count)",
+  "cta": "Order on WhatsApp",
+  "asks": [
+    "offer"
+  ],
+  "why": "Answers 'is this seller real?'",
+  "sources": [
+    "https://branvas.com/blogs/news/instagram-reels-ideas-jewelry-brand"
+  ]
+}

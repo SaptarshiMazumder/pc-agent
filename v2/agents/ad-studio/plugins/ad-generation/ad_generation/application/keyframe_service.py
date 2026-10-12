@@ -89,7 +89,7 @@ class KeyframeService:
             model=model,
             prompt=prompt,
             references=tuple(references),
-            aspect_ratio=self._store.brief(campaign_id).aspect_ratio,
+            aspect_ratio=step.aspect or self._store.brief(campaign_id).aspect_ratio,
             variants=count,
             out_stem=self._store.take_stem(campaign_id, step.id),
             max_usd=max_usd,

@@ -13,6 +13,7 @@ class MediaVerdict:
     identity_kept: bool  # the cast member is recognisably the same person
     problems: tuple[str, ...]  # what to fix, concretely — becomes the next prompt's correction
     text_exact: bool = True  # a text ad: every word of its copy rendered exactly (else True)
+    fits_story: bool = True  # a story's shot: it shows what the shot is for in the story (advice)
 
     @property
     def passed(self) -> bool:
@@ -34,6 +35,7 @@ class MediaVerdict:
             identity_kept=bool(data["identity_kept"]),
             problems=tuple(str(p).strip() for p in data.get("problems") or [] if str(p).strip()),
             text_exact=bool(data.get("text_exact", True)),
+            fits_story=bool(data.get("fits_story", True)),
         )
 
     @classmethod

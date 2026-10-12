@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 
 import { listCampaigns, money, type CampaignRow, type Media } from '../agentd/campaigns'
 import { useApp } from '../state/store'
+import { ExpandMedia } from '../studio/ExpandMedia'
 
 export function CampaignsPage({
   client,
@@ -42,8 +43,9 @@ export function CampaignsPage({
       <div className="grid-cards">
         {(data?.rows || []).map((r) => (
           <button key={r.id} className="camp-card" onClick={() => onOpen(r.id)}>
-            <div className="camp-cover">
+            <div className="camp-cover has-expand">
               {r.cover ? <img src={data!.media(r.cover)} alt={r.name} loading="lazy" /> : null}
+              {r.cover && <ExpandMedia src={data!.media(r.cover)} path={r.cover} title={r.name} />}
               <span className={`gate-badge small${r.step === 'done' ? ' g-done' : ''}`}>{r.step}</span>
             </div>
             <div className="camp-body">

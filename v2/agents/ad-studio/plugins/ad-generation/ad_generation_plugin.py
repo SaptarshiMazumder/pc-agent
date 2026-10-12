@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from datetime import date
 
 import imageio_ffmpeg
 from pathlib import Path
@@ -83,6 +84,25 @@ from ad_generation.infrastructure.poster_text_file_store import PosterTextFileSt
 from ad_generation.infrastructure.price_calculator import PriceCalculator
 from ad_generation.infrastructure.provider_generator_catalog import ProviderGeneratorCatalog
 from ad_generation.infrastructure.recipe_file_library import RecipeFileLibrary
+from ad_generation.application.shop_product_service import ShopProductService
+from ad_generation.application.story_service import StoryService
+from ad_generation.infrastructure.occasion_file_library import OccasionFileLibrary
+from ad_generation.infrastructure.shop_product_file_store import ShopProductFileStore
+from ad_generation.infrastructure.story_file_store import StoryFileStore
+from ad_generation.infrastructure.story_recipe_library import StoryRecipeLibrary
+from ad_generation.application.story_campaigns import StoryCampaigns
+from ad_generation.application.story_collector import StoryCollector
+from ad_generation.presentation.story_make_tool import StoryMakeTool
+from ad_generation.infrastructure.story_theme_file_library import StoryThemeFileLibrary
+from ad_generation.presentation.product_list_tool import ProductListTool
+from ad_generation.presentation.product_remove_tool import ProductRemoveTool
+from ad_generation.presentation.product_save_tool import ProductSaveTool
+from ad_generation.presentation.story_approve_tool import StoryApproveTool
+from ad_generation.presentation.story_draft_tool import StoryDraftTool
+from ad_generation.presentation.story_list_tool import StoryListTool
+from ad_generation.presentation.story_revise_tool import StoryReviseTool
+from ad_generation.presentation.story_suggest_tool import StorySuggestTool
+from ad_generation.presentation.story_update_tool import StoryUpdateTool
 from ad_generation.infrastructure.category_file_library import CategoryFileLibrary
 from ad_generation.infrastructure.location_file_library import LocationFileLibrary
 from ad_generation.application.template_autofill import TemplateAutofill
@@ -188,7 +208,8 @@ def register(api, ctx):
     frames = OpenCvClipFrames(workspace)
     cast = CastFileLibrary(workspace)
     formats = FormatFileLibrary(root / "formats")
-    recipes = RecipeFileLibrary(root / "recipes")
+    # Templates, and every story campaign's story-shaped recipe built on one of them.
+    recipes = StoryRecipeLibrary(RecipeFileLibrary(root / "recipes"), store)
     # The shop's product categories and the places to shoot in: data, like the recipes.
     categories = CategoryFileLibrary(root / "categories")
     sources = TemplateSettingSources(LocationFileLibrary(root / "locations"))
@@ -198,12 +219,23 @@ def register(api, ctx):
     defaults = StepDefaults(store, cast, faces, PillowSheetPanels(workspace), _MAX_PRODUCT_PHOTOS)
     previews = PillowMediaPreviewer(workspace, _PREVIEW_MAX_SIDE, _PREVIEW_JPEG_QUALITY)
     media = StepMedia(store)
-    editor = CampaignChecklistEditor(store, recipes, loader, media, sources)
+    # Stories: the direction of a campaign or post, drafted from a theme or the user's own words,
+    # with the shot list of what to make. Products: the shop's catalogue, set up once.
+    shop_products = ShopProductFileStore(workspace)
+    product_catalogue = ShopProductService(shop_products, time.time)
+    story_files = StoryFileStore(workspace)
+    story_themes = StoryThemeFileLibrary(root / "stories")
+    occasions = OccasionFileLibrary(root / "occasions")
+
+    collection_files = CollectionFileStore(workspace)
+    collections = CollectionService(collection_files, store)
+    story_collector = StoryCollector(story_files, collections)
+    editor = CampaignChecklistEditor(store, recipes, loader, media, sources, story_collector)
     approvals = RunApprovals(store, loader, lambda: secrets.token_hex(12))
     cast_approvals = OneTimeApprovals(ProposalFileStore(workspace, "cast/proposals.json"), lambda: secrets.token_hex(12))
     poster_texts = PosterTextFileStore(workspace)
     poster_text = PosterTextService(store, poster_texts, PillowPosterTypesetter(workspace, root / "fonts"))
-    views = CampaignViewService(store, recipes, cast, loader, defaults, media, poster_texts, categories, sources)
+    views = CampaignViewService(store, recipes, cast, loader, defaults, media, poster_texts, categories, sources, story_files)
     keyframes = KeyframeService(generators, store, defaults, prompt("photo_style_person"), prompt("photo_style_product"))
     animation = AnimationService(generators, store, defaults)
 
@@ -246,18 +278,20 @@ def register(api, ctx):
             product_sheets(check_reasoner),
             keyframes, animation,
             checks(check_reasoner), frames, store, recipes, loader, defaults, poster_text, progress,
-            categories, sources, autofill, still_fix(check_reasoner),
+            categories, sources, autofill, still_fix(check_reasoner), editor, story_collector,
         )
 
     vision_images = VisionImagePreparer(workspace, _VISION_MAX_SIDE, _VISION_JPEG_QUALITY)
 
     # Posts: collections gathered from any campaign -> an Instagram carousel or Reel, planned by the
     # agent's model from the playbook, rendered with Pillow + ffmpeg (no generation, nothing paid).
-    collection_files = CollectionFileStore(workspace)
-    collections = CollectionService(collection_files, store)
     # The library: every campaign's generations and the user's own uploads, picked into collections.
     library = LibraryService(store, LibraryFileStore(workspace), collections)
     brand_files = BrandFileStore(workspace)
+    def stories(reasoner):
+        return StoryService(
+            reasoner, story_files, story_themes, occasions, shop_products, brand_files, prompt("story_draft"), time.time, date.today,
+        )
     media_probe = FfmpegMediaProbe(workspace, imageio_ffmpeg.get_ffmpeg_exe())
     slide_renderer = FfmpegSlideRenderer(workspace, root / "fonts", imageio_ffmpeg.get_ffmpeg_exe(), media_probe)
     post_files = PostFileStore(workspace)
@@ -271,7 +305,7 @@ def register(api, ctx):
         return DesignService(
             reasoner, post_files, collection_files, brand_files, design_templates, design_references,
             DesignReferencePicker(reasoner, prompt("design_reference_pick")), design_renderer, slide_renderer,
-            prompt("design_slide"), prompt("design_playbook"), prompt("design_critique"), progress, time.time,
+            prompt("design_slide"), prompt("design_playbook"), prompt("design_critique"), progress, time.time, story_files,
         )
 
     def references(reasoner, progress):
@@ -280,7 +314,7 @@ def register(api, ctx):
     def posts(reasoner, progress):
         planner = PostPlanner(reasoner, prompt("post_plan"), prompt("post_playbook")) if reasoner is not None else None
         pages = PostPageCheck(reasoner, prompt("post_page_check")) if reasoner is not None else None
-        return PostService(post_files, collection_files, brand_files, store, slide_renderer, design_renderer, media_probe, planner, progress, pages)
+        return PostService(post_files, collection_files, brand_files, store, slide_renderer, design_renderer, media_probe, planner, progress, pages, story_files)
     validator = GenerationChoiceValidator(specs)
     # A campaign: started from its recipe, then any step run, re-run, added, changed, picked.
     api.register_tool(CampaignStartTool(config, steps, views, vision_images))
@@ -312,6 +346,16 @@ def register(api, ctx):
     api.register_tool(LibraryRemoveTool(library))
     api.register_tool(LibraryToCollectionTool(library))
     api.register_tool(BrandProfileTool(BrandService(brand_files)))
+    api.register_tool(ProductListTool(product_catalogue, workspace))
+    api.register_tool(ProductSaveTool(product_catalogue))
+    api.register_tool(ProductRemoveTool(product_catalogue))
+    api.register_tool(StorySuggestTool(stories(None)))
+    api.register_tool(StoryDraftTool(config, stories, vision_images))
+    api.register_tool(StoryReviseTool(config, stories, vision_images))
+    api.register_tool(StoryUpdateTool(stories(None)))
+    api.register_tool(StoryApproveTool(stories(None)))
+    api.register_tool(StoryListTool(stories(None)))
+    api.register_tool(StoryMakeTool(config, steps, StoryCampaigns(story_files, shop_products), views, vision_images))
     api.register_tool(PostStartTool(config, posts, vision_images))
     api.register_tool(PostReplanTool(config, posts, vision_images))
     api.register_tool(PostUpdateTool(posts))

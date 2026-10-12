@@ -36,12 +36,24 @@ export interface ViewerItem {
   title: string
 }
 
+/** A file in a new ad's workspace, and the user's words for what it is. */
+export interface WorkspaceFile {
+  path: string
+  tag: string
+}
+
 export interface StartChoice {
   recipe?: string
   cast?: string
   scene?: string
   mode?: 'ad' | 'post'
   collection?: string
+  /** The files the ad starts from (AdWorkspace). */
+  workspace?: WorkspaceFile[]
+  /** The story theme chosen ('own' = the user tells their own). */
+  theme?: string
+  /** The shop products chosen for it. */
+  products?: string[]
 }
 
 /** How full the model's context window is, as the daemon last reported it. */

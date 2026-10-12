@@ -146,6 +146,8 @@ export interface CampaignDetail {
   approval: 'ask' | 'auto'
   /** The Auto switch: false = the user makes every choice; true = the agent fills unchosen ones. */
   auto_pick: boolean
+  /** The story it makes: made for which version, and whether the story has changed since. */
+  story?: { id: string; title: string; hook: string; made_for: number; version: number; stale: boolean; collection: string } | null
   steps: CampaignStep[]
 }
 
@@ -298,6 +300,11 @@ export async function listRecipes(client: AgentdClient): Promise<Recipe[]> {
    window"). The first choice STARTS the message; the second is appended to it. */
 
 export const START = {
+  // A story: the theme chosen, or the user's own words after the colon; the products by name (key).
+  story: (key: string) => `Tell a story with the theme ${key}.`,
+  ownStory: 'My own story: ',
+  storyProducts: (products: { key: string; title: string }[]) =>
+    `For the products: ${products.map((p) => `${p.title} (${p.key})`).join(', ')}.`,
   recipe: (key: string, extra = '') => `Make an ad for this product with the recipe ${key}.${extra ? ' ' + extra : ''}`,
   cast: (name: string) => `Make an ad for this product with ${name}.`,
   addRecipe: (key: string, extra = '') => `Use the recipe ${key}.${extra ? ' ' + extra : ''}`,
@@ -339,6 +346,13 @@ export async function importImage(client: AgentdClient, campaign: string, step: 
   })
   if (!res?.ok) throw new Error(String(res?.error || 'upload failed'))
   const d = await invoke(client, 'step_import', { campaign, step, path: String(res.path) })
+  return String(d.media?.path || '')
+}
+
+/** An image already in the workspace (a library pick) as a result of an image step — free and
+ *  instant, no agent turn. -> its path in the step. */
+export async function importFromWorkspace(client: AgentdClient, campaign: string, step: string, path: string): Promise<string> {
+  const d = await invoke(client, 'step_import', { campaign, step, path })
   return String(d.media?.path || '')
 }
 

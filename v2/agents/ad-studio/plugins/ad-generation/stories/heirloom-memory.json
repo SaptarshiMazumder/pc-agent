@@ -1,0 +1,73 @@
+{
+  "name": "Maa ki saree",
+  "summary": "Nostalgia: then (mother's or grandmother's photo) and now (the daughter in a similar piece).",
+  "kinds": [
+    "wear"
+  ],
+  "occasions": [
+    "mothers-day",
+    "wedding-season-winter"
+  ],
+  "goal": "engagement",
+  "hooks": [
+    "Some sarees carry 30 years of love",
+    "Wore my mother's wedding saree's twin today"
+  ],
+  "format": "reel",
+  "shots": [
+    {
+      "shows": "An old family photo of a mother in a saree",
+      "purpose": "hook",
+      "kind": "image",
+      "product": "",
+      "text": "Some sarees carry 30 years of love",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The daughter today in a similar piece, full length",
+      "purpose": "now",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "Border or motif: then and now",
+      "purpose": "detail",
+      "kind": "image",
+      "product": "hero",
+      "text": "",
+      "count": 2,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "An emotional line on a quiet frame",
+      "purpose": "the feeling",
+      "kind": "image",
+      "product": "",
+      "text": "Make your own heirloom",
+      "count": 1,
+      "aspect": "9:16"
+    },
+    {
+      "shows": "The piece with its price",
+      "purpose": "call to action",
+      "kind": "image",
+      "product": "hero",
+      "text": "Tell us about your mom's saree",
+      "count": 1,
+      "aspect": "9:16"
+    }
+  ],
+  "caption": "Invite their stories",
+  "cta": "Tell us about your mom's saree",
+  "asks": [
+    "tone"
+  ],
+  "why": "Nostalgia drives shares and comments.",
+  "sources": [
+    "https://www.impactonnet.com/more-from-impact/mysore-saree-udyogs-latest-campaign-celebrates-love-across-generations-9981.html"
+  ]
+}
