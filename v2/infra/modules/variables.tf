@@ -285,6 +285,34 @@ variable "ec2_target_capacity" {
   }
 }
 
+variable "service_capacity_pool_overrides" {
+  description = "Per-environment placement overrides; permits one production host without changing other environments."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = alltrue([for name, pool in var.service_capacity_pool_overrides :
+      contains(keys(var.services), name) && contains(keys(var.ec2_capacity_pools), pool)])
+    error_message = "Each placement override must name an existing service and capacity pool."
+  }
+}
+
+variable "enable_dashboards" {
+  description = "Create the optional CloudWatch dashboards (each has a recurring monthly charge)."
+  type        = bool
+  default     = true
+}
+
+variable "service_cpu_overrides" {
+  description = "Per-environment CPU reservations; executor jobs remain isolated from the daemon."
+  type        = map(number)
+  default     = {}
+  validation {
+    condition = alltrue([for name, cpu in var.service_cpu_overrides :
+      contains(keys(var.services), name) && cpu >= 128 && floor(cpu) == cpu])
+    error_message = "CPU overrides must name existing services and reserve at least 128 whole CPU units."
+  }
+}
+
 variable "accounts_external_database" {
   description = <<-EOT
     This environment's accounts service keeps its data OUTSIDE the container (Postgres), not in
@@ -1197,6 +1225,8 @@ locals {
       }
       ) : name => merge(cfg, {
         on_ec2 = var.ec2_capacity_enabled && contains(var.ec2_services, name)
+        capacity_pool = lookup(var.service_capacity_pool_overrides, name, cfg.capacity_pool)
+        cpu = lookup(var.service_cpu_overrides, name, cfg.cpu)
     })
   }
   # WHERE SIBLINGS REACH accounts AND model-proxy — the one place that answers it.

@@ -194,11 +194,9 @@ module "stack" {
   # becomes unreadable, which locks out every account at once rather than losing a credential.
   secret_recovery_window_days = 30
 
-  # DELETION PROTECTION ON THE LOAD BALANCER, because it IS the address: every client bakes the
-  # platform URL, and a replacement ALB returns on a different hostname. Staging leaves this off
-  # so `hibernate` and down.ps1 keep working, which is exactly the capability production should
-  # not have by accident.
-  alb_deletion_protection = true
+  # The nightly OFF controller removes the ALB and restores its Route53 aliases on ON.
+  # The delegated production hostname stays fixed across these replacements.
+  alb_deletion_protection = false
 
   image_tag_mutability      = "MUTABLE"
   ecr_force_delete          = true
@@ -235,6 +233,11 @@ module "stack" {
   # provider strategy, and the ASG sits at zero instances until a task needs a machine.
   ec2_capacity_enabled = var.ec2_capacity_enabled
   ec2_capacity_pools   = var.ec2_capacity_pools
+  service_capacity_pool_overrides = { daemon = "shared" }
+  # The daemon coordinates remote executor jobs; its 512-unit reservation lets all
+  # five services fit on the single two-core host without reducing their memory.
+  service_cpu_overrides = { daemon = 512 }
+  enable_dashboards = false
   # WHICH services are on EC2 — the one-at-a-time dial. Empty = everything stays on Fargate.
   ec2_services = var.ec2_services
 
@@ -360,8 +363,7 @@ variable "ec2_capacity_pools" {
     primary = optional(bool, false)
   }))
   default = {
-    daemon = { instance_type = "t3.medium", min_size = 1, max_size = 1 }
-    shared = { instance_type = "t3.medium", min_size = 1, max_size = 2, primary = true }
+    shared = { instance_type = "m6a.large", min_size = 1, max_size = 1, primary = true }
   }
 }
 variable "accounts_desired_count" {

@@ -1,0 +1,12 @@
+{
+  "domain": "platform.nakamaai.co",
+  "hosted_zone_id": "Z03906613MU46UB1NOGY1",
+  "cloudflare_record_type": "NS",
+  "cloudflare_record_name": "platform",
+  "nameservers": [
+    "ns-356.awsdns-44.com",
+    "ns-1259.awsdns-29.org",
+    "ns-2008.awsdns-59.co.uk",
+    "ns-946.awsdns-54.net"
+  ]
+}

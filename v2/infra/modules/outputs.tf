@@ -179,8 +179,8 @@ output "scheduled_jobs_log_group" {
 output "dashboard_urls" {
   description = "Direct links to the two dashboards. Service health during an incident; business daily."
   value = {
-    service_health = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.service_health.dashboard_name}"
-    business       = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.business.dashboard_name}"
+    service_health = var.enable_dashboards ? "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.service_health[0].dashboard_name}" : ""
+    business       = var.enable_dashboards ? "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.business[0].dashboard_name}" : ""
   }
 }
 

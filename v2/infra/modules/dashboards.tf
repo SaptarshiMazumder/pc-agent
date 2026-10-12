@@ -46,7 +46,18 @@ locals {
   h_row     = 6
 }
 
+moved {
+  from = aws_cloudwatch_dashboard.service_health
+  to   = aws_cloudwatch_dashboard.service_health[0]
+}
+
+moved {
+  from = aws_cloudwatch_dashboard.business
+  to   = aws_cloudwatch_dashboard.business[0]
+}
+
 resource "aws_cloudwatch_dashboard" "service_health" {
+  count = var.enable_dashboards ? 1 : 0
   dashboard_name = "${local.name_prefix}-service-health"
 
   dashboard_body = jsonencode({
@@ -227,6 +238,7 @@ resource "aws_cloudwatch_dashboard" "service_health" {
 }
 
 resource "aws_cloudwatch_dashboard" "business" {
+  count = var.enable_dashboards ? 1 : 0
   dashboard_name = "${local.name_prefix}-business"
 
   dashboard_body = jsonencode({
