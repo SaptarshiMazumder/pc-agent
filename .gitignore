@@ -92,3 +92,6 @@ plantuml-*.jar
 *.trace.jsonl
 /marketing
 /tmp
+
+# Local review artifacts (comparison frames, renders) — never committed.
+artifacts/
