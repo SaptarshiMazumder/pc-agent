@@ -120,6 +120,25 @@ export const GROUPS: Group[] = [
     costEfficiency: true,
   },
   {
+    // THE MODELS AN AGENT'S TOOLS USE for a kind of work, not its brain: a tool that reads images
+    // (a product analysis, an accuracy check) runs on the vision model. Account-wide — a tool's
+    // model is resolved per account — and empty keeps the built-in default.
+    title: 'Models for tools',
+    tab: 'models',
+    help:
+      'What the agents’ own tools run on, for every agent on this account. Empty uses the ' +
+      'built-in default.',
+    fields: [
+      {
+        key: 'model_defaults.vision',
+        label: 'Vision model',
+        type: 'select',
+        catalog: 'models',
+        help: 'Reads images inside tools — e.g. Ad Studio’s product analysis and accuracy checks.',
+      },
+    ],
+  },
+  {
     // What agent.toml's [[settings]] declared. The daemon sends the FIELDS; the values stay on
     // this machine. An agent that declares nothing shows nothing — the group hides itself.
     title: 'What this agent needs',
