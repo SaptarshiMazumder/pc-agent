@@ -18,6 +18,7 @@ import { gatewayRequest } from './gatewayRpc'
 import { desktopOAuthSignIn } from './oauthLoopback'
 import { fetchPlatformDiscovery } from './platformDiscovery'
 import { requestBilling, type BillingRequest } from './billingTransport'
+import { requestAdmin } from './adminTransport'
 import { connectUrl } from './rendezvous'
 import { Supervisor } from './supervisor'
 
@@ -100,6 +101,8 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('admin:request', (_e, url: string, init?: BillingRequest) =>
+    requestAdmin(flavor.accountsUrl || flavor.platformUrl, String(url || ''), init))
   ipcMain.handle('billing:request', (_e, url: string, init?: BillingRequest) =>
     requestBilling(flavor.accountsUrl || flavor.platformUrl, String(url || ''), init))
   ipcMain.handle('app:platformDiscovery', () =>

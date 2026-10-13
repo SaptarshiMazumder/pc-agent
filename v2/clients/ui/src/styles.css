@@ -1734,6 +1734,7 @@ video.artifact-preview { width: 460px; max-width: 100%; height: auto; background
   background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 11px;
 }
 .admin-action-row input:focus { outline: none; border-color: var(--accent); }
+.signup-credit-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 
 /* search box in a panel header */
 .admin-search {

@@ -11,6 +11,8 @@ const api = {
   flavor: () => ipcRenderer.invoke('app:flavor'),
   platformDiscovery: (): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('app:platformDiscovery'),
+  adminRequest: (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }):
+    Promise<{ status: number; body: string }> => ipcRenderer.invoke('admin:request', url, init),
   billingRequest: (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }):
     Promise<{ status: number; body: string }> => ipcRenderer.invoke('billing:request', url, init),
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),

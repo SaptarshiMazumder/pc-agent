@@ -135,6 +135,7 @@ try:  # pragma: no cover - exercised by whichever path the runtime takes
     import orgs_api
     import postgres_connection_pool
     import postgres_schema as accounts_postgres_schema
+    import signup_policy
     from account_balance_reader import AccountBalanceReader
     from accounts_post_processor import (
         AccountsPostProcessor,
@@ -166,6 +167,7 @@ except ModuleNotFoundError:  # pragma: no cover
     # in sys.modules, so loading this one first is what makes those bare imports resolve under
     # the by-path loader. Moving this line below them breaks both routers, in tests only.
     _sibling("sort_order_resolver")
+    signup_policy = _sibling("signup_policy")
     admin_api = _sibling("admin_api")
     admin_metrics_api = _sibling("admin_metrics_api")
     ledger = _sibling("ledger")
@@ -271,6 +273,7 @@ def _init_db() -> None:
             # has accounts: every account without a `local` identity gets one, so its next login
             # resolves to the SAME account instead of minting a second.
             identity_postgres_schema.backfill_local_identities(conn, at=_now())
+            signup_policy.schema(SqliteDialectConnection(conn), now=_now())
         return
 
     with _db() as c:
@@ -480,6 +483,7 @@ def _init_db() -> None:
         identity_schema.create_schema(c)
         vast.create_sqlite_schema(c)
         identity_schema.backfill_local_identities(c, at=_now())
+        signup_policy.schema(c, now=_now())
 
 
 # --- password hashing (stdlib, no bcrypt dependency) -------------------------
@@ -1617,37 +1621,17 @@ def _write_grant(
     return int(grant_id)
 
 
-def _signup_credits() -> tuple[int, float]:
-    """(credits, expires_at) for a brand-new account. 0 credits = the feature is off.
-
-    OFF BY DEFAULT so dev and staging do not quietly hand out inference on every test account;
-    production opts in through terraform. 10,000 credits is $0.20 of model calls at the
-    platform's own rate, which is the number to weigh against a signup.
-    """
-    try:
-        credits = max(0, int((os.environ.get("AGENTD_SIGNUP_CREDITS") or "0").strip() or 0))
-    except ValueError:
-        credits = 0
-    try:
-        days = float((os.environ.get("AGENTD_SIGNUP_CREDIT_DAYS") or "30").strip() or 30)
-    except ValueError:
-        days = 30.0
-    # Same expiry semantics as every other grant: 0 = never, positive = N days from now.
-    return credits, (_now() + days * 86_400) if days else 0.0
-
-
 def _grant_signup_credits(c: sqlite3.Connection, account_id: str) -> None:
     """The welcome grant, inside the transaction that created the account.
 
-    CALLED ONCE BECAUSE CREATION HAPPENS ONCE -- there is no "has this account had its free
-    credits" check anywhere, and there must not need to be: the only caller is the INSERT that
-    mints the id. A second call for the same account would be a second grant, so this must never
-    be wired to sign-IN.
+    Only account creation calls this hook, never an existing user's sign-in. A durable claim
+    also prevents accidental replay. Disabling the policy stops future grants, and an edit
+    never alters a previously issued balance or moves personal credits into an org pool.
 
     PROMOTIONAL, not paid. The ledger keeps free credits out of revenue and out of creator
     payouts, and that distinction is the reason the class exists.
     """
-    credits, expires_at = _signup_credits()
+    credits, expires_at = signup_policy.claim(c, account_id, now=_now())
     if credits <= 0:
         return
     _write_grant(

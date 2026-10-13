@@ -1591,6 +1591,75 @@ function CreatorsPanel(): ReactNode {
 
 // --------------------------------------------------------------------------- money
 
+export function SignupCreditsPanel(): ReactNode {
+  const { data, error, busy } = usePanel(() => api.signupCredits(), [])
+  const [enabled, setEnabled] = useState(false)
+  const [credits, setCredits] = useState('100000')
+  const [days, setDays] = useState('30')
+  const [saved, setSaved] = useState<api.SignupCredits | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState('')
+  const [note, setNote] = useState('')
+  const current = saved || data
+  useEffect(() => {
+    if (!current) return
+    setEnabled(current.enabled)
+    setCredits(String(current.credits))
+    setDays(String(current.expiry_days))
+  }, [current])
+  const dirty = !!current && (enabled !== current.enabled || Number(credits) !== current.credits
+    || Number(days) !== current.expiry_days)
+  async function save(): Promise<void> {
+    setSaving(true)
+    setFailure('')
+    setNote('')
+    try {
+      const result = await api.saveSignupCredits({ enabled, credits: Number(credits), expiry_days: Number(days) })
+      setSaved(result)
+      setNote(result.enabled ? `Saved. New individual accounts receive ${num(result.credits)} credits once.`
+        : 'Saved. Future signup grants are off.')
+    } catch (e) {
+      setFailure((e as Error).message)
+    } finally { setSaving(false) }
+  }
+  return <Panel title="Individual signup credits" busy={busy} error={error}>
+    {current && <form onSubmit={e => { e.preventDefault(); void save() }}>
+      {failure && <p className="admin-error" role="alert">{failure}</p>}
+      <fieldset disabled={saving} className="signup-credit-fields">
+        <label className="settings-row">
+          <input type="checkbox" role="switch" checked={enabled}
+            onChange={e => { setEnabled(e.target.checked); setNote('') }} />
+          Give welcome credits to new individual accounts
+        </label>
+        <div className="admin-action">
+          <label htmlFor="signup-credit-amount">Credits per new account</label>
+          <div className="admin-action-row"><input id="signup-credit-amount" type="number"
+            required min="1" max="1000000000" step="1" value={credits}
+            onChange={e => { setCredits(e.target.value); setNote('') }} /></div>
+        </div>
+        <div className="admin-action">
+          <label htmlFor="signup-credit-days">Expires after days (0 = no expiry)</label>
+          <div className="admin-action-row"><input id="signup-credit-days" type="number"
+            required min="0" max="3650" step="any" value={days}
+            onChange={e => { setDays(e.target.value); setNote('') }} /></div>
+        </div>
+        <p className="admin-hint">One grant per new account. Changes apply to future signups.
+          Existing credits stay unchanged. These credits go to the personal balance.</p>
+        <div className="admin-action-row">
+          <button className="btn primary" type="submit" disabled={!dirty}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button className="btn ghost" type="button" disabled={!dirty} onClick={() => {
+            setEnabled(current.enabled); setCredits(String(current.credits)); setDays(String(current.expiry_days))
+            setFailure(''); setNote('')
+          }}>Cancel changes</button>
+        </div>
+      </fieldset>
+      {note && <p className="admin-note" role="status">{note}</p>}
+    </form>}
+  </Panel>
+}
+
 function MoneyPanel(): ReactNode {
   const products = usePanel(() => api.listProducts(), [])
   const books = usePanel(() => api.ledger(), [])
@@ -1623,6 +1692,7 @@ function MoneyPanel(): ReactNode {
 
   return (
     <>
+      <SignupCreditsPanel />
       <Panel title="On sale" busy={products.busy} error={products.error}>
         {note && <div className="admin-note">{note}</div>}
         {rows.length ? (

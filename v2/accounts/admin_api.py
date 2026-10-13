@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - types only; the host constructs and injects the reader
     from account_balance_reader import AccountBalanceReader
 
+import signup_policy
 from fastapi import APIRouter, Body, Header, HTTPException
 
 # Bare import for the same reason admin_metrics_api uses one: /app is on sys.path under uvicorn,
@@ -879,6 +880,23 @@ def build_admin_router(deps: AdminDeps) -> APIRouter:  # noqa: PLR0915 - one coh
         return {"month": period, "group_by": group_by, "rows": rows, "months": months}
 
     # ---------------------------------------------------------------- money
+
+    @router.get("/signup-credits")
+    def signup_credit_policy(authorization: str | None = Header(default=None)) -> dict:
+        require_admin(authorization)
+        with deps.db() as c:
+            return signup_policy.read(c)
+
+    @router.post("/signup-credits")
+    def set_signup_credit_policy(
+        payload: dict = Body(...), authorization: str | None = Header(default=None),
+    ) -> dict:
+        actor = require_admin(authorization)
+        with deps.db() as c:
+            try:
+                return signup_policy.save(c, payload, now=deps.now(), actor=actor["id"])
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/products")
     def list_products(authorization: str | None = Header(default=None)) -> dict:

@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react'
 
 import { accountsUrl, currentAccessToken, isAccountsMode, useAuthSession } from './auth'
-import { isDesktop } from './host'
+import { hostAdminRequest, isDesktop } from './host'
 
 export class AdminError extends Error {
   readonly status: number
@@ -34,14 +34,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   // long-lived dashboard tab does not start 401ing after ten minutes.
   const token = await currentAccessToken()
   if (!token) throw new AdminError(401, 'Sign in to use the admin console.')
-  const r = await fetch(accountsUrl() + path, {
+  const request = {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers || {})
     }
-  })
+  }
+  const url = accountsUrl() + path
+  const r = await (hostAdminRequest(url, request) ?? fetch(url, request))
   const body = (await r.json().catch(() => ({}))) as Record<string, unknown>
   if (!r.ok) {
     throw new AdminError(r.status, String(body.detail || body.message || `HTTP ${r.status}`))
@@ -51,6 +53,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = <T,>(path: string, body: unknown): Promise<T> =>
   call<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) })
+
+export type SignupCredits = {
+  enabled: boolean
+  credits: number
+  expiry_days: number
+  updated_at: number
+  updated_by: string
+}
+export const signupCredits = (): Promise<SignupCredits> => call('/admin/signup-credits')
+export const saveSignupCredits = (policy: Pick<SignupCredits, 'enabled' | 'credits' | 'expiry_days'>):
+  Promise<SignupCredits> => post('/admin/signup-credits', policy)
 
 // --------------------------------------------------------------------------- who
 

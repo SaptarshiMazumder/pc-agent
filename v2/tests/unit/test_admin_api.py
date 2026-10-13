@@ -68,6 +68,150 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _welcome(client, *, enabled=True, credits=100_000, expiry_days=30):
+    return client.post("/admin/signup-credits", headers=_auth(_token(client, "boss@example.com")),
+                       json={"enabled": enabled, "credits": credits, "expiry_days": expiry_days})
+
+
+def test_welcome_policy_requires_admin(stack):
+    client, _ = stack
+    assert client.get("/admin/signup-credits").status_code == 401
+    headers = _auth(_token(client, "user@example.com"))
+    assert client.get("/admin/signup-credits", headers=headers).status_code == 403
+    assert client.post("/admin/signup-credits", headers=headers,
+                       json={"enabled": True, "credits": 100_000, "expiry_days": 30}).status_code == 403
+
+
+def test_welcome_once_and_updates_only_future_accounts(stack):
+    client, module = stack
+    assert _welcome(client).status_code == 200
+    first = _signup(client, "first@example.com")
+    _token(client, "first@example.com")
+    _token(client, "first@example.com")
+    with module._db() as c:
+        module._grant_signup_credits(c, first)  # Even an accidental replay cannot duplicate money.
+        grants = c.execute("SELECT * FROM credit_grants WHERE account_id=?", (first,)).fetchall()
+        assert len(grants) == 1
+        assert grants[0]["credits"] == 100_000
+        assert grants[0]["credit_class"] == "promotional"
+        assert module._now() + 29 * 86400 < grants[0]["expires_at"] < module._now() + 31 * 86400
+        assert module.ledger.balances(c)["balanced"]
+    assert _welcome(client, credits=42_000, expiry_days=0).status_code == 200
+    second = _signup(client, "second@example.com")
+    with module._db() as c:
+        assert c.execute("SELECT credits FROM credit_grants WHERE account_id=?", (first,)).fetchone()["credits"] == 100_000
+        grant = c.execute("SELECT * FROM credit_grants WHERE account_id=?", (second,)).fetchone()
+        assert grant["credits"] == 42_000 and grant["expires_at"] == 0
+        assert c.execute("SELECT COUNT(*) n FROM credit_grants WHERE account_id=(SELECT id FROM accounts WHERE email=?)", ("user@example.com",)).fetchone()["n"] == 0
+
+
+def test_welcome_disabled_does_not_revoke_or_backfill(stack):
+    client, module = stack
+    assert _welcome(client).status_code == 200
+    existing = _signup(client, "before-off@example.com")
+    assert _welcome(client, enabled=False).status_code == 200
+    skipped = _signup(client, "while-off@example.com")
+    assert _welcome(client).status_code == 200
+    _token(client, "while-off@example.com")
+    with module._db() as c:
+        module._grant_signup_credits(c, skipped)
+        assert c.execute("SELECT credits FROM credit_grants WHERE account_id=?", (existing,)).fetchone()["credits"] == 100_000
+        assert c.execute("SELECT COUNT(*) n FROM credit_grants WHERE account_id=?", (skipped,)).fetchone()["n"] == 0
+
+
+def test_welcome_google_account_first_login_only(stack):
+    from identity.application.interfaces.identity_provider import Assertion
+    client, module = stack
+    assert _welcome(client).status_code == 200
+    assertion = Assertion(provider="google", subject="verified-google-user", email="google@example.com", email_verified=True)
+    with module._db() as c:
+        with module._auth_service(c) as service:
+            first = service.login_external(assertion=assertion)
+            second = service.login_external(assertion=assertion)
+        assert first.account_id == second.account_id
+        grants = c.execute("SELECT * FROM credit_grants WHERE account_id=?", (first.account_id,)).fetchall()
+        assert len(grants) == 1 and grants[0]["credits"] == 100_000
+        assert module.ledger.balances(c)["balanced"]
+
+
+def test_welcome_failure_rolls_back_account_claim_grant_and_ledger(stack, monkeypatch):
+    client, module = stack
+    assert _welcome(client).status_code == 200
+    original = module.ledger.post_promotional_grant
+    def fail(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("simulated failure after posting")
+    monkeypatch.setattr(module.ledger, "post_promotional_grant", fail)
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        _signup(client, "rollback@example.com")
+    with module._db() as c:
+        assert c.execute("SELECT 1 FROM accounts WHERE email='rollback@example.com'").fetchone() is None
+        assert c.execute("SELECT COUNT(*) n FROM signup_credit_claims").fetchone()["n"] == 2
+        assert c.execute("SELECT COUNT(*) n FROM credit_grants").fetchone()["n"] == 0
+        assert c.execute("SELECT COUNT(*) n FROM ledger_txns").fetchone()["n"] == 0
+
+
+def test_welcome_policy_survives_restart_and_env_changes(stack, monkeypatch):
+    client, module = stack
+    assert _welcome(client, enabled=False, credits=87_000, expiry_days=0).status_code == 200
+    monkeypatch.setenv("AGENTD_SIGNUP_CREDITS", "100000")
+    module._init_db()
+    policy = client.get("/admin/signup-credits", headers=_auth(_token(client, "boss@example.com"))).json()
+    assert policy["enabled"] is False and policy["credits"] == 87_000 and policy["expiry_days"] == 0
+    assert policy["updated_by"].startswith("acct_")
+
+
+def test_welcome_concurrent_claims_issue_one_grant(stack):
+    from concurrent.futures import ThreadPoolExecutor
+    client, module = stack
+    with module._db() as c:
+        # A new personal identity, before the creation hook runs.
+        account = module.SqliteAccountDirectory(c).create(email="concurrent@example.com")
+    assert _welcome(client).status_code == 200
+    def attempt():
+        with module._db() as c:
+            module._grant_signup_credits(c, account.account_id)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [pool.submit(attempt), pool.submit(attempt)]
+        for result in results:
+            result.result()
+    with module._db() as c:
+        grants = c.execute("SELECT * FROM credit_grants WHERE account_id=?", (account.account_id,)).fetchall()
+        assert len(grants) == 1 and grants[0]["credits"] == 100_000
+        assert module.ledger.balances(c)["balanced"]
+
+
+def test_welcome_does_not_add_credits_to_enterprise_members(stack):
+    client, module = stack
+    boss = _token(client, "boss@example.com")
+    org = client.post("/orgs", headers=_auth(boss), json={"name": "Enterprise"})
+    assert org.status_code == 200, org.text
+    with module._db() as c:
+        account = module.SqliteAccountDirectory(c).create(email="enterprise@example.com")
+        owner_id = c.execute("SELECT id FROM accounts WHERE email='boss@example.com'").fetchone()["id"]
+        c.execute("INSERT INTO org_members (org_id,account_id,role,added_at,added_by,active) "
+                  "SELECT org_id,?, 'member', ?, ?, 1 FROM org_members WHERE account_id=? AND active=1",
+                  (account.account_id, module._now(), owner_id, owner_id))
+    assert _welcome(client).status_code == 200
+    with module._db() as c:
+        module._grant_signup_credits(c, account.account_id)
+        assert c.execute("SELECT credits FROM signup_credit_claims WHERE account_id=?", (account.account_id,)).fetchone()["credits"] == 0
+        assert c.execute("SELECT COUNT(*) n FROM credit_grants").fetchone()["n"] == 0
+
+
+@pytest.mark.parametrize("changes", [
+    {"credits": -1}, {"credits": 0}, {"credits": 1.5}, {"credits": True},
+    {"credits": "100000"}, {"credits": 1_000_000_001}, {"enabled": "false"},
+    {"expiry_days": -1}, {"expiry_days": 3651}, {"expiry_days": True},
+])
+def test_welcome_policy_rejects_invalid_values_without_changing_it(stack, changes):
+    client, _ = stack
+    assert _welcome(client).status_code == 200
+    assert _welcome(client, **changes).status_code == 400
+    policy = client.get("/admin/signup-credits", headers=_auth(_token(client, "boss@example.com"))).json()
+    assert policy["enabled"] and policy["credits"] == 100_000 and policy["expiry_days"] == 30
+
+
 def test_ovh_secret_controls_require_admin_and_use_private_controller(stack, monkeypatch):
     from services.common import platform_control
 

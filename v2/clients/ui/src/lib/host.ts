@@ -30,6 +30,19 @@ const bridge = typeof candidate?.readText === 'function' ? candidate : undefined
 
 export const isDesktop = !!bridge
 
+/** Admin HTTP through the native host for the desktop's file:// renderer. */
+export function hostAdminRequest(url: string, init: RequestInit): Promise<Response> | null {
+  type Request = { method?: string; headers: Record<string, string>; body?: string }
+  const b = bridge as { adminRequest?: (url: string, init: Request) =>
+    Promise<{ status: number; body: string }> } | undefined
+  if (typeof b?.adminRequest !== 'function') return null
+  return b.adminRequest(url, { method: init.method,
+    headers: Object.fromEntries(new Headers(init.headers).entries()),
+    body: typeof init.body === 'string' ? init.body : undefined
+  }).then(reply => new Response(reply.body, { status: reply.status,
+    headers: { 'Content-Type': 'application/json' } }))
+}
+
 /** Public platform metadata via the native host, independent of renderer CORS. */
 export function hostPlatformDiscovery(): Promise<Record<string, unknown> | null> | null {
   const b = bridge as
