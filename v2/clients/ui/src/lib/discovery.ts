@@ -18,6 +18,8 @@
  * for it during the first render and none of them should cost a round trip.
  */
 
+import { hostPlatformDiscovery } from './host'
+
 export interface PlatformDoc {
   issuer: string
   authUrl: string
@@ -109,8 +111,9 @@ export function discoverPlatform(): Promise<PlatformDoc | null> {
   if (have) return Promise.resolve(have)
   if (inflight) return inflight
 
-  inflight = fetch(`${base}/.well-known/agentd-platform`, { cache: 'no-store' })
-    .then((r) => (r.ok ? r.json() : null))
+  const native = hostPlatformDiscovery()
+  inflight = (native || fetch(`${base}/.well-known/agentd-platform`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null)))
     .then((raw) => {
       if (!raw) return null
       resolved = parse(raw as Record<string, unknown>)

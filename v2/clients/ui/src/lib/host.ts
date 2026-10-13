@@ -30,6 +30,14 @@ const bridge = typeof candidate?.readText === 'function' ? candidate : undefined
 
 export const isDesktop = !!bridge
 
+/** Public platform metadata via the native host, independent of renderer CORS. */
+export function hostPlatformDiscovery(): Promise<Record<string, unknown> | null> | null {
+  const b = bridge as
+    | { platformDiscovery?: () => Promise<Record<string, unknown> | null> }
+    | undefined
+  return typeof b?.platformDiscovery === 'function' ? b.platformDiscovery() : null
+}
+
 /** The machine's sign-in, asked through the desktop shell's main process — the renderer page
  *  is file://, cross-origin to the daemon, and the daemon's HTTP surface answers no CORS, so a
  *  page fetch can never read /auth/*. Null in a browser, where the web sign-in path serves.

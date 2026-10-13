@@ -16,6 +16,7 @@ import path from 'node:path'
 import { Flavor, loadFlavor } from './flavor'
 import { gatewayRequest } from './gatewayRpc'
 import { desktopOAuthSignIn } from './oauthLoopback'
+import { fetchPlatformDiscovery } from './platformDiscovery'
 import { connectUrl } from './rendezvous'
 import { Supervisor } from './supervisor'
 
@@ -98,6 +99,8 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('app:platformDiscovery', () =>
+    fetchPlatformDiscovery(flavor.platformUrl || flavor.accountsUrl))
   ipcMain.handle('app:flavor', () => ({
     productId: flavor.productId,
     productName: flavor.productName,

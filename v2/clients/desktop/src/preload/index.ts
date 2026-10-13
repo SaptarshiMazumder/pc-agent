@@ -9,6 +9,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   flavor: () => ipcRenderer.invoke('app:flavor'),
+  platformDiscovery: (): Promise<Record<string, unknown> | null> =>
+    ipcRenderer.invoke('app:platformDiscovery'),
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),
   // OS-encrypted storage for the refresh token (see src/main/index.ts). Shaped as the renderer's
   // RefreshStorage interface so lib/tokens.ts can use it without knowing it is Electron.
