@@ -289,3 +289,77 @@ def test_capacity_provider_updates_wait_for_each_other(control, manifest):
         update_capacity_provider=update, describe_capacity_providers=describe)
     control.set_providers(manifest, False)
     assert calls == [("update", "first"), ("completed", "first"), ("update", "second"), ("completed", "second")]
+
+
+@pytest.fixture
+def endpoint_manifest(manifest):
+    manifest["endpoints"] = [{"id": "vpce-old", "config": {
+        "VpcId": "vpc-prod", "ServiceName": "com.amazonaws.ap-south-1.ecr.api",
+        "VpcEndpointType": "Interface", "SubnetIds": ["subnet-prod"],
+        "SecurityGroupIds": ["sg-prod"], "PrivateDnsEnabled": True,
+        "PolicyDocument": '{"Statement":[]}',
+        "TagSpecifications": [{"ResourceType": "vpc-endpoint", "Tags": [
+            {"Key": "Project", "Value": "agentd"},
+            {"Key": "Environment", "Value": "production"},
+        ]}],
+    }}]
+    return manifest
+
+
+def test_on_recreates_deleted_private_network_before_using_it(control, endpoint_manifest):
+    calls = []
+    available = {"VpcEndpointId": "vpce-new", "State": "available"}
+    def describe(**kwargs):
+        return {"VpcEndpoints": [available] if "VpcEndpointIds" in kwargs else []}
+    def create(**kwargs):
+        calls.append(kwargs)
+        return {"VpcEndpoint": available}
+    control.clients["ec2"] = SimpleNamespace(describe_vpc_endpoints=describe,
+                                              create_vpc_endpoint=create)
+    mapping = control.restore_endpoints(endpoint_manifest)
+    assert mapping == {"com.amazonaws.ap-south-1.ecr.api": "vpce-new"}
+    assert calls == [endpoint_manifest["endpoints"][0]["config"]]
+
+
+def test_on_reuses_owned_private_endpoint_without_duplicate_cost(control, endpoint_manifest):
+    endpoint = {"VpcEndpointId": "vpce-existing", "State": "available",
+                "Tags": endpoint_manifest["endpoints"][0]["config"]["TagSpecifications"][0]["Tags"]}
+    control.clients["ec2"] = SimpleNamespace(
+        describe_vpc_endpoints=lambda **kwargs: {"VpcEndpoints": [endpoint]},
+        create_vpc_endpoint=lambda **kwargs: pytest.fail("Already exists"))
+    assert control.restore_endpoints(endpoint_manifest) == {
+        "com.amazonaws.ap-south-1.ecr.api": "vpce-existing"}
+
+
+def test_on_refuses_to_adopt_staging_or_unowned_network(control, endpoint_manifest):
+    endpoint = {"VpcEndpointId": "vpce-other", "State": "available",
+                "Tags": [{"Key": "Project", "Value": "agentd"},
+                         {"Key": "Environment", "Value": "staging"}]}
+    control.clients["ec2"] = SimpleNamespace(
+        describe_vpc_endpoints=lambda **kwargs: {"VpcEndpoints": [endpoint]},
+        create_vpc_endpoint=lambda **kwargs: pytest.fail("Do not create duplicates"))
+    with pytest.raises(RuntimeError, match="outside production ownership"):
+        control.restore_endpoints(endpoint_manifest)
+
+
+def test_failed_endpoint_creation_does_not_claim_network_is_ready(control, endpoint_manifest):
+    failed = {"VpcEndpointId": "vpce-failed", "State": "failed"}
+    control.clients["ec2"] = SimpleNamespace(
+        describe_vpc_endpoints=lambda **kwargs: {"VpcEndpoints": [failed] if "VpcEndpointIds" in kwargs else []},
+        create_vpc_endpoint=lambda **kwargs: {"VpcEndpoint": failed})
+    with pytest.raises(RuntimeError, match="did not become ready"):
+        control.restore_endpoints(endpoint_manifest)
+
+
+@pytest.mark.parametrize("operation", ["CreateRule", "ModifyRule"])
+@pytest.mark.parametrize("field,config", [
+    ("host-header", "HostHeaderConfig"), ("path-pattern", "PathPatternConfig")])
+def test_restored_listener_rules_use_one_condition_representation(control, operation, field, config):
+    control.clients["elbv2"] = boto3.client("elbv2", region_name=control.region,
+        aws_access_key_id="testing", aws_secret_access_key="testing")
+    value = control.request("elbv2", operation, {
+        "ListenerArn": "listener", "RuleArn": "rule", "Priority": 1,
+        "Conditions": [{"Field": field, "Values": ["legacy"], config: {"Values": ["typed"]}}],
+        "Actions": [{"Type": "forward", "TargetGroupArn": "target"}],
+    })
+    assert value["Conditions"] == [{"Field": field, config: {"Values": ["typed"]}}]

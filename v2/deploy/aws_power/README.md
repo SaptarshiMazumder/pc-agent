@@ -18,12 +18,12 @@ Change to keep-on before shutdown starts. Services take a few minutes to stop/st
 
 Shutdown stops ECS services and standalone tasks, disables application schedules
 and worker Lambdas, disables ECS managed scaling, scales the existing host groups
-to zero, and removes the application load balancer. It preserves Neon, EFS, S3,
+to zero, and removes the load balancer and paid interface endpoints. It preserves Neon, EFS, S3,
 DynamoDB, images, secrets, signing material, TLS certificates, and hosted zones.
 Running jobs/browser sessions are interrupted. Instance-local caches are ephemeral.
 Storage, DNS, retained secrets/keys, and monitoring can still incur charges while OFF.
 
-ON recreates the load balancer and its listeners/rules/certificates, restores the
+ON recreates private networking and the load balancer/listeners/rules/certificates, restores the
 saved service counts and host capacity, and updates only the captured Route53
 records to the new load balancer address. Existing custom hostnames stay the same.
 It enables background schedules only after ECS deployments have completed.
@@ -31,10 +31,12 @@ It enables background schedules only after ECS deployments have completed.
 These scripts target **only `agentd-production` in Mumbai (`ap-south-1`)**, matching
 the repository's production infrastructure. Staging is retired and must remain OFF;
 ON and keep-on commands reject it. The previous staging controller has been removed.
-**Production is not yet provisioned and its power controller is not installed.**
-Commands will fail until production resources and their controller are deployed;
-they do not silently fall back to staging or create a second environment.
-Once installed, controls restore saved service counts, including deliberate zeros.
+**Production and its power controller are deployed as of October 13, 2026.**
+All six production services are running, including the sandbox egress proxy;
+the five application health endpoints return HTTP 200. Production uses one
+`m6a.large` EC2 host (the isolated egress proxy runs separately on Fargate).
+Manual ON completed through `power.ps1`; the nightly OFF schedule is enabled
+in automatic mode. Controls restore saved counts, including deliberate zeros.
 Use `capture` after intentional production capacity changes while the recorded state is ON.
 
 ## Installation and recovery
@@ -59,9 +61,11 @@ prevent an old shutdown from stopping a later manual start. No path schedules au
 In keep-on mode, the daily invocation returns without any compute changes.
 
 `up.ps1` and `down.ps1` now call the production power controller, with no Terraform
-apply or dev/staging fallback. The original remote state bucket is absent. Do not
-run Terraform apply until state is recovered or imported, since it could conflict
-with preserved resources.
+apply or dev/staging fallback. Remote Terraform state is stored in
+`agentd-tfstate-891612568944` under `production/terraform.tfstate`.
+Power operations can recreate the ALB/listeners/rules/endpoints with new IDs.
+Before a later Terraform deployment, reconcile those IDs with the remote state;
+a blind apply against old IDs can conflict with the restored resources.
 
 Installer permissions are broader than runtime permissions: it creates the private
 bucket, two scoped IAM roles, Lambda, SSM mode, nightly schedule, and error alarm.

@@ -68,6 +68,7 @@ class Controller:
         self.mode_parameter = os.environ["POWER_MODE_PARAMETER"]
         self.function_name = os.environ["POWER_FUNCTION"]
         self.schedule_name = os.environ["POWER_SCHEDULE"]
+        self.operation_id = None
         self.sleep = sleep
         self.clients = clients or {}
 
@@ -92,8 +93,15 @@ class Controller:
 
         def clean(value, schema):
             if schema.type_name == "structure":
-                return {k: clean(v, schema.members[k]) for k, v in value.items()
-                        if k in schema.members and k != "IsDefault"}
+                result = {k: clean(v, schema.members[k]) for k, v in value.items()
+                          if k in schema.members and k != "IsDefault"}
+                # DescribeRules returns both legacy Values and the typed config.
+                # CreateRule/ModifyRule reject that otherwise schema-valid pair.
+                if result.get("Field") in ("host-header", "path-pattern") and (
+                    result.get("HostHeaderConfig") or result.get("PathPatternConfig")
+                ):
+                    result.pop("Values", None)
+                return result
             if schema.type_name == "list":
                 return [clean(v, schema.member) for v in value]
             if schema.type_name == "map":
@@ -124,6 +132,8 @@ class Controller:
     def set_state(self, phase, **details):
         value = {"phase": phase, "updated_at": dt.datetime.now(dt.UTC).isoformat(),
                  **details}
+        if self.operation_id:
+            value["operation_id"] = self.operation_id
         self.write("state.json", value)
         return value
 
@@ -185,6 +195,9 @@ class Controller:
         for operation, value in requests:
             validate_parameters(self.request("elbv2", operation, value),
                                 elb.meta.service_model.operation_model(operation).input_shape)
+        for endpoint in manifest.get("endpoints", []):
+            validate_parameters(endpoint["config"], self.client("ec2").meta.service_model
+                                .operation_model("CreateVpcEndpoint").input_shape)
 
     def capture(self):
         phase = self.read("state.json", {}).get("phase")
@@ -209,6 +222,7 @@ class Controller:
             "listeners": [], "dns": [], "services": [], "groups": [],
             "providers": [], "schedules": [], "rules": [], "functions": [],
             "service_scaling": [],
+            "endpoints": [],
         }
         for li in self.all("elbv2", "describe_listeners", "Listeners", LoadBalancerArn=lb["LoadBalancerArn"]):
             extra_certs = []
@@ -225,6 +239,25 @@ class Controller:
                     manifest["dns"].append({"zone": zone["Id"], "record": record})
         services = self.services()
         manifest["services"] = [{"name": s["serviceName"], "desired": s["desiredCount"]} for s in services]
+        endpoints = self.client("ec2").describe_vpc_endpoints(
+            Filters=[{"Name": "vpc-id", "Values": [lb["VpcId"]]}]
+        )["VpcEndpoints"]
+        for endpoint in endpoints:
+            if endpoint["VpcEndpointType"] != "Interface":
+                continue  # Gateway endpoints have no hourly charge.
+            if endpoint["State"] != "available":
+                raise RuntimeError("Cannot capture an endpoint during a network update")
+            tags = {t["Key"]: t["Value"] for t in endpoint.get("Tags", [])}
+            if tags.get("Project") != "agentd" or tags.get("Environment") != "production":
+                raise RuntimeError("Cannot shut down an interface endpoint outside production ownership")
+            manifest["endpoints"].append({"id": endpoint["VpcEndpointId"], "config": {
+                "VpcId": endpoint["VpcId"], "ServiceName": endpoint["ServiceName"],
+                "VpcEndpointType": "Interface", "SubnetIds": endpoint["SubnetIds"],
+                "SecurityGroupIds": [g["GroupId"] for g in endpoint["Groups"]],
+                "PrivateDnsEnabled": endpoint["PrivateDnsEnabled"],
+                "PolicyDocument": endpoint["PolicyDocument"],
+                "TagSpecifications": [{"ResourceType": "vpc-endpoint", "Tags": endpoint["Tags"]}],
+            }})
         manifest["service_scaling"] = [target for target in self.all(
             "application-autoscaling", "describe_scalable_targets", "ScalableTargets", ServiceNamespace="ecs"
         ) if target["ResourceId"].startswith("service/" + self.cluster + "/")]
@@ -360,7 +393,57 @@ class Controller:
         lb = self.lb()
         if lb:
             self.client("elbv2").delete_load_balancer(LoadBalancerArn=lb["LoadBalancerArn"])
+        for saved in manifest.get("endpoints", []):
+            config = saved["config"]
+            endpoints = self.client("ec2").describe_vpc_endpoints(Filters=[
+                {"Name": "vpc-id", "Values": [config["VpcId"]]},
+                {"Name": "service-name", "Values": [config["ServiceName"]]},
+            ])["VpcEndpoints"]
+            ids = [e["VpcEndpointId"] for e in endpoints if e["State"] not in ("deleted", "deleting")]
+            for endpoint in endpoints:
+                if endpoint["VpcEndpointId"] in ids:
+                    self.check_endpoint_owner(endpoint)
+            if ids:
+                response = self.client("ec2").delete_vpc_endpoints(VpcEndpointIds=ids)
+                if response.get("Unsuccessful"):
+                    raise RuntimeError("Private endpoint removal failed; inspect power status")
         return self.set_state("off", note="Compute is scaling to zero; persistent data retained")
+
+    @staticmethod
+    def check_endpoint_owner(endpoint):
+        tags = {t["Key"]: t["Value"] for t in endpoint.get("Tags", [])}
+        if tags.get("Project") != "agentd" or tags.get("Environment") != "production":
+            raise RuntimeError("Private endpoint is outside production ownership")
+
+    def restore_endpoints(self, manifest):
+        mapping = {}
+        ec2 = self.client("ec2")
+        for saved in manifest.get("endpoints", []):
+            config = saved["config"]
+            filters = [{"Name": "vpc-id", "Values": [config["VpcId"]]},
+                       {"Name": "service-name", "Values": [config["ServiceName"]]}]
+            deadline = time.monotonic() + 180
+            while True:
+                endpoints = ec2.describe_vpc_endpoints(Filters=filters)["VpcEndpoints"]
+                if not any(e["State"] == "deleting" for e in endpoints):
+                    break
+                if time.monotonic() > deadline:
+                    raise RuntimeError("Previous endpoint deletion has not completed; retry ON later")
+                self.sleep(5)
+            existing = [e for e in endpoints if e["State"] not in ("deleted", "rejected", "failed")]
+            for endpoint in existing:
+                self.check_endpoint_owner(endpoint)
+            endpoint = existing[0] if existing else ec2.create_vpc_endpoint(**config)["VpcEndpoint"]
+            mapping[config["ServiceName"]] = endpoint["VpcEndpointId"]
+        deadline = time.monotonic() + 180
+        while mapping:
+            endpoints = ec2.describe_vpc_endpoints(VpcEndpointIds=list(mapping.values()))["VpcEndpoints"]
+            if all(e["State"] == "available" for e in endpoints):
+                break
+            if any(e["State"] in ("failed", "rejected") for e in endpoints) or time.monotonic() > deadline:
+                raise RuntimeError("Private network endpoints did not become ready")
+            self.sleep(5)
+        return mapping
 
     def restore_lb(self, manifest):
         elb = self.client("elbv2")
@@ -404,6 +487,7 @@ class Controller:
         # OFF cannot interrupt an explicit manual start made after its scheduled time.
         self.write("last-on.json", {"requested_at": dt.datetime.now(dt.UTC).isoformat()})
         self.set_state("starting")
+        endpoints = self.restore_endpoints(manifest)
         # Target groups must be associated with an ALB before ECS can resume.
         lb = self.restore_lb(manifest)
         for group in manifest["groups"]:
@@ -424,7 +508,8 @@ class Controller:
             self.sleep(10)
         self.set_jobs(manifest, True)
         self.set_service_scaling(manifest, True)
-        return self.set_state("on", hostnames=[d["record"]["Name"] for d in manifest["dns"]], load_balancer=lb["DNSName"])
+        return self.set_state("on", hostnames=[d["record"]["Name"] for d in manifest["dns"]],
+                              load_balancer=lb["DNSName"], endpoint_ids=endpoints)
 
     def status(self):
         return {"mode": self.mode(), "state": self.read("state.json", {"phase": "unrecorded"}),
@@ -436,6 +521,7 @@ class Controller:
 
 def handler(event, context):
     control = Controller()
+    control.operation_id = event.get("operation_id") or getattr(context, "aws_request_id", None)
     nightly = event.get("action") == "scheduled-off"
     last_on = control.read("last-on.json", {}).get("requested_at") if nightly else None
     action = scheduled_action(event, control.mode() if nightly else None, last_manual_on=last_on)

@@ -2,6 +2,8 @@
 import argparse
 import json
 import sys
+import time
+import uuid
 
 import boto3
 from botocore.config import Config
@@ -31,6 +33,30 @@ def main():
                                                     retries={"max_attempts": 0}))
     print("Running " + args.action + "..." if args.action in ("on", "off") else "", file=sys.stderr)
     # A timed-out manual ON is never retried automatically. Check status first.
+    if args.action in ("on", "off"):
+        operation = str(uuid.uuid4())
+        client.invoke(FunctionName=args.stack + "-power", InvocationType="Event",
+                      Payload=json.dumps({"action": args.action, "operation_id": operation}).encode())
+        s3 = session.client("s3")
+        deadline = time.monotonic() + 1800
+        last_phase = None
+        while time.monotonic() < deadline:
+            try:
+                state = json.loads(s3.get_object(Bucket=f"agentd-power-{args.account}-{args.region}", Key="state.json")["Body"].read())
+            except s3.exceptions.NoSuchKey:
+                state = {}
+            if state.get("operation_id") == operation:
+                phase = state["phase"]
+                if phase != last_phase:
+                    print(phase, file=sys.stderr)
+                    last_phase = phase
+                if phase == args.action or phase.startswith("error-"):
+                    print(json.dumps(state, indent=2))
+                    if phase.startswith("error-"):
+                        raise SystemExit(1)
+                    return
+            time.sleep(5)
+        raise RuntimeError("Operation is still pending. Check status; do not automatically retry ON.")
     result = client.invoke(FunctionName=args.stack + "-power", InvocationType="RequestResponse",
                            Payload=json.dumps({"action": args.action}).encode())
     value = json.loads(result["Payload"].read())
