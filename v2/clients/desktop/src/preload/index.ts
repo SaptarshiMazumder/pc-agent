@@ -11,6 +11,8 @@ const api = {
   flavor: () => ipcRenderer.invoke('app:flavor'),
   platformDiscovery: (): Promise<Record<string, unknown> | null> =>
     ipcRenderer.invoke('app:platformDiscovery'),
+  billingRequest: (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }):
+    Promise<{ status: number; body: string }> => ipcRenderer.invoke('billing:request', url, init),
   supervisorStatus: () => ipcRenderer.invoke('supervisor:status'),
   // OS-encrypted storage for the refresh token (see src/main/index.ts). Shaped as the renderer's
   // RefreshStorage interface so lib/tokens.ts can use it without knowing it is Electron.

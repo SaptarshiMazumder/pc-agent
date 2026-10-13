@@ -114,3 +114,62 @@ inspection; a full production OFF/ON cycle was not performed during this request
 startup. Registry root/roster recovery and Terraform ID reconciliation after future
 power recreations remain pending. Do not claim all publishing/payment features
 are validated merely because application health checks pass.
+
+## Registry and desktop billing investigation, October 13
+
+- Production and staging registry buckets both contain zero objects; the missing
+  public `index.json` yields HTTP 403 because anonymous callers cannot list the bucket.
+- System backup copies of production creators and owners restored successfully,
+  but scans found zero rows in both. These empty temporary copies were removed;
+  original backups and main tables remain. They do not recover the pinned root.
+- Local registries and `registry-roster.json` use different signing identities;
+  they do not verify against the current desktop pin. Never upload them as trusted
+  production data or change the pin without an explicit recovery/reset decision.
+- Original signing-key backup location was requested from the user and remains
+  required for preserving that identity. No matching signing setting was found
+  in repository `.env` or `v2/.env`.
+- A verification mistake invoked `RegistryClient._verify` on original generated
+  cache files; it deletes mismatched artifacts. Both figure-creator copies were
+  restored byte-for-byte from surviving copies. The game-master and presentation
+  copies were regenerated from surviving payload/source; their old local indexes
+  still describe the old signed bytes. Do not treat these regenerated copies as
+  a verified signed restoration. Their source agents and index files were retained.
+- Desktop billing directly fetched accounts from the renderer and was blocked
+  by production CORS, leaving indefinite loading placeholders. A narrow native
+  transport now supports only GET `/products`, GET `/me/credits`, and POST
+  `/me/checkout` at the configured accounts origin, with no internal-key forwarding.
+- Both TypeScript checks and desktop build pass. Fresh hidden Electron regression
+  shows Google and loads six billing packs in 750ms while renderer platform
+  requests are blocked. Authenticated native `/me/credits` returns 200 in ~2.1s.
+- Accounts runs in Mumbai; unchanged Neon is in Singapore. No database move,
+  live purchase or model call was performed during billing diagnosis.
+
+## Approved registry identity reset
+
+The user explicitly approved applying a replacement root and signed empty registry
+to prod and the desktop dev build after the original key could not be found.
+
+- Replacement root public key: `Op08JiRZ3W0N7/ezpCky0bw/Tbm1v0g22aagvm4i3k8=`.
+- Private half exists as KMS ciphertext in the existing production root-vault row,
+  encrypted with `d3c6bef3-fe80-4e43-a93d-030f308279d5`. Private encrypted backup:
+  `s3://agentd-power-891612568944-ap-south-1/registry/root-key-backups/20261013.json`.
+  No plaintext key was written or printed.
+- Public `index.json` is now schema 2 with a signed empty roster and no bundles.
+  The existing registry client fetched and verified it against the new pin;
+  the old pin correctly refuses it. Public `catalog.json` returns 200.
+- Production daemon and desktop core/studio pins are updated together. Original
+  main tables, creator records, Neon and staging are unchanged. Old incompatible
+  bundles were not published. Existing installers need a new build.
+- Plain desktop `npm run dev` URL sync now defaults to production, preventing a
+  subsequent restart from silently retargeting the desktop to old dev endpoints.
+- Restart `npm run dev` to load the new main/preload transport and daemon pin.
+  An empty store is expected until compatible bundles are published.
+
+Desktop/SDK billing validation:
+
+- The SDK and both Agent Builder UIs rebuilt with the billing fix; canonical
+  template/vendor assets were refreshed by the standard SDK build script.
+- The broader SDK suite has 20 passes and 14 failures in legacy session/token
+  tests (including a removed `TokenManager` export). An isolated build of unchanged
+  HEAD client/auth/billing source reproduces the same 20/14 result; these failures
+  predate this fix. They were not hidden by restoring old credential storage.

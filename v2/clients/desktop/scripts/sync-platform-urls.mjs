@@ -2,7 +2,7 @@
  * sync-platform-urls — point the build flavors at the CURRENT infrastructure.
  *
  *   npm run sync:urls                 # strict: fail loudly if terraform can't answer
- *   npm run sync:urls -- --env prod   # a different environment (default: dev)
+ *   npm run sync:urls -- --env production  # default hosted environment
  *   npm run sync:urls -- --check      # report drift, write nothing (CI guard)
  *
  * Why this exists: a flavor's [platform]/[store] URLs are terraform OUTPUTS that were
@@ -62,7 +62,7 @@ const opt = (name) => {
 }
 const strict = has('strict')
 const checkOnly = has('check')
-const env = opt('ovh-env') ? 'ovh-production' : opt('env') || (process.env.AGENTD_INFRA_ENV || '').trim() || 'dev'
+const env = opt('ovh-env') ? 'ovh-production' : opt('env') || (process.env.AGENTD_INFRA_ENV || '').trim() || 'production'
 const envDir = path.join(repoRoot, 'v2', 'infra', 'environments', env)
 const ovhEnv = opt('ovh-env')
 

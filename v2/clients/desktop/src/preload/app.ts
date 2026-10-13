@@ -36,6 +36,13 @@ import { contextBridge, ipcRenderer } from 'electron'
 const CHANNEL = 'agentd:access-token'
 
 contextBridge.exposeInMainWorld('agentdHost', {
+  /** Public billing reads/checkout against the configured accounts service only.
+   * The page already has its short-lived token; no keychain or refresh token is exposed.
+   */
+  billingRequest(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }):
+    Promise<{ status: number; body: string }> {
+    return ipcRenderer.invoke('billing:request', url, init)
+  },
   /**
    * Subscribe to freshly-minted access tokens. Returns an unsubscribe.
    *

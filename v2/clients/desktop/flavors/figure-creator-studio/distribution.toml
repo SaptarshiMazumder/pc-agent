@@ -23,8 +23,8 @@ plugins = [
 
 [store]
 enabled = true            # a standalone SKU still upsells other agents
-registry_url = "https://registry.nakamaai.co/index.json"
-publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
+registry_url = "https://agentd-production-registry-8ece629e.s3.ap-south-1.amazonaws.com/index.json"
+publisher_key = "Op08JiRZ3W0N7/ezpCky0bw/Tbm1v0g22aagvm4i3k8="
 
 # [platform] — hosted accounts + platform model keys: this build signs in and runs
 # figure-creator on OUR keys (HTTP for the private-testing phase; switch to https + rebuild

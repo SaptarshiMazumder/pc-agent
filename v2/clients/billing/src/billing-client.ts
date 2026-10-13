@@ -25,6 +25,7 @@
  */
 
 import { notifyCreditsChanged } from './credits-bus'
+import { billingFetch } from './transport'
 import type { BillingHost, Catalog, CreditPack, Credits, Purchase } from './types'
 
 function toPack(d: Record<string, unknown>): CreditPack {
@@ -68,7 +69,7 @@ export class BillingClient {
   async credits(agentId = ''): Promise<Credits | null> {
     try {
       const q = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''
-      const r = await fetch(`${await this.base()}/me/credits${q}`, { headers: await this.authed() })
+      const r = await billingFetch(`${await this.base()}/me/credits${q}`, { headers: await this.authed() })
       if (!r.ok) return null
       const d = (await r.json()) as Record<string, unknown>
       return {
@@ -95,7 +96,7 @@ export class BillingClient {
    */
   async catalog(kind = 'credit_pack'): Promise<Catalog | null> {
     try {
-      const r = await fetch(`${await this.base()}/products?kind=${encodeURIComponent(kind)}`)
+      const r = await billingFetch(`${await this.base()}/products?kind=${encodeURIComponent(kind)}`)
       if (!r.ok) return null
       const d = (await r.json()) as {
         products?: Record<string, unknown>[]
@@ -135,7 +136,7 @@ export class BillingClient {
     const back = returnUrl || `${base}/checkout/complete`
     body.success_url = back
     body.cancel_url = back
-    const r = await fetch(`${base}/me/checkout`, {
+    const r = await billingFetch(`${base}/me/checkout`, {
       method: 'POST',
       headers: { ...(await this.authed()), 'Content-Type': 'application/json' },
       body: JSON.stringify(body)

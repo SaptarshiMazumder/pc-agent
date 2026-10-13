@@ -17,6 +17,7 @@ import { Flavor, loadFlavor } from './flavor'
 import { gatewayRequest } from './gatewayRpc'
 import { desktopOAuthSignIn } from './oauthLoopback'
 import { fetchPlatformDiscovery } from './platformDiscovery'
+import { requestBilling, type BillingRequest } from './billingTransport'
 import { connectUrl } from './rendezvous'
 import { Supervisor } from './supervisor'
 
@@ -99,6 +100,8 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('billing:request', (_e, url: string, init?: BillingRequest) =>
+    requestBilling(flavor.accountsUrl || flavor.platformUrl, String(url || ''), init))
   ipcMain.handle('app:platformDiscovery', () =>
     fetchPlatformDiscovery(flavor.platformUrl || flavor.accountsUrl))
   ipcMain.handle('app:flavor', () => ({

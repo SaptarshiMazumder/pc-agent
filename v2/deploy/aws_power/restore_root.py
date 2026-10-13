@@ -1,4 +1,4 @@
-"""Restore the original pinned signing key; never replace it with a new identity."""
+"""Restore the active pinned signing key; refuse any different signing identity."""
 import base64
 import json
 import os
@@ -7,7 +7,7 @@ import boto3
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-PIN = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
+PIN = "Op08JiRZ3W0N7/ezpCky0bw/Tbm1v0g22aagvm4i3k8="
 
 
 def main():

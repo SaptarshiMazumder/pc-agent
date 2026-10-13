@@ -859,6 +859,23 @@ function notifyCreditsChanged() {
   listeners.forEach((l) => l());
 }
 
+// ../billing/src/transport.ts
+async function billingFetch(url, init = {}) {
+  const host = globalThis;
+  const bridge = typeof host.agentd?.billingRequest === "function" ? host.agentd : host.agentdHost;
+  if (typeof bridge?.billingRequest !== "function") return fetch(url, init);
+  const headers = {};
+  new Headers(init.headers).forEach((value, key) => {
+    headers[key] = value;
+  });
+  const reply = await bridge.billingRequest(url, {
+    method: init.method,
+    headers,
+    body: typeof init.body === "string" ? init.body : void 0
+  });
+  return new Response(reply.body, { status: reply.status, headers: { "Content-Type": "application/json" } });
+}
+
 // ../billing/src/billing-client.ts
 function toPack(d) {
   return {
@@ -899,7 +916,7 @@ var BillingClient = class {
   async credits(agentId = "") {
     try {
       const q = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-      const r = await fetch(`${await this.base()}/me/credits${q}`, { headers: await this.authed() });
+      const r = await billingFetch(`${await this.base()}/me/credits${q}`, { headers: await this.authed() });
       if (!r.ok) return null;
       const d = await r.json();
       return {
@@ -925,7 +942,7 @@ var BillingClient = class {
    */
   async catalog(kind = "credit_pack") {
     try {
-      const r = await fetch(`${await this.base()}/products?kind=${encodeURIComponent(kind)}`);
+      const r = await billingFetch(`${await this.base()}/products?kind=${encodeURIComponent(kind)}`);
       if (!r.ok) return null;
       const d = await r.json();
       return {
@@ -958,7 +975,7 @@ var BillingClient = class {
     const back = returnUrl || `${base}/checkout/complete`;
     body.success_url = back;
     body.cancel_url = back;
-    const r = await fetch(`${base}/me/checkout`, {
+    const r = await billingFetch(`${base}/me/checkout`, {
       method: "POST",
       headers: { ...await this.authed(), "Content-Type": "application/json" },
       body: JSON.stringify(body)

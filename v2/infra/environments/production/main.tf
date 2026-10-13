@@ -282,12 +282,10 @@ module "stack" {
   # THE MARKETPLACE's trust anchor: the public half of the keypair that signs index.json. It can
   # only VERIFY, never sign, which is why it lives in git rather than in Secrets Manager.
   #
-  # THE SAME KEY IN EVERY ENVIRONMENT, on purpose: it must match `publisher_key` in the desktop
-  # flavors, and a build that used a different one could not install anything the registry
-  # serves - a mismatch is silent until someone installs, then reads as "the bundle is corrupt".
-  # Production earns its own keypair only when it gets its own flavor AND its own registry
-  # contents, and that swap is a coordinated release, not a terraform edit.
-  registry_publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
+  # Matches the production vault and core/studio desktop flavors. The original root
+  # could not be recovered; the user approved a coordinated identity reset on 2026-10-13.
+  # Existing installers require an update to trust this registry. Staging is retired.
+  registry_publisher_key = "Op08JiRZ3W0N7/ezpCky0bw/Tbm1v0g22aagvm4i3k8="
 
   # The public marketplace. Both empty => its own cloudfront.net address, over https, with no
   # certificate and no DNS of ours. Give it a real hostname when the storefront is something

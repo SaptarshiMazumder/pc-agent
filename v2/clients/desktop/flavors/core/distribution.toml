@@ -11,8 +11,8 @@ name = "AgentBear"
 enabled = true
 # Production marketplace on the public R2 custom domain.
 # publisher_key is the base64 PUBLIC half of the keygen pair — pins bundle signatures.
-registry_url = "https://registry.nakamaai.co/index.json"
-publisher_key = "Fkez25JIQDUtvwvyghwGdY2Mw//fDG7ITZCmB7CG7Nc="
+registry_url = "https://agentd-production-registry-8ece629e.s3.ap-south-1.amazonaws.com/index.json"
+publisher_key = "Op08JiRZ3W0N7/ezpCky0bw/Tbm1v0g22aagvm4i3k8="
 # The WRITE side: where Agent Builder's Publish button sends a packed agent. Declared here even
 # while empty, for the same reason ingest_url below is — sync-platform-urls retargets keys a flavor
 # already has and never invents one, so an absent key means Publish stays unavailable no matter
