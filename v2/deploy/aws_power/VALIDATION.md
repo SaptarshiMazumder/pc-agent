@@ -1,5 +1,28 @@
 # Verification, 2026-10-13: production only
 
+## Individual welcome credits deployed, 2026-10-13
+
+- Accounts and web now use immutable image `29a9d04c937853a2db60ff639c240ef2317af41b`.
+- Live Neon policy: enabled, 100,000 promotional personal credits once per new account,
+  expiry 30 days. Admin → Money controls enablement, amount and expiry without redeployment;
+  cancelling edits does not save, disabling only stops future grants. No existing user was
+  backfilled and no production test user or promotional grant was created for verification.
+- The user's selected existing account was added to the editable platform-admin roster.
+- 18 welcome-credit tests pass on SQLite and on isolated Neon schemas, including parallel
+  claims, Google first login, rollback, future-only edits and admin authorization. Desktop
+  type checks and a hidden Electron UI test pass for load/save/disable/enable/cancel and
+  native transport origin/method/header restrictions. Broader accounts/admin/ledger tests:
+  111 pass; the existing keys-panel fixture test still expects an unconfigured secret while
+  the shared fixture sets `tests/app-secret`. Unchanged HEAD has the same configuration result.
+- The accounts image workflow built successfully, but its redundant old-image rollout waiter
+  was cancelled: the one-host pool had only 256 CPU units free, below the duplicate accounts
+  task's requirement. Terraform now uses stop-then-start deployments for pools capped at one
+  EC2 host. Only accounts/web task definitions changed; ingest/model-proxy received deployment
+  ordering settings only. All five EC2 services completed their deployments at 1/1/0.
+- Public accounts/web health and hosted-origin admin CORS return 200; anonymous admin policy
+  reads return 401. Production remains one host with ASG maximum 1. The live restore manifest
+  was captured and the power mode remains automatic (OFF at 02:00 JST, manual ON).
+
 - Ruff passes; 38 lifecycle tests pass, including endpoint ownership/recovery and
   ALB condition normalization regression tests.
 - Script/installer defaults now target `agentd-production`, Mumbai (`ap-south-1`).

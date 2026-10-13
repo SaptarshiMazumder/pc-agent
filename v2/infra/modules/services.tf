@@ -474,8 +474,10 @@ resource "aws_ecs_service" "svc" {
   # single-writer datastore: for a few seconds two containers hold the same SQLite file on EFS,
   # and the newcomer dies on "database is locked" before it can finish its startup migration.
   # 0/100 inverts it — drain first, then start — so there is never more than one writer.
-  deployment_minimum_healthy_percent = each.value.single_writer ? 0 : 100
-  deployment_maximum_percent         = each.value.single_writer ? 100 : 200
+  # A pool capped at one EC2 host also needs this order: its reserved CPU may leave no room
+  # for a duplicate task. Waiting for one then stalls every rollout (even with Postgres).
+  deployment_minimum_healthy_percent = each.value.single_writer || (each.value.on_ec2 && try(var.ec2_capacity_pools[each.value.capacity_pool].max_size, 2) == 1) ? 0 : 100
+  deployment_maximum_percent         = each.value.single_writer || (each.value.on_ec2 && try(var.ec2_capacity_pools[each.value.capacity_pool].max_size, 2) == 1) ? 100 : 200
 
   # Boot grace: health-check failures in this window don't count against the task, so a slow
   # starter is not killed before it can serve. It does NOT rescue a crash loop — a container

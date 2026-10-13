@@ -28,6 +28,19 @@ to an account and meters that account's spend; the model key never leaves the se
 
 ## Run locally
 
+The production welcome-credit offer is managed in **Admin → Money → Individual signup credits**.
+Admins can enable/disable it, set the credit amount and expiry (0 days = no expiry), save,
+or cancel unsaved edits. The initial production offer is 100,000 credits for 30 days.
+`GET` / `POST /admin/signup-credits` use the existing platform-admin bearer authorization.
+
+The policy is stored in the accounts database; `AGENTD_SIGNUP_CREDITS` and
+`AGENTD_SIGNUP_CREDIT_DAYS` seed it only on its first startup. Changes survive redeployment
+and power cycles. Signup grants are promotional personal credits, issued once at account
+creation (including a first Google login), atomically with the account and ledger. Repeated
+logins never award another grant. Disabling affects future accounts only, with no backfill
+when re-enabled and no revocation of existing credits. Active org members are ineligible;
+these grants never fund an organization's shared pool. Policy edits retain an audit trail.
+
 ```powershell
 python accounts/run-local.py          # SQLite on :4100
 ```
