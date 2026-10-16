@@ -1,5 +1,23 @@
 # Verification, 2026-10-13: production only
 
+## Production restarted, 2026-10-16
+
+- User explicitly requested full production ON. The initial attempt failed before starting
+  compute: the power role applied new-endpoint request-tag conditions to existing VPC,
+  subnet and security-group resources, so `CreateVpcEndpoint` was denied.
+- The installer now separates those resource authorizations. Existing network dependencies
+  are restricted to exact production ARNs; endpoint creation requires production ownership
+  tags and the saved AWS service names. The live power-role policy was repaired with the
+  same helper. IAM simulation allows the saved network and tagged endpoint, and denies an
+  unrelated VPC and staging endpoints. 43 power-controller/installer tests and Ruff pass.
+- The manual ON then completed. All six ECS services are at desired/running/pending 1/1/0
+  with completed deployments. Background Lambda concurrency and application schedules are
+  restored. Public web/accounts return 200, and public DNS points to the restored ALB.
+- Nightly mode remains automatic; the 02:00 Asia/Tokyo OFF schedule remains enabled with no
+  automatic ON. Staging was not started. The local pause flag is synchronized to ON.
+- ON recreates the ALB/listener/interface-endpoint IDs outside Terraform. Reconcile those
+  resource IDs before a subsequent Terraform apply; do not blindly apply stale saved plans.
+
 ## Individual welcome credits deployed, 2026-10-13
 
 - Accounts and web now use immutable image `29a9d04c937853a2db60ff639c240ef2317af41b`.

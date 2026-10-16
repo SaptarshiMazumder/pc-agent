@@ -18,6 +18,35 @@ def statement(actions, resources, **extra):
     return {"Effect": "Allow", "Action": actions, "Resource": resources, **extra}
 
 
+def endpoint_create_statements(region, account, configs):
+    """Request tags apply to the NEW endpoint, not its existing VPC/subnet/SG dependencies."""
+    base = f"arn:aws:ec2:{region}:{account}:"
+    dependencies, services = set(), set()
+    for cfg in configs:
+        tags = {t["Key"]: t["Value"] for spec in cfg.get("TagSpecifications", [])
+                if spec["ResourceType"] == "vpc-endpoint" for t in spec["Tags"]}
+        if (cfg.get("VpcEndpointType") != "Interface" or tags.get("Project") != "agentd"
+                or tags.get("Environment") != "production"):
+            raise ValueError("Endpoint creation must be scoped to owned production interfaces")
+        dependencies.add(base + "vpc/" + cfg["VpcId"])
+        dependencies.update(base + "subnet/" + s for s in cfg["SubnetIds"])
+        dependencies.update(base + "security-group/" + s for s in cfg["SecurityGroupIds"])
+        services.add(cfg["ServiceName"])
+    if not dependencies:
+        return []
+    tags = {"aws:RequestTag/Project": "agentd", "aws:RequestTag/Environment": "production"}
+    return [
+        statement("ec2:CreateVpcEndpoint", sorted(dependencies)),
+        statement("ec2:CreateVpcEndpoint", base + "vpc-endpoint/*", Condition={"StringEquals": {
+            **tags, "ec2:VpceServiceName": sorted(services),
+        }}),
+        statement("ec2:CreateTags", base + "vpc-endpoint/*", Condition={"StringEquals": {
+            **tags, "ec2:CreateAction": "CreateVpcEndpoint",
+        }}),
+        statement(["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups"], "*"),
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--region", default="ap-south-1")
@@ -43,6 +72,14 @@ def main():
     if not ecs.describe_clusters(clusters=[args.stack])["clusters"]:
         raise RuntimeError("The target ECS cluster does not exist")
     lb = client("elbv2").describe_load_balancers(Names=[args.stack])["LoadBalancers"][0]
+    endpoints = client("ec2").describe_vpc_endpoints(Filters=[
+        {"Name": "vpc-id", "Values": [lb["VpcId"]]},
+        {"Name": "tag:Project", "Values": ["agentd"]},
+        {"Name": "tag:Environment", "Values": ["production"]},
+    ])["VpcEndpoints"]
+    endpoint_configs = [{**e, "SecurityGroupIds": [g["GroupId"] for g in e["Groups"]],
+                         "TagSpecifications": [{"ResourceType": "vpc-endpoint", "Tags": e["Tags"]}]}
+                        for e in endpoints if e["VpcEndpointType"] == "Interface"]
     zones = []
     dns = []
     for page in client("route53").get_paginator("list_hosted_zones").paginate():
@@ -138,10 +175,7 @@ def main():
         statement("ecs:UpdateCapacityProvider", base.format(service="ecs") + f"capacity-provider/{args.stack}-*"),
         statement("ec2:DeleteVpcEndpoints", base.format(service="ec2") + "vpc-endpoint/*",
                   Condition={"StringEquals": {"aws:ResourceTag/Project": "agentd", "aws:ResourceTag/Environment": "production"}}),
-        statement("ec2:CreateVpcEndpoint", "*",
-                  Condition={"StringEquals": {"aws:RequestTag/Project": "agentd", "aws:RequestTag/Environment": "production"}}),
-        statement("ec2:CreateTags", base.format(service="ec2") + "vpc-endpoint/*",
-                  Condition={"StringEquals": {"ec2:CreateAction": "CreateVpcEndpoint"}}),
+        *endpoint_create_statements(args.region, args.account, endpoint_configs),
         statement(["autoscaling:UpdateAutoScalingGroup", "autoscaling:SetInstanceProtection"],
                   base.format(service="autoscaling") + f"autoScalingGroup:*:autoScalingGroupName/{args.stack}-*"),
         statement("elasticloadbalancing:CreateLoadBalancer", "*",
